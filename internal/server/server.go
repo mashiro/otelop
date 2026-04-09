@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"encoding/json"
 	"io/fs"
 	"log"
 	"net/http"
@@ -44,6 +43,7 @@ func New(addr string, s *store.Store, hub *ws.Hub, frontendFS fs.FS) *Server {
 
 	// Wrap with brotli/gzip/deflate compression, skipping WebSocket upgrades.
 	compress, _ := httpcompression.DefaultAdapter()
+	compressedMux := compress(mux)
 	srv.httpServer = &http.Server{
 		Addr: addr,
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -51,7 +51,7 @@ func New(addr string, s *store.Store, hub *ws.Hub, frontendFS fs.FS) *Server {
 				mux.ServeHTTP(w, r)
 				return
 			}
-			compress(mux).ServeHTTP(w, r)
+			compressedMux.ServeHTTP(w, r)
 		}),
 	}
 
@@ -91,8 +91,7 @@ func spaHandler(fsys fs.FS) http.Handler {
 
 func (s *Server) handleGetConfig(w http.ResponseWriter, _ *http.Request) {
 	traceCap, metricCap, logCap := s.store.Capacity()
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]int{
+	writeJSON(w, map[string]int{
 		"traceCap":  traceCap,
 		"metricCap": metricCap,
 		"logCap":    logCap,
