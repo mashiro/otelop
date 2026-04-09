@@ -78,7 +78,7 @@ export function LogList() {
         </div>
       )}
 
-      <ScrollArea className="flex-1">
+      <ScrollArea className="min-h-0 flex-1">
         <Table>
           <TableHeader>
             <TableRow className="border-b border-border/50 hover:bg-transparent">
