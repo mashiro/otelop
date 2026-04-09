@@ -54,7 +54,17 @@ func (s *Store) AddTraces(td ptrace.Traces) {
 			// Merge spans into existing trace.
 			existing := s.traces.Get(idx)
 			if existing != nil {
-				existing.Spans = append(existing.Spans, trace.Spans...)
+				// Deduplicate spans by spanID.
+				seen := make(map[string]struct{}, len(existing.Spans))
+				for _, s := range existing.Spans {
+					seen[s.SpanID] = struct{}{}
+				}
+				for _, s := range trace.Spans {
+					if _, dup := seen[s.SpanID]; !dup {
+						existing.Spans = append(existing.Spans, s)
+						seen[s.SpanID] = struct{}{}
+					}
+				}
 				existing.SpanCount = len(existing.Spans)
 				if trace.RootSpan != nil {
 					existing.RootSpan = trace.RootSpan

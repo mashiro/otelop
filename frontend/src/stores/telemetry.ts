@@ -16,11 +16,15 @@ export const addTraceAtom = atom(null, (get, set, newTrace: TraceData) => {
   const idx = current.findIndex((t) => t.traceID === newTrace.traceID);
   if (idx >= 0) {
     const existing = current[idx];
+    const seen = new Set(existing.spans.map((s) => s.spanID));
+    const deduped = newTrace.spans.filter((s) => !seen.has(s.spanID));
+    if (deduped.length === 0 && !newTrace.rootSpan) return;
+    const mergedSpans = [...existing.spans, ...deduped];
     const updated = [...current];
     updated[idx] = {
       ...existing,
-      spans: [...existing.spans, ...newTrace.spans],
-      spanCount: existing.spans.length + newTrace.spans.length,
+      spans: mergedSpans,
+      spanCount: mergedSpans.length,
       rootSpan: newTrace.rootSpan ?? existing.rootSpan,
       serviceName: newTrace.rootSpan ? newTrace.serviceName : existing.serviceName,
       duration: newTrace.rootSpan ? newTrace.duration : existing.duration,

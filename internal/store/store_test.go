@@ -104,6 +104,57 @@ func TestStore_AddAndGetTraces(t *testing.T) {
 	}
 }
 
+func TestStore_AddTraces_DeduplicateSpans(t *testing.T) {
+	s := NewStore(10, 10, 10, nil)
+
+	traceID := pcommon.TraceID([16]byte{1})
+	spanID := pcommon.SpanID([8]byte{1})
+	now := time.Now()
+
+	// First batch: add a span.
+	td1 := ptrace.NewTraces()
+	rs1 := td1.ResourceSpans().AppendEmpty()
+	rs1.Resource().Attributes().PutStr("service.name", "svc")
+	ss1 := rs1.ScopeSpans().AppendEmpty()
+	span1 := ss1.Spans().AppendEmpty()
+	span1.SetTraceID(traceID)
+	span1.SetSpanID(spanID)
+	span1.SetName("span-a")
+	span1.SetStartTimestamp(pcommon.NewTimestampFromTime(now))
+	span1.SetEndTimestamp(pcommon.NewTimestampFromTime(now.Add(100 * time.Millisecond)))
+
+	s.AddTraces(td1)
+
+	// Second batch: same traceID and same spanID (duplicate).
+	td2 := ptrace.NewTraces()
+	rs2 := td2.ResourceSpans().AppendEmpty()
+	rs2.Resource().Attributes().PutStr("service.name", "svc")
+	ss2 := rs2.ScopeSpans().AppendEmpty()
+	span2 := ss2.Spans().AppendEmpty()
+	span2.SetTraceID(traceID)
+	span2.SetSpanID(spanID) // same span ID
+	span2.SetName("span-a")
+	span2.SetStartTimestamp(pcommon.NewTimestampFromTime(now))
+	span2.SetEndTimestamp(pcommon.NewTimestampFromTime(now.Add(100 * time.Millisecond)))
+	// Also add a genuinely new span.
+	span3 := ss2.Spans().AppendEmpty()
+	span3.SetTraceID(traceID)
+	span3.SetSpanID(pcommon.SpanID([8]byte{2})) // different span ID
+	span3.SetName("span-b")
+	span3.SetStartTimestamp(pcommon.NewTimestampFromTime(now))
+	span3.SetEndTimestamp(pcommon.NewTimestampFromTime(now.Add(50 * time.Millisecond)))
+
+	s.AddTraces(td2)
+
+	traces := s.GetTraces()
+	if len(traces) != 1 {
+		t.Fatalf("expected 1 trace, got %d", len(traces))
+	}
+	if len(traces[0].Spans) != 2 {
+		t.Fatalf("expected 2 spans (deduplicated), got %d", len(traces[0].Spans))
+	}
+}
+
 func TestStore_GetTraceByID(t *testing.T) {
 	s := NewStore(10, 10, 10, nil)
 
