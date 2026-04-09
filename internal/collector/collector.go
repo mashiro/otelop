@@ -1,6 +1,8 @@
 package collector
 
 import (
+	"fmt"
+
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/confmap"
 	"go.opentelemetry.io/collector/confmap/provider/yamlprovider"
@@ -10,15 +12,22 @@ import (
 
 var version = "dev"
 
-// collectorConfig is the YAML configuration for the OTel Collector pipeline.
-const collectorConfig = `
+// Config holds runtime-configurable collector settings.
+type Config struct {
+	GRPCEndpoint string
+	HTTPEndpoint string
+	LogLevel     string
+}
+
+func buildConfig(cfg Config) string {
+	return fmt.Sprintf(`
 receivers:
   otlp:
     protocols:
       grpc:
-        endpoint: 0.0.0.0:4317
+        endpoint: %s
       http:
-        endpoint: 0.0.0.0:4318
+        endpoint: %s
         cors:
           allowed_origins:
             - "*"
@@ -29,7 +38,7 @@ exporters:
 service:
   telemetry:
     logs:
-      level: warn
+      level: %s
   pipelines:
     traces:
       receivers: [otlp]
@@ -40,15 +49,18 @@ service:
     logs:
       receivers: [otlp]
       exporters: [otelop]
-`
+`, cfg.GRPCEndpoint, cfg.HTTPEndpoint, cfg.LogLevel)
+}
 
 // New creates a new OTel Collector configured with an OTLP receiver
 // and the otelop custom exporter.
-func New(exporterFactory exporter.Factory) (*otelcol.Collector, error) {
+func New(exporterFactory exporter.Factory, cfg Config) (*otelcol.Collector, error) {
 	factories, err := components(exporterFactory)
 	if err != nil {
 		return nil, err
 	}
+
+	yamlConfig := buildConfig(cfg)
 
 	set := otelcol.CollectorSettings{
 		BuildInfo: component.BuildInfo{
@@ -61,7 +73,7 @@ func New(exporterFactory exporter.Factory) (*otelcol.Collector, error) {
 		},
 		ConfigProviderSettings: otelcol.ConfigProviderSettings{
 			ResolverSettings: confmap.ResolverSettings{
-				URIs: []string{"yaml:" + collectorConfig},
+				URIs: []string{"yaml:" + yamlConfig},
 				ProviderFactories: []confmap.ProviderFactory{
 					yamlprovider.NewFactory(),
 				},
