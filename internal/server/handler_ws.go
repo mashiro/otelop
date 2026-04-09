@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"log"
 	"net/http"
 
@@ -18,9 +19,15 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Use a detached context — the HTTP request context is cancelled after upgrade.
+	ctx, cancel := context.WithCancel(context.Background())
+
 	client := ws.NewClient(s.hub, conn)
 	s.hub.Register(client)
 
-	go client.WritePump(r.Context())
-	go client.ReadPump(r.Context())
+	go client.WritePump(ctx)
+	go func() {
+		client.ReadPump(ctx)
+		cancel()
+	}()
 }

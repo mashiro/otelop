@@ -32,7 +32,7 @@ func main() {
 
 	// HTTP server (REST API + static files + WebSocket)
 	frontendFS := otelop.FrontendFS()
-	srv := server.New(":8080", s, hub, frontendFS)
+	srv := server.New(":4319", s, hub, frontendFS)
 	go func() {
 		if err := srv.Start(ctx); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Fatalf("HTTP server error: %v", err)
@@ -55,7 +55,7 @@ func main() {
 	log.Println("otelop started")
 	log.Println("  OTLP gRPC :4317")
 	log.Println("  OTLP HTTP :4318")
-	log.Println("  Web UI    :8080")
+	log.Println("  Web UI    :4319")
 
 	// Graceful shutdown
 	sigCh := make(chan os.Signal, 1)
