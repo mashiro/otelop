@@ -1,12 +1,11 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useRef } from "react";
 import { Group } from "@visx/group";
 import { scaleLinear, scaleTime } from "@visx/scale";
 import { LinePath } from "@visx/shape";
 import { AxisBottom, AxisLeft } from "@visx/axis";
 import { ParentSize } from "@visx/responsive";
 import { curveMonotoneX } from "@visx/curve";
-import { useTooltip, TooltipWithBounds, defaultStyles } from "@visx/tooltip";
-import { localPoint } from "@visx/event";
+import { useTooltip, TooltipWithBounds } from "@visx/tooltip";
 import type { MetricData } from "@/types/telemetry";
 
 const MARGIN = { top: 10, right: 20, bottom: 40, left: 60 };
@@ -31,10 +30,15 @@ interface PointData {
   value: number;
 }
 
-interface TooltipData {
-  seriesLabel: string;
+interface TooltipRow {
+  label: string;
   color: string;
-  point: PointData;
+  value: number;
+}
+
+interface TooltipData {
+  time: Date;
+  rows: TooltipRow[];
 }
 
 interface Props {
@@ -46,6 +50,20 @@ function attrKey(attrs: Record<string, unknown>): string {
   const entries = Object.entries(attrs).sort(([a], [b]) => a.localeCompare(b));
   if (entries.length === 0) return "";
   return entries.map(([k, v]) => `${k}=${String(v)}`).join(", ");
+}
+
+/** Find the point in a series closest to a given time. */
+function closestPoint(points: PointData[], targetMs: number): PointData | undefined {
+  let best: PointData | undefined;
+  let bestDist = Infinity;
+  for (const p of points) {
+    const d = Math.abs(p.time.getTime() - targetMs);
+    if (d < bestDist) {
+      bestDist = d;
+      best = p;
+    }
+  }
+  return best;
 }
 
 export function MetricChart({ metric }: Props) {
@@ -61,6 +79,8 @@ export function MetricChart({ metric }: Props) {
 }
 
 function ChartInner({ metric, width, height }: Props & { width: number; height: number }) {
+  const svgRef = useRef<SVGSVGElement>(null);
+
   const series = useMemo(() => {
     const groups = new Map<string, PointData[]>();
     for (const dp of metric.dataPoints) {
@@ -123,36 +143,46 @@ function ChartInner({ metric, width, height }: Props & { width: number; height: 
     tooltipOpen,
   } = useTooltip<TooltipData>();
 
-  // Find the closest data point to the mouse across all series.
+  // Show all series values at the nearest timestamp.
   const handleMouseMove = useCallback(
     (event: React.MouseEvent<SVGRectElement>) => {
-      const point = localPoint(event);
-      if (!point) return;
-      const x = point.x - MARGIN.left;
+      const svg = svgRef.current;
+      if (!svg) return;
+      const rect = svg.getBoundingClientRect();
+      const x = event.clientX - rect.left - MARGIN.left;
       const mouseTime = xScale.invert(x).getTime();
 
-      let closest: TooltipData | null = null;
-      let closestDist = Infinity;
-
+      // Find the globally closest timestamp across all series.
+      let nearestMs = 0;
+      let nearestDist = Infinity;
       for (const s of series) {
         for (const p of s.points) {
-          const dist = Math.abs(p.time.getTime() - mouseTime);
-          if (dist < closestDist) {
-            closestDist = dist;
-            closest = { seriesLabel: s.label, color: s.color, point: p };
+          const d = Math.abs(p.time.getTime() - mouseTime);
+          if (d < nearestDist) {
+            nearestDist = d;
+            nearestMs = p.time.getTime();
           }
         }
       }
 
-      if (closest) {
+      // Collect each series' value closest to that timestamp.
+      const rows: TooltipRow[] = [];
+      for (const s of series) {
+        const p = closestPoint(s.points, nearestMs);
+        if (p) {
+          rows.push({ label: s.label, color: s.color, value: p.value });
+        }
+      }
+
+      if (rows.length > 0) {
         showTooltip({
-          tooltipData: closest,
-          tooltipLeft: xScale(closest.point.time) + MARGIN.left,
-          tooltipTop: yScale(closest.point.value) + MARGIN.top,
+          tooltipData: { time: new Date(nearestMs), rows },
+          tooltipLeft: xScale(new Date(nearestMs)) + MARGIN.left,
+          tooltipTop: event.clientY - rect.top,
         });
       }
     },
-    [series, xScale, yScale, showTooltip],
+    [series, xScale, showTooltip],
   );
 
   if (allPoints.length === 0) {
@@ -165,13 +195,14 @@ function ChartInner({ metric, width, height }: Props & { width: number; height: 
 
   const showLegend = series.length > 1;
   const svgHeight = showLegend ? height - 28 : height;
+  const nearestMs = tooltipData?.time.getTime();
 
   return (
     <div className="relative flex h-full flex-col">
-      <svg width={width} height={svgHeight}>
+      <svg ref={svgRef} width={width} height={svgHeight}>
         <defs>
           <filter id="line-glow">
-            <feGaussianBlur in="SourceGraphic" stdDeviation="3" result="blur" />
+            <feGaussianBlur in="SourceGraphic" stdDeviation="2" result="blur" />
             <feMerge>
               <feMergeNode in="blur" />
               <feMergeNode in="SourceGraphic" />
@@ -217,19 +248,21 @@ function ChartInner({ metric, width, height }: Props & { width: number; height: 
             tickStroke="var(--border)"
           />
 
-          {/* Lines and points */}
+          {/* Lines and static points */}
           {series.map((s) => (
             <g key={s.key}>
-              <LinePath
-                data={s.points}
-                x={(d) => xScale(d.time)}
-                y={(d) => yScale(d.value)}
-                stroke={s.color}
-                strokeWidth={2}
-                curve={curveMonotoneX}
-                filter="url(#line-glow)"
-                strokeOpacity={0.8}
-              />
+              {s.points.length >= 2 && (
+                <LinePath
+                  data={s.points}
+                  x={(d) => xScale(d.time)}
+                  y={(d) => yScale(d.value)}
+                  stroke={s.color}
+                  strokeWidth={2}
+                  curve={curveMonotoneX}
+                  filter="url(#line-glow)"
+                  strokeOpacity={0.8}
+                />
+              )}
               {s.points.map((d, i) => (
                 <circle
                   key={i}
@@ -244,40 +277,47 @@ function ChartInner({ metric, width, height }: Props & { width: number; height: 
             </g>
           ))}
 
-          {/* Highlighted point on hover */}
-          {tooltipOpen && tooltipData && (
+          {/* Hover crosshair + highlighted points */}
+          {tooltipOpen && nearestMs != null && (
             <>
-              {/* Vertical crosshair */}
               <line
-                x1={xScale(tooltipData.point.time)}
-                x2={xScale(tooltipData.point.time)}
+                x1={xScale(new Date(nearestMs))}
+                x2={xScale(new Date(nearestMs))}
                 y1={0}
                 y2={innerHeight}
                 stroke="var(--muted-foreground)"
                 strokeWidth={1}
                 strokeDasharray="3,3"
                 opacity={0.4}
+                pointerEvents="none"
               />
-              {/* Glow ring */}
-              <circle
-                cx={xScale(tooltipData.point.time)}
-                cy={yScale(tooltipData.point.value)}
-                r={6}
-                fill={tooltipData.color}
-                opacity={0.2}
-              />
-              <circle
-                cx={xScale(tooltipData.point.time)}
-                cy={yScale(tooltipData.point.value)}
-                r={4}
-                fill="var(--background)"
-                stroke={tooltipData.color}
-                strokeWidth={2}
-              />
+              {series.map((s) => {
+                const p = closestPoint(s.points, nearestMs);
+                if (!p) return null;
+                return (
+                  <g key={s.key} pointerEvents="none">
+                    <circle
+                      cx={xScale(p.time)}
+                      cy={yScale(p.value)}
+                      r={6}
+                      fill={s.color}
+                      opacity={0.2}
+                    />
+                    <circle
+                      cx={xScale(p.time)}
+                      cy={yScale(p.value)}
+                      r={4}
+                      fill="var(--background)"
+                      stroke={s.color}
+                      strokeWidth={2}
+                    />
+                  </g>
+                );
+              })}
             </>
           )}
 
-          {/* Invisible overlay rect to capture mouse events */}
+          {/* Invisible overlay to capture mouse (must be last for events) */}
           <rect
             x={0}
             y={0}
@@ -295,41 +335,31 @@ function ChartInner({ metric, width, height }: Props & { width: number; height: 
         <TooltipWithBounds
           left={tooltipLeft}
           top={tooltipTop}
-          style={{
-            ...defaultStyles,
-            background: "oklch(0.16 0.012 260)",
-            border: "1px solid oklch(1 0 0 / 10%)",
-            borderRadius: "6px",
-            color: "oklch(0.93 0.005 260)",
-            padding: "6px 10px",
-            fontSize: "11px",
-            fontFamily: "var(--font-mono)",
-            lineHeight: "1.5",
-            boxShadow: "0 4px 20px oklch(0 0 0 / 30%)",
-            pointerEvents: "none",
-          }}
+          unstyled
+          applyPositionStyle
+          className="pointer-events-none z-50 rounded-lg border border-border/50 bg-card px-3 py-2 shadow-xl backdrop-blur-md"
+          style={{ maxWidth: 320 }}
         >
-          <div style={{ fontWeight: 600, color: tooltipData.color }}>
-            {tooltipData.point.value.toLocaleString()}
-            {metric.unit ? ` ${metric.unit}` : ""}
+          <div className="mb-1.5 font-mono text-[10px] text-muted-foreground">
+            {tooltipData.time.toLocaleTimeString()}
           </div>
-          <div style={{ color: "oklch(0.55 0.01 260)" }}>
-            {tooltipData.point.time.toLocaleTimeString()}
+          <div className="space-y-1">
+            {tooltipData.rows.map((row) => (
+              <div key={row.label} className="flex items-start gap-2 text-xs">
+                <span
+                  className="mt-1 inline-block h-2 w-2 shrink-0 rounded-full"
+                  style={{ backgroundColor: row.color }}
+                />
+                <span className="min-w-0 flex-1 break-words font-mono text-[10px] leading-tight text-muted-foreground">
+                  {row.label}
+                </span>
+                <span className="shrink-0 font-mono font-semibold" style={{ color: row.color }}>
+                  {row.value.toLocaleString()}
+                  {metric.unit ? ` ${metric.unit}` : ""}
+                </span>
+              </div>
+            ))}
           </div>
-          {series.length > 1 && (
-            <div
-              style={{
-                color: "oklch(0.55 0.01 260)",
-                marginTop: "2px",
-                maxWidth: "200px",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-              }}
-            >
-              {tooltipData.seriesLabel}
-            </div>
-          )}
         </TooltipWithBounds>
       )}
 
@@ -339,10 +369,10 @@ function ChartInner({ metric, width, height }: Props & { width: number; height: 
           {series.map((s) => (
             <div key={s.key} className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
               <span
-                className="inline-block h-2 w-2 rounded-full"
+                className="inline-block h-2 w-2 shrink-0 rounded-full"
                 style={{ backgroundColor: s.color }}
               />
-              <span className="max-w-[200px] truncate font-mono">{s.label}</span>
+              <span className="max-w-[250px] truncate font-mono" title={s.label}>{s.label}</span>
             </div>
           ))}
         </div>
