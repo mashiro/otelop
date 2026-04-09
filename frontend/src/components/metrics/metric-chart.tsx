@@ -1,10 +1,12 @@
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import { Group } from "@visx/group";
 import { scaleLinear, scaleTime } from "@visx/scale";
 import { LinePath } from "@visx/shape";
 import { AxisBottom, AxisLeft } from "@visx/axis";
 import { ParentSize } from "@visx/responsive";
 import { curveMonotoneX } from "@visx/curve";
+import { useTooltip, TooltipWithBounds, defaultStyles } from "@visx/tooltip";
+import { localPoint } from "@visx/event";
 import type { MetricData } from "@/types/telemetry";
 
 const MARGIN = { top: 10, right: 20, bottom: 40, left: 60 };
@@ -21,7 +23,18 @@ interface SeriesData {
   key: string;
   label: string;
   color: string;
-  points: { time: Date; value: number }[];
+  points: PointData[];
+}
+
+interface PointData {
+  time: Date;
+  value: number;
+}
+
+interface TooltipData {
+  seriesLabel: string;
+  color: string;
+  point: PointData;
 }
 
 interface Props {
@@ -49,13 +62,12 @@ export function MetricChart({ metric }: Props) {
 
 function ChartInner({ metric, width, height }: Props & { width: number; height: number }) {
   const series = useMemo(() => {
-    const groups = new Map<string, { time: Date; value: number }[]>();
+    const groups = new Map<string, PointData[]>();
     for (const dp of metric.dataPoints) {
       const key = attrKey(dp.attributes);
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key)!.push({ time: new Date(dp.timestamp), value: dp.value });
     }
-    // Sort each series by time.
     const result: SeriesData[] = [];
     let i = 0;
     for (const [key, points] of groups) {
@@ -102,6 +114,47 @@ function ChartInner({ metric, width, height }: Props & { width: number; height: 
     });
   }, [allPoints, innerHeight]);
 
+  const {
+    showTooltip,
+    hideTooltip,
+    tooltipData,
+    tooltipLeft,
+    tooltipTop,
+    tooltipOpen,
+  } = useTooltip<TooltipData>();
+
+  // Find the closest data point to the mouse across all series.
+  const handleMouseMove = useCallback(
+    (event: React.MouseEvent<SVGRectElement>) => {
+      const point = localPoint(event);
+      if (!point) return;
+      const x = point.x - MARGIN.left;
+      const mouseTime = xScale.invert(x).getTime();
+
+      let closest: TooltipData | null = null;
+      let closestDist = Infinity;
+
+      for (const s of series) {
+        for (const p of s.points) {
+          const dist = Math.abs(p.time.getTime() - mouseTime);
+          if (dist < closestDist) {
+            closestDist = dist;
+            closest = { seriesLabel: s.label, color: s.color, point: p };
+          }
+        }
+      }
+
+      if (closest) {
+        showTooltip({
+          tooltipData: closest,
+          tooltipLeft: xScale(closest.point.time) + MARGIN.left,
+          tooltipTop: yScale(closest.point.value) + MARGIN.top,
+        });
+      }
+    },
+    [series, xScale, yScale, showTooltip],
+  );
+
   if (allPoints.length === 0) {
     return (
       <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
@@ -111,10 +164,11 @@ function ChartInner({ metric, width, height }: Props & { width: number; height: 
   }
 
   const showLegend = series.length > 1;
+  const svgHeight = showLegend ? height - 28 : height;
 
   return (
-    <div className="flex h-full flex-col">
-      <svg width={width} height={showLegend ? height - 28 : height}>
+    <div className="relative flex h-full flex-col">
+      <svg width={width} height={svgHeight}>
         <defs>
           <filter id="line-glow">
             <feGaussianBlur in="SourceGraphic" stdDeviation="3" result="blur" />
@@ -163,7 +217,7 @@ function ChartInner({ metric, width, height }: Props & { width: number; height: 
             tickStroke="var(--border)"
           />
 
-          {/* Render each attribute series as a separate line */}
+          {/* Lines and points */}
           {series.map((s) => (
             <g key={s.key}>
               <LinePath
@@ -177,28 +231,107 @@ function ChartInner({ metric, width, height }: Props & { width: number; height: 
                 strokeOpacity={0.8}
               />
               {s.points.map((d, i) => (
-                <g key={i}>
-                  <circle
-                    cx={xScale(d.time)}
-                    cy={yScale(d.value)}
-                    r={5}
-                    fill={s.color}
-                    opacity={0.15}
-                  />
-                  <circle
-                    cx={xScale(d.time)}
-                    cy={yScale(d.value)}
-                    r={3}
-                    fill="var(--background)"
-                    stroke={s.color}
-                    strokeWidth={1.5}
-                  />
-                </g>
+                <circle
+                  key={i}
+                  cx={xScale(d.time)}
+                  cy={yScale(d.value)}
+                  r={3}
+                  fill="var(--background)"
+                  stroke={s.color}
+                  strokeWidth={1.5}
+                />
               ))}
             </g>
           ))}
+
+          {/* Highlighted point on hover */}
+          {tooltipOpen && tooltipData && (
+            <>
+              {/* Vertical crosshair */}
+              <line
+                x1={xScale(tooltipData.point.time)}
+                x2={xScale(tooltipData.point.time)}
+                y1={0}
+                y2={innerHeight}
+                stroke="var(--muted-foreground)"
+                strokeWidth={1}
+                strokeDasharray="3,3"
+                opacity={0.4}
+              />
+              {/* Glow ring */}
+              <circle
+                cx={xScale(tooltipData.point.time)}
+                cy={yScale(tooltipData.point.value)}
+                r={6}
+                fill={tooltipData.color}
+                opacity={0.2}
+              />
+              <circle
+                cx={xScale(tooltipData.point.time)}
+                cy={yScale(tooltipData.point.value)}
+                r={4}
+                fill="var(--background)"
+                stroke={tooltipData.color}
+                strokeWidth={2}
+              />
+            </>
+          )}
+
+          {/* Invisible overlay rect to capture mouse events */}
+          <rect
+            x={0}
+            y={0}
+            width={innerWidth}
+            height={innerHeight}
+            fill="transparent"
+            onMouseMove={handleMouseMove}
+            onMouseLeave={hideTooltip}
+          />
         </Group>
       </svg>
+
+      {/* Tooltip */}
+      {tooltipOpen && tooltipData && (
+        <TooltipWithBounds
+          left={tooltipLeft}
+          top={tooltipTop}
+          style={{
+            ...defaultStyles,
+            background: "oklch(0.16 0.012 260)",
+            border: "1px solid oklch(1 0 0 / 10%)",
+            borderRadius: "6px",
+            color: "oklch(0.93 0.005 260)",
+            padding: "6px 10px",
+            fontSize: "11px",
+            fontFamily: "var(--font-mono)",
+            lineHeight: "1.5",
+            boxShadow: "0 4px 20px oklch(0 0 0 / 30%)",
+            pointerEvents: "none",
+          }}
+        >
+          <div style={{ fontWeight: 600, color: tooltipData.color }}>
+            {tooltipData.point.value.toLocaleString()}
+            {metric.unit ? ` ${metric.unit}` : ""}
+          </div>
+          <div style={{ color: "oklch(0.55 0.01 260)" }}>
+            {tooltipData.point.time.toLocaleTimeString()}
+          </div>
+          {series.length > 1 && (
+            <div
+              style={{
+                color: "oklch(0.55 0.01 260)",
+                marginTop: "2px",
+                maxWidth: "200px",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {tooltipData.seriesLabel}
+            </div>
+          )}
+        </TooltipWithBounds>
+      )}
 
       {/* Legend */}
       {showLegend && (
