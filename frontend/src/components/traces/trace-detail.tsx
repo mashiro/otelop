@@ -18,7 +18,7 @@ export function TraceDetail() {
   if (!trace) return null;
 
   return (
-    <div className="animate-fade-in flex h-full flex-col overflow-hidden rounded-lg border border-border/50 bg-card/50 backdrop-blur-sm">
+    <div className="animate-fade-in flex h-full flex-col overflow-hidden rounded-lg border border-border/50 bg-card">
       {/* Header bar */}
       <div className="flex items-center justify-between border-b border-border/50 px-4 py-2.5">
         <div className="flex items-center gap-3">
@@ -61,7 +61,7 @@ export function TraceDetail() {
           <SpanWaterfall trace={trace} onSelectSpan={setSelectedSpan} selectedSpan={selectedSpan} />
         </div>
         {selectedSpan && (
-          <div className="w-[420px] border-l border-border/50 bg-card/30 backdrop-blur-sm">
+          <div className="w-[420px] border-l border-border/50 bg-card">
             <SpanDetail span={selectedSpan} onClose={() => setSelectedSpan(null)} />
           </div>
         )}
@@ -133,7 +133,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
       <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
         {title}
       </h4>
-      <div className="space-y-1.5 rounded-md bg-background/30 p-2.5">{children}</div>
+      <div className="space-y-1.5 rounded-md bg-muted/50 p-2.5">{children}</div>
     </div>
   );
 }

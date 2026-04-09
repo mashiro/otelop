@@ -18,7 +18,7 @@ export function MetricDetail() {
   if (!metric) return null;
 
   return (
-    <div className="animate-fade-in flex h-full flex-col overflow-hidden rounded-lg border border-border/50 bg-card/50 backdrop-blur-sm">
+    <div className="animate-fade-in flex h-full flex-col overflow-hidden rounded-lg border border-border/50 bg-card">
       {/* Header */}
       <div className="flex items-center justify-between border-b border-border/50 px-4 py-2.5">
         <div className="flex items-center gap-3">
@@ -49,7 +49,7 @@ export function MetricDetail() {
           )}
 
           {/* Chart */}
-          <div className="mb-4 rounded-lg border border-border/30 bg-background/30 p-4">
+          <div className="mb-4 rounded-lg border border-border/30 bg-muted/50 p-4">
             <div className="h-[300px]">
               <MetricChart metric={metric} />
             </div>
@@ -61,7 +61,7 @@ export function MetricDetail() {
               <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                 Data Points ({metric.dataPoints.length})
               </h4>
-              <div className="max-h-[200px] overflow-auto rounded-md border border-border/30 bg-background/20">
+              <div className="max-h-[200px] overflow-auto rounded-md border border-border/30 bg-muted/50">
                 <table className="w-full text-xs">
                   <thead>
                     <tr className="border-b border-border/30">
