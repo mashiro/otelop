@@ -55,6 +55,11 @@ func main() {
 				Value:   1000,
 				Usage:   "max log entries to keep in memory",
 			},
+			&cli.IntFlag{
+				Name:    "max-data-points",
+				Value:   1000,
+				Usage:   "max data points per metric series",
+			},
 			&cli.StringFlag{
 				Name:    "log-level",
 				Value:   "warn",
@@ -76,6 +81,7 @@ func run(ctx context.Context, cmd *cli.Command) error {
 	traceCap := int(cmd.Int("trace-cap"))
 	metricCap := int(cmd.Int("metric-cap"))
 	logCap := int(cmd.Int("log-cap"))
+	maxDataPoints := int(cmd.Int("max-data-points"))
 	logLevel := cmd.String("log-level")
 
 	ctx, cancel := context.WithCancel(ctx)
@@ -86,7 +92,7 @@ func run(ctx context.Context, cmd *cli.Command) error {
 	go hub.Run(ctx)
 
 	// In-memory store wired to hub broadcast
-	s := store.NewStore(traceCap, metricCap, logCap, func(sig store.SignalType, data any) {
+	s := store.NewStore(traceCap, metricCap, logCap, maxDataPoints, func(sig store.SignalType, data any) {
 		hub.Broadcast(ws.Message{Type: sig, Data: data})
 	})
 

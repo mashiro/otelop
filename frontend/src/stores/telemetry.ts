@@ -6,10 +6,10 @@ export interface ServerConfig {
   traceCap: number;
   metricCap: number;
   logCap: number;
+  maxDataPoints: number;
 }
 
-const DEFAULT_CONFIG: ServerConfig = { traceCap: 1000, metricCap: 3000, logCap: 1000 };
-const MAX_DATA_POINTS = 1000;
+const DEFAULT_CONFIG: ServerConfig = { traceCap: 1000, metricCap: 3000, logCap: 1000, maxDataPoints: 1000 };
 
 export const serverConfigAtom = atom<ServerConfig>(DEFAULT_CONFIG);
 
@@ -60,7 +60,7 @@ export const addMetricAtom = atom(null, (get, set, newMetric: MetricData) => {
     const updated = [...current];
     updated[idx] = {
       ...existing,
-      dataPoints: [...existing.dataPoints, ...newMetric.dataPoints].slice(-MAX_DATA_POINTS),
+      dataPoints: [...existing.dataPoints, ...newMetric.dataPoints].slice(-get(serverConfigAtom).maxDataPoints),
       receivedAt: newMetric.receivedAt,
     };
     set(metricsAtom, updated);

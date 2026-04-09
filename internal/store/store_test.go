@@ -68,7 +68,7 @@ func TestRingBuffer_Clear(t *testing.T) {
 
 func TestStore_AddAndGetTraces(t *testing.T) {
 	var called int
-	s := NewStore(10, 10, 10, func(sig SignalType, data any) {
+	s := NewStore(10, 10, 10, 100, func(sig SignalType, data any) {
 		called++
 		if sig != SignalTraces {
 			t.Errorf("expected SignalTraces, got %s", sig)
@@ -105,7 +105,7 @@ func TestStore_AddAndGetTraces(t *testing.T) {
 }
 
 func TestStore_AddTraces_DeduplicateSpans(t *testing.T) {
-	s := NewStore(10, 10, 10, nil)
+	s := NewStore(10, 10, 10, 100, nil)
 
 	traceID := pcommon.TraceID([16]byte{1})
 	spanID := pcommon.SpanID([8]byte{1})
@@ -156,7 +156,7 @@ func TestStore_AddTraces_DeduplicateSpans(t *testing.T) {
 }
 
 func TestStore_GetTraceByID(t *testing.T) {
-	s := NewStore(10, 10, 10, nil)
+	s := NewStore(10, 10, 10, 100, nil)
 
 	td := ptrace.NewTraces()
 	rs := td.ResourceSpans().AppendEmpty()
@@ -188,7 +188,7 @@ func TestStore_GetTraceByID(t *testing.T) {
 }
 
 func TestStore_AddAndGetLogs(t *testing.T) {
-	s := NewStore(10, 10, 10, nil)
+	s := NewStore(10, 10, 10, 100, nil)
 
 	ld := plog.NewLogs()
 	rl := ld.ResourceLogs().AppendEmpty()
@@ -214,7 +214,7 @@ func TestStore_AddAndGetLogs(t *testing.T) {
 }
 
 func TestStore_AddMetrics_Merge(t *testing.T) {
-	s := NewStore(10, 10, 10, nil)
+	s := NewStore(10, 10, 10, 100, nil)
 
 	// First batch: add a gauge metric with 1 data point.
 	md1 := pmetric.NewMetrics()
@@ -270,7 +270,7 @@ func TestStore_AddMetrics_Merge(t *testing.T) {
 }
 
 func TestStore_AddMetrics_DifferentNames(t *testing.T) {
-	s := NewStore(10, 10, 10, nil)
+	s := NewStore(10, 10, 10, 100, nil)
 
 	md := pmetric.NewMetrics()
 	rm := md.ResourceMetrics().AppendEmpty()
@@ -296,7 +296,7 @@ func TestStore_AddMetrics_DifferentNames(t *testing.T) {
 }
 
 func TestStore_Clear(t *testing.T) {
-	s := NewStore(10, 10, 10, nil)
+	s := NewStore(10, 10, 10, 100, nil)
 
 	td := ptrace.NewTraces()
 	rs := td.ResourceSpans().AppendEmpty()
@@ -316,7 +316,7 @@ func TestStore_Clear(t *testing.T) {
 }
 
 func TestStore_NewestFirst(t *testing.T) {
-	s := NewStore(10, 10, 10, nil)
+	s := NewStore(10, 10, 10, 100, nil)
 
 	for i := 0; i < 3; i++ {
 		td := ptrace.NewTraces()

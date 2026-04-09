@@ -22,26 +22,29 @@ type OnAddFunc func(signalType SignalType, data any)
 
 // Store holds telemetry data in bounded ring buffers.
 type Store struct {
-	mu      sync.RWMutex
-	traces  *RingBuffer[*TraceData]
-	metrics *RingBuffer[*MetricData]
-	logs    *RingBuffer[*LogData]
-	// traceIndex maps traceID to the index in the ring buffer for merging spans.
-	traceIndex map[string]int
-	// metricIndex maps "serviceName:metricName" to the index in the ring buffer for merging data points.
-	metricIndex map[string]int
-	onAdd       OnAddFunc
+	mu            sync.RWMutex
+	traces        *RingBuffer[*TraceData]
+	metrics       *RingBuffer[*MetricData]
+	logs          *RingBuffer[*LogData]
+	traceIndex    map[string]int
+	metricIndex   map[string]int
+	maxDataPoints int
+	onAdd         OnAddFunc
 }
 
 // NewStore creates a new Store with the given capacities.
-func NewStore(traceCap, metricCap, logCap int, onAdd OnAddFunc) *Store {
+func NewStore(traceCap, metricCap, logCap, maxDataPoints int, onAdd OnAddFunc) *Store {
+	if maxDataPoints <= 0 {
+		maxDataPoints = DefaultMaxDataPoints
+	}
 	return &Store{
-		traces:      NewRingBuffer[*TraceData](traceCap),
-		metrics:     NewRingBuffer[*MetricData](metricCap),
-		logs:        NewRingBuffer[*LogData](logCap),
-		traceIndex:  make(map[string]int),
-		metricIndex: make(map[string]int),
-		onAdd:       onAdd,
+		traces:        NewRingBuffer[*TraceData](traceCap),
+		metrics:       NewRingBuffer[*MetricData](metricCap),
+		logs:          NewRingBuffer[*LogData](logCap),
+		traceIndex:    make(map[string]int),
+		metricIndex:   make(map[string]int),
+		maxDataPoints: maxDataPoints,
+		onAdd:         onAdd,
 	}
 }
 
@@ -88,8 +91,8 @@ func (s *Store) AddTraces(td ptrace.Traces) {
 	}
 }
 
-// maxDataPointsPerMetric limits in-memory data points per metric to prevent unbounded growth.
-const maxDataPointsPerMetric = 1000
+// DefaultMaxDataPoints is the default cap for data points per metric.
+const DefaultMaxDataPoints = 1000
 
 // metricKey returns the key used to identify a unique metric series.
 func metricKey(serviceName, name string) string {
@@ -106,8 +109,8 @@ func (s *Store) AddMetrics(md pmetric.Metrics) {
 			existing := s.metrics.Get(idx)
 			if existing != nil && existing.Name == m.Name && existing.ServiceName == m.ServiceName {
 				existing.DataPoints = append(existing.DataPoints, m.DataPoints...)
-				if len(existing.DataPoints) > maxDataPointsPerMetric {
-					existing.DataPoints = existing.DataPoints[len(existing.DataPoints)-maxDataPointsPerMetric:]
+				if len(existing.DataPoints) > s.maxDataPoints {
+					existing.DataPoints = existing.DataPoints[len(existing.DataPoints)-s.maxDataPoints:]
 				}
 				existing.ReceivedAt = m.ReceivedAt
 				continue
@@ -197,8 +200,9 @@ func (s *Store) GetTraceByID(traceID string) (*TraceData, bool) {
 }
 
 // Capacity returns the ring buffer capacities.
-func (s *Store) Capacity() (traceCap, metricCap, logCap int) {
-	return s.traces.cap, s.metrics.cap, s.logs.cap
+// Capacity returns the store's configured limits.
+func (s *Store) Capacity() (traceCap, metricCap, logCap, maxDataPoints int) {
+	return s.traces.cap, s.metrics.cap, s.logs.cap, s.maxDataPoints
 }
 
 // Clear removes all data from the store.

@@ -42,17 +42,20 @@ func New(addr string, s *store.Store, hub *ws.Hub, frontendFS fs.FS) *Server {
 	mux.Handle("/", spaHandler(frontendFS))
 
 	// Wrap with brotli/gzip/deflate compression, skipping WebSocket upgrades.
-	compress, _ := httpcompression.DefaultAdapter()
-	compressedMux := compress(mux)
-	srv.httpServer = &http.Server{
-		Addr: addr,
-		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	var handler http.Handler = mux
+	if compress, err := httpcompression.DefaultAdapter(); err == nil {
+		compressed := compress(mux)
+		handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.Header.Get("Upgrade") == "websocket" {
 				mux.ServeHTTP(w, r)
 				return
 			}
-			compressedMux.ServeHTTP(w, r)
-		}),
+			compressed.ServeHTTP(w, r)
+		})
+	}
+	srv.httpServer = &http.Server{
+		Addr:    addr,
+		Handler: handler,
 	}
 
 	return srv
@@ -90,11 +93,12 @@ func spaHandler(fsys fs.FS) http.Handler {
 }
 
 func (s *Server) handleGetConfig(w http.ResponseWriter, _ *http.Request) {
-	traceCap, metricCap, logCap := s.store.Capacity()
+	traceCap, metricCap, logCap, maxDataPoints := s.store.Capacity()
 	writeJSON(w, map[string]int{
-		"traceCap":  traceCap,
-		"metricCap": metricCap,
-		"logCap":    logCap,
+		"traceCap":      traceCap,
+		"metricCap":     metricCap,
+		"logCap":        logCap,
+		"maxDataPoints": maxDataPoints,
 	})
 }
 
