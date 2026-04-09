@@ -6,6 +6,7 @@ import (
 
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/plog"
+	"go.opentelemetry.io/collector/pdata/pmetric"
 	"go.opentelemetry.io/collector/pdata/ptrace"
 )
 
@@ -158,6 +159,88 @@ func TestStore_AddAndGetLogs(t *testing.T) {
 	}
 	if logs[0].SeverityText != "INFO" {
 		t.Errorf("expected severity 'INFO', got '%s'", logs[0].SeverityText)
+	}
+}
+
+func TestStore_AddMetrics_Merge(t *testing.T) {
+	s := NewStore(10, 10, 10, nil)
+
+	// First batch: add a gauge metric with 1 data point.
+	md1 := pmetric.NewMetrics()
+	rm1 := md1.ResourceMetrics().AppendEmpty()
+	rm1.Resource().Attributes().PutStr("service.name", "test-svc")
+	sm1 := rm1.ScopeMetrics().AppendEmpty()
+	m1 := sm1.Metrics().AppendEmpty()
+	m1.SetName("http.request.duration")
+	m1.SetUnit("ms")
+	m1.SetEmptyGauge()
+	dp1 := m1.Gauge().DataPoints().AppendEmpty()
+	dp1.SetTimestamp(pcommon.NewTimestampFromTime(time.Now()))
+	dp1.SetDoubleValue(42.0)
+
+	s.AddMetrics(md1)
+
+	metrics := s.GetMetrics()
+	if len(metrics) != 1 {
+		t.Fatalf("expected 1 metric, got %d", len(metrics))
+	}
+	if len(metrics[0].DataPoints) != 1 {
+		t.Fatalf("expected 1 data point, got %d", len(metrics[0].DataPoints))
+	}
+
+	// Second batch: same metric name + service, should merge data points.
+	md2 := pmetric.NewMetrics()
+	rm2 := md2.ResourceMetrics().AppendEmpty()
+	rm2.Resource().Attributes().PutStr("service.name", "test-svc")
+	sm2 := rm2.ScopeMetrics().AppendEmpty()
+	m2 := sm2.Metrics().AppendEmpty()
+	m2.SetName("http.request.duration")
+	m2.SetUnit("ms")
+	m2.SetEmptyGauge()
+	dp2 := m2.Gauge().DataPoints().AppendEmpty()
+	dp2.SetTimestamp(pcommon.NewTimestampFromTime(time.Now().Add(time.Second)))
+	dp2.SetDoubleValue(55.0)
+
+	s.AddMetrics(md2)
+
+	metrics = s.GetMetrics()
+	if len(metrics) != 1 {
+		t.Fatalf("expected 1 metric after merge, got %d", len(metrics))
+	}
+	if len(metrics[0].DataPoints) != 2 {
+		t.Fatalf("expected 2 data points after merge, got %d", len(metrics[0].DataPoints))
+	}
+	if metrics[0].DataPoints[0].Value != 42.0 {
+		t.Errorf("expected first data point value 42.0, got %f", metrics[0].DataPoints[0].Value)
+	}
+	if metrics[0].DataPoints[1].Value != 55.0 {
+		t.Errorf("expected second data point value 55.0, got %f", metrics[0].DataPoints[1].Value)
+	}
+}
+
+func TestStore_AddMetrics_DifferentNames(t *testing.T) {
+	s := NewStore(10, 10, 10, nil)
+
+	md := pmetric.NewMetrics()
+	rm := md.ResourceMetrics().AppendEmpty()
+	rm.Resource().Attributes().PutStr("service.name", "test-svc")
+	sm := rm.ScopeMetrics().AppendEmpty()
+
+	m1 := sm.Metrics().AppendEmpty()
+	m1.SetName("metric.a")
+	m1.SetEmptyGauge()
+	m1.Gauge().DataPoints().AppendEmpty().SetDoubleValue(1.0)
+
+	m2 := sm.Metrics().AppendEmpty()
+	m2.SetName("metric.b")
+	m2.SetEmptyGauge()
+	m2.Gauge().DataPoints().AppendEmpty().SetDoubleValue(2.0)
+
+	s.AddMetrics(md)
+
+	metrics := s.GetMetrics()
+	if len(metrics) != 2 {
+		t.Fatalf("expected 2 distinct metrics, got %d", len(metrics))
 	}
 }
 

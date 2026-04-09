@@ -28,17 +28,20 @@ type Store struct {
 	logs    *RingBuffer[*LogData]
 	// traceIndex maps traceID to the index in the ring buffer for merging spans.
 	traceIndex map[string]int
-	onAdd      OnAddFunc
+	// metricIndex maps "serviceName:metricName" to the index in the ring buffer for merging data points.
+	metricIndex map[string]int
+	onAdd       OnAddFunc
 }
 
 // NewStore creates a new Store with the given capacities.
 func NewStore(traceCap, metricCap, logCap int, onAdd OnAddFunc) *Store {
 	return &Store{
-		traces:     NewRingBuffer[*TraceData](traceCap),
-		metrics:    NewRingBuffer[*MetricData](metricCap),
-		logs:       NewRingBuffer[*LogData](logCap),
-		traceIndex: make(map[string]int),
-		onAdd:      onAdd,
+		traces:      NewRingBuffer[*TraceData](traceCap),
+		metrics:     NewRingBuffer[*MetricData](metricCap),
+		logs:        NewRingBuffer[*LogData](logCap),
+		traceIndex:  make(map[string]int),
+		metricIndex: make(map[string]int),
+		onAdd:       onAdd,
 	}
 }
 
@@ -76,12 +79,27 @@ func (s *Store) AddTraces(td ptrace.Traces) {
 	}
 }
 
-// AddMetrics converts and stores metric data.
+// metricKey returns the key used to identify a unique metric series.
+func metricKey(serviceName, name string) string {
+	return serviceName + "\x00" + name
+}
+
+// AddMetrics converts and stores metric data, merging data points for the same metric.
 func (s *Store) AddMetrics(md pmetric.Metrics) {
 	converted := ConvertMetrics(md)
 	s.mu.Lock()
 	for _, m := range converted {
-		s.metrics.Add(m)
+		key := metricKey(m.ServiceName, m.Name)
+		if idx, ok := s.metricIndex[key]; ok {
+			existing := s.metrics.Get(idx)
+			if existing != nil {
+				existing.DataPoints = append(existing.DataPoints, m.DataPoints...)
+				existing.ReceivedAt = m.ReceivedAt
+				continue
+			}
+		}
+		idx := s.metrics.Add(m)
+		s.metricIndex[key] = idx
 	}
 	s.mu.Unlock()
 
@@ -171,6 +189,7 @@ func (s *Store) Clear() {
 	s.metrics.Clear()
 	s.logs.Clear()
 	s.traceIndex = make(map[string]int)
+	s.metricIndex = make(map[string]int)
 }
 
 // RingBuffer is a generic bounded FIFO buffer.

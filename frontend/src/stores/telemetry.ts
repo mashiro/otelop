@@ -31,8 +31,23 @@ export const addTraceAtom = atom(null, (get, set, newTrace: TraceData) => {
   }
 });
 
-export const addMetricAtom = atom(null, (_get, set, newMetric: MetricData) => {
-  set(metricsAtom, (prev) => [newMetric, ...prev]);
+export const addMetricAtom = atom(null, (get, set, newMetric: MetricData) => {
+  const current = get(metricsAtom);
+  const idx = current.findIndex(
+    (m) => m.serviceName === newMetric.serviceName && m.name === newMetric.name,
+  );
+  if (idx >= 0) {
+    const existing = current[idx];
+    const updated = [...current];
+    updated[idx] = {
+      ...existing,
+      dataPoints: [...existing.dataPoints, ...newMetric.dataPoints],
+      receivedAt: newMetric.receivedAt,
+    };
+    set(metricsAtom, updated);
+  } else {
+    set(metricsAtom, [newMetric, ...current]);
+  }
 });
 
 export const addLogAtom = atom(null, (_get, set, newLog: LogData) => {
