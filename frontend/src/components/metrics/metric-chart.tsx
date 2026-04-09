@@ -1,9 +1,10 @@
 import { useMemo } from "react";
 import { Group } from "@visx/group";
 import { scaleLinear, scaleTime } from "@visx/scale";
-import { LinePath } from "@visx/shape";
+import { LinePath, AreaClosed } from "@visx/shape";
 import { AxisBottom, AxisLeft } from "@visx/axis";
 import { ParentSize } from "@visx/responsive";
+import { curveMonotoneX } from "@visx/curve";
 import type { MetricData } from "@/types/telemetry";
 
 const MARGIN = { top: 10, right: 20, bottom: 40, left: 60 };
@@ -67,11 +68,42 @@ function ChartInner({ metric, width, height }: Props & { width: number; height: 
 
   return (
     <svg width={width} height={height}>
+      <defs>
+        <linearGradient id="metric-area-gradient" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="var(--metric)" stopOpacity="0.25" />
+          <stop offset="100%" stopColor="var(--metric)" stopOpacity="0" />
+        </linearGradient>
+        <filter id="line-glow">
+          <feGaussianBlur in="SourceGraphic" stdDeviation="3" result="blur" />
+          <feMerge>
+            <feMergeNode in="blur" />
+            <feMergeNode in="SourceGraphic" />
+          </feMerge>
+        </filter>
+      </defs>
       <Group left={MARGIN.left} top={MARGIN.top}>
+        {/* Grid lines */}
+        {yScale.ticks(5).map((tick) => (
+          <line
+            key={tick}
+            x1={0}
+            x2={innerWidth}
+            y1={yScale(tick)}
+            y2={yScale(tick)}
+            stroke="var(--border)"
+            strokeWidth={0.5}
+            opacity={0.5}
+          />
+        ))}
+
         <AxisLeft
           scale={yScale}
           numTicks={5}
-          tickLabelProps={{ fontSize: 10, fill: "var(--muted-foreground)" }}
+          tickLabelProps={{
+            fontSize: 10,
+            fontFamily: "var(--font-mono)",
+            fill: "var(--muted-foreground)",
+          }}
           stroke="var(--border)"
           tickStroke="var(--border)"
         />
@@ -79,19 +111,56 @@ function ChartInner({ metric, width, height }: Props & { width: number; height: 
           scale={xScale}
           top={innerHeight}
           numTicks={5}
-          tickLabelProps={{ fontSize: 10, fill: "var(--muted-foreground)" }}
+          tickLabelProps={{
+            fontSize: 10,
+            fontFamily: "var(--font-mono)",
+            fill: "var(--muted-foreground)",
+          }}
           stroke="var(--border)"
           tickStroke="var(--border)"
         />
+
+        {/* Area fill with gradient */}
+        <AreaClosed
+          data={data}
+          x={(d) => xScale(d.time)}
+          y={(d) => yScale(d.value)}
+          yScale={yScale}
+          curve={curveMonotoneX}
+          fill="url(#metric-area-gradient)"
+        />
+
+        {/* Line with glow */}
         <LinePath
           data={data}
           x={(d) => xScale(d.time)}
           y={(d) => yScale(d.value)}
-          stroke="var(--chart-1)"
+          stroke="var(--metric)"
           strokeWidth={2}
+          curve={curveMonotoneX}
+          filter="url(#line-glow)"
+          strokeOpacity={0.8}
         />
+
+        {/* Data points */}
         {data.map((d, i) => (
-          <circle key={i} cx={xScale(d.time)} cy={yScale(d.value)} r={3} fill="var(--chart-1)" />
+          <g key={i}>
+            <circle
+              cx={xScale(d.time)}
+              cy={yScale(d.value)}
+              r={5}
+              fill="var(--metric)"
+              opacity={0.15}
+            />
+            <circle
+              cx={xScale(d.time)}
+              cy={yScale(d.value)}
+              r={3}
+              fill="var(--background)"
+              stroke="var(--metric)"
+              strokeWidth={1.5}
+            />
+          </g>
         ))}
       </Group>
     </svg>

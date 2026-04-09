@@ -9,10 +9,22 @@ import {
   clearAllAtom,
 } from "@/stores/telemetry";
 
-const statusColor: Record<string, string> = {
-  connected: "bg-green-500",
-  connecting: "bg-yellow-500",
-  disconnected: "bg-red-500",
+const statusConfig: Record<string, { color: string; glow: string; label: string }> = {
+  connected: {
+    color: "bg-success",
+    glow: "animate-breathe",
+    label: "Live",
+  },
+  connecting: {
+    color: "bg-warning",
+    glow: "animate-pulse-glow",
+    label: "Connecting",
+  },
+  disconnected: {
+    color: "bg-destructive",
+    glow: "",
+    label: "Offline",
+  },
 };
 
 export function Header() {
@@ -27,23 +39,77 @@ export function Header() {
     clearAll();
   };
 
+  const status = statusConfig[wsStatus] ?? statusConfig.disconnected;
+
   return (
-    <header className="flex items-center justify-between border-b px-4 py-2">
-      <div className="flex items-center gap-3">
-        <h1 className="text-lg font-semibold">otelop</h1>
-        <span className="text-xs text-muted-foreground">
-          T:{traceCount} M:{metricCount} L:{logCount}
-        </span>
-      </div>
-      <div className="flex items-center gap-3">
-        <div className="flex items-center gap-1.5">
-          <div className={`h-2 w-2 rounded-full ${statusColor[wsStatus]}`} />
-          <span className="text-xs text-muted-foreground">{wsStatus}</span>
+    <header className="relative z-10 flex items-center justify-between border-b border-border/50 px-5 py-3">
+      <div className="flex items-center gap-5">
+        {/* Logo */}
+        <div className="flex items-center gap-2">
+          <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary/15">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <circle cx="8" cy="8" r="3" stroke="var(--primary)" strokeWidth="1.5" />
+              <circle cx="8" cy="8" r="6.5" stroke="var(--primary)" strokeWidth="1" opacity="0.4" />
+              <circle cx="8" cy="8" r="1" fill="var(--primary)" />
+            </svg>
+          </div>
+          <h1 className="text-base font-semibold tracking-tight">
+            otelop
+          </h1>
         </div>
-        <Button variant="ghost" size="sm" onClick={handleClear}>
-          <Trash2 className="h-4 w-4" />
+
+        {/* Signal counters */}
+        <div className="flex items-center gap-3">
+          <CounterBadge label="T" count={traceCount} color="trace" />
+          <CounterBadge label="M" count={metricCount} color="metric" />
+          <CounterBadge label="L" count={logCount} color="log" />
+        </div>
+      </div>
+
+      <div className="flex items-center gap-4">
+        {/* Connection status */}
+        <div className="flex items-center gap-2">
+          <div className={`h-2 w-2 rounded-full ${status.color} ${status.glow}`} />
+          <span className="text-xs font-medium text-muted-foreground">{status.label}</span>
+        </div>
+
+        {/* Clear button */}
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={handleClear}
+          className="text-muted-foreground hover:text-destructive"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
         </Button>
       </div>
     </header>
+  );
+}
+
+const counterStyles: Record<string, { wrapper: string; text: string }> = {
+  trace: {
+    wrapper: "bg-trace/10",
+    text: "text-trace",
+  },
+  metric: {
+    wrapper: "bg-metric/10",
+    text: "text-metric",
+  },
+  log: {
+    wrapper: "bg-log/10",
+    text: "text-log",
+  },
+};
+
+function CounterBadge({ label, count, color }: { label: string; count: number; color: string }) {
+  const style = counterStyles[color] ?? counterStyles.trace;
+  return (
+    <div className={`flex items-center gap-1.5 rounded-md px-2 py-0.5 ${style.wrapper}`}>
+      <span className={`text-[10px] font-bold uppercase tracking-wider ${style.text}`}>
+        {label}
+      </span>
+      <span className={`font-mono text-xs font-semibold ${style.text}`}>{count}</span>
+    </div>
   );
 }

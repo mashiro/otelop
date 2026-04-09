@@ -9,7 +9,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Badge } from "@/components/ui/badge";
 import { formatDuration, formatRelativeTime, shortID } from "@/lib/format";
 import { TraceDetail } from "./trace-detail";
 
@@ -24,64 +23,89 @@ export function TraceList() {
 
   if (traces.length === 0) {
     return (
-      <div className="flex h-full items-center justify-center text-muted-foreground">
-        No traces yet. Send OTLP data to see them here.
+      <div className="glass-card flex h-full items-center justify-center">
+        <div className="animate-slide-up-fade flex flex-col items-center gap-4">
+          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-trace/10">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--trace)" strokeWidth="1.5">
+              <path d="M3 12h4l3-9 4 18 3-9h4" />
+            </svg>
+          </div>
+          <div className="text-center">
+            <p className="text-sm font-medium text-foreground/70">No traces yet</p>
+            <p className="mt-1 text-xs text-muted-foreground">Send OTLP data to see them here</p>
+          </div>
+        </div>
       </div>
     );
   }
 
   return (
-    <ScrollArea className="h-full">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Service</TableHead>
-            <TableHead>Name</TableHead>
-            <TableHead>Trace ID</TableHead>
-            <TableHead className="text-right">Spans</TableHead>
-            <TableHead className="text-right">Duration</TableHead>
-            <TableHead>Started</TableHead>
-            <TableHead>Status</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {traces.map((trace) => {
-            const status = trace.rootSpan?.statusCode ?? "Unset";
-            return (
-              <TableRow
-                key={trace.traceID}
-                className="cursor-pointer"
-                onClick={() => setSelectedTrace(trace)}
-              >
-                <TableCell className="font-medium">{trace.serviceName || "-"}</TableCell>
-                <TableCell>{trace.rootSpan?.name ?? trace.spans[0]?.name ?? "-"}</TableCell>
-                <TableCell className="font-mono text-xs">{shortID(trace.traceID)}</TableCell>
-                <TableCell className="text-right">{trace.spanCount}</TableCell>
-                <TableCell className="text-right font-mono text-xs">
-                  {formatDuration(trace.duration)}
-                </TableCell>
-                <TableCell className="text-xs text-muted-foreground">
-                  {formatRelativeTime(trace.startTime)}
-                </TableCell>
-                <TableCell>
-                  <StatusBadge status={status} />
-                </TableCell>
-              </TableRow>
-            );
-          })}
-        </TableBody>
-      </Table>
-    </ScrollArea>
+    <div className="glass-card h-full overflow-hidden">
+      <ScrollArea className="h-full">
+        <Table>
+          <TableHeader>
+            <TableRow className="border-b border-border/50 hover:bg-transparent">
+              <TableHead className="text-trace/70">Service</TableHead>
+              <TableHead className="text-trace/70">Name</TableHead>
+              <TableHead className="text-trace/70">Trace ID</TableHead>
+              <TableHead className="text-right text-trace/70">Spans</TableHead>
+              <TableHead className="text-right text-trace/70">Duration</TableHead>
+              <TableHead className="text-trace/70">Started</TableHead>
+              <TableHead className="text-trace/70">Status</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {traces.map((trace, idx) => {
+              const status = trace.rootSpan?.statusCode ?? "Unset";
+              return (
+                <TableRow
+                  key={trace.traceID}
+                  className="stagger-row cursor-pointer border-b border-border/30 transition-colors hover:bg-trace/5"
+                  style={{ animationDelay: `${Math.min(idx * 20, 200)}ms` }}
+                  onClick={() => setSelectedTrace(trace)}
+                >
+                  <TableCell className="font-medium">{trace.serviceName || "-"}</TableCell>
+                  <TableCell className="text-foreground/80">{trace.rootSpan?.name ?? trace.spans[0]?.name ?? "-"}</TableCell>
+                  <TableCell className="font-mono text-xs text-muted-foreground">{shortID(trace.traceID)}</TableCell>
+                  <TableCell className="text-right font-mono text-xs">{trace.spanCount}</TableCell>
+                  <TableCell className="text-right font-mono text-xs text-trace">
+                    {formatDuration(trace.duration)}
+                  </TableCell>
+                  <TableCell className="text-xs text-muted-foreground">
+                    {formatRelativeTime(trace.startTime)}
+                  </TableCell>
+                  <TableCell>
+                    <StatusBadge status={status} />
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
+      </ScrollArea>
+    </div>
   );
 }
 
 function StatusBadge({ status }: { status: string }) {
   if (status === "Ok")
     return (
-      <Badge variant="outline" className="border-green-500 text-green-600">
+      <span className="inline-flex items-center gap-1 rounded-full bg-success/15 px-2 py-0.5 text-[11px] font-medium text-success">
+        <span className="h-1.5 w-1.5 rounded-full bg-success" />
         Ok
-      </Badge>
+      </span>
     );
-  if (status === "Error") return <Badge variant="destructive">Error</Badge>;
-  return <Badge variant="secondary">Unset</Badge>;
+  if (status === "Error")
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full bg-destructive/15 px-2 py-0.5 text-[11px] font-medium text-destructive">
+        <span className="h-1.5 w-1.5 rounded-full bg-destructive" />
+        Error
+      </span>
+    );
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+      <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/40" />
+      Unset
+    </span>
+  );
 }

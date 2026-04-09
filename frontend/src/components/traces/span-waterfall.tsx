@@ -6,18 +6,20 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { formatDuration } from "@/lib/format";
 import type { TraceData, SpanData } from "@/types/telemetry";
 
-const ROW_HEIGHT = 28;
-const LABEL_WIDTH = 250;
-const BAR_PADDING = 2;
-const MIN_BAR_WIDTH = 2;
+const ROW_HEIGHT = 32;
+const LABEL_WIDTH = 260;
+const BAR_PADDING = 4;
+const MIN_BAR_WIDTH = 3;
 
-// Service name → color mapping
 const SERVICE_COLORS = [
-  "var(--chart-1)",
-  "var(--chart-2)",
-  "var(--chart-3)",
-  "var(--chart-4)",
-  "var(--chart-5)",
+  "oklch(0.75 0.14 195)",
+  "oklch(0.78 0.14 80)",
+  "oklch(0.72 0.14 300)",
+  "oklch(0.72 0.17 155)",
+  "oklch(0.70 0.18 15)",
+  "oklch(0.75 0.12 230)",
+  "oklch(0.70 0.14 50)",
+  "oklch(0.68 0.16 340)",
 ];
 
 interface Props {
@@ -52,7 +54,6 @@ function buildTree(spans: SpanData[]): FlatSpan[] {
     }
   }
 
-  // Find roots (no parent or parent not in set)
   const roots = spans.filter((s) => !s.parentSpanID || !byId.has(s.parentSpanID));
   roots.sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
   for (const r of roots) {
@@ -126,6 +127,28 @@ function WaterfallInner({
   return (
     <ScrollArea className="h-full">
       <svg width={width} height={svgHeight}>
+        <defs>
+          {/* Gradient definitions for each service */}
+          {[...serviceColorMap.entries()].map(([service, color]) => (
+            <linearGradient key={service} id={`grad-${service.replace(/\W/g, "")}`} x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0%" stopColor={color} stopOpacity="0.9" />
+              <stop offset="100%" stopColor={color} stopOpacity="0.6" />
+            </linearGradient>
+          ))}
+          <linearGradient id="grad-error" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0%" stopColor="oklch(0.65 0.22 25)" stopOpacity="0.9" />
+            <stop offset="100%" stopColor="oklch(0.65 0.22 25)" stopOpacity="0.6" />
+          </linearGradient>
+          {/* Glow filter */}
+          <filter id="bar-glow" x="-20%" y="-50%" width="140%" height="200%">
+            <feGaussianBlur in="SourceGraphic" stdDeviation="2" result="blur" />
+            <feMerge>
+              <feMergeNode in="blur" />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
+          </filter>
+        </defs>
+
         {flatSpans.map((f, i) => {
           const startMs = new Date(f.span.startTime).getTime();
           const endMs = new Date(f.span.endTime).getTime();
@@ -134,7 +157,9 @@ function WaterfallInner({
           const y = i * ROW_HEIGHT;
           const isSelected = selectedSpan?.spanID === f.span.spanID;
           const isError = f.span.statusCode === "Error";
-          const color = isError ? "var(--destructive)" : serviceColorMap.get(f.span.serviceName)!;
+          const serviceKey = f.span.serviceName.replace(/\W/g, "");
+          const gradId = isError ? "grad-error" : `grad-${serviceKey}`;
+          const color = isError ? "oklch(0.65 0.22 25)" : serviceColorMap.get(f.span.serviceName)!;
 
           return (
             <Group
@@ -143,23 +168,50 @@ function WaterfallInner({
               className="cursor-pointer"
               onClick={() => onSelectSpan(f.span)}
             >
+              {/* Selected row highlight */}
               {isSelected && (
                 <rect
                   x={0}
                   y={0}
                   width={width}
                   height={ROW_HEIGHT}
-                  fill="var(--accent)"
-                  opacity={0.3}
+                  fill={color}
+                  opacity={0.08}
                 />
               )}
+
+              {/* Hover area */}
+              <rect
+                x={0}
+                y={0}
+                width={width}
+                height={ROW_HEIGHT}
+                fill="transparent"
+                className="opacity-0 transition-opacity hover:opacity-100"
+              />
+
+              {/* Depth indicator lines */}
+              {f.depth > 0 && (
+                <line
+                  x1={8 + (f.depth - 1) * 16 + 4}
+                  y1={0}
+                  x2={8 + (f.depth - 1) * 16 + 4}
+                  y2={ROW_HEIGHT}
+                  stroke={color}
+                  strokeWidth={1}
+                  opacity={0.15}
+                />
+              )}
+
               {/* Label */}
               <text
                 x={8 + f.depth * 16}
                 y={ROW_HEIGHT / 2}
                 dominantBaseline="central"
                 fontSize={11}
+                fontFamily="var(--font-sans)"
                 fill="var(--foreground)"
+                opacity={isSelected ? 1 : 0.8}
                 className="select-none"
               >
                 {truncate(
@@ -167,30 +219,36 @@ function WaterfallInner({
                   Math.floor((LABEL_WIDTH - 8 - f.depth * 16) / 6),
                 )}
               </text>
-              {/* Bar */}
+
+              {/* Bar with gradient */}
               <rect
                 x={LABEL_WIDTH + x}
                 y={BAR_PADDING}
                 width={w}
                 height={ROW_HEIGHT - BAR_PADDING * 2}
-                rx={2}
-                fill={color}
-                opacity={0.8}
+                rx={3}
+                fill={`url(#${gradId})`}
+                filter={isSelected ? "url(#bar-glow)" : undefined}
               />
+
               {/* Duration label on bar */}
-              {w > 40 && (
+              {w > 50 && (
                 <text
                   x={LABEL_WIDTH + x + w / 2}
                   y={ROW_HEIGHT / 2}
                   dominantBaseline="central"
                   textAnchor="middle"
                   fontSize={10}
-                  fill="var(--primary-foreground)"
+                  fontFamily="var(--font-mono)"
+                  fontWeight="500"
+                  fill="white"
+                  opacity={0.9}
                   className="select-none"
                 >
                   {formatDuration(f.span.duration)}
                 </text>
               )}
+
               {/* Separator line */}
               <line
                 x1={0}
@@ -199,6 +257,7 @@ function WaterfallInner({
                 y2={ROW_HEIGHT}
                 stroke="var(--border)"
                 strokeWidth={0.5}
+                opacity={0.5}
               />
             </Group>
           );
@@ -210,5 +269,5 @@ function WaterfallInner({
 
 function truncate(s: string, maxLen: number): string {
   if (s.length <= maxLen) return s;
-  return s.slice(0, Math.max(maxLen - 1, 0)) + "…";
+  return s.slice(0, Math.max(maxLen - 1, 0)) + "\u2026";
 }

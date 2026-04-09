@@ -38,21 +38,38 @@ function App() {
   }, [setTraces, setMetrics, setLogs]);
 
   return (
-    <div className="flex h-screen flex-col bg-background text-foreground">
+    <div className="noise-bg mesh-bg flex h-screen flex-col text-foreground">
       <Header />
       <Tabs defaultValue="traces" className="flex flex-1 flex-col overflow-hidden">
-        <TabsList className="mx-4 mt-2 w-fit">
-          <TabsTrigger value="traces">Traces</TabsTrigger>
-          <TabsTrigger value="metrics">Metrics</TabsTrigger>
-          <TabsTrigger value="logs">Logs</TabsTrigger>
-        </TabsList>
-        <TabsContent value="traces" className="flex-1 overflow-hidden px-4 pb-4">
+        <div className="px-5 pt-3">
+          <TabsList className="w-fit gap-1 bg-transparent p-0">
+            <TabsTrigger
+              value="traces"
+              className="rounded-lg px-4 py-1.5 text-sm font-medium text-muted-foreground transition-all data-active:bg-trace/15 data-active:text-trace data-active:shadow-[0_0_12px_oklch(0.75_0.14_195/15%)] hover:text-foreground"
+            >
+              Traces
+            </TabsTrigger>
+            <TabsTrigger
+              value="metrics"
+              className="rounded-lg px-4 py-1.5 text-sm font-medium text-muted-foreground transition-all data-active:bg-metric/15 data-active:text-metric data-active:shadow-[0_0_12px_oklch(0.78_0.14_80/15%)] hover:text-foreground"
+            >
+              Metrics
+            </TabsTrigger>
+            <TabsTrigger
+              value="logs"
+              className="rounded-lg px-4 py-1.5 text-sm font-medium text-muted-foreground transition-all data-active:bg-log/15 data-active:text-log data-active:shadow-[0_0_12px_oklch(0.72_0.14_300/15%)] hover:text-foreground"
+            >
+              Logs
+            </TabsTrigger>
+          </TabsList>
+        </div>
+        <TabsContent value="traces" className="relative z-10 flex-1 overflow-hidden px-5 pb-4 pt-3">
           <TraceList />
         </TabsContent>
-        <TabsContent value="metrics" className="flex-1 overflow-hidden px-4 pb-4">
+        <TabsContent value="metrics" className="relative z-10 flex-1 overflow-hidden px-5 pb-4 pt-3">
           <MetricList />
         </TabsContent>
-        <TabsContent value="logs" className="flex-1 overflow-hidden px-4 pb-4">
+        <TabsContent value="logs" className="relative z-10 flex-1 overflow-hidden px-5 pb-4 pt-3">
           <LogList />
         </TabsContent>
       </Tabs>

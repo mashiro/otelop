@@ -1,7 +1,6 @@
 import { useAtomValue, useSetAtom } from "jotai";
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { selectedTraceAtom } from "@/stores/telemetry";
 import { formatDuration, shortID } from "@/lib/format";
@@ -17,24 +16,40 @@ export function TraceDetail() {
   if (!trace) return null;
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between border-b px-4 py-2">
+    <div className="animate-fade-in flex h-full flex-col overflow-hidden rounded-lg border border-border/50 bg-card/50 backdrop-blur-sm">
+      {/* Header bar */}
+      <div className="flex items-center justify-between border-b border-border/50 px-4 py-2.5">
         <div className="flex items-center gap-3">
-          <Button variant="ghost" size="sm" onClick={() => setSelected(null)}>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => setSelected(null)}
+            className="text-muted-foreground hover:text-foreground"
+          >
             <X className="h-4 w-4" />
           </Button>
-          <span className="font-semibold">{trace.rootSpan?.name ?? trace.spans[0]?.name}</span>
-          <span className="font-mono text-xs text-muted-foreground">{shortID(trace.traceID)}</span>
-          <Badge variant="secondary">{trace.spanCount} spans</Badge>
-          <span className="font-mono text-xs">{formatDuration(trace.duration)}</span>
+          <span className="font-semibold text-foreground">
+            {trace.rootSpan?.name ?? trace.spans[0]?.name}
+          </span>
+          <span className="font-mono text-xs text-muted-foreground">
+            {shortID(trace.traceID)}
+          </span>
+          <span className="rounded-full bg-trace/15 px-2 py-0.5 text-[11px] font-medium text-trace">
+            {trace.spanCount} spans
+          </span>
+          <span className="font-mono text-xs text-trace">
+            {formatDuration(trace.duration)}
+          </span>
         </div>
       </div>
+
+      {/* Content */}
       <div className="flex flex-1 overflow-hidden">
         <div className="flex-1 overflow-hidden">
           <SpanWaterfall trace={trace} onSelectSpan={setSelectedSpan} selectedSpan={selectedSpan} />
         </div>
         {selectedSpan && (
-          <div className="w-[400px] border-l">
+          <div className="w-[420px] border-l border-border/50 bg-card/30 backdrop-blur-sm">
             <SpanDetail span={selectedSpan} onClose={() => setSelectedSpan(null)} />
           </div>
         )}
@@ -46,14 +61,20 @@ export function TraceDetail() {
 function SpanDetail({ span, onClose }: { span: SpanData; onClose: () => void }) {
   return (
     <ScrollArea className="h-full">
-      <div className="p-4 space-y-4">
+      <div className="animate-slide-up-fade space-y-5 p-4">
         <div className="flex items-center justify-between">
-          <h3 className="font-semibold text-sm">Span Details</h3>
-          <Button variant="ghost" size="sm" onClick={onClose}>
+          <h3 className="text-sm font-semibold text-trace">Span Details</h3>
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            onClick={onClose}
+            className="text-muted-foreground hover:text-foreground"
+          >
             <X className="h-3 w-3" />
           </Button>
         </div>
-        <dl className="space-y-2 text-sm">
+
+        <div className="space-y-2.5">
           <Field label="Name" value={span.name} />
           <Field label="Service" value={span.serviceName} />
           <Field label="Span ID" value={span.spanID} mono />
@@ -61,56 +82,75 @@ function SpanDetail({ span, onClose }: { span: SpanData; onClose: () => void }) 
           <Field label="Kind" value={span.kind} />
           <Field label="Status" value={span.statusCode} />
           {span.statusMessage && <Field label="Message" value={span.statusMessage} />}
-          <Field label="Duration" value={formatDuration(span.duration)} mono />
-        </dl>
+          <Field label="Duration" value={formatDuration(span.duration)} mono highlight />
+        </div>
+
         {Object.keys(span.attributes).length > 0 && (
-          <div>
-            <h4 className="font-semibold text-xs text-muted-foreground mb-1">Attributes</h4>
-            <div className="space-y-1">
-              {Object.entries(span.attributes).map(([k, v]) => (
-                <div key={k} className="flex gap-2 text-xs">
-                  <span className="text-muted-foreground shrink-0">{k}</span>
-                  <span className="font-mono break-all">{String(v)}</span>
-                </div>
-              ))}
-            </div>
-          </div>
+          <Section title="Attributes">
+            {Object.entries(span.attributes).map(([k, v]) => (
+              <div key={k} className="flex gap-2 text-xs">
+                <span className="shrink-0 text-muted-foreground">{k}</span>
+                <span className="break-all font-mono text-foreground/80">{String(v)}</span>
+              </div>
+            ))}
+          </Section>
         )}
+
         {span.events.length > 0 && (
-          <div>
-            <h4 className="font-semibold text-xs text-muted-foreground mb-1">Events</h4>
-            <div className="space-y-1">
-              {span.events.map((e, i) => (
-                <div key={i} className="text-xs">
-                  <span className="font-medium">{e.name}</span>
-                </div>
-              ))}
-            </div>
-          </div>
+          <Section title="Events">
+            {span.events.map((e, i) => (
+              <div key={i} className="text-xs">
+                <span className="font-medium text-foreground/80">{e.name}</span>
+              </div>
+            ))}
+          </Section>
         )}
+
         {Object.keys(span.resource).length > 0 && (
-          <div>
-            <h4 className="font-semibold text-xs text-muted-foreground mb-1">Resource</h4>
-            <div className="space-y-1">
-              {Object.entries(span.resource).map(([k, v]) => (
-                <div key={k} className="flex gap-2 text-xs">
-                  <span className="text-muted-foreground shrink-0">{k}</span>
-                  <span className="font-mono break-all">{String(v)}</span>
-                </div>
-              ))}
-            </div>
-          </div>
+          <Section title="Resource">
+            {Object.entries(span.resource).map(([k, v]) => (
+              <div key={k} className="flex gap-2 text-xs">
+                <span className="shrink-0 text-muted-foreground">{k}</span>
+                <span className="break-all font-mono text-foreground/80">{String(v)}</span>
+              </div>
+            ))}
+          </Section>
         )}
       </div>
     </ScrollArea>
   );
 }
 
-function Field({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="flex gap-2">
-      <dt className="text-muted-foreground shrink-0 w-20">{label}</dt>
-      <dd className={mono ? "font-mono break-all" : "break-all"}>{value}</dd>
+    <div>
+      <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+        {title}
+      </h4>
+      <div className="space-y-1.5 rounded-md bg-background/30 p-2.5">{children}</div>
+    </div>
+  );
+}
+
+function Field({
+  label,
+  value,
+  mono,
+  highlight,
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+  highlight?: boolean;
+}) {
+  return (
+    <div className="flex gap-2 text-sm">
+      <dt className="w-20 shrink-0 text-muted-foreground">{label}</dt>
+      <dd
+        className={`break-all ${mono ? "font-mono text-xs leading-5" : ""} ${highlight ? "text-trace font-semibold" : ""}`}
+      >
+        {value}
+      </dd>
     </div>
   );
 }
