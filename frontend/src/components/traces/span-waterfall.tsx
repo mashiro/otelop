@@ -13,14 +13,14 @@ const BAR_PADDING = 4;
 const MIN_BAR_WIDTH = 3;
 
 const SERVICE_COLORS = [
-  "oklch(0.75 0.14 195)",
-  "oklch(0.78 0.14 80)",
-  "oklch(0.72 0.14 300)",
-  "oklch(0.72 0.17 155)",
-  "oklch(0.70 0.18 15)",
-  "oklch(0.75 0.12 230)",
-  "oklch(0.70 0.14 50)",
-  "oklch(0.68 0.16 340)",
+  "oklch(0.80 0.14 195)",
+  "oklch(0.82 0.14 80)",
+  "oklch(0.78 0.14 300)",
+  "oklch(0.78 0.17 155)",
+  "oklch(0.75 0.18 15)",
+  "oklch(0.80 0.12 230)",
+  "oklch(0.76 0.14 50)",
+  "oklch(0.74 0.16 340)",
 ];
 
 interface Props {
@@ -177,8 +177,8 @@ function WaterfallInner({
             </linearGradient>
           ))}
           <linearGradient id="grad-error" x1="0" y1="0" x2="1" y2="0">
-            <stop offset="0%" stopColor="oklch(0.65 0.22 25)" stopOpacity="0.9" />
-            <stop offset="100%" stopColor="oklch(0.65 0.22 25)" stopOpacity="0.6" />
+            <stop offset="0%" stopColor="oklch(0.70 0.22 25)" stopOpacity="0.9" />
+            <stop offset="100%" stopColor="oklch(0.70 0.22 25)" stopOpacity="0.6" />
           </linearGradient>
           <filter id="bar-glow" x="-20%" y="-50%" width="140%" height="200%">
             <feGaussianBlur in="SourceGraphic" stdDeviation="2" result="blur" />
@@ -200,7 +200,7 @@ function WaterfallInner({
           const isError = f.span.statusCode === "Error";
           const serviceKey = f.span.serviceName.replace(/\W/g, "");
           const gradId = isError ? "grad-error" : `grad-${serviceKey}`;
-          const color = isError ? "oklch(0.65 0.22 25)" : serviceColorMap.get(f.span.serviceName)!;
+          const color = isError ? "oklch(0.70 0.22 25)" : serviceColorMap.get(f.span.serviceName)!;
 
           return (
             <Group
