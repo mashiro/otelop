@@ -51,6 +51,11 @@ export const clearAllAtom = atom(null, (_get, set) => {
   set(logsAtom, []);
 });
 
+// Selection state
+export const selectedTraceAtom = atom<TraceData | null>(null);
+export const selectedMetricAtom = atom<MetricData | null>(null);
+export const selectedLogAtom = atom<LogData | null>(null);
+
 // Bulk set from REST API initial load
 export const setTracesAtom = atom(null, (_get, set, traces: TraceData[]) => {
   set(tracesAtom, traces);

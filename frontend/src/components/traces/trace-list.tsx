@@ -1,5 +1,5 @@
-import { useAtomValue } from "jotai";
-import { tracesAtom } from "@/stores/telemetry";
+import { useAtomValue, useSetAtom } from "jotai";
+import { tracesAtom, selectedTraceAtom } from "@/stores/telemetry";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Table,
@@ -11,9 +11,16 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { formatDuration, formatRelativeTime, shortID } from "@/lib/format";
+import { TraceDetail } from "./trace-detail";
 
 export function TraceList() {
   const traces = useAtomValue(tracesAtom);
+  const selectedTrace = useAtomValue(selectedTraceAtom);
+  const setSelectedTrace = useSetAtom(selectedTraceAtom);
+
+  if (selectedTrace) {
+    return <TraceDetail />;
+  }
 
   if (traces.length === 0) {
     return (
@@ -41,7 +48,11 @@ export function TraceList() {
           {traces.map((trace) => {
             const status = trace.rootSpan?.statusCode ?? "Unset";
             return (
-              <TableRow key={trace.traceID}>
+              <TableRow
+                key={trace.traceID}
+                className="cursor-pointer"
+                onClick={() => setSelectedTrace(trace)}
+              >
                 <TableCell className="font-medium">{trace.serviceName || "-"}</TableCell>
                 <TableCell>{trace.rootSpan?.name ?? trace.spans[0]?.name ?? "-"}</TableCell>
                 <TableCell className="font-mono text-xs">{shortID(trace.traceID)}</TableCell>

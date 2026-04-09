@@ -1,5 +1,5 @@
-import { useAtomValue } from "jotai";
-import { metricsAtom } from "@/stores/telemetry";
+import { useAtomValue, useSetAtom } from "jotai";
+import { metricsAtom, selectedMetricAtom } from "@/stores/telemetry";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Table,
@@ -11,9 +11,16 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { formatRelativeTime } from "@/lib/format";
+import { MetricDetail } from "./metric-detail";
 
 export function MetricList() {
   const metrics = useAtomValue(metricsAtom);
+  const selectedMetric = useAtomValue(selectedMetricAtom);
+  const setSelectedMetric = useSetAtom(selectedMetricAtom);
+
+  if (selectedMetric) {
+    return <MetricDetail />;
+  }
 
   if (metrics.length === 0) {
     return (
@@ -41,7 +48,11 @@ export function MetricList() {
           {metrics.map((metric, i) => {
             const lastPoint = metric.dataPoints[metric.dataPoints.length - 1];
             return (
-              <TableRow key={`${metric.name}-${i}`}>
+              <TableRow
+                key={`${metric.name}-${i}`}
+                className="cursor-pointer"
+                onClick={() => setSelectedMetric(metric)}
+              >
                 <TableCell className="font-medium">{metric.serviceName || "-"}</TableCell>
                 <TableCell>{metric.name}</TableCell>
                 <TableCell>
