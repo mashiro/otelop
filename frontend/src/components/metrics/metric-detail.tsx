@@ -1,13 +1,19 @@
+import { useMemo } from "react";
 import { useAtomValue, useSetAtom } from "jotai";
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { selectedMetricAtom } from "@/stores/telemetry";
-import { MetricChart } from "./metric-chart";
+import { MetricChart, attrKey } from "./metric-chart";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
 export function MetricDetail() {
   const metric = useAtomValue(selectedMetricAtom);
   const setSelected = useSetAtom(selectedMetricAtom);
+
+  const hasAttributes = useMemo(
+    () => metric?.dataPoints.some((dp) => Object.keys(dp.attributes).length > 0) ?? false,
+    [metric],
+  );
 
   if (!metric) return null;
 
@@ -62,6 +68,11 @@ export function MetricDetail() {
                       <th className="px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                         Timestamp
                       </th>
+                      {hasAttributes && (
+                        <th className="px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                          Attributes
+                        </th>
+                      )}
                       <th className="px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                         Value
                       </th>
@@ -76,6 +87,11 @@ export function MetricDetail() {
                         <td className="px-3 py-1.5 font-mono text-muted-foreground">
                           {new Date(dp.timestamp).toLocaleTimeString()}
                         </td>
+                        {hasAttributes && (
+                          <td className="max-w-[250px] truncate px-3 py-1.5 font-mono text-foreground/60">
+                            {attrKey(dp.attributes) || "-"}
+                          </td>
+                        )}
                         <td className="px-3 py-1.5 text-right font-mono text-metric">
                           {dp.value.toLocaleString()}
                         </td>
