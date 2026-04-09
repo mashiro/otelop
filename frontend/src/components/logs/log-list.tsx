@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { useAtomValue, useSetAtom } from "jotai";
 import { logsAtom, logTraceFilterAtom, navigateToTraceAtom } from "@/stores/telemetry";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -11,7 +11,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { formatTimestamp, isZeroID, shortID } from "@/lib/format";
-import { KV } from "@/components/ui/kv";
+import { KVSection } from "@/components/ui/kv-section";
 import type { LogData } from "@/types/telemetry";
 
 const severityStyle: Record<string, { bg: string; text: string; dot: string }> = {
@@ -32,9 +32,10 @@ export function LogList() {
   const navigateToTrace = useSetAtom(navigateToTraceAtom);
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
 
-  const logs = traceFilter
-    ? allLogs.filter((l) => l.traceID === traceFilter)
-    : allLogs;
+  const logs = useMemo(
+    () => (traceFilter ? allLogs.filter((l) => l.traceID === traceFilter) : allLogs),
+    [allLogs, traceFilter],
+  );
 
   if (allLogs.length === 0) {
     return (
@@ -93,9 +94,8 @@ export function LogList() {
               const style = severityStyle[log.severityText] ?? defaultSeverity;
               const hasTrace = !isZeroID(log.traceID);
               return (
-                <>
+                <Fragment key={i}>
                   <TableRow
-                    key={`row-${i}`}
                     className="stagger-row cursor-pointer border-b border-border/30 transition-colors hover:bg-log/5"
                     style={{ animationDelay: `${Math.min(i * 20, 200)}ms` }}
                     onClick={() => setExpandedIdx(expandedIdx === i ? null : i)}
@@ -137,7 +137,7 @@ export function LogList() {
                       </TableCell>
                     </TableRow>
                   )}
-                </>
+                </Fragment>
               );
             })}
           </TableBody>
@@ -172,30 +172,8 @@ function LogDetail({ log, onNavigateToTrace }: { log: LogData; onNavigateToTrace
           )}
         </div>
       )}
-      {Object.keys(log.attributes).length > 0 && (
-        <div>
-          <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-            Attributes
-          </div>
-          <div className="space-y-1.5 rounded-md bg-muted/50 p-2.5">
-            {Object.entries(log.attributes).map(([k, v]) => (
-              <KV key={k} k={k} v={String(v)} />
-            ))}
-          </div>
-        </div>
-      )}
-      {Object.keys(log.resource).length > 0 && (
-        <div>
-          <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-            Resource
-          </div>
-          <div className="space-y-1.5 rounded-md bg-muted/50 p-2.5">
-            {Object.entries(log.resource).map(([k, v]) => (
-              <KV key={k} k={k} v={String(v)} />
-            ))}
-          </div>
-        </div>
-      )}
+      <KVSection title="Attributes" data={log.attributes} />
+      <KVSection title="Resource" data={log.resource} />
     </div>
   );
 }

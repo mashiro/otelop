@@ -108,25 +108,27 @@ function ChartInner({ metric, width, height }: Props & { width: number; height: 
   const innerWidth = width - MARGIN.left - MARGIN.right;
   const innerHeight = height - MARGIN.top - MARGIN.bottom;
 
-  const xScale = useMemo(
-    () =>
-      scaleTime({
-        domain:
-          allPoints.length > 0
-            ? [
-                new Date(Math.min(...allPoints.map((p) => p.time.getTime()))),
-                new Date(Math.max(...allPoints.map((p) => p.time.getTime()))),
-              ]
-            : [new Date(), new Date()],
-        range: [0, innerWidth],
-      }),
-    [allPoints, innerWidth],
-  );
+  const xScale = useMemo(() => {
+    let minT = Infinity;
+    let maxT = -Infinity;
+    for (const p of allPoints) {
+      const t = p.time.getTime();
+      if (t < minT) minT = t;
+      if (t > maxT) maxT = t;
+    }
+    return scaleTime({
+      domain: Number.isFinite(minT) ? [new Date(minT), new Date(maxT)] : [new Date(), new Date()],
+      range: [0, innerWidth],
+    });
+  }, [allPoints, innerWidth]);
 
   const yScale = useMemo(() => {
-    const values = allPoints.map((d) => d.value);
-    const min = Math.min(...values, 0);
-    const max = Math.max(...values, 1);
+    let min = 0;
+    let max = 1;
+    for (const p of allPoints) {
+      if (p.value < min) min = p.value;
+      if (p.value > max) max = p.value;
+    }
     const padding = (max - min) * 0.1 || 1;
     return scaleLinear({
       domain: [min - padding, max + padding],
@@ -200,7 +202,6 @@ function ChartInner({ metric, width, height }: Props & { width: number; height: 
   return (
     <div className="relative flex h-full flex-col">
       <svg ref={svgRef} width={width} height={svgHeight}>
-        <defs />
         <Group left={MARGIN.left} top={MARGIN.top}>
           {/* Grid lines */}
           {yScale.ticks(5).map((tick) => (

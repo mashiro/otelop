@@ -89,6 +89,9 @@ func (s *Store) AddTraces(td ptrace.Traces) {
 	}
 }
 
+// maxDataPointsPerMetric limits in-memory data points per metric to prevent unbounded growth.
+const maxDataPointsPerMetric = 1000
+
 // metricKey returns the key used to identify a unique metric series.
 func metricKey(serviceName, name string) string {
 	return serviceName + "\x00" + name
@@ -104,6 +107,9 @@ func (s *Store) AddMetrics(md pmetric.Metrics) {
 			existing := s.metrics.Get(idx)
 			if existing != nil {
 				existing.DataPoints = append(existing.DataPoints, m.DataPoints...)
+				if len(existing.DataPoints) > maxDataPointsPerMetric {
+					existing.DataPoints = existing.DataPoints[len(existing.DataPoints)-maxDataPointsPerMetric:]
+				}
 				existing.ReceivedAt = m.ReceivedAt
 				continue
 			}

@@ -5,7 +5,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { selectedTraceAtom, navigateToLogsAtom } from "@/stores/telemetry";
 import { formatDuration, shortID } from "@/lib/format";
 import { SpanWaterfall } from "./span-waterfall";
-import { KV } from "@/components/ui/kv";
+import { KVSection } from "@/components/ui/kv-section";
 import type { SpanData } from "@/types/telemetry";
 import { useState } from "react";
 
@@ -97,13 +97,7 @@ function SpanDetail({ span, onClose }: { span: SpanData; onClose: () => void }) 
           <Field label="Duration" value={formatDuration(span.duration)} mono highlight />
         </div>
 
-        {Object.keys(span.attributes).length > 0 && (
-          <Section title="Attributes">
-            {Object.entries(span.attributes).map(([k, v]) => (
-              <KV key={k} k={k} v={String(v)} />
-            ))}
-          </Section>
-        )}
+        <KVSection title="Attributes" data={span.attributes} />
 
         {span.events.length > 0 && (
           <Section title="Events">
@@ -115,13 +109,7 @@ function SpanDetail({ span, onClose }: { span: SpanData; onClose: () => void }) 
           </Section>
         )}
 
-        {Object.keys(span.resource).length > 0 && (
-          <Section title="Resource">
-            {Object.entries(span.resource).map(([k, v]) => (
-              <KV key={k} k={k} v={String(v)} />
-            ))}
-          </Section>
-        )}
+        <KVSection title="Resource" data={span.resource} />
       </div>
     </ScrollArea>
   );
