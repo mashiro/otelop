@@ -144,6 +144,13 @@
   html {
     @apply font-sans antialiased;
   }
+  button,
+  [role="button"],
+  a,
+  [role="tab"],
+  summary {
+    cursor: pointer;
+  }
 }
 
 /* ── Noise texture overlay ── */
