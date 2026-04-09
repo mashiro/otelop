@@ -5,6 +5,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { selectedTraceAtom, navigateToLogsAtom } from "@/stores/telemetry";
 import { formatDuration, shortID } from "@/lib/format";
 import { SpanWaterfall } from "./span-waterfall";
+import { KV } from "@/components/ui/kv";
 import type { SpanData } from "@/types/telemetry";
 import { useState } from "react";
 
@@ -133,15 +134,6 @@ function Section({ title, children }: { title: string; children: React.ReactNode
         {title}
       </h4>
       <div className="space-y-1.5 rounded-md bg-background/30 p-2.5">{children}</div>
-    </div>
-  );
-}
-
-function KV({ k, v }: { k: string; v: string }) {
-  return (
-    <div className="text-xs">
-      <div className="text-muted-foreground">{k}</div>
-      <div className="break-all font-mono text-foreground/80 pl-3">{v}</div>
     </div>
   );
 }

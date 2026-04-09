@@ -11,6 +11,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { formatTimestamp, isZeroID, shortID } from "@/lib/format";
+import { KV } from "@/components/ui/kv";
 import type { LogData } from "@/types/telemetry";
 
 const severityStyle: Record<string, { bg: string; text: string; dot: string }> = {
@@ -176,12 +177,9 @@ function LogDetail({ log, onNavigateToTrace }: { log: LogData; onNavigateToTrace
           <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
             Attributes
           </div>
-          <div className="space-y-1 rounded-md bg-background/30 p-2.5">
+          <div className="space-y-1.5 rounded-md bg-background/30 p-2.5">
             {Object.entries(log.attributes).map(([k, v]) => (
-              <div key={k} className="flex gap-2">
-                <span className="shrink-0 text-muted-foreground">{k}</span>
-                <span className="break-all font-mono text-foreground/80">{String(v)}</span>
-              </div>
+              <KV key={k} k={k} v={String(v)} />
             ))}
           </div>
         </div>
@@ -191,12 +189,9 @@ function LogDetail({ log, onNavigateToTrace }: { log: LogData; onNavigateToTrace
           <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
             Resource
           </div>
-          <div className="space-y-1 rounded-md bg-background/30 p-2.5">
+          <div className="space-y-1.5 rounded-md bg-background/30 p-2.5">
             {Object.entries(log.resource).map(([k, v]) => (
-              <div key={k} className="flex gap-2">
-                <span className="shrink-0 text-muted-foreground">{k}</span>
-                <span className="break-all font-mono text-foreground/80">{String(v)}</span>
-              </div>
+              <KV key={k} k={k} v={String(v)} />
             ))}
           </div>
         </div>
