@@ -98,28 +98,38 @@ function WaterfallInner({
     return map;
   }, [flatSpans]);
 
-  // Compute time range from actual span timestamps, filtering out invalid values.
+  // Use the root span's time range as the scale so it fills the full width.
+  // Fall back to trace-level or all-span range if no root span.
   const { traceStart, traceEnd } = useMemo(() => {
+    // Prefer root span's time range.
+    if (trace.rootSpan) {
+      const s = new Date(trace.rootSpan.startTime).getTime();
+      const e = new Date(trace.rootSpan.endTime).getTime();
+      if (Number.isFinite(s) && Number.isFinite(e) && s > 0 && e > s) {
+        return { traceStart: s, traceEnd: e };
+      }
+    }
+    // Fallback: trace-level startTime + duration (ns → ms).
+    const start = new Date(trace.startTime).getTime();
+    const durationMs = trace.duration / 1_000_000;
+    if (Number.isFinite(start) && start > 0 && durationMs > 0) {
+      return { traceStart: start, traceEnd: start + durationMs };
+    }
+    // Last resort: compute from all spans.
     let min = Infinity;
     let max = -Infinity;
     for (const f of flatSpans) {
       const s = new Date(f.span.startTime).getTime();
       const e = new Date(f.span.endTime).getTime();
-      // Filter out invalid timestamps (e.g. Go zero time "0001-01-01T00:00:00Z").
       if (!Number.isFinite(s) || s < 0) continue;
       if (s < min) min = s;
       if (e > max) max = e;
     }
-    // Fallback: use the trace-level startTime + duration (ns → ms).
     if (!Number.isFinite(min) || !Number.isFinite(max) || min >= max) {
-      const start = new Date(trace.startTime).getTime();
-      const durationMs = trace.duration / 1_000_000;
-      return { traceStart: start, traceEnd: start + Math.max(durationMs, 1) };
+      return { traceStart: 0, traceEnd: 1 };
     }
-    // Guard against zero-width domain.
-    if (max - min < 1) max = min + 1;
     return { traceStart: min, traceEnd: max };
-  }, [flatSpans, trace.startTime, trace.duration]);
+  }, [trace.rootSpan, trace.startTime, trace.duration, flatSpans]);
 
   const barWidth = width - LABEL_WIDTH;
   const xScale = scaleLinear({
