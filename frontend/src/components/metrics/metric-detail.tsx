@@ -18,7 +18,7 @@ export function MetricDetail() {
   if (!metric) return null;
 
   return (
-    <div className="animate-fade-in flex h-full flex-col overflow-hidden rounded-lg border border-border/50 bg-card">
+    <div className="glass-card animate-fade-in flex h-full flex-col overflow-hidden">
       {/* Header */}
       <div className="flex items-center justify-between border-b border-border/50 px-4 py-2.5">
         <div className="flex items-center gap-3">
