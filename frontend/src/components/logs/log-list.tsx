@@ -149,10 +149,10 @@ export function LogList() {
 
 function LogDetail({ log, onNavigateToTrace }: { log: LogData; onNavigateToTrace: (id: string) => void }) {
   return (
-    <div className="animate-slide-up-fade space-y-3 px-4 py-3 text-xs">
-      <div>
-        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Body </span>
-        <span className="whitespace-pre-wrap break-all text-foreground/80">{log.body}</span>
+    <div className="animate-slide-up-fade space-y-3 overflow-hidden px-4 py-3 text-xs">
+      <div className="min-w-0">
+        <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Body</div>
+        <div className="whitespace-pre-wrap break-all font-mono text-foreground/80 pl-3">{log.body}</div>
       </div>
       {!isZeroID(log.traceID) && (
         <div className="flex items-center gap-2">
