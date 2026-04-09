@@ -49,7 +49,7 @@ interface Props {
 function attrKey(attrs: Record<string, unknown>): string {
   const entries = Object.entries(attrs).sort(([a], [b]) => a.localeCompare(b));
   if (entries.length === 0) return "";
-  return entries.map(([k, v]) => `${k}=${String(v)}`).join(", ");
+  return entries.map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(", ");
 }
 
 /** Find the point in a series closest to a given time. */
@@ -200,15 +200,7 @@ function ChartInner({ metric, width, height }: Props & { width: number; height: 
   return (
     <div className="relative flex h-full flex-col">
       <svg ref={svgRef} width={width} height={svgHeight}>
-        <defs>
-          <filter id="line-glow">
-            <feGaussianBlur in="SourceGraphic" stdDeviation="2" result="blur" />
-            <feMerge>
-              <feMergeNode in="blur" />
-              <feMergeNode in="SourceGraphic" />
-            </feMerge>
-          </filter>
-        </defs>
+        <defs />
         <Group left={MARGIN.left} top={MARGIN.top}>
           {/* Grid lines */}
           {yScale.ticks(5).map((tick) => (
@@ -259,8 +251,6 @@ function ChartInner({ metric, width, height }: Props & { width: number; height: 
                   stroke={s.color}
                   strokeWidth={2}
                   curve={curveMonotoneX}
-                  filter="url(#line-glow)"
-                  strokeOpacity={0.8}
                 />
               )}
               {s.points.map((d, i) => (
