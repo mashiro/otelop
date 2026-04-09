@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { Group } from "@visx/group";
 import { scaleLinear } from "@visx/scale";
 import { ParentSize } from "@visx/responsive";
+import { Temporal } from "temporal-polyfill";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { formatDuration } from "@/lib/format";
 import type { TraceData, SpanData } from "@/types/telemetry";
@@ -33,6 +34,16 @@ interface FlatSpan {
   depth: number;
 }
 
+/** Parse ISO timestamp to nanoseconds relative to a base instant. */
+function toNsOffset(iso: string, baseNs: bigint): number {
+  try {
+    const ns = Temporal.Instant.from(iso).epochNanoseconds;
+    return Number(ns - baseNs);
+  } catch {
+    return -1;
+  }
+}
+
 function buildTree(spans: SpanData[]): FlatSpan[] {
   const byId = new Map<string, SpanData>();
   const children = new Map<string, SpanData[]>();
@@ -47,7 +58,15 @@ function buildTree(spans: SpanData[]): FlatSpan[] {
   const result: FlatSpan[] = [];
   function walk(parentID: string, depth: number) {
     const kids = children.get(parentID) ?? [];
-    kids.sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
+    kids.sort((a, b) => {
+      try {
+        const ta = Temporal.Instant.from(a.startTime);
+        const tb = Temporal.Instant.from(b.startTime);
+        return Temporal.Instant.compare(ta, tb);
+      } catch {
+        return 0;
+      }
+    });
     for (const s of kids) {
       result.push({ span: s, depth });
       walk(s.spanID, depth + 1);
@@ -55,7 +74,15 @@ function buildTree(spans: SpanData[]): FlatSpan[] {
   }
 
   const roots = spans.filter((s) => !s.parentSpanID || !byId.has(s.parentSpanID));
-  roots.sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
+  roots.sort((a, b) => {
+    try {
+      const ta = Temporal.Instant.from(a.startTime);
+      const tb = Temporal.Instant.from(b.startTime);
+      return Temporal.Instant.compare(ta, tb);
+    } catch {
+      return 0;
+    }
+  });
   for (const r of roots) {
     result.push({ span: r, depth: 0 });
     walk(r.spanID, 1);
@@ -98,42 +125,42 @@ function WaterfallInner({
     return map;
   }, [flatSpans]);
 
-  // Use the root span's time range as the scale so it fills the full width.
-  // Fall back to trace-level or all-span range if no root span.
-  const { traceStart, traceEnd } = useMemo(() => {
-    // Prefer root span's time range.
+  // Compute scale in nanoseconds, anchored to the root span so it fills full width.
+  const { baseNs, totalNs } = useMemo(() => {
+    // Prefer root span: its start → end defines the full width.
     if (trace.rootSpan) {
-      const s = new Date(trace.rootSpan.startTime).getTime();
-      const e = new Date(trace.rootSpan.endTime).getTime();
-      if (Number.isFinite(s) && Number.isFinite(e) && s > 0 && e > s) {
-        return { traceStart: s, traceEnd: e };
-      }
+      try {
+        const start = Temporal.Instant.from(trace.rootSpan.startTime).epochNanoseconds;
+        const end = Temporal.Instant.from(trace.rootSpan.endTime).epochNanoseconds;
+        const dur = Number(end - start);
+        if (dur > 0) return { baseNs: start, totalNs: dur };
+      } catch { /* fall through */ }
     }
-    // Fallback: trace-level startTime + duration (ns → ms).
-    const start = new Date(trace.startTime).getTime();
-    const durationMs = trace.duration / 1_000_000;
-    if (Number.isFinite(start) && start > 0 && durationMs > 0) {
-      return { traceStart: start, traceEnd: start + durationMs };
-    }
+    // Fallback: trace.startTime + trace.duration (duration is already in ns).
+    try {
+      const start = Temporal.Instant.from(trace.startTime).epochNanoseconds;
+      if (trace.duration > 0) return { baseNs: start, totalNs: trace.duration };
+    } catch { /* fall through */ }
     // Last resort: compute from all spans.
-    let min = Infinity;
-    let max = -Infinity;
+    let minNs: bigint | null = null;
+    let maxNs: bigint | null = null;
     for (const f of flatSpans) {
-      const s = new Date(f.span.startTime).getTime();
-      const e = new Date(f.span.endTime).getTime();
-      if (!Number.isFinite(s) || s < 0) continue;
-      if (s < min) min = s;
-      if (e > max) max = e;
+      try {
+        const s = Temporal.Instant.from(f.span.startTime).epochNanoseconds;
+        const e = Temporal.Instant.from(f.span.endTime).epochNanoseconds;
+        if (minNs === null || s < minNs) minNs = s;
+        if (maxNs === null || e > maxNs) maxNs = e;
+      } catch { /* skip */ }
     }
-    if (!Number.isFinite(min) || !Number.isFinite(max) || min >= max) {
-      return { traceStart: 0, traceEnd: 1 };
+    if (minNs !== null && maxNs !== null && maxNs > minNs) {
+      return { baseNs: minNs, totalNs: Number(maxNs - minNs) };
     }
-    return { traceStart: min, traceEnd: max };
+    return { baseNs: 0n, totalNs: 1 };
   }, [trace.rootSpan, trace.startTime, trace.duration, flatSpans]);
 
   const barWidth = width - LABEL_WIDTH;
   const xScale = scaleLinear({
-    domain: [traceStart, traceEnd],
+    domain: [0, totalNs],
     range: [0, barWidth],
   });
 
@@ -143,7 +170,6 @@ function WaterfallInner({
     <ScrollArea className="h-full">
       <svg width={width} height={svgHeight}>
         <defs>
-          {/* Gradient definitions for each service */}
           {[...serviceColorMap.entries()].map(([service, color]) => (
             <linearGradient key={service} id={`grad-${service.replace(/\W/g, "")}`} x1="0" y1="0" x2="1" y2="0">
               <stop offset="0%" stopColor={color} stopOpacity="0.9" />
@@ -154,7 +180,6 @@ function WaterfallInner({
             <stop offset="0%" stopColor="oklch(0.65 0.22 25)" stopOpacity="0.9" />
             <stop offset="100%" stopColor="oklch(0.65 0.22 25)" stopOpacity="0.6" />
           </linearGradient>
-          {/* Glow filter */}
           <filter id="bar-glow" x="-20%" y="-50%" width="140%" height="200%">
             <feGaussianBlur in="SourceGraphic" stdDeviation="2" result="blur" />
             <feMerge>
@@ -165,13 +190,11 @@ function WaterfallInner({
         </defs>
 
         {flatSpans.map((f, i) => {
-          let startMs = new Date(f.span.startTime).getTime();
-          let endMs = new Date(f.span.endTime).getTime();
-          // Clamp invalid timestamps to the trace range.
-          if (!Number.isFinite(startMs) || startMs < traceStart) startMs = traceStart;
-          if (!Number.isFinite(endMs) || endMs < startMs) endMs = startMs + (f.span.duration / 1_000_000);
-          const x = xScale(startMs);
-          const w = Math.max(xScale(endMs) - x, MIN_BAR_WIDTH);
+          const startOffset = toNsOffset(f.span.startTime, baseNs);
+          // Use duration field for width (always accurate in ns).
+          const spanDurNs = f.span.duration > 0 ? f.span.duration : 0;
+          const x = xScale(Math.max(startOffset, 0));
+          const w = Math.max(xScale(spanDurNs) - xScale(0), MIN_BAR_WIDTH);
           const y = i * ROW_HEIGHT;
           const isSelected = selectedSpan?.spanID === f.span.spanID;
           const isError = f.span.statusCode === "Error";
@@ -186,7 +209,6 @@ function WaterfallInner({
               className="cursor-pointer"
               onClick={() => onSelectSpan(f.span)}
             >
-              {/* Selected row highlight */}
               {isSelected && (
                 <rect
                   x={0}
@@ -198,7 +220,6 @@ function WaterfallInner({
                 />
               )}
 
-              {/* Hover area */}
               <rect
                 x={0}
                 y={0}
@@ -208,7 +229,6 @@ function WaterfallInner({
                 className="opacity-0 transition-opacity hover:opacity-100"
               />
 
-              {/* Depth indicator lines */}
               {f.depth > 0 && (
                 <line
                   x1={8 + (f.depth - 1) * 16 + 4}
@@ -221,7 +241,6 @@ function WaterfallInner({
                 />
               )}
 
-              {/* Label */}
               <text
                 x={8 + f.depth * 16}
                 y={ROW_HEIGHT / 2}
@@ -238,7 +257,6 @@ function WaterfallInner({
                 )}
               </text>
 
-              {/* Bar with gradient */}
               <rect
                 x={LABEL_WIDTH + x}
                 y={BAR_PADDING}
@@ -249,7 +267,6 @@ function WaterfallInner({
                 filter={isSelected ? "url(#bar-glow)" : undefined}
               />
 
-              {/* Duration label on bar */}
               {w > 50 && (
                 <text
                   x={LABEL_WIDTH + x + w / 2}
@@ -267,7 +284,6 @@ function WaterfallInner({
                 </text>
               )}
 
-              {/* Separator line */}
               <line
                 x1={0}
                 x2={width}
