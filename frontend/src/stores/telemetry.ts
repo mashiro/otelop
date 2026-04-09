@@ -1,6 +1,18 @@
 import { atom } from "jotai";
 import type { TraceData, MetricData, LogData } from "@/types/telemetry";
 
+// Server-side capacity config, fetched at startup.
+export interface ServerConfig {
+  traceCap: number;
+  metricCap: number;
+  logCap: number;
+}
+
+const DEFAULT_CONFIG: ServerConfig = { traceCap: 1000, metricCap: 3000, logCap: 1000 };
+const MAX_DATA_POINTS = 1000;
+
+export const serverConfigAtom = atom<ServerConfig>(DEFAULT_CONFIG);
+
 // WebSocket connection status
 export type WsStatus = "connecting" | "connected" | "disconnected";
 export const wsStatusAtom = atom<WsStatus>("disconnected");
@@ -13,6 +25,7 @@ export const logsAtom = atom<LogData[]>([]);
 // Write-only: add single item from WebSocket
 export const addTraceAtom = atom(null, (get, set, newTrace: TraceData) => {
   const current = get(tracesAtom);
+  const maxTraces = get(serverConfigAtom).traceCap;
   const idx = current.findIndex((t) => t.traceID === newTrace.traceID);
   if (idx >= 0) {
     const existing = current[idx];
@@ -31,12 +44,14 @@ export const addTraceAtom = atom(null, (get, set, newTrace: TraceData) => {
     };
     set(tracesAtom, updated);
   } else {
-    set(tracesAtom, [newTrace, ...current]);
+    const next = [newTrace, ...current];
+    set(tracesAtom, next.length > maxTraces ? next.slice(0, maxTraces) : next);
   }
 });
 
 export const addMetricAtom = atom(null, (get, set, newMetric: MetricData) => {
   const current = get(metricsAtom);
+  const maxMetrics = get(serverConfigAtom).metricCap;
   const idx = current.findIndex(
     (m) => m.serviceName === newMetric.serviceName && m.name === newMetric.name,
   );
@@ -45,17 +60,22 @@ export const addMetricAtom = atom(null, (get, set, newMetric: MetricData) => {
     const updated = [...current];
     updated[idx] = {
       ...existing,
-      dataPoints: [...existing.dataPoints, ...newMetric.dataPoints].slice(-1000),
+      dataPoints: [...existing.dataPoints, ...newMetric.dataPoints].slice(-MAX_DATA_POINTS),
       receivedAt: newMetric.receivedAt,
     };
     set(metricsAtom, updated);
   } else {
-    set(metricsAtom, [newMetric, ...current]);
+    const next = [newMetric, ...current];
+    set(metricsAtom, next.length > maxMetrics ? next.slice(0, maxMetrics) : next);
   }
 });
 
-export const addLogAtom = atom(null, (_get, set, newLog: LogData) => {
-  set(logsAtom, (prev) => [newLog, ...prev]);
+export const addLogAtom = atom(null, (get, set, newLog: LogData) => {
+  const maxLogs = get(serverConfigAtom).logCap;
+  set(logsAtom, (prev) => {
+    const next = [newLog, ...prev];
+    return next.length > maxLogs ? next.slice(0, maxLogs) : next;
+  });
 });
 
 // Counts for tab badges

@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"io/fs"
 	"log"
 	"net/http"
@@ -27,6 +28,7 @@ func New(addr string, s *store.Store, hub *ws.Hub, frontendFS fs.FS) *Server {
 	mux := http.NewServeMux()
 
 	// REST API
+	mux.HandleFunc("GET /api/config", srv.handleGetConfig)
 	mux.HandleFunc("GET /api/traces", srv.handleGetTraces)
 	mux.HandleFunc("GET /api/traces/{traceID}", srv.handleGetTraceByID)
 	mux.HandleFunc("GET /api/metrics", srv.handleGetMetrics)
@@ -77,6 +79,16 @@ func spaHandler(fsys fs.FS) http.Handler {
 			r.URL.Path = "/"
 		}
 		fileServer.ServeHTTP(w, r)
+	})
+}
+
+func (s *Server) handleGetConfig(w http.ResponseWriter, _ *http.Request) {
+	traceCap, metricCap, logCap := s.store.Capacity()
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]int{
+		"traceCap":  traceCap,
+		"metricCap": metricCap,
+		"logCap":    logCap,
 	})
 }
 

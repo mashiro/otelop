@@ -11,9 +11,10 @@ import {
   setMetricsAtom,
   setLogsAtom,
   activeTabAtom,
+  serverConfigAtom,
 } from "@/stores/telemetry";
 import type { PaginatedResponse, TraceData, MetricData, LogData } from "@/types/telemetry";
-import type { TabValue } from "@/stores/telemetry";
+import type { ServerConfig, TabValue } from "@/stores/telemetry";
 
 function App() {
   useWebSocket();
@@ -21,16 +22,22 @@ function App() {
   const setTraces = useSetAtom(setTracesAtom);
   const setMetrics = useSetAtom(setMetricsAtom);
   const setLogs = useSetAtom(setLogsAtom);
+  const setConfig = useSetAtom(serverConfigAtom);
   const activeTab = useAtomValue(activeTabAtom);
   const setActiveTab = useSetAtom(activeTabAtom);
 
   useEffect(() => {
     const load = async () => {
       try {
+        // Fetch server config first to use correct limits.
+        const cfgRes = await fetch("/api/config");
+        const cfg: ServerConfig = await cfgRes.json();
+        setConfig(cfg);
+
         const [tRes, mRes, lRes] = await Promise.all([
-          fetch("/api/traces?limit=200"),
-          fetch("/api/metrics?limit=200"),
-          fetch("/api/logs?limit=200"),
+          fetch(`/api/traces?limit=${cfg.traceCap}`),
+          fetch(`/api/metrics?limit=${cfg.metricCap}`),
+          fetch(`/api/logs?limit=${cfg.logCap}`),
         ]);
         const traces: PaginatedResponse<TraceData> = await tRes.json();
         const metrics: PaginatedResponse<MetricData> = await mRes.json();
@@ -43,7 +50,7 @@ function App() {
       }
     };
     void load();
-  }, [setTraces, setMetrics, setLogs]);
+  }, [setTraces, setMetrics, setLogs, setConfig]);
 
   return (
     <div className="noise-bg mesh-bg flex h-screen flex-col text-foreground">
