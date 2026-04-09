@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 
+	"github.com/CAFxX/httpcompression"
 	"github.com/mashiro/otelop/internal/store"
 	ws "github.com/mashiro/otelop/internal/websocket"
 )
@@ -35,15 +36,17 @@ func New(addr string, s *store.Store, hub *ws.Hub, frontendFS fs.FS) *Server {
 	mux.HandleFunc("GET /api/logs", srv.handleGetLogs)
 	mux.HandleFunc("DELETE /api/clear", srv.handleClear)
 
-	// WebSocket
+	// WebSocket (no compression — it has its own framing)
 	mux.HandleFunc("GET /ws", srv.handleWebSocket)
 
 	// Static files with SPA fallback
 	mux.Handle("/", spaHandler(frontendFS))
 
+	// Wrap with brotli/gzip/deflate compression (content-negotiated).
+	compress, _ := httpcompression.DefaultAdapter()
 	srv.httpServer = &http.Server{
 		Addr:    addr,
-		Handler: mux,
+		Handler: compress(mux),
 	}
 
 	return srv
@@ -65,7 +68,6 @@ func (s *Server) Shutdown(ctx context.Context) error {
 func spaHandler(fsys fs.FS) http.Handler {
 	fileServer := http.FileServerFS(fsys)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Try to open the file. If it doesn't exist, serve index.html.
 		path := r.URL.Path
 		if path == "/" {
 			path = "index.html"
@@ -75,7 +77,6 @@ func spaHandler(fsys fs.FS) http.Handler {
 
 		_, err := fs.Stat(fsys, path)
 		if err != nil {
-			// File not found, serve index.html for SPA routing.
 			r.URL.Path = "/"
 		}
 		fileServer.ServeHTTP(w, r)

@@ -3,6 +3,7 @@ module github.com/mashiro/otelop
 go 1.25.0
 
 require (
+	github.com/CAFxX/httpcompression v0.0.9
 	github.com/coder/websocket v1.8.14
 	github.com/urfave/cli/v3 v3.8.0
 	go.opentelemetry.io/collector/component v1.55.0
@@ -22,6 +23,7 @@ require (
 )
 
 require (
+	github.com/andybalholm/brotli v1.0.5 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
