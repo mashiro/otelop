@@ -98,23 +98,28 @@ function WaterfallInner({
     return map;
   }, [flatSpans]);
 
-  const traceStart = useMemo(() => {
+  // Compute time range from actual span timestamps, filtering out invalid values.
+  const { traceStart, traceEnd } = useMemo(() => {
     let min = Infinity;
-    for (const f of flatSpans) {
-      const t = new Date(f.span.startTime).getTime();
-      if (t < min) min = t;
-    }
-    return min;
-  }, [flatSpans]);
-
-  const traceEnd = useMemo(() => {
     let max = -Infinity;
     for (const f of flatSpans) {
-      const t = new Date(f.span.endTime).getTime();
-      if (t > max) max = t;
+      const s = new Date(f.span.startTime).getTime();
+      const e = new Date(f.span.endTime).getTime();
+      // Filter out invalid timestamps (e.g. Go zero time "0001-01-01T00:00:00Z").
+      if (!Number.isFinite(s) || s < 0) continue;
+      if (s < min) min = s;
+      if (e > max) max = e;
     }
-    return max;
-  }, [flatSpans]);
+    // Fallback: use the trace-level startTime + duration (ns → ms).
+    if (!Number.isFinite(min) || !Number.isFinite(max) || min >= max) {
+      const start = new Date(trace.startTime).getTime();
+      const durationMs = trace.duration / 1_000_000;
+      return { traceStart: start, traceEnd: start + Math.max(durationMs, 1) };
+    }
+    // Guard against zero-width domain.
+    if (max - min < 1) max = min + 1;
+    return { traceStart: min, traceEnd: max };
+  }, [flatSpans, trace.startTime, trace.duration]);
 
   const barWidth = width - LABEL_WIDTH;
   const xScale = scaleLinear({
@@ -150,8 +155,11 @@ function WaterfallInner({
         </defs>
 
         {flatSpans.map((f, i) => {
-          const startMs = new Date(f.span.startTime).getTime();
-          const endMs = new Date(f.span.endTime).getTime();
+          let startMs = new Date(f.span.startTime).getTime();
+          let endMs = new Date(f.span.endTime).getTime();
+          // Clamp invalid timestamps to the trace range.
+          if (!Number.isFinite(startMs) || startMs < traceStart) startMs = traceStart;
+          if (!Number.isFinite(endMs) || endMs < startMs) endMs = startMs + (f.span.duration / 1_000_000);
           const x = xScale(startMs);
           const w = Math.max(xScale(endMs) - x, MIN_BAR_WIDTH);
           const y = i * ROW_HEIGHT;
