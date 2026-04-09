@@ -4,6 +4,7 @@ go 1.25.0
 
 require (
 	github.com/coder/websocket v1.8.14
+	github.com/spf13/cobra v1.10.2
 	go.opentelemetry.io/collector/component v1.55.0
 	go.opentelemetry.io/collector/confmap v1.55.0
 	go.opentelemetry.io/collector/confmap/provider/yamlprovider v1.55.0
@@ -63,7 +64,6 @@ require (
 	github.com/prometheus/procfs v0.20.1 // indirect
 	github.com/rs/cors v1.11.1 // indirect
 	github.com/shirou/gopsutil/v4 v4.26.2 // indirect
-	github.com/spf13/cobra v1.10.2 // indirect
 	github.com/spf13/pflag v1.0.10 // indirect
 	github.com/stretchr/testify v1.11.1 // indirect
 	github.com/tklauser/go-sysconf v0.3.16 // indirect
