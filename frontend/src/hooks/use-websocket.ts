@@ -80,9 +80,21 @@ export function useWebSocket(): void {
     return () => {
       disposedRef.current = true;
       clearTimeout(reconnectTimerRef.current);
-      if (wsRef.current) {
-        wsRef.current.close();
+      const ws = wsRef.current;
+      if (ws) {
         wsRef.current = null;
+        // Only close if the connection is actually open.
+        // Closing a CONNECTING socket logs a browser console error.
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.close();
+        } else {
+          // For CONNECTING state, null out handlers so callbacks are no-ops
+          // when the socket eventually opens or errors.
+          ws.onopen = null;
+          ws.onclose = null;
+          ws.onmessage = null;
+          ws.onerror = null;
+        }
       }
     };
   }, [connect]);
