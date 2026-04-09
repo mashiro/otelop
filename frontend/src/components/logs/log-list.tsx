@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { useAtomValue } from "jotai";
-import { logsAtom } from "@/stores/telemetry";
+import { useAtomValue, useSetAtom } from "jotai";
+import { logsAtom, logTraceFilterAtom, navigateToTraceAtom } from "@/stores/telemetry";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Table,
@@ -25,10 +25,17 @@ const severityStyle: Record<string, { bg: string; text: string; dot: string }> =
 const defaultSeverity = { bg: "bg-muted", text: "text-muted-foreground", dot: "bg-muted-foreground/40" };
 
 export function LogList() {
-  const logs = useAtomValue(logsAtom);
+  const allLogs = useAtomValue(logsAtom);
+  const traceFilter = useAtomValue(logTraceFilterAtom);
+  const setTraceFilter = useSetAtom(logTraceFilterAtom);
+  const navigateToTrace = useSetAtom(navigateToTraceAtom);
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
 
-  if (logs.length === 0) {
+  const logs = traceFilter
+    ? allLogs.filter((l) => l.traceID === traceFilter)
+    : allLogs;
+
+  if (allLogs.length === 0) {
     return (
       <div className="glass-card flex h-full items-center justify-center">
         <div className="animate-slide-up-fade flex flex-col items-center gap-4">
@@ -47,8 +54,29 @@ export function LogList() {
   }
 
   return (
-    <div className="glass-card h-full overflow-hidden">
-      <ScrollArea className="h-full">
+    <div className="glass-card flex h-full flex-col overflow-hidden">
+      {/* Filter bar */}
+      {traceFilter && (
+        <div className="flex items-center gap-2 border-b border-border/50 px-4 py-2">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Filtered by Trace
+          </span>
+          <span className="rounded bg-trace/15 px-1.5 py-0.5 font-mono text-xs text-trace">
+            {shortID(traceFilter)}
+          </span>
+          <button
+            onClick={() => setTraceFilter(null)}
+            className="ml-1 rounded px-1.5 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          >
+            Clear
+          </button>
+          <span className="text-xs text-muted-foreground">
+            {logs.length} / {allLogs.length} logs
+          </span>
+        </div>
+      )}
+
+      <ScrollArea className="flex-1">
         <Table>
           <TableHeader>
             <TableRow className="border-b border-border/50 hover:bg-transparent">
@@ -62,6 +90,7 @@ export function LogList() {
           <TableBody>
             {logs.map((log, i) => {
               const style = severityStyle[log.severityText] ?? defaultSeverity;
+              const hasTrace = !isZeroID(log.traceID);
               return (
                 <>
                   <TableRow
@@ -85,14 +114,25 @@ export function LogList() {
                     <TableCell className="max-w-[400px] truncate text-sm text-foreground/80">
                       {log.body}
                     </TableCell>
-                    <TableCell className="font-mono text-xs text-muted-foreground">
-                      {isZeroID(log.traceID) ? "" : shortID(log.traceID, 8)}
+                    <TableCell>
+                      {hasTrace ? (
+                        <button
+                          className="font-mono text-xs text-trace underline decoration-trace/30 underline-offset-2 transition-colors hover:text-trace hover:decoration-trace/60"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            navigateToTrace(log.traceID);
+                          }}
+                          title="View trace"
+                        >
+                          {shortID(log.traceID, 8)}
+                        </button>
+                      ) : null}
                     </TableCell>
                   </TableRow>
                   {expandedIdx === i && (
                     <TableRow key={`detail-${i}`}>
                       <TableCell colSpan={5} className="border-b border-border/20 bg-card/30 p-0">
-                        <LogDetail log={log} />
+                        <LogDetail log={log} onNavigateToTrace={navigateToTrace} />
                       </TableCell>
                     </TableRow>
                   )}
@@ -106,7 +146,7 @@ export function LogList() {
   );
 }
 
-function LogDetail({ log }: { log: LogData }) {
+function LogDetail({ log, onNavigateToTrace }: { log: LogData; onNavigateToTrace: (id: string) => void }) {
   return (
     <div className="animate-slide-up-fade space-y-3 px-4 py-3 text-xs">
       <div>
@@ -114,12 +154,17 @@ function LogDetail({ log }: { log: LogData }) {
         <span className="whitespace-pre-wrap break-all text-foreground/80">{log.body}</span>
       </div>
       {!isZeroID(log.traceID) && (
-        <div>
+        <div className="flex items-center gap-2">
           <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Trace ID </span>
-          <span className="font-mono text-log">{log.traceID}</span>
+          <button
+            className="font-mono text-trace underline decoration-trace/30 underline-offset-2 transition-colors hover:decoration-trace/60"
+            onClick={() => onNavigateToTrace(log.traceID)}
+          >
+            {log.traceID}
+          </button>
           {!isZeroID(log.spanID) && (
             <>
-              <span className="mx-2 text-muted-foreground">/</span>
+              <span className="mx-1 text-muted-foreground">/</span>
               <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Span ID </span>
               <span className="font-mono text-log">{log.spanID}</span>
             </>

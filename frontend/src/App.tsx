@@ -1,13 +1,19 @@
 import { useEffect } from "react";
-import { useSetAtom } from "jotai";
+import { useAtomValue, useSetAtom } from "jotai";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Header } from "@/components/layout/header";
 import { TraceList } from "@/components/traces/trace-list";
 import { MetricList } from "@/components/metrics/metric-list";
 import { LogList } from "@/components/logs/log-list";
 import { useWebSocket } from "@/hooks/use-websocket";
-import { setTracesAtom, setMetricsAtom, setLogsAtom } from "@/stores/telemetry";
+import {
+  setTracesAtom,
+  setMetricsAtom,
+  setLogsAtom,
+  activeTabAtom,
+} from "@/stores/telemetry";
 import type { PaginatedResponse, TraceData, MetricData, LogData } from "@/types/telemetry";
+import type { TabValue } from "@/stores/telemetry";
 
 function App() {
   useWebSocket();
@@ -15,6 +21,8 @@ function App() {
   const setTraces = useSetAtom(setTracesAtom);
   const setMetrics = useSetAtom(setMetricsAtom);
   const setLogs = useSetAtom(setLogsAtom);
+  const activeTab = useAtomValue(activeTabAtom);
+  const setActiveTab = useSetAtom(activeTabAtom);
 
   useEffect(() => {
     const load = async () => {
@@ -40,7 +48,11 @@ function App() {
   return (
     <div className="noise-bg mesh-bg flex h-screen flex-col text-foreground">
       <Header />
-      <Tabs defaultValue="traces" className="flex flex-1 flex-col overflow-hidden">
+      <Tabs
+        value={activeTab}
+        onValueChange={(v) => setActiveTab(v as TabValue)}
+        className="flex flex-1 flex-col overflow-hidden"
+      >
         <div className="px-5 pt-3">
           <TabsList className="w-fit gap-1 bg-transparent p-0">
             <TabsTrigger

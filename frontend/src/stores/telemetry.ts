@@ -75,6 +75,29 @@ export const selectedTraceAtom = atom<TraceData | null>(null);
 export const selectedMetricAtom = atom<MetricData | null>(null);
 export const selectedLogAtom = atom<LogData | null>(null);
 
+// Active tab
+export type TabValue = "traces" | "metrics" | "logs";
+export const activeTabAtom = atom<TabValue>("traces");
+
+// Log filter by traceID (set when jumping from trace → logs)
+export const logTraceFilterAtom = atom<string | null>(null);
+
+// Navigate: log → trace (find trace by ID and switch tab)
+export const navigateToTraceAtom = atom(null, (get, set, traceID: string) => {
+  const traces = get(tracesAtom);
+  const trace = traces.find((t) => t.traceID === traceID);
+  if (trace) {
+    set(selectedTraceAtom, trace);
+    set(activeTabAtom, "traces");
+  }
+});
+
+// Navigate: trace → related logs (switch to logs tab with filter)
+export const navigateToLogsAtom = atom(null, (_get, set, traceID: string) => {
+  set(logTraceFilterAtom, traceID);
+  set(activeTabAtom, "logs");
+});
+
 // Bulk set from REST API initial load
 export const setTracesAtom = atom(null, (_get, set, traces: TraceData[]) => {
   set(tracesAtom, traces);

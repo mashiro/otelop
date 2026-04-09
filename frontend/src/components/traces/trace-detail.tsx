@@ -1,8 +1,8 @@
 import { useAtomValue, useSetAtom } from "jotai";
-import { X } from "lucide-react";
+import { X, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { selectedTraceAtom } from "@/stores/telemetry";
+import { selectedTraceAtom, navigateToLogsAtom } from "@/stores/telemetry";
 import { formatDuration, shortID } from "@/lib/format";
 import { SpanWaterfall } from "./span-waterfall";
 import type { SpanData } from "@/types/telemetry";
@@ -11,6 +11,7 @@ import { useState } from "react";
 export function TraceDetail() {
   const trace = useAtomValue(selectedTraceAtom);
   const setSelected = useSetAtom(selectedTraceAtom);
+  const navigateToLogs = useSetAtom(navigateToLogsAtom);
   const [selectedSpan, setSelectedSpan] = useState<SpanData | null>(null);
 
   if (!trace) return null;
@@ -41,6 +42,16 @@ export function TraceDetail() {
             {formatDuration(trace.duration)}
           </span>
         </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => navigateToLogs(trace.traceID)}
+          className="gap-1.5 text-xs text-log hover:text-log"
+          title="View related logs"
+        >
+          <FileText className="h-3.5 w-3.5" />
+          Logs
+        </Button>
       </div>
 
       {/* Content */}
