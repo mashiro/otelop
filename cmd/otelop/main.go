@@ -10,7 +10,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/spf13/cobra"
+	"github.com/urfave/cli/v3"
 
 	otelop "github.com/mashiro/otelop"
 	"github.com/mashiro/otelop/internal/collector"
@@ -20,40 +20,65 @@ import (
 	ws "github.com/mashiro/otelop/internal/websocket"
 )
 
-var (
-	httpAddr     string
-	otlpGRPCAddr string
-	otlpHTTPAddr string
-	traceCap     int
-	metricCap    int
-	logCap       int
-	logLevel     string
-)
-
 func main() {
-	rootCmd := &cobra.Command{
-		Use:   "otelop",
-		Short: "Browser-based OpenTelemetry viewer",
-		RunE:  run,
-		SilenceUsage: true,
+	app := &cli.Command{
+		Name:  "otelop",
+		Usage: "Browser-based OpenTelemetry viewer",
+		Flags: []cli.Flag{
+			&cli.StringFlag{
+				Name:    "http",
+				Value:   ":4319",
+				Usage:   "Web UI + REST API listen address",
+			},
+			&cli.StringFlag{
+				Name:    "otlp-grpc",
+				Value:   "0.0.0.0:4317",
+				Usage:   "OTLP gRPC receiver endpoint",
+			},
+			&cli.StringFlag{
+				Name:    "otlp-http",
+				Value:   "0.0.0.0:4318",
+				Usage:   "OTLP HTTP receiver endpoint",
+			},
+			&cli.IntFlag{
+				Name:    "trace-cap",
+				Value:   1000,
+				Usage:   "max traces to keep in memory",
+			},
+			&cli.IntFlag{
+				Name:    "metric-cap",
+				Value:   3000,
+				Usage:   "max metric series to keep in memory",
+			},
+			&cli.IntFlag{
+				Name:    "log-cap",
+				Value:   1000,
+				Usage:   "max log entries to keep in memory",
+			},
+			&cli.StringFlag{
+				Name:    "log-level",
+				Value:   "warn",
+				Usage:   "collector log level (debug|info|warn|error)",
+			},
+		},
+		Action: run,
 	}
 
-	f := rootCmd.Flags()
-	f.StringVar(&httpAddr, "http", ":4319", "Web UI + REST API listen address")
-	f.StringVar(&otlpGRPCAddr, "otlp-grpc", "0.0.0.0:4317", "OTLP gRPC receiver endpoint")
-	f.StringVar(&otlpHTTPAddr, "otlp-http", "0.0.0.0:4318", "OTLP HTTP receiver endpoint")
-	f.IntVar(&traceCap, "trace-cap", 1000, "max traces to keep in memory")
-	f.IntVar(&metricCap, "metric-cap", 3000, "max metric series to keep in memory")
-	f.IntVar(&logCap, "log-cap", 1000, "max log entries to keep in memory")
-	f.StringVar(&logLevel, "log-level", "warn", "collector log level (debug|info|warn|error)")
-
-	if err := rootCmd.Execute(); err != nil {
-		os.Exit(1)
+	if err := app.Run(context.Background(), os.Args); err != nil {
+		log.Fatal(err)
 	}
 }
 
-func run(cmd *cobra.Command, _ []string) error {
-	ctx, cancel := context.WithCancel(cmd.Context())
+func run(ctx context.Context, cmd *cli.Command) error {
+	httpAddr := cmd.String("http")
+	otlpGRPCAddr := cmd.String("otlp-grpc")
+	otlpHTTPAddr := cmd.String("otlp-http")
+	traceCap := int(cmd.Int("trace-cap"))
+	metricCap := int(cmd.Int("metric-cap"))
+	logCap := int(cmd.Int("log-cap"))
+	logLevel := cmd.String("log-level")
+
+	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	// WebSocket hub
