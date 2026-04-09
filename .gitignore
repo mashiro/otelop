@@ -1,0 +1,28 @@
+# Go
+/otelop
+/cmd/otelop/otelop
+*.exe
+*.test
+*.out
+
+# Dependencies
+/vendor/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Node (frontend)
+node_modules/
+frontend/node_modules/
+
+# Build
+/dist/
+/tmp/
