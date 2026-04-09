@@ -45,7 +45,7 @@ export const addMetricAtom = atom(null, (get, set, newMetric: MetricData) => {
     const updated = [...current];
     updated[idx] = {
       ...existing,
-      dataPoints: [...existing.dataPoints, ...newMetric.dataPoints],
+      dataPoints: [...existing.dataPoints, ...newMetric.dataPoints].slice(-1000),
       receivedAt: newMetric.receivedAt,
     };
     set(metricsAtom, updated);

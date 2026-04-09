@@ -154,11 +154,12 @@ function ChartInner({ metric, width, height }: Props & { width: number; height: 
       const x = event.clientX - rect.left - MARGIN.left;
       const mouseTime = xScale.invert(x).getTime();
 
-      // Find the globally closest timestamp across all series.
+      // Find the globally closest point, then collect all series at that timestamp.
       let nearestMs = 0;
       let nearestDist = Infinity;
       for (const s of series) {
-        for (const p of s.points) {
+        const p = closestPoint(s.points, mouseTime);
+        if (p) {
           const d = Math.abs(p.time.getTime() - mouseTime);
           if (d < nearestDist) {
             nearestDist = d;
@@ -167,7 +168,6 @@ function ChartInner({ metric, width, height }: Props & { width: number; height: 
         }
       }
 
-      // Collect each series' value closest to that timestamp.
       const rows: TooltipRow[] = [];
       for (const s of series) {
         const p = closestPoint(s.points, nearestMs);

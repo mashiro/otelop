@@ -44,6 +44,17 @@ function toNsOffset(iso: string, baseNs: bigint): number {
   }
 }
 
+function compareByStartTime(a: SpanData, b: SpanData): number {
+  try {
+    return Temporal.Instant.compare(
+      Temporal.Instant.from(a.startTime),
+      Temporal.Instant.from(b.startTime),
+    );
+  } catch {
+    return 0;
+  }
+}
+
 function buildTree(spans: SpanData[]): FlatSpan[] {
   const byId = new Map<string, SpanData>();
   const children = new Map<string, SpanData[]>();
@@ -58,15 +69,7 @@ function buildTree(spans: SpanData[]): FlatSpan[] {
   const result: FlatSpan[] = [];
   function walk(parentID: string, depth: number) {
     const kids = children.get(parentID) ?? [];
-    kids.sort((a, b) => {
-      try {
-        const ta = Temporal.Instant.from(a.startTime);
-        const tb = Temporal.Instant.from(b.startTime);
-        return Temporal.Instant.compare(ta, tb);
-      } catch {
-        return 0;
-      }
-    });
+    kids.sort(compareByStartTime);
     for (const s of kids) {
       result.push({ span: s, depth });
       walk(s.spanID, depth + 1);
@@ -74,15 +77,7 @@ function buildTree(spans: SpanData[]): FlatSpan[] {
   }
 
   const roots = spans.filter((s) => !s.parentSpanID || !byId.has(s.parentSpanID));
-  roots.sort((a, b) => {
-    try {
-      const ta = Temporal.Instant.from(a.startTime);
-      const tb = Temporal.Instant.from(b.startTime);
-      return Temporal.Instant.compare(ta, tb);
-    } catch {
-      return 0;
-    }
-  });
+  roots.sort(compareByStartTime);
   for (const r of roots) {
     result.push({ span: r, depth: 0 });
     walk(r.spanID, 1);

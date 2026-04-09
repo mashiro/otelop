@@ -51,9 +51,8 @@ func (s *Store) AddTraces(td ptrace.Traces) {
 	s.mu.Lock()
 	for _, trace := range converted {
 		if idx, ok := s.traceIndex[trace.TraceID]; ok {
-			// Merge spans into existing trace.
 			existing := s.traces.Get(idx)
-			if existing != nil {
+			if existing != nil && existing.TraceID == trace.TraceID {
 				// Deduplicate spans by spanID.
 				seen := make(map[string]struct{}, len(existing.Spans))
 				for _, s := range existing.Spans {
@@ -105,7 +104,7 @@ func (s *Store) AddMetrics(md pmetric.Metrics) {
 		key := metricKey(m.ServiceName, m.Name)
 		if idx, ok := s.metricIndex[key]; ok {
 			existing := s.metrics.Get(idx)
-			if existing != nil {
+			if existing != nil && existing.Name == m.Name && existing.ServiceName == m.ServiceName {
 				existing.DataPoints = append(existing.DataPoints, m.DataPoints...)
 				if len(existing.DataPoints) > maxDataPointsPerMetric {
 					existing.DataPoints = existing.DataPoints[len(existing.DataPoints)-maxDataPointsPerMetric:]
