@@ -42,11 +42,17 @@ func New(addr string, s *store.Store, hub *ws.Hub, frontendFS fs.FS) *Server {
 	// Static files with SPA fallback
 	mux.Handle("/", spaHandler(frontendFS))
 
-	// Wrap with brotli/gzip/deflate compression (content-negotiated).
+	// Wrap with brotli/gzip/deflate compression, skipping WebSocket upgrades.
 	compress, _ := httpcompression.DefaultAdapter()
 	srv.httpServer = &http.Server{
-		Addr:    addr,
-		Handler: compress(mux),
+		Addr: addr,
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Header.Get("Upgrade") == "websocket" {
+				mux.ServeHTTP(w, r)
+				return
+			}
+			compress(mux).ServeHTTP(w, r)
+		}),
 	}
 
 	return srv
