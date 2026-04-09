@@ -99,10 +99,7 @@ function SpanDetail({ span, onClose }: { span: SpanData; onClose: () => void }) 
         {Object.keys(span.attributes).length > 0 && (
           <Section title="Attributes">
             {Object.entries(span.attributes).map(([k, v]) => (
-              <div key={k} className="flex gap-2 text-xs">
-                <span className="shrink-0 text-muted-foreground">{k}</span>
-                <span className="break-all font-mono text-foreground/80">{String(v)}</span>
-              </div>
+              <KV key={k} k={k} v={String(v)} />
             ))}
           </Section>
         )}
@@ -120,10 +117,7 @@ function SpanDetail({ span, onClose }: { span: SpanData; onClose: () => void }) 
         {Object.keys(span.resource).length > 0 && (
           <Section title="Resource">
             {Object.entries(span.resource).map(([k, v]) => (
-              <div key={k} className="flex gap-2 text-xs">
-                <span className="shrink-0 text-muted-foreground">{k}</span>
-                <span className="break-all font-mono text-foreground/80">{String(v)}</span>
-              </div>
+              <KV key={k} k={k} v={String(v)} />
             ))}
           </Section>
         )}
@@ -139,6 +133,15 @@ function Section({ title, children }: { title: string; children: React.ReactNode
         {title}
       </h4>
       <div className="space-y-1.5 rounded-md bg-background/30 p-2.5">{children}</div>
+    </div>
+  );
+}
+
+function KV({ k, v }: { k: string; v: string }) {
+  return (
+    <div className="text-xs">
+      <div className="text-muted-foreground">{k}</div>
+      <div className="break-all font-mono text-foreground/80 pl-3">{v}</div>
     </div>
   );
 }
