@@ -132,7 +132,7 @@ export function LogList() {
                   </TableRow>
                   {expandedIdx === i && (
                     <TableRow key={`detail-${i}`}>
-                      <TableCell colSpan={5} className="max-w-0 border-b border-border/20 bg-card/30 p-0">
+                      <TableCell colSpan={5} className="whitespace-normal border-b border-border/20 bg-card/30 p-0">
                         <LogDetail log={log} onNavigateToTrace={navigateToTrace} />
                       </TableCell>
                     </TableRow>
