@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { Group } from "@visx/group";
 import { scaleLinear } from "@visx/scale";
 import { ParentSize } from "@visx/responsive";
@@ -15,6 +15,7 @@ const BAR_PADDING = 8;
 const MIN_BAR_WIDTH = 3;
 const INDENT_BASE = 8;
 const INDENT_PER_DEPTH = 16;
+const TOGGLE_WIDTH = 14;
 const SERVICE_BAR_WIDTH = 4;
 const SERVICE_GAP = 6;
 const AVG_CHAR_WIDTH = 6;
@@ -38,9 +39,10 @@ interface Props {
   selectedSpan: SpanData | null;
 }
 
-interface FlatSpan {
+export interface FlatSpan {
   span: SpanData;
   depth: number;
+  hasChildren: boolean;
 }
 
 interface TooltipData {
@@ -69,7 +71,7 @@ function compareByStartTime(a: SpanData, b: SpanData): number {
   }
 }
 
-function buildTree(spans: SpanData[]): FlatSpan[] {
+export function buildTree(spans: SpanData[]): FlatSpan[] {
   const byId = new Map<string, SpanData>();
   const children = new Map<string, SpanData[]>();
 
@@ -85,7 +87,8 @@ function buildTree(spans: SpanData[]): FlatSpan[] {
     const kids = children.get(parentID) ?? [];
     kids.sort(compareByStartTime);
     for (const s of kids) {
-      result.push({ span: s, depth });
+      const hasKids = (children.get(s.spanID)?.length ?? 0) > 0;
+      result.push({ span: s, depth, hasChildren: hasKids });
       walk(s.spanID, depth + 1);
     }
   }
@@ -93,7 +96,8 @@ function buildTree(spans: SpanData[]): FlatSpan[] {
   const roots = spans.filter((s) => !s.parentSpanID || !byId.has(s.parentSpanID));
   roots.sort(compareByStartTime);
   for (const r of roots) {
-    result.push({ span: r, depth: 0 });
+    const hasKids = (children.get(r.spanID)?.length ?? 0) > 0;
+    result.push({ span: r, depth: 0, hasChildren: hasKids });
     walk(r.spanID, 1);
   }
 
@@ -127,6 +131,31 @@ function WaterfallInner({
 }: Props & { width: number; height: number }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const flatSpans = useMemo(() => buildTree(trace.spans), [trace.spans]);
+  const [collapsedSet, setCollapsedSet] = useState<Set<string>>(new Set());
+
+  const visibleSpans = useMemo(() => {
+    if (collapsedSet.size === 0) return flatSpans;
+    const result: FlatSpan[] = [];
+    let skipDepth: number | null = null;
+    for (const f of flatSpans) {
+      if (skipDepth !== null && f.depth > skipDepth) continue;
+      skipDepth = null;
+      result.push(f);
+      if (collapsedSet.has(f.span.spanID)) {
+        skipDepth = f.depth;
+      }
+    }
+    return result;
+  }, [flatSpans, collapsedSet]);
+
+  const handleToggleCollapse = useCallback((spanId: string) => {
+    setCollapsedSet((prev) => {
+      const next = new Set(prev);
+      if (next.has(spanId)) next.delete(spanId);
+      else next.add(spanId);
+      return next;
+    });
+  }, []);
 
   const serviceColorMap = useMemo(() => {
     const map = new Map<string, string>();
@@ -187,7 +216,7 @@ function WaterfallInner({
     return result;
   }, [totalNs, xScale]);
 
-  const svgHeight = Math.max(flatSpans.length * ROW_HEIGHT + HEADER_HEIGHT, height);
+  const svgHeight = Math.max(visibleSpans.length * ROW_HEIGHT + HEADER_HEIGHT, height);
 
   const { showTooltip, hideTooltip, tooltipData, tooltipLeft, tooltipTop, tooltipOpen } =
     useTooltip<TooltipData>();
@@ -323,7 +352,7 @@ function WaterfallInner({
             />
           ))}
 
-          {flatSpans.map((f, i) => {
+          {visibleSpans.map((f, i) => {
             const startOffset = toNsOffset(f.span.startTime, baseNs);
             const spanDurNs = f.span.duration > 0 ? f.span.duration : 0;
             const x = xScale(Math.max(startOffset, 0));
@@ -335,7 +364,11 @@ function WaterfallInner({
             const gradId = isError ? "grad-error" : `grad-${serviceKey}`;
             const color = isError ? ERROR_COLOR : serviceColorMap.get(f.span.serviceName)!;
             const labelX =
-              INDENT_BASE + f.depth * INDENT_PER_DEPTH + SERVICE_BAR_WIDTH + SERVICE_GAP;
+              INDENT_BASE +
+              f.depth * INDENT_PER_DEPTH +
+              TOGGLE_WIDTH +
+              SERVICE_BAR_WIDTH +
+              SERVICE_GAP;
             const availChars = Math.floor((LABEL_WIDTH - labelX) / AVG_CHAR_WIDTH);
             const durLabel = formatDuration(f.span.duration);
 
@@ -371,9 +404,28 @@ function WaterfallInner({
                   />
                 )}
 
+                {/* Collapse toggle */}
+                {f.hasChildren && (
+                  <text
+                    x={INDENT_BASE + f.depth * INDENT_PER_DEPTH + TOGGLE_WIDTH / 2}
+                    y={ROW_HEIGHT / 2}
+                    dominantBaseline="central"
+                    textAnchor="middle"
+                    fontSize={9}
+                    fill="var(--muted-foreground)"
+                    className="cursor-pointer select-none"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleToggleCollapse(f.span.spanID);
+                    }}
+                  >
+                    {collapsedSet.has(f.span.spanID) ? "▶" : "▼"}
+                  </text>
+                )}
+
                 {/* Service color indicator */}
                 <rect
-                  x={INDENT_BASE + f.depth * INDENT_PER_DEPTH}
+                  x={INDENT_BASE + f.depth * INDENT_PER_DEPTH + TOGGLE_WIDTH}
                   y={ROW_HEIGHT / 2 - 6}
                   width={SERVICE_BAR_WIDTH}
                   height={12}
