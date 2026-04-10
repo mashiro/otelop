@@ -1,14 +1,14 @@
 @import "tailwindcss";
-
-html {
-  scrollbar-gutter: stable;
-}
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/outfit";
 @import "@fontsource-variable/jetbrains-mono";
 
 @custom-variant dark (&:is(.dark *));
+
+html {
+  scrollbar-gutter: stable;
+}
 
 @theme inline {
   --font-heading: "Outfit Variable", sans-serif;

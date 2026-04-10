@@ -171,10 +171,10 @@ function WaterfallInner({
   }, [trace.rootSpan, trace.startTime, trace.duration, flatSpans]);
 
   const barWidth = width - LABEL_WIDTH;
-  const xScale = scaleLinear({
-    domain: [0, totalNs],
-    range: [0, barWidth],
-  });
+  const xScale = useMemo(
+    () => scaleLinear({ domain: [0, totalNs], range: [0, barWidth] }),
+    [totalNs, barWidth],
+  );
 
   const formatTick = useMemo(() => createDurationFormatter(totalNs), [totalNs]);
 
@@ -409,50 +409,32 @@ function WaterfallInner({
                 />
 
                 {/* Duration label: inside bar if fits, otherwise left or right based on position */}
-                {w > 50 ? (
-                  <text
-                    x={LABEL_WIDTH + x + w / 2}
-                    y={ROW_HEIGHT / 2}
-                    dominantBaseline="central"
-                    textAnchor="middle"
-                    fontSize={10}
-                    fontFamily="var(--font-mono)"
-                    fontWeight="500"
-                    fill="white"
-                    opacity={0.9}
-                    className="select-none"
-                  >
-                    {durLabel}
-                  </text>
-                ) : x + w / 2 > barWidth / 2 ? (
-                  <text
-                    x={LABEL_WIDTH + x - 4}
-                    y={ROW_HEIGHT / 2}
-                    dominantBaseline="central"
-                    textAnchor="end"
-                    fontSize={10}
-                    fontFamily="var(--font-mono)"
-                    fontWeight="500"
-                    fill="var(--muted-foreground)"
-                    className="select-none"
-                  >
-                    {durLabel}
-                  </text>
-                ) : (
-                  <text
-                    x={LABEL_WIDTH + x + w + 4}
-                    y={ROW_HEIGHT / 2}
-                    dominantBaseline="central"
-                    textAnchor="start"
-                    fontSize={10}
-                    fontFamily="var(--font-mono)"
-                    fontWeight="500"
-                    fill="var(--muted-foreground)"
-                    className="select-none"
-                  >
-                    {durLabel}
-                  </text>
-                )}
+                {(() => {
+                  const inside = w > 50;
+                  const placeLeft = !inside && x + w / 2 > barWidth / 2;
+                  return (
+                    <text
+                      x={
+                        inside
+                          ? LABEL_WIDTH + x + w / 2
+                          : placeLeft
+                            ? LABEL_WIDTH + x - 4
+                            : LABEL_WIDTH + x + w + 4
+                      }
+                      y={ROW_HEIGHT / 2}
+                      dominantBaseline="central"
+                      textAnchor={inside ? "middle" : placeLeft ? "end" : "start"}
+                      fontSize={10}
+                      fontFamily="var(--font-mono)"
+                      fontWeight="500"
+                      fill={inside ? "white" : "var(--muted-foreground)"}
+                      opacity={inside ? 0.9 : 1}
+                      className="select-none"
+                    >
+                      {durLabel}
+                    </text>
+                  );
+                })()}
               </Group>
             );
           })}
