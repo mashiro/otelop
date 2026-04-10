@@ -8,7 +8,16 @@ import { curveMonotoneX } from "@visx/curve";
 import { useTooltip, TooltipWithBounds } from "@visx/tooltip";
 import type { MetricData } from "@/types/telemetry";
 
-const MARGIN = { top: 10, right: 20, bottom: 40, left: 60 };
+const MARGIN = { top: 10, right: 20, bottom: 40, left: 64 };
+
+const compactFmt = new Intl.NumberFormat(undefined, {
+  notation: "compact",
+  maximumFractionDigits: 1,
+});
+
+function formatTick(d: Date): string {
+  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
 
 const SERIES_COLORS = [
   "var(--chart-1)",
@@ -214,6 +223,7 @@ function ChartInner({ metric, width, height }: Props & { width: number; height: 
           <AxisLeft
             scale={yScale}
             numTicks={5}
+            tickFormat={(v) => compactFmt.format(v as number)}
             tickLabelProps={{
               fontSize: 10,
               fontFamily: "var(--font-mono)",
@@ -225,7 +235,8 @@ function ChartInner({ metric, width, height }: Props & { width: number; height: 
           <AxisBottom
             scale={xScale}
             top={innerHeight}
-            numTicks={5}
+            numTicks={Math.max(3, Math.floor(innerWidth / 120))}
+            tickFormat={(v) => formatTick(v as Date)}
             tickLabelProps={{
               fontSize: 10,
               fontFamily: "var(--font-mono)",
