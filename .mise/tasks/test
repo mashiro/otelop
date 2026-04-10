@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
-#MISE description="Run backend tests"
+#MISE description="Run all tests"
 set -euo pipefail
 go test ./...
+pnpm --filter otelop-frontend test

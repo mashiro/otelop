@@ -1,5 +1,6 @@
 import { Fragment, useMemo, useState } from "react";
 import { useAtomValue, useSetAtom } from "jotai";
+import { Copy, Check } from "lucide-react";
 import { logsAtom, logTraceFilterAtom, navigateToTraceAtom } from "@/stores/telemetry";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
@@ -10,8 +11,10 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Button } from "@/components/ui/button";
 import { formatTimestamp, isZeroID, shortID } from "@/lib/format";
 import { KVSection } from "@/components/ui/kv-section";
+import { useCopyJson } from "@/hooks/use-copy";
 import type { LogData } from "@/types/telemetry";
 
 const severityStyle: Record<string, { bg: string; text: string; dot: string }> = {
@@ -168,8 +171,22 @@ function LogDetail({
   log: LogData;
   onNavigateToTrace: (id: string) => void;
 }) {
+  const { copied, copy } = useCopyJson();
+
   return (
     <div className="animate-slide-up-fade space-y-3 overflow-hidden px-4 py-3 text-xs">
+      <div className="flex justify-end">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => copy(log)}
+          className="gap-1 text-[10px] text-muted-foreground hover:text-foreground"
+          title="Copy log as JSON"
+        >
+          {copied ? <Check className="h-3 w-3 text-success" /> : <Copy className="h-3 w-3" />}
+          {copied ? "Copied" : "Copy JSON"}
+        </Button>
+      </div>
       <div className="min-w-0">
         <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
           Body
