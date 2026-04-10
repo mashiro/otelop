@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"io/fs"
-	"log"
 	"net/http"
 
 	"github.com/CAFxX/httpcompression"
@@ -63,7 +62,6 @@ func New(addr string, s *store.Store, hub *ws.Hub, frontendFS fs.FS) *Server {
 
 // Start starts the HTTP server. It blocks until the server is shut down.
 func (s *Server) Start(_ context.Context) error {
-	log.Printf("HTTP server listening on %s", s.httpServer.Addr)
 	return s.httpServer.ListenAndServe()
 }
 

@@ -123,11 +123,19 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		}
 	}()
 
-	log.Println("otelop started")
-	log.Printf("  OTLP gRPC %s", otlpGRPCAddr)
-	log.Printf("  OTLP HTTP %s", otlpHTTPAddr)
-	log.Printf("  Web UI    %s", httpAddr)
-	log.Printf("  Capacity  traces=%d metrics=%d logs=%d", traceCap, metricCap, logCap)
+	// Format addresses for display (make :port into localhost:port for clickable links).
+	displayAddr := func(addr string) string {
+		if len(addr) > 0 && addr[0] == ':' {
+			return "localhost" + addr
+		}
+		return addr
+	}
+
+	fmt.Fprintf(os.Stderr, "\n  otelop\n\n")
+	fmt.Fprintf(os.Stderr, "  Web UI       http://%s\n", displayAddr(httpAddr))
+	fmt.Fprintf(os.Stderr, "  OTLP gRPC    %s\n", otlpGRPCAddr)
+	fmt.Fprintf(os.Stderr, "  OTLP HTTP    %s\n", otlpHTTPAddr)
+	fmt.Fprintf(os.Stderr, "  Capacity     traces=%d  metrics=%d  logs=%d  points=%d\n\n", traceCap, metricCap, logCap, maxDataPoints)
 
 	// Graceful shutdown
 	sigCh := make(chan os.Signal, 1)
