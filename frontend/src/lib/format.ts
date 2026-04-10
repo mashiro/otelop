@@ -5,6 +5,14 @@ export function formatDuration(ns: number): string {
   return `${(ns / 1_000_000_000).toFixed(2)}s`;
 }
 
+/** Create a formatter that uses a fixed unit based on the total duration. */
+export function createDurationFormatter(totalNs: number): (ns: number) => string {
+  if (totalNs < 1_000) return (ns) => `${Math.round(ns)}ns`;
+  if (totalNs < 1_000_000) return (ns) => `${(ns / 1_000).toFixed(1)}µs`;
+  if (totalNs < 1_000_000_000) return (ns) => `${(ns / 1_000_000).toFixed(1)}ms`;
+  return (ns) => `${(ns / 1_000_000_000).toFixed(2)}s`;
+}
+
 export function formatRelativeTime(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime();
   if (diff < 1_000) return "now";

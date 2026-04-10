@@ -5,7 +5,7 @@ import { ParentSize } from "@visx/responsive";
 import { Temporal } from "temporal-polyfill";
 import { useTooltip, TooltipWithBounds } from "@visx/tooltip";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { formatDuration } from "@/lib/format";
+import { formatDuration, createDurationFormatter } from "@/lib/format";
 import type { TraceData, SpanData } from "@/types/telemetry";
 
 const ROW_HEIGHT = 32;
@@ -176,11 +176,13 @@ function WaterfallInner({
     range: [0, barWidth],
   });
 
+  const formatTick = useMemo(() => createDurationFormatter(totalNs), [totalNs]);
+
   const ticks = useMemo(() => {
     const result = [];
     for (let i = 0; i <= TICK_COUNT; i++) {
       const ns = (totalNs / TICK_COUNT) * i;
-      result.push({ ns, x: xScale(ns) });
+      result.push({ ns, x: xScale(ns), isLast: i === TICK_COUNT });
     }
     return result;
   }, [totalNs, xScale]);
@@ -268,15 +270,16 @@ function WaterfallInner({
                   strokeWidth={1}
                 />
                 <text
-                  x={4}
+                  x={tick.isLast ? -4 : 4}
                   y={HEADER_HEIGHT / 2}
                   dominantBaseline="central"
+                  textAnchor={tick.isLast ? "end" : "start"}
                   fontSize={10}
                   fontFamily="var(--font-mono)"
                   fill="var(--muted-foreground)"
                   className="select-none"
                 >
-                  {formatDuration(tick.ns)}
+                  {formatTick(tick.ns)}
                 </text>
               </Group>
             ))}
@@ -316,8 +319,7 @@ function WaterfallInner({
               x2={LABEL_WIDTH + tick.x}
               y2={svgHeight}
               stroke="var(--border)"
-              strokeWidth={0.5}
-              opacity={0.3}
+              strokeWidth={1}
             />
           ))}
 
