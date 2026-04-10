@@ -8,12 +8,12 @@ import (
 
 // TraceData represents a group of spans sharing the same trace ID.
 type TraceData struct {
-	TraceID     string      `json:"traceID"`
-	RootSpan    *SpanData   `json:"rootSpan,omitempty"`
-	Spans       []*SpanData `json:"spans"`
-	ServiceName string      `json:"serviceName"`
-	SpanCount   int         `json:"spanCount"`
-	StartTime   time.Time   `json:"startTime"`
+	TraceID     string        `json:"traceID"`
+	RootSpan    *SpanData     `json:"rootSpan,omitempty"`
+	Spans       []*SpanData   `json:"spans"`
+	ServiceName string        `json:"serviceName"`
+	SpanCount   int           `json:"spanCount"`
+	StartTime   time.Time     `json:"startTime"`
 	Duration    time.Duration `json:"duration"`
 }
 

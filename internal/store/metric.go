@@ -8,14 +8,14 @@ import (
 
 // MetricData represents a single metric with its data points.
 type MetricData struct {
-	Name        string           `json:"name"`
-	Description string           `json:"description"`
-	Unit        string           `json:"unit"`
-	Type        string           `json:"type"`
-	ServiceName string           `json:"serviceName"`
-	Resource    map[string]any   `json:"resource"`
-	DataPoints  []DataPoint      `json:"dataPoints"`
-	ReceivedAt  time.Time        `json:"receivedAt"`
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	Unit        string         `json:"unit"`
+	Type        string         `json:"type"`
+	ServiceName string         `json:"serviceName"`
+	Resource    map[string]any `json:"resource"`
+	DataPoints  []DataPoint    `json:"dataPoints"`
+	ReceivedAt  time.Time      `json:"receivedAt"`
 }
 
 // DataPoint represents a single data point in a metric.

@@ -12,7 +12,7 @@ import (
 // Message is sent to WebSocket clients.
 type Message struct {
 	Type store.SignalType `json:"type"`
-	Data any             `json:"data"`
+	Data any              `json:"data"`
 }
 
 // Hub manages WebSocket client connections and broadcasts messages.
