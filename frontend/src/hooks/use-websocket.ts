@@ -20,68 +20,72 @@ export function useWebSocket(): void {
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectDelayRef = useRef(INITIAL_RECONNECT_DELAY);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
-  const disposedRef = useRef(false);
+  const mountIdRef = useRef(0);
 
-  const connect = useCallback(() => {
-    if (disposedRef.current) return;
+  const connect = useCallback(
+    (mountId: number) => {
+      if (mountIdRef.current !== mountId) return;
 
-    if (wsRef.current) {
-      wsRef.current.close();
-    }
-
-    setWsStatus("connecting");
-    const ws = new WebSocket(getWsUrl());
-    wsRef.current = ws;
-
-    ws.onopen = () => {
-      if (disposedRef.current) {
-        ws.close();
-        return;
+      if (wsRef.current) {
+        wsRef.current.close();
       }
-      setWsStatus("connected");
-      reconnectDelayRef.current = INITIAL_RECONNECT_DELAY;
-    };
 
-    ws.onmessage = (event: MessageEvent) => {
-      try {
-        const msg: WsMessage = JSON.parse(event.data as string);
-        switch (msg.type) {
-          case "traces":
-            addTrace(msg.data as TraceData);
-            break;
-          case "metrics":
-            addMetric(msg.data as MetricData);
-            break;
-          case "logs":
-            addLog(msg.data as LogData);
-            break;
+      setWsStatus("connecting");
+      const ws = new WebSocket(getWsUrl());
+      wsRef.current = ws;
+
+      ws.onopen = () => {
+        if (mountIdRef.current !== mountId) {
+          ws.close();
+          return;
         }
-      } catch {
-        // ignore parse errors
-      }
-    };
+        setWsStatus("connected");
+        reconnectDelayRef.current = INITIAL_RECONNECT_DELAY;
+      };
 
-    ws.onclose = () => {
-      if (disposedRef.current) return;
-      setWsStatus("disconnected");
-      wsRef.current = null;
-      const delay = reconnectDelayRef.current;
-      reconnectTimerRef.current = setTimeout(() => {
-        reconnectDelayRef.current = Math.min(delay * 2, MAX_RECONNECT_DELAY);
-        connect();
-      }, delay);
-    };
+      ws.onmessage = (event: MessageEvent) => {
+        if (mountIdRef.current !== mountId) return;
+        try {
+          const msg: WsMessage = JSON.parse(event.data as string);
+          switch (msg.type) {
+            case "traces":
+              addTrace(msg.data as TraceData);
+              break;
+            case "metrics":
+              addMetric(msg.data as MetricData);
+              break;
+            case "logs":
+              addLog(msg.data as LogData);
+              break;
+          }
+        } catch {
+          // ignore parse errors
+        }
+      };
 
-    ws.onerror = () => {
-      // onclose will fire after this
-    };
-  }, [setWsStatus, addTrace, addMetric, addLog]);
+      ws.onclose = () => {
+        if (mountIdRef.current !== mountId) return;
+        setWsStatus("disconnected");
+        wsRef.current = null;
+        const delay = reconnectDelayRef.current;
+        reconnectTimerRef.current = setTimeout(() => {
+          reconnectDelayRef.current = Math.min(delay * 2, MAX_RECONNECT_DELAY);
+          connect(mountId);
+        }, delay);
+      };
+
+      ws.onerror = () => {
+        // onclose will fire after this
+      };
+    },
+    [setWsStatus, addTrace, addMetric, addLog],
+  );
 
   useEffect(() => {
-    disposedRef.current = false;
-    connect();
+    const mountId = ++mountIdRef.current;
+    connect(mountId);
     return () => {
-      disposedRef.current = true;
+      mountIdRef.current = -1;
       clearTimeout(reconnectTimerRef.current);
       const ws = wsRef.current;
       if (ws) {

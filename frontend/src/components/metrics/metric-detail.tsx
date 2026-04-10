@@ -77,7 +77,7 @@ export function MetricDetail() {
                     </tr>
                   </thead>
                   <tbody>
-                    {metric.dataPoints.map((dp, i) => (
+                    {[...metric.dataPoints].reverse().map((dp, i) => (
                       <tr
                         key={i}
                         className="border-b border-border/20 last:border-0 transition-colors hover:bg-metric/5"
