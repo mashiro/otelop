@@ -334,7 +334,7 @@ function WaterfallInner({
           top={tooltipTop}
           unstyled
           applyPositionStyle
-          className="pointer-events-none z-50 flex flex-col items-center gap-0.5 whitespace-nowrap rounded-md bg-accent px-3 py-1.5 text-xs text-foreground shadow-[0_2px_16px_oklch(0_0_0/50%)]"
+          className="pointer-events-none z-50 flex flex-col items-center gap-0.5 whitespace-nowrap rounded-md bg-accent px-3 py-1.5 text-xs text-foreground shadow-sm"
         >
           <span className="opacity-60">{tooltipData.service}</span>
           <span>{tooltipData.name}</span>

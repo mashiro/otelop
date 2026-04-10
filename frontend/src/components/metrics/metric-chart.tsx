@@ -322,7 +322,7 @@ function ChartInner({ metric, width, height }: Props & { width: number; height: 
           top={tooltipTop}
           unstyled
           applyPositionStyle
-          className="pointer-events-none z-50 rounded-lg border border-border/50 bg-card px-3 py-2 shadow-xl backdrop-blur-md"
+          className="pointer-events-none z-50 rounded-lg border border-border/50 bg-card px-3 py-2 shadow-sm backdrop-blur-md"
           style={{ maxWidth: 320 }}
         >
           <div className="mb-1.5 font-mono text-[10px] text-muted-foreground">
