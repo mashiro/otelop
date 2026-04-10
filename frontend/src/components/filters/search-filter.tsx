@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { useSetAtom } from "jotai";
 import { Search, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
@@ -14,6 +14,8 @@ export function SearchFilter({
   const setValue = useSetAtom(atom);
   const [input, setInput] = useState("");
   const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  useEffect(() => () => clearTimeout(timerRef.current), []);
 
   const handleChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {

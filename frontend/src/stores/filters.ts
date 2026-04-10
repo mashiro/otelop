@@ -1,58 +1,51 @@
 import { atom } from "jotai";
+import type { Atom, PrimitiveAtom } from "jotai";
 import { tracesAtom, metricsAtom, logsAtom, logTraceFilterAtom } from "./telemetry";
 import type { TraceData, MetricData, LogData } from "@/types/telemetry";
 
-// --- Trace Filters ---
+function createSearchAtom<T>(
+  sourceAtom: Atom<T[]>,
+  searchAtom: PrimitiveAtom<string>,
+  extractFields: (item: T) => string[],
+) {
+  return atom<T[]>((get) => {
+    const items = get(sourceAtom);
+    const search = get(searchAtom);
+    if (!search) return items;
+    const q = search.toLowerCase();
+    return items.filter((item) => extractFields(item).some((f) => f.toLowerCase().includes(q)));
+  });
+}
 
 export const traceSearchAtom = atom("");
 
-export const filteredTracesAtom = atom<TraceData[]>((get) => {
-  const traces = get(tracesAtom);
-  const search = get(traceSearchAtom);
-  if (!search) return traces;
-  const q = search.toLowerCase();
-  return traces.filter((t) => {
-    const name = (t.rootSpan?.name ?? t.spans[0]?.name ?? "").toLowerCase();
-    const svc = (t.serviceName ?? "").toLowerCase();
-    const traceID = t.traceID.toLowerCase();
-    const status = (t.rootSpan?.statusCode ?? "Unset").toLowerCase();
-    return name.includes(q) || svc.includes(q) || traceID.includes(q) || status.includes(q);
-  });
-});
-
-// --- Log Filters ---
+export const filteredTracesAtom = createSearchAtom(tracesAtom, traceSearchAtom, (t: TraceData) => [
+  t.rootSpan?.name ?? t.spans[0]?.name ?? "",
+  t.serviceName ?? "",
+  t.traceID,
+  t.rootSpan?.statusCode ?? "Unset",
+]);
 
 export const logSearchAtom = atom("");
 
-export const filteredLogsAtom = atom<LogData[]>((get) => {
-  const logs = get(logsAtom);
-  const traceFilter = get(logTraceFilterAtom);
-  const search = get(logSearchAtom);
-  let result = traceFilter ? logs.filter((l) => l.traceID === traceFilter) : logs;
-  if (!search) return result;
-  const q = search.toLowerCase();
-  return result.filter((l) => {
-    const body = l.body.toLowerCase();
-    const svc = (l.serviceName ?? "").toLowerCase();
-    const sev = (l.severityText ?? "").toLowerCase();
-    const tid = l.traceID.toLowerCase();
-    return body.includes(q) || svc.includes(q) || sev.includes(q) || tid.includes(q);
-  });
-});
+const filteredLogsBySearchAtom = createSearchAtom(logsAtom, logSearchAtom, (l: LogData) => [
+  l.body,
+  l.serviceName ?? "",
+  l.severityText ?? "",
+  l.traceID,
+]);
 
-// --- Metric Filters ---
+export const filteredLogsAtom = atom<LogData[]>((get) => {
+  const traceFilter = get(logTraceFilterAtom);
+  const logs = get(filteredLogsBySearchAtom);
+  if (!traceFilter) return logs;
+  return logs.filter((l) => l.traceID === traceFilter);
+});
 
 export const metricSearchAtom = atom("");
 
-export const filteredMetricsAtom = atom<MetricData[]>((get) => {
-  const metrics = get(metricsAtom);
-  const search = get(metricSearchAtom);
-  if (!search) return metrics;
-  const q = search.toLowerCase();
-  return metrics.filter((m) => {
-    const name = m.name.toLowerCase();
-    const svc = (m.serviceName ?? "").toLowerCase();
-    const type = m.type.toLowerCase();
-    return name.includes(q) || svc.includes(q) || type.includes(q);
-  });
-});
+export const filteredMetricsAtom = createSearchAtom(
+  metricsAtom,
+  metricSearchAtom,
+  (m: MetricData) => [m.name, m.serviceName ?? "", m.type],
+);

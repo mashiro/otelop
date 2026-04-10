@@ -1,14 +1,14 @@
 import { useAtomValue, useSetAtom } from "jotai";
-import { X, FileText, Copy, Check, Download } from "lucide-react";
+import { X, FileText, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { CopyJsonButton } from "@/components/ui/copy-json-button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { selectedTraceAtom, navigateToLogsAtom } from "@/stores/telemetry";
 import { formatDuration, shortID } from "@/lib/format";
+import { downloadJson } from "@/lib/export";
 import { SpanWaterfall } from "./span-waterfall";
 import { KVSection } from "@/components/ui/kv-section";
 import type { SpanData } from "@/types/telemetry";
-import { useCopyJson } from "@/hooks/use-copy";
-import { downloadJson } from "@/lib/export";
 import { useState } from "react";
 
 export function TraceDetail() {
@@ -16,7 +16,6 @@ export function TraceDetail() {
   const setSelected = useSetAtom(selectedTraceAtom);
   const navigateToLogs = useSetAtom(navigateToLogsAtom);
   const [selectedSpan, setSelectedSpan] = useState<SpanData | null>(null);
-  const { copied, copy } = useCopyJson();
 
   if (!trace) return null;
 
@@ -43,20 +42,7 @@ export function TraceDetail() {
           <span className="font-mono text-xs text-trace">{formatDuration(trace.duration)}</span>
         </div>
         <div className="flex items-center gap-1">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => copy(trace)}
-            className="gap-1.5 text-xs text-muted-foreground hover:text-foreground"
-            title="Copy trace as JSON"
-          >
-            {copied ? (
-              <Check className="h-3.5 w-3.5 text-success" />
-            ) : (
-              <Copy className="h-3.5 w-3.5" />
-            )}
-            {copied ? "Copied" : "JSON"}
-          </Button>
+          <CopyJsonButton data={trace} />
           <Button
             variant="ghost"
             size="sm"

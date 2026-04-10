@@ -404,7 +404,6 @@ function WaterfallInner({
                   />
                 )}
 
-                {/* Collapse toggle */}
                 {f.hasChildren && (
                   <text
                     x={INDENT_BASE + f.depth * INDENT_PER_DEPTH + TOGGLE_WIDTH / 2}
@@ -423,7 +422,6 @@ function WaterfallInner({
                   </text>
                 )}
 
-                {/* Service color indicator */}
                 <rect
                   x={INDENT_BASE + f.depth * INDENT_PER_DEPTH + TOGGLE_WIDTH}
                   y={ROW_HEIGHT / 2 - 6}
@@ -433,7 +431,6 @@ function WaterfallInner({
                   fill={color}
                 />
 
-                {/* Operation name */}
                 <text
                   x={labelX}
                   y={ROW_HEIGHT / 2}
@@ -449,7 +446,6 @@ function WaterfallInner({
                   {truncate(f.span.name, availChars)}
                 </text>
 
-                {/* Bar */}
                 <rect
                   x={LABEL_WIDTH + x}
                   y={BAR_PADDING}
@@ -460,7 +456,6 @@ function WaterfallInner({
                   filter={isSelected ? "url(#bar-glow)" : undefined}
                 />
 
-                {/* Duration label: inside bar if fits, otherwise left or right based on position */}
                 {(() => {
                   const inside = w > 50;
                   const placeLeft = !inside && x + w / 2 > barWidth / 2;

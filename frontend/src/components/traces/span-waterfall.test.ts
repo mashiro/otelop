@@ -1,26 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { buildTree } from "./span-waterfall";
-import type { SpanData } from "@/types/telemetry";
-
-function makeSpan(overrides: Partial<SpanData> = {}): SpanData {
-  return {
-    traceID: "trace1",
-    spanID: "span1",
-    parentSpanID: "",
-    name: "test",
-    kind: "Server",
-    serviceName: "svc",
-    startTime: "2024-01-01T00:00:00Z",
-    endTime: "2024-01-01T00:00:01Z",
-    duration: 1_000_000_000,
-    statusCode: "Ok",
-    statusMessage: "",
-    attributes: {},
-    events: [],
-    resource: {},
-    ...overrides,
-  };
-}
+import { makeSpan } from "@/test/factories";
 
 describe("buildTree", () => {
   it("returns a single root span", () => {
@@ -53,9 +33,9 @@ describe("buildTree", () => {
       makeSpan({ spanID: "leaf", parentSpanID: "child" }),
     ];
     const result = buildTree(spans);
-    expect(result[0].hasChildren).toBe(true); // root has child
-    expect(result[1].hasChildren).toBe(true); // child has grandchild
-    expect(result[2].hasChildren).toBe(false); // leaf has no children
+    expect(result[0].hasChildren).toBe(true);
+    expect(result[1].hasChildren).toBe(true);
+    expect(result[2].hasChildren).toBe(false);
   });
 
   it("handles orphan spans as roots", () => {
