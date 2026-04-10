@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+#MISE description="Install frontend deps and build"
+set -euo pipefail
+cd frontend && pnpm install --frozen-lockfile && pnpm run build
