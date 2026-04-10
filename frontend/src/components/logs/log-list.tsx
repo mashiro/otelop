@@ -169,17 +169,12 @@ function LogDetail({
   onNavigateToTrace: (id: string) => void;
 }) {
   return (
-    <div className="animate-slide-up-fade space-y-3 overflow-hidden px-4 py-3 text-xs">
-      <div className="flex justify-end">
+    <div className="animate-slide-up-fade relative space-y-3 overflow-hidden px-4 py-3 text-xs">
+      <div className="absolute right-3 top-2">
         <CopyJsonButton data={log} size="xs" />
       </div>
-      <div className="min-w-0">
-        <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-          Body
-        </div>
-        <div className="whitespace-pre-wrap break-all font-mono text-foreground/80 pl-3">
-          {log.body}
-        </div>
+      <div className="whitespace-pre-wrap break-all pr-20 font-mono text-foreground/80">
+        {log.body}
       </div>
       {!isZeroID(log.traceID) && (
         <div className="flex items-center gap-2">
