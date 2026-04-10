@@ -1,9 +1,10 @@
-import { useMemo, useState, useRef } from "react";
+import { useMemo } from "react";
 import { Group } from "@visx/group";
 import { scaleLinear } from "@visx/scale";
 import { ParentSize } from "@visx/responsive";
 import { Temporal } from "temporal-polyfill";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { formatDuration } from "@/lib/format";
 import type { TraceData, SpanData } from "@/types/telemetry";
 
@@ -104,13 +105,6 @@ export function SpanWaterfall({ trace, onSelectSpan, selectedSpan }: Props) {
   );
 }
 
-interface TooltipInfo {
-  x: number;
-  y: number;
-  service: string;
-  name: string;
-}
-
 function WaterfallInner({
   trace,
   width,
@@ -118,8 +112,6 @@ function WaterfallInner({
   onSelectSpan,
   selectedSpan,
 }: Props & { width: number; height: number }) {
-  const [tooltip, setTooltip] = useState<TooltipInfo | null>(null);
-  const svgRef = useRef<SVGSVGElement>(null);
   const flatSpans = useMemo(() => buildTree(trace.spans), [trace.spans]);
 
   const serviceColorMap = useMemo(() => {
@@ -171,9 +163,8 @@ function WaterfallInner({
   const svgHeight = Math.max(flatSpans.length * ROW_HEIGHT, height);
 
   return (
-    <div className="relative h-full">
     <ScrollArea className="h-full">
-      <svg ref={svgRef} width={width} height={svgHeight}>
+      <svg width={width} height={svgHeight}>
         <defs>
           {[...serviceColorMap.entries()].map(([service, color]) => (
             <linearGradient key={service} id={`grad-${service.replace(/\W/g, "")}`} x1="0" y1="0" x2="1" y2="0">
@@ -246,33 +237,34 @@ function WaterfallInner({
                 />
               )}
 
-              <text
-                x={8 + f.depth * 16}
-                y={ROW_HEIGHT / 2}
-                dominantBaseline="central"
-                fontSize={11}
-                fontFamily="var(--font-sans)"
-                fill="var(--foreground)"
-                opacity={isSelected ? 1 : 0.8}
-                className="select-none"
-                onMouseEnter={(e) => {
-                  const container = svgRef.current?.parentElement?.parentElement;
-                  if (!container) return;
-                  const rect = container.getBoundingClientRect();
-                  setTooltip({
-                    x: e.clientX - rect.left,
-                    y: e.clientY - rect.top - 8,
-                    service: f.span.serviceName,
-                    name: f.span.name,
-                  });
-                }}
-                onMouseLeave={() => setTooltip(null)}
+              {/* Span label with tooltip */}
+              <foreignObject
+                x={f.depth * 16}
+                y={0}
+                width={LABEL_WIDTH - f.depth * 16}
+                height={ROW_HEIGHT}
               >
-                {truncate(
-                  f.span.name,
-                  Math.floor((LABEL_WIDTH - 8 - f.depth * 16) / 6),
-                )}
-              </text>
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <div
+                        className="flex h-full items-center truncate px-2 text-[11px] select-none"
+                        style={{
+                          color: "var(--foreground)",
+                          opacity: isSelected ? 1 : 0.8,
+                        }}
+                      />
+                    }
+                  >
+                    {f.span.name}
+                  </TooltipTrigger>
+                  <TooltipContent side="top">
+                    <span className="opacity-60">{f.span.serviceName}</span>
+                    <span className="mx-1 opacity-30">:</span>
+                    <span>{f.span.name}</span>
+                  </TooltipContent>
+                </Tooltip>
+              </foreignObject>
 
               <rect
                 x={LABEL_WIDTH + x}
@@ -316,28 +308,5 @@ function WaterfallInner({
 
       </svg>
     </ScrollArea>
-
-    {/* Tooltip rendered outside ScrollArea to avoid clipping */}
-    {tooltip && (
-      <div
-        style={{
-          position: "absolute",
-          left: tooltip.x,
-          top: tooltip.y,
-          transform: "translate(-50%, -100%)",
-        }}
-        className="pointer-events-none z-50 whitespace-nowrap rounded-md border border-border bg-card px-2.5 py-1.5 text-xs text-foreground shadow-lg"
-      >
-        <span className="text-muted-foreground">{tooltip.service}</span>
-        <span className="mx-1.5 text-border">:</span>
-        <span>{tooltip.name}</span>
-      </div>
-    )}
-    </div>
   );
-}
-
-function truncate(s: string, maxLen: number): string {
-  if (s.length <= maxLen) return s;
-  return s.slice(0, Math.max(maxLen - 1, 0)) + "\u2026";
 }
