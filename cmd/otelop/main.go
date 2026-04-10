@@ -13,6 +13,8 @@ import (
 
 	"github.com/urfave/cli/v3"
 	"go.opentelemetry.io/contrib/bridges/otelslog"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/metric"
 
 	otelop "github.com/mashiro/otelop"
 	"github.com/mashiro/otelop/internal/collector"
@@ -153,6 +155,10 @@ func run(ctx context.Context, cmd *cli.Command) error {
 
 		otelHandler := otelslog.NewHandler("otelop", otelslog.WithLoggerProvider(result.LoggerProvider))
 		logger.Setup(level, otelHandler)
+
+		if err := registerMetrics(s, hub); err != nil {
+			return fmt.Errorf("failed to register metrics: %w", err)
+		}
 	}
 
 	displayAddr := httpAddr
@@ -191,6 +197,51 @@ func run(ctx context.Context, cmd *cli.Command) error {
 	}
 	cancel()
 	return nil
+}
+
+func registerMetrics(s *store.Store, hub *ws.Hub) error {
+	meter := otel.Meter("otelop")
+
+	traceGauge, err := meter.Int64ObservableGauge("otelop.store.traces",
+		metric.WithDescription("Number of traces in the store"),
+	)
+	if err != nil {
+		return err
+	}
+
+	metricGauge, err := meter.Int64ObservableGauge("otelop.store.metrics",
+		metric.WithDescription("Number of metric series in the store"),
+	)
+	if err != nil {
+		return err
+	}
+
+	logGauge, err := meter.Int64ObservableGauge("otelop.store.logs",
+		metric.WithDescription("Number of log entries in the store"),
+	)
+	if err != nil {
+		return err
+	}
+
+	_, err = meter.RegisterCallback(func(_ context.Context, o metric.Observer) error {
+		traces, metrics, logs := s.Len()
+		o.ObserveInt64(traceGauge, int64(traces))
+		o.ObserveInt64(metricGauge, int64(metrics))
+		o.ObserveInt64(logGauge, int64(logs))
+		return nil
+	}, traceGauge, metricGauge, logGauge)
+	if err != nil {
+		return err
+	}
+
+	_, err = meter.Int64ObservableGauge("otelop.websocket.clients",
+		metric.WithDescription("Number of connected WebSocket clients"),
+		metric.WithInt64Callback(func(_ context.Context, o metric.Int64Observer) error {
+			o.Observe(int64(hub.ClientCount()))
+			return nil
+		}),
+	)
+	return err
 }
 
 // resolveLoopback converts a listen address (e.g. "0.0.0.0:4317") to a

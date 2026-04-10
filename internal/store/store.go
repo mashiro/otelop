@@ -199,10 +199,16 @@ func (s *Store) GetTraceByID(traceID string) (*TraceData, bool) {
 	return nil, false
 }
 
-// Capacity returns the ring buffer capacities.
 // Capacity returns the store's configured limits.
 func (s *Store) Capacity() (traceCap, metricCap, logCap, maxDataPoints int) {
 	return s.traces.cap, s.metrics.cap, s.logs.cap, s.maxDataPoints
+}
+
+// Len returns the current number of items in each buffer.
+func (s *Store) Len() (traces, metrics, logs int) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.traces.Len(), s.metrics.Len(), s.logs.Len()
 }
 
 // Clear removes all data from the store.
