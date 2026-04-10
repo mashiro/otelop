@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { useAtom } from "jotai";
+import { useState, useRef, useCallback } from "react";
+import { useSetAtom } from "jotai";
 import { Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import type { PrimitiveAtom } from "jotai";
@@ -11,18 +11,19 @@ export function SearchFilter({
   atom: PrimitiveAtom<string>;
   placeholder: string;
 }) {
-  const [value, setValue] = useAtom(atom);
-  const [input, setInput] = useState(value);
+  const setValue = useSetAtom(atom);
+  const [input, setInput] = useState("");
+  const timerRef = useRef<ReturnType<typeof setTimeout>>();
 
-  useEffect(() => {
-    const timer = setTimeout(() => setValue(input), 300);
-    return () => clearTimeout(timer);
-  }, [input, setValue]);
-
-  // Sync external resets (e.g. clear all)
-  useEffect(() => {
-    if (!value && input) setInput("");
-  }, [value, input]);
+  const handleChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const v = e.target.value;
+      setInput(v);
+      clearTimeout(timerRef.current);
+      timerRef.current = setTimeout(() => setValue(v), 300);
+    },
+    [setValue],
+  );
 
   return (
     <div className="relative">
@@ -30,7 +31,7 @@ export function SearchFilter({
       <Input
         placeholder={placeholder}
         value={input}
-        onChange={(e) => setInput(e.target.value)}
+        onChange={handleChange}
         className="h-7 w-52 pl-7 text-xs"
       />
     </div>
