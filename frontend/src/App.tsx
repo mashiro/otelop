@@ -1,7 +1,6 @@
 import { useEffect } from "react";
 import { useAtomValue, useSetAtom } from "jotai";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { TooltipProvider } from "@/components/ui/tooltip";
 import { Header } from "@/components/layout/header";
 import { TraceList } from "@/components/traces/trace-list";
 import { MetricList } from "@/components/metrics/metric-list";
@@ -54,7 +53,6 @@ function App() {
   }, [setTraces, setMetrics, setLogs, setConfig]);
 
   return (
-    <TooltipProvider>
     <div className="noise-bg mesh-bg flex h-screen flex-col text-foreground">
       <Header />
       <Tabs
@@ -95,7 +93,6 @@ function App() {
         </TabsContent>
       </Tabs>
     </div>
-    </TooltipProvider>
   );
 }
 

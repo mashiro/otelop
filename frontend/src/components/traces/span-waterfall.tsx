@@ -1,10 +1,10 @@
-import { useMemo } from "react";
+import { useCallback, useMemo, useRef } from "react";
 import { Group } from "@visx/group";
 import { scaleLinear } from "@visx/scale";
 import { ParentSize } from "@visx/responsive";
 import { Temporal } from "temporal-polyfill";
+import { useTooltip, TooltipWithBounds } from "@visx/tooltip";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { formatDuration } from "@/lib/format";
 import type { TraceData, SpanData } from "@/types/telemetry";
 
@@ -12,6 +12,10 @@ const ROW_HEIGHT = 32;
 const LABEL_WIDTH = 260;
 const BAR_PADDING = 4;
 const MIN_BAR_WIDTH = 3;
+const INDENT_BASE = 8;
+const INDENT_PER_DEPTH = 16;
+const AVG_CHAR_WIDTH = 6;
+const ERROR_COLOR = "oklch(0.70 0.22 25)";
 
 const SERVICE_COLORS = [
   "oklch(0.80 0.14 195)",
@@ -33,6 +37,11 @@ interface Props {
 interface FlatSpan {
   span: SpanData;
   depth: number;
+}
+
+interface TooltipData {
+  service: string;
+  name: string;
 }
 
 /** Parse ISO timestamp to nanoseconds relative to a base instant. */
@@ -112,6 +121,7 @@ function WaterfallInner({
   onSelectSpan,
   selectedSpan,
 }: Props & { width: number; height: number }) {
+  const containerRef = useRef<HTMLDivElement>(null);
   const flatSpans = useMemo(() => buildTree(trace.spans), [trace.spans]);
 
   const serviceColorMap = useMemo(() => {
@@ -121,9 +131,7 @@ function WaterfallInner({
     return map;
   }, [flatSpans]);
 
-  // Compute scale in nanoseconds, anchored to the root span so it fills full width.
   const { baseNs, totalNs } = useMemo(() => {
-    // Prefer root span: its start → end defines the full width.
     if (trace.rootSpan) {
       try {
         const start = Temporal.Instant.from(trace.rootSpan.startTime).epochNanoseconds;
@@ -132,12 +140,10 @@ function WaterfallInner({
         if (dur > 0) return { baseNs: start, totalNs: dur };
       } catch { /* fall through */ }
     }
-    // Fallback: trace.startTime + trace.duration (duration is already in ns).
     try {
       const start = Temporal.Instant.from(trace.startTime).epochNanoseconds;
       if (trace.duration > 0) return { baseNs: start, totalNs: trace.duration };
     } catch { /* fall through */ }
-    // Last resort: compute from all spans.
     let minNs: bigint | null = null;
     let maxNs: bigint | null = null;
     for (const f of flatSpans) {
@@ -162,151 +168,178 @@ function WaterfallInner({
 
   const svgHeight = Math.max(flatSpans.length * ROW_HEIGHT, height);
 
+  const {
+    showTooltip,
+    hideTooltip,
+    tooltipData,
+    tooltipLeft,
+    tooltipTop,
+    tooltipOpen,
+  } = useTooltip<TooltipData>();
+
+  const handleMouseEnter = useCallback(
+    (e: React.MouseEvent, span: SpanData) => {
+      const container = containerRef.current;
+      if (!container) return;
+      const rect = container.getBoundingClientRect();
+      showTooltip({
+        tooltipData: { service: span.serviceName, name: span.name },
+        tooltipLeft: e.clientX - rect.left,
+        tooltipTop: e.clientY - rect.top,
+      });
+    },
+    [showTooltip],
+  );
+
   return (
-    <ScrollArea className="h-full">
-      <svg width={width} height={svgHeight}>
-        <defs>
-          {[...serviceColorMap.entries()].map(([service, color]) => (
-            <linearGradient key={service} id={`grad-${service.replace(/\W/g, "")}`} x1="0" y1="0" x2="1" y2="0">
-              <stop offset="0%" stopColor={color} stopOpacity="0.9" />
-              <stop offset="100%" stopColor={color} stopOpacity="0.6" />
+    <div ref={containerRef} className="relative h-full">
+      <ScrollArea className="h-full">
+        <svg width={width} height={svgHeight}>
+          <defs>
+            {[...serviceColorMap.entries()].map(([service, color]) => (
+              <linearGradient key={service} id={`grad-${service.replace(/\W/g, "")}`} x1="0" y1="0" x2="1" y2="0">
+                <stop offset="0%" stopColor={color} stopOpacity="0.9" />
+                <stop offset="100%" stopColor={color} stopOpacity="0.6" />
+              </linearGradient>
+            ))}
+            <linearGradient id="grad-error" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0%" stopColor={ERROR_COLOR} stopOpacity="0.9" />
+              <stop offset="100%" stopColor={ERROR_COLOR} stopOpacity="0.6" />
             </linearGradient>
-          ))}
-          <linearGradient id="grad-error" x1="0" y1="0" x2="1" y2="0">
-            <stop offset="0%" stopColor="oklch(0.70 0.22 25)" stopOpacity="0.9" />
-            <stop offset="100%" stopColor="oklch(0.70 0.22 25)" stopOpacity="0.6" />
-          </linearGradient>
-          <filter id="bar-glow" x="-20%" y="-50%" width="140%" height="200%">
-            <feGaussianBlur in="SourceGraphic" stdDeviation="2" result="blur" />
-            <feMerge>
-              <feMergeNode in="blur" />
-              <feMergeNode in="SourceGraphic" />
-            </feMerge>
-          </filter>
-        </defs>
+            <filter id="bar-glow" x="-20%" y="-50%" width="140%" height="200%">
+              <feGaussianBlur in="SourceGraphic" stdDeviation="2" result="blur" />
+              <feMerge>
+                <feMergeNode in="blur" />
+                <feMergeNode in="SourceGraphic" />
+              </feMerge>
+            </filter>
+          </defs>
 
-        {flatSpans.map((f, i) => {
-          const startOffset = toNsOffset(f.span.startTime, baseNs);
-          // Use duration field for width (always accurate in ns).
-          const spanDurNs = f.span.duration > 0 ? f.span.duration : 0;
-          const x = xScale(Math.max(startOffset, 0));
-          const w = Math.max(xScale(spanDurNs) - xScale(0), MIN_BAR_WIDTH);
-          const y = i * ROW_HEIGHT;
-          const isSelected = selectedSpan?.spanID === f.span.spanID;
-          const isError = f.span.statusCode === "Error";
-          const serviceKey = f.span.serviceName.replace(/\W/g, "");
-          const gradId = isError ? "grad-error" : `grad-${serviceKey}`;
-          const color = isError ? "oklch(0.70 0.22 25)" : serviceColorMap.get(f.span.serviceName)!;
+          {flatSpans.map((f, i) => {
+            const startOffset = toNsOffset(f.span.startTime, baseNs);
+            const spanDurNs = f.span.duration > 0 ? f.span.duration : 0;
+            const x = xScale(Math.max(startOffset, 0));
+            const w = Math.max(xScale(spanDurNs) - xScale(0), MIN_BAR_WIDTH);
+            const y = i * ROW_HEIGHT;
+            const isSelected = selectedSpan?.spanID === f.span.spanID;
+            const isError = f.span.statusCode === "Error";
+            const serviceKey = f.span.serviceName.replace(/\W/g, "");
+            const gradId = isError ? "grad-error" : `grad-${serviceKey}`;
+            const color = isError ? ERROR_COLOR : serviceColorMap.get(f.span.serviceName)!;
 
-          return (
-            <Group
-              key={f.span.spanID}
-              top={y}
-              className="cursor-pointer"
-              onClick={() => onSelectSpan(f.span)}
-            >
-              {isSelected && (
+            return (
+              <Group
+                key={f.span.spanID}
+                top={y}
+                className="cursor-pointer"
+                onClick={() => onSelectSpan(f.span)}
+              >
+                {isSelected && (
+                  <rect
+                    x={0}
+                    y={0}
+                    width={width}
+                    height={ROW_HEIGHT}
+                    fill={color}
+                    opacity={0.08}
+                  />
+                )}
+
                 <rect
                   x={0}
                   y={0}
                   width={width}
                   height={ROW_HEIGHT}
-                  fill={color}
-                  opacity={0.08}
+                  fill="transparent"
+                  className="opacity-0 transition-opacity hover:opacity-100"
                 />
-              )}
 
-              <rect
-                x={0}
-                y={0}
-                width={width}
-                height={ROW_HEIGHT}
-                fill="transparent"
-                className="opacity-0 transition-opacity hover:opacity-100"
-              />
+                {f.depth > 0 && (
+                  <line
+                    x1={INDENT_BASE + (f.depth - 1) * INDENT_PER_DEPTH + 4}
+                    y1={0}
+                    x2={INDENT_BASE + (f.depth - 1) * INDENT_PER_DEPTH + 4}
+                    y2={ROW_HEIGHT}
+                    stroke={color}
+                    strokeWidth={1}
+                    opacity={0.15}
+                  />
+                )}
 
-              {f.depth > 0 && (
-                <line
-                  x1={8 + (f.depth - 1) * 16 + 4}
-                  y1={0}
-                  x2={8 + (f.depth - 1) * 16 + 4}
-                  y2={ROW_HEIGHT}
-                  stroke={color}
-                  strokeWidth={1}
-                  opacity={0.15}
-                />
-              )}
-
-              {/* Span label with tooltip */}
-              <foreignObject
-                x={f.depth * 16}
-                y={0}
-                width={LABEL_WIDTH - f.depth * 16}
-                height={ROW_HEIGHT}
-              >
-                <Tooltip>
-                  <TooltipTrigger
-                    render={
-                      <div
-                        className="flex h-full items-center truncate px-2 text-[11px] select-none"
-                        style={{
-                          color: "var(--foreground)",
-                          opacity: isSelected ? 1 : 0.8,
-                        }}
-                      />
-                    }
-                  >
-                    {f.span.name}
-                  </TooltipTrigger>
-                  <TooltipContent side="top">
-                    <span className="opacity-60">{f.span.serviceName}</span>
-                    <span className="mx-1 opacity-30">:</span>
-                    <span>{f.span.name}</span>
-                  </TooltipContent>
-                </Tooltip>
-              </foreignObject>
-
-              <rect
-                x={LABEL_WIDTH + x}
-                y={BAR_PADDING}
-                width={w}
-                height={ROW_HEIGHT - BAR_PADDING * 2}
-                rx={3}
-                fill={`url(#${gradId})`}
-                filter={isSelected ? "url(#bar-glow)" : undefined}
-              />
-
-              {w > 50 && (
                 <text
-                  x={LABEL_WIDTH + x + w / 2}
+                  x={INDENT_BASE + f.depth * INDENT_PER_DEPTH}
                   y={ROW_HEIGHT / 2}
                   dominantBaseline="central"
-                  textAnchor="middle"
-                  fontSize={10}
-                  fontFamily="var(--font-mono)"
-                  fontWeight="500"
-                  fill="white"
-                  opacity={0.9}
+                  fontSize={11}
+                  fontFamily="var(--font-sans)"
+                  fill="var(--foreground)"
+                  opacity={isSelected ? 1 : 0.8}
                   className="select-none"
+                  onMouseEnter={(e) => handleMouseEnter(e, f.span)}
+                  onMouseLeave={hideTooltip}
                 >
-                  {formatDuration(f.span.duration)}
+                  {truncate(f.span.name, Math.floor((LABEL_WIDTH - INDENT_BASE - f.depth * INDENT_PER_DEPTH) / AVG_CHAR_WIDTH))}
                 </text>
-              )}
 
-              <line
-                x1={0}
-                x2={width}
-                y1={ROW_HEIGHT}
-                y2={ROW_HEIGHT}
-                stroke="var(--border)"
-                strokeWidth={0.5}
-                opacity={0.5}
-              />
-            </Group>
-          );
-        })}
+                <rect
+                  x={LABEL_WIDTH + x}
+                  y={BAR_PADDING}
+                  width={w}
+                  height={ROW_HEIGHT - BAR_PADDING * 2}
+                  rx={3}
+                  fill={`url(#${gradId})`}
+                  filter={isSelected ? "url(#bar-glow)" : undefined}
+                />
 
-      </svg>
-    </ScrollArea>
+                {w > 50 && (
+                  <text
+                    x={LABEL_WIDTH + x + w / 2}
+                    y={ROW_HEIGHT / 2}
+                    dominantBaseline="central"
+                    textAnchor="middle"
+                    fontSize={10}
+                    fontFamily="var(--font-mono)"
+                    fontWeight="500"
+                    fill="white"
+                    opacity={0.9}
+                    className="select-none"
+                  >
+                    {formatDuration(f.span.duration)}
+                  </text>
+                )}
+
+                <line
+                  x1={0}
+                  x2={width}
+                  y1={ROW_HEIGHT}
+                  y2={ROW_HEIGHT}
+                  stroke="var(--border)"
+                  strokeWidth={0.5}
+                  opacity={0.5}
+                />
+              </Group>
+            );
+          })}
+        </svg>
+      </ScrollArea>
+
+      {tooltipOpen && tooltipData && (
+        <TooltipWithBounds
+          left={tooltipLeft}
+          top={tooltipTop}
+          unstyled
+          applyPositionStyle
+          className="pointer-events-none z-50 flex flex-col items-center gap-0.5 whitespace-nowrap rounded-md bg-accent px-3 py-1.5 text-xs text-foreground shadow-[0_2px_16px_oklch(0_0_0/50%)]"
+        >
+          <span className="opacity-60">{tooltipData.service}</span>
+          <span>{tooltipData.name}</span>
+        </TooltipWithBounds>
+      )}
+    </div>
   );
+}
+
+function truncate(s: string, maxLen: number): string {
+  if (s.length <= maxLen) return s;
+  return s.slice(0, Math.max(maxLen - 1, 0)) + "\u2026";
 }
