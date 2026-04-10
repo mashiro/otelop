@@ -107,7 +107,8 @@ export function SpanWaterfall({ trace, onSelectSpan, selectedSpan }: Props) {
 interface TooltipInfo {
   x: number;
   y: number;
-  text: string;
+  service: string;
+  name: string;
 }
 
 function WaterfallInner({
@@ -259,8 +260,9 @@ function WaterfallInner({
                   const rect = svg.getBoundingClientRect();
                   setTooltip({
                     x: e.clientX - rect.left,
-                    y: e.clientY - rect.top - 8,
-                    text: `${f.span.serviceName}: ${f.span.name}`,
+                    y: y,
+                    service: f.span.serviceName,
+                    name: f.span.name,
                   });
                 }}
                 onMouseLeave={() => setTooltip(null)}
@@ -314,14 +316,25 @@ function WaterfallInner({
         {/* Custom tooltip */}
         {tooltip && (
           <foreignObject
-            x={Math.min(tooltip.x, width - 240)}
-            y={Math.max(tooltip.y - 28, 0)}
-            width={240}
-            height={28}
+            x={0}
+            y={0}
+            width={width}
+            height={svgHeight}
             pointerEvents="none"
+            overflow="visible"
           >
-            <div className="w-fit max-w-[236px] truncate rounded bg-foreground px-2.5 py-1 text-xs text-background shadow-lg">
-              {tooltip.text}
+            <div
+              style={{
+                position: "absolute",
+                left: tooltip.x,
+                top: tooltip.y,
+                transform: "translate(-50%, -100%)",
+              }}
+              className="whitespace-nowrap rounded-md border border-border bg-card px-2.5 py-1.5 text-xs text-foreground shadow-lg"
+            >
+              <span className="text-muted-foreground">{tooltip.service}</span>
+              <span className="mx-1.5 text-border">:</span>
+              <span>{tooltip.name}</span>
             </div>
           </foreignObject>
         )}
