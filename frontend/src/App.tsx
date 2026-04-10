@@ -84,16 +84,16 @@ function App() {
             </TabsTrigger>
           </TabsList>
         </div>
-        <TabsContent value="traces" className="relative z-10 flex-1 overflow-hidden px-5 pb-4 pt-3">
+        <TabsContent value="traces" className="relative z-10 flex-1 overflow-hidden px-5 pb-4 pt-2">
           <TraceList />
         </TabsContent>
         <TabsContent
           value="metrics"
-          className="relative z-10 flex-1 overflow-hidden px-5 pb-4 pt-3"
+          className="relative z-10 flex-1 overflow-hidden px-5 pb-4 pt-2"
         >
           <MetricList />
         </TabsContent>
-        <TabsContent value="logs" className="relative z-10 flex-1 overflow-hidden px-5 pb-4 pt-3">
+        <TabsContent value="logs" className="relative z-10 flex-1 overflow-hidden px-5 pb-4 pt-2">
           <LogList />
         </TabsContent>
       </Tabs>

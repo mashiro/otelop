@@ -99,7 +99,26 @@ export const clearAllAtom = atom(null, (_get, set) => {
 
 // Selection state
 export const selectedTraceAtom = atom<TraceData | null>(null);
-export const selectedMetricAtom = atom<MetricData | null>(null);
+
+type MetricKey = Pick<MetricData, "serviceName" | "name">;
+const selectedMetricKeyAtom = atom<MetricKey | null>(null);
+
+export const selectedMetricAtom = atom(
+  (get) => {
+    const key = get(selectedMetricKeyAtom);
+    if (!key) return null;
+    return (
+      get(metricsAtom).find((m) => m.serviceName === key.serviceName && m.name === key.name) ?? null
+    );
+  },
+  (_get, set, metric: MetricData | null) => {
+    set(
+      selectedMetricKeyAtom,
+      metric ? { serviceName: metric.serviceName, name: metric.name } : null,
+    );
+  },
+);
+
 export const selectedLogAtom = atom<LogData | null>(null);
 
 // Active tab
