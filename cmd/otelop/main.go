@@ -128,8 +128,7 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		displayAddr = "localhost" + displayAddr
 	}
 
-	fmt.Fprintf(os.Stderr, `
-  %sotelop%s
+	fmt.Fprintf(os.Stderr, `  %sotelop%s
 
   %-14s http://%s
   %-14s %s
