@@ -4,6 +4,7 @@ import { metricsAtom, selectedMetricAtom } from "@/stores/telemetry";
 import { filteredMetricsAtom, metricSearchAtom } from "@/stores/filters";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { SearchFilter } from "@/components/filters/search-filter";
+import { ListToolbar } from "@/components/filters/list-toolbar";
 import {
   Table,
   TableBody,
@@ -57,9 +58,9 @@ export function MetricList() {
 
   return (
     <div className="glass-card flex h-full flex-col overflow-hidden">
-      <div className="border-b border-border/50 px-4 py-2">
+      <ListToolbar>
         <SearchFilter atom={metricSearchAtom} placeholder="Search metrics..." />
-      </div>
+      </ListToolbar>
       {metrics.length === 0 ? (
         <div className="flex flex-1 items-center justify-center">
           <p className="text-sm text-muted-foreground">No matching metrics</p>

@@ -5,6 +5,7 @@ import { tracesAtom, selectedTraceAtom } from "@/stores/telemetry";
 import { filteredTracesAtom, traceSearchAtom } from "@/stores/filters";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { SearchFilter } from "@/components/filters/search-filter";
+import { ListToolbar } from "@/components/filters/list-toolbar";
 import { ServiceMap } from "./service-map";
 import {
   Table,
@@ -55,7 +56,7 @@ export function TraceList() {
 
   return (
     <div className="glass-card flex h-full flex-col overflow-hidden">
-      <div className="flex items-center border-b border-border/50 px-4 py-2">
+      <ListToolbar>
         <SearchFilter atom={traceSearchAtom} placeholder="Search traces..." />
         <div className="ml-auto flex items-center gap-1 px-3">
           <button
@@ -75,7 +76,7 @@ export function TraceList() {
             <Network className="h-3.5 w-3.5" />
           </button>
         </div>
-      </div>
+      </ListToolbar>
       {view === "map" ? (
         <div className="min-h-0 flex-1">
           <ServiceMap />

@@ -16,6 +16,7 @@ import { CopyJsonButton } from "@/components/ui/copy-json-button";
 import { formatTimestamp, isZeroID, shortID } from "@/lib/format";
 import { KVSection } from "@/components/ui/kv-section";
 import { SearchFilter } from "@/components/filters/search-filter";
+import { ListToolbar } from "@/components/filters/list-toolbar";
 import type { LogData } from "@/types/telemetry";
 
 const severityStyle: Record<string, { bg: string; text: string; dot: string }> = {
@@ -68,7 +69,7 @@ export function LogList() {
 
   return (
     <div className="glass-card flex h-full flex-col overflow-hidden">
-      <div className="flex items-center gap-2 border-b border-border/50 px-4 py-2">
+      <ListToolbar>
         {traceFilter && (
           <div className="flex items-center gap-1 rounded bg-trace/10 px-2 py-0.5 text-[11px] text-trace">
             <span className="font-mono">{traceFilter.slice(0, 12)}...</span>
@@ -82,7 +83,7 @@ export function LogList() {
           </div>
         )}
         <SearchFilter atom={logSearchAtom} placeholder="Search logs..." />
-      </div>
+      </ListToolbar>
       {logs.length === 0 ? (
         <div className="flex flex-1 items-center justify-center">
           <p className="text-sm text-muted-foreground">No matching logs</p>
