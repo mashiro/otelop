@@ -123,19 +123,20 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		}
 	}()
 
-	// Format addresses for display (make :port into localhost:port for clickable links).
-	displayAddr := func(addr string) string {
-		if len(addr) > 0 && addr[0] == ':' {
-			return "localhost" + addr
-		}
-		return addr
+	displayAddr := httpAddr
+	if len(displayAddr) > 0 && displayAddr[0] == ':' {
+		displayAddr = "localhost" + displayAddr
 	}
 
-	fmt.Fprintf(os.Stderr, "\n  otelop\n\n")
-	fmt.Fprintf(os.Stderr, "  Web UI       http://%s\n", displayAddr(httpAddr))
-	fmt.Fprintf(os.Stderr, "  OTLP gRPC    %s\n", otlpGRPCAddr)
-	fmt.Fprintf(os.Stderr, "  OTLP HTTP    %s\n", otlpHTTPAddr)
-	fmt.Fprintf(os.Stderr, "  Capacity     traces=%d  metrics=%d  logs=%d  points=%d\n\n", traceCap, metricCap, logCap, maxDataPoints)
+	fmt.Fprintf(os.Stderr, `
+  otelop — OpenTelemetry viewer
+
+  %-14s http://%s
+  %-14s %s
+  %-14s %s
+  %-14s traces=%d, metrics=%d, logs=%d, points/metric=%d
+
+`, "Web UI", displayAddr, "OTLP gRPC", otlpGRPCAddr, "OTLP HTTP", otlpHTTPAddr, "Capacity", traceCap, metricCap, logCap, maxDataPoints)
 
 	// Graceful shutdown
 	sigCh := make(chan os.Signal, 1)
