@@ -1,4 +1,8 @@
 @import "tailwindcss";
+
+html {
+  scrollbar-gutter: stable;
+}
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/outfit";
@@ -309,7 +313,7 @@
 /* ── Staggered row animation ── */
 .stagger-row {
   opacity: 0;
-  animation: slide-up-fade 0.3s ease-out forwards;
+  animation: fade-in 0.3s ease-out forwards;
 }
 .stagger-row:nth-child(1) {
   animation-delay: 0ms;
