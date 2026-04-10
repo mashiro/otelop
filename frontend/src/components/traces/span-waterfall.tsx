@@ -408,7 +408,7 @@ function WaterfallInner({
                   filter={isSelected ? "url(#bar-glow)" : undefined}
                 />
 
-                {/* Duration label: inside bar if fits, otherwise to the right */}
+                {/* Duration label: inside bar if fits, otherwise left or right based on position */}
                 {w > 50 ? (
                   <text
                     x={LABEL_WIDTH + x + w / 2}
@@ -420,6 +420,20 @@ function WaterfallInner({
                     fontWeight="500"
                     fill="white"
                     opacity={0.9}
+                    className="select-none"
+                  >
+                    {durLabel}
+                  </text>
+                ) : x + w / 2 > barWidth / 2 ? (
+                  <text
+                    x={LABEL_WIDTH + x - 4}
+                    y={ROW_HEIGHT / 2}
+                    dominantBaseline="central"
+                    textAnchor="end"
+                    fontSize={10}
+                    fontFamily="var(--font-mono)"
+                    fontWeight="500"
+                    fill="var(--muted-foreground)"
                     className="select-none"
                   >
                     {durLabel}
