@@ -4,13 +4,21 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 )
+
+var tracer = otel.Tracer("otelop.server")
 
 func (s *Server) handleGetTraces(w http.ResponseWriter, r *http.Request) {
 	limit, offset := parsePagination(r)
-	traces := s.store.GetTraces()
 
+	_, span := tracer.Start(r.Context(), "store.GetTraces")
+	traces := s.store.GetTraces()
 	total := len(traces)
+	span.SetAttributes(attribute.Int("total", total))
+	span.End()
 	if offset > total {
 		offset = total
 	}
@@ -30,7 +38,10 @@ func (s *Server) handleGetTraces(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleGetTraceByID(w http.ResponseWriter, r *http.Request) {
 	traceID := r.PathValue("traceID")
+	_, span := tracer.Start(r.Context(), "store.GetTraceByID")
+	defer span.End()
 	trace, ok := s.store.GetTraceByID(traceID)
+	span.SetAttributes(attribute.String("trace_id", traceID), attribute.Bool("found", ok))
 	if !ok {
 		http.Error(w, "trace not found", http.StatusNotFound)
 		return

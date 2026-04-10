@@ -58,7 +58,14 @@ func New(addr string, s *store.Store, hub *ws.Hub, frontendFS fs.FS, debug bool)
 
 	if debug {
 		base := handler
-		instrumented := otelhttp.NewHandler(base, "otelop")
+		instrumented := otelhttp.NewHandler(base, "",
+			otelhttp.WithSpanNameFormatter(func(_ string, r *http.Request) string {
+				if p := r.Pattern; p != "" && p != "/" {
+					return p
+				}
+				return r.Method + " " + r.URL.Path
+			}),
+		)
 		handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.Header.Get("Upgrade") == "websocket" {
 				base.ServeHTTP(w, r)

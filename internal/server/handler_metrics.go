@@ -1,12 +1,19 @@
 package server
 
-import "net/http"
+import (
+	"net/http"
+
+	"go.opentelemetry.io/otel/attribute"
+)
 
 func (s *Server) handleGetMetrics(w http.ResponseWriter, r *http.Request) {
 	limit, offset := parsePagination(r)
-	metrics := s.store.GetMetrics()
 
+	_, span := tracer.Start(r.Context(), "store.GetMetrics")
+	metrics := s.store.GetMetrics()
 	total := len(metrics)
+	span.SetAttributes(attribute.Int("total", total))
+	span.End()
 	if offset > total {
 		offset = total
 	}
