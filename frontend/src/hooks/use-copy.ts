@@ -3,7 +3,7 @@ import { copyJsonToClipboard } from "@/lib/export";
 
 export function useCopyJson() {
   const [copied, setCopied] = useState(false);
-  const timerRef = useRef<ReturnType<typeof setTimeout>>();
+  const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   const copy = useCallback(async (data: unknown) => {
     const ok = await copyJsonToClipboard(data);

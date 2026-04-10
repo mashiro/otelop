@@ -13,7 +13,7 @@ export function SearchFilter({
 }) {
   const setValue = useSetAtom(atom);
   const [input, setInput] = useState("");
-  const timerRef = useRef<ReturnType<typeof setTimeout>>();
+  const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   const handleChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {

@@ -46,6 +46,8 @@ function makeTrace(overrides: Partial<TraceData> = {}): TraceData {
 function makeLog(overrides: Partial<LogData> = {}): LogData {
   return {
     timestamp: "2024-01-01T00:00:00Z",
+    observedTimestamp: "2024-01-01T00:00:00Z",
+    severityNumber: 9,
     severityText: "INFO",
     body: "request handled",
     traceID: "",
@@ -64,6 +66,7 @@ function makeMetric(overrides: Partial<MetricData> = {}): MetricData {
     unit: "",
     description: "",
     serviceName: "frontend",
+    resource: {},
     dataPoints: [],
     receivedAt: "2024-01-01T00:00:00Z",
     ...overrides,
