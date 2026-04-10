@@ -222,6 +222,24 @@ function WaterfallInner({
             </filter>
           </defs>
 
+          {/* Bar area background & divider */}
+          <rect
+            x={LABEL_WIDTH}
+            y={0}
+            width={width - LABEL_WIDTH}
+            height={svgHeight}
+            fill="var(--muted)"
+            opacity={0.3}
+          />
+          <line
+            x1={LABEL_WIDTH}
+            y1={0}
+            x2={LABEL_WIDTH}
+            y2={svgHeight}
+            stroke="var(--border)"
+            strokeWidth={1}
+          />
+
           {flatSpans.map((f, i) => {
             const startOffset = toNsOffset(f.span.startTime, baseNs);
             const spanDurNs = f.span.duration > 0 ? f.span.duration : 0;
