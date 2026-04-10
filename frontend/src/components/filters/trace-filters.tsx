@@ -33,7 +33,7 @@ export function TraceFilters() {
     filters.durationMax !== null;
 
   return (
-    <div className="flex flex-wrap items-center gap-2 border-b border-border/50 px-4 py-2">
+    <div className="flex flex-wrap items-center gap-2 px-4 py-2">
       <div className="relative">
         <Search className="absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground" />
         <Input

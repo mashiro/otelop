@@ -1,8 +1,11 @@
+import { useState } from "react";
 import { useAtomValue, useSetAtom } from "jotai";
+import { List, Network } from "lucide-react";
 import { tracesAtom, selectedTraceAtom } from "@/stores/telemetry";
 import { filteredTracesAtom } from "@/stores/filters";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { TraceFilters } from "@/components/filters/trace-filters";
+import { ServiceMap } from "./service-map";
 import {
   Table,
   TableBody,
@@ -19,6 +22,7 @@ export function TraceList() {
   const traces = useAtomValue(filteredTracesAtom);
   const selectedTrace = useAtomValue(selectedTraceAtom);
   const setSelectedTrace = useSetAtom(selectedTraceAtom);
+  const [view, setView] = useState<"list" | "map">("list");
 
   if (selectedTrace) {
     return <TraceDetail />;
@@ -51,8 +55,32 @@ export function TraceList() {
 
   return (
     <div className="glass-card flex h-full flex-col overflow-hidden">
-      <TraceFilters />
-      {traces.length === 0 ? (
+      <div className="flex items-center border-b border-border/50">
+        <TraceFilters />
+        <div className="ml-auto flex items-center gap-1 px-3">
+          <button
+            type="button"
+            onClick={() => setView("list")}
+            className={`rounded p-1 transition-colors ${view === "list" ? "bg-trace/15 text-trace" : "text-muted-foreground hover:text-foreground"}`}
+            title="List view"
+          >
+            <List className="h-3.5 w-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={() => setView("map")}
+            className={`rounded p-1 transition-colors ${view === "map" ? "bg-trace/15 text-trace" : "text-muted-foreground hover:text-foreground"}`}
+            title="Service map"
+          >
+            <Network className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      </div>
+      {view === "map" ? (
+        <div className="min-h-0 flex-1">
+          <ServiceMap />
+        </div>
+      ) : traces.length === 0 ? (
         <div className="flex flex-1 items-center justify-center">
           <p className="text-sm text-muted-foreground">No matching traces</p>
         </div>
