@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { useAtomValue, useSetAtom } from "jotai";
 import { metricsAtom, selectedMetricAtom } from "@/stores/telemetry";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -13,7 +14,11 @@ import { formatRelativeTime } from "@/lib/format";
 import { MetricDetail } from "./metric-detail";
 
 export function MetricList() {
-  const metrics = useAtomValue(metricsAtom);
+  const rawMetrics = useAtomValue(metricsAtom);
+  const metrics = useMemo(
+    () => [...rawMetrics].sort((a, b) => a.name.localeCompare(b.name)),
+    [rawMetrics],
+  );
   const selectedMetric = useAtomValue(selectedMetricAtom);
   const setSelectedMetric = useSetAtom(selectedMetricAtom);
 
