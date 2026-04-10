@@ -23,7 +23,11 @@ const severityStyle: Record<string, { bg: string; text: string; dot: string }> =
   FATAL: { bg: "bg-destructive/20", text: "text-destructive", dot: "bg-destructive" },
 };
 
-const defaultSeverity = { bg: "bg-muted", text: "text-muted-foreground", dot: "bg-muted-foreground/40" };
+const defaultSeverity = {
+  bg: "bg-muted",
+  text: "text-muted-foreground",
+  dot: "bg-muted-foreground/40",
+};
 
 export function LogList() {
   const allLogs = useAtomValue(logsAtom);
@@ -42,7 +46,14 @@ export function LogList() {
       <div className="glass-card flex h-full items-center justify-center">
         <div className="animate-slide-up-fade flex flex-col items-center gap-4">
           <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-log/10">
-            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--log)" strokeWidth="1.5">
+            <svg
+              width="28"
+              height="28"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="var(--log)"
+              strokeWidth="1.5"
+            >
               <path d="M4 6h16M4 12h16M4 18h10" />
             </svg>
           </div>
@@ -132,7 +143,10 @@ export function LogList() {
                   </TableRow>
                   {expandedIdx === i && (
                     <TableRow key={`detail-${i}`}>
-                      <TableCell colSpan={5} className="whitespace-normal border-b border-border/20 bg-card/30 p-0">
+                      <TableCell
+                        colSpan={5}
+                        className="whitespace-normal border-b border-border/20 bg-card/30 p-0"
+                      >
                         <LogDetail log={log} onNavigateToTrace={navigateToTrace} />
                       </TableCell>
                     </TableRow>
@@ -147,16 +161,28 @@ export function LogList() {
   );
 }
 
-function LogDetail({ log, onNavigateToTrace }: { log: LogData; onNavigateToTrace: (id: string) => void }) {
+function LogDetail({
+  log,
+  onNavigateToTrace,
+}: {
+  log: LogData;
+  onNavigateToTrace: (id: string) => void;
+}) {
   return (
     <div className="animate-slide-up-fade space-y-3 overflow-hidden px-4 py-3 text-xs">
       <div className="min-w-0">
-        <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Body</div>
-        <div className="whitespace-pre-wrap break-all font-mono text-foreground/80 pl-3">{log.body}</div>
+        <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+          Body
+        </div>
+        <div className="whitespace-pre-wrap break-all font-mono text-foreground/80 pl-3">
+          {log.body}
+        </div>
       </div>
       {!isZeroID(log.traceID) && (
         <div className="flex items-center gap-2">
-          <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Trace ID </span>
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Trace ID{" "}
+          </span>
           <button
             className="font-mono text-trace underline decoration-trace/30 underline-offset-2 transition-colors hover:decoration-trace/60"
             onClick={() => onNavigateToTrace(log.traceID)}
@@ -166,7 +192,9 @@ function LogDetail({ log, onNavigateToTrace }: { log: LogData; onNavigateToTrace
           {!isZeroID(log.spanID) && (
             <>
               <span className="mx-1 text-muted-foreground">/</span>
-              <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Span ID </span>
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Span ID{" "}
+              </span>
               <span className="font-mono text-log">{log.spanID}</span>
             </>
           )}

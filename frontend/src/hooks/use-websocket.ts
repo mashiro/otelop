@@ -34,7 +34,10 @@ export function useWebSocket(): void {
     wsRef.current = ws;
 
     ws.onopen = () => {
-      if (disposedRef.current) { ws.close(); return; }
+      if (disposedRef.current) {
+        ws.close();
+        return;
+      }
       setWsStatus("connected");
       reconnectDelayRef.current = INITIAL_RECONNECT_DELAY;
     };

@@ -26,7 +26,14 @@ export function MetricList() {
       <div className="glass-card flex h-full items-center justify-center">
         <div className="animate-slide-up-fade flex flex-col items-center gap-4">
           <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-metric/10">
-            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--metric)" strokeWidth="1.5">
+            <svg
+              width="28"
+              height="28"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="var(--metric)"
+              strokeWidth="1.5"
+            >
               <path d="M3 3v18h18" />
               <path d="M7 16l4-8 4 4 6-10" />
             </svg>
@@ -73,7 +80,9 @@ export function MetricList() {
                     </span>
                   </TableCell>
                   <TableCell className="text-muted-foreground">{metric.unit || "-"}</TableCell>
-                  <TableCell className="text-right font-mono text-xs">{metric.dataPoints.length}</TableCell>
+                  <TableCell className="text-right font-mono text-xs">
+                    {metric.dataPoints.length}
+                  </TableCell>
                   <TableCell className="text-right font-mono text-xs text-metric">
                     {lastPoint ? lastPoint.value.toLocaleString() : "-"}
                   </TableCell>

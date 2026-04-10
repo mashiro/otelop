@@ -138,12 +138,16 @@ function WaterfallInner({
         const end = Temporal.Instant.from(trace.rootSpan.endTime).epochNanoseconds;
         const dur = Number(end - start);
         if (dur > 0) return { baseNs: start, totalNs: dur };
-      } catch { /* fall through */ }
+      } catch {
+        /* fall through */
+      }
     }
     try {
       const start = Temporal.Instant.from(trace.startTime).epochNanoseconds;
       if (trace.duration > 0) return { baseNs: start, totalNs: trace.duration };
-    } catch { /* fall through */ }
+    } catch {
+      /* fall through */
+    }
     let minNs: bigint | null = null;
     let maxNs: bigint | null = null;
     for (const f of flatSpans) {
@@ -152,7 +156,9 @@ function WaterfallInner({
         const e = Temporal.Instant.from(f.span.endTime).epochNanoseconds;
         if (minNs === null || s < minNs) minNs = s;
         if (maxNs === null || e > maxNs) maxNs = e;
-      } catch { /* skip */ }
+      } catch {
+        /* skip */
+      }
     }
     if (minNs !== null && maxNs !== null && maxNs > minNs) {
       return { baseNs: minNs, totalNs: Number(maxNs - minNs) };
@@ -168,14 +174,8 @@ function WaterfallInner({
 
   const svgHeight = Math.max(flatSpans.length * ROW_HEIGHT, height);
 
-  const {
-    showTooltip,
-    hideTooltip,
-    tooltipData,
-    tooltipLeft,
-    tooltipTop,
-    tooltipOpen,
-  } = useTooltip<TooltipData>();
+  const { showTooltip, hideTooltip, tooltipData, tooltipLeft, tooltipTop, tooltipOpen } =
+    useTooltip<TooltipData>();
 
   const handleMouseEnter = useCallback(
     (e: React.MouseEvent, span: SpanData) => {
@@ -197,7 +197,14 @@ function WaterfallInner({
         <svg width={width} height={svgHeight}>
           <defs>
             {[...serviceColorMap.entries()].map(([service, color]) => (
-              <linearGradient key={service} id={`grad-${service.replace(/\W/g, "")}`} x1="0" y1="0" x2="1" y2="0">
+              <linearGradient
+                key={service}
+                id={`grad-${service.replace(/\W/g, "")}`}
+                x1="0"
+                y1="0"
+                x2="1"
+                y2="0"
+              >
                 <stop offset="0%" stopColor={color} stopOpacity="0.9" />
                 <stop offset="100%" stopColor={color} stopOpacity="0.6" />
               </linearGradient>
@@ -235,14 +242,7 @@ function WaterfallInner({
                 onClick={() => onSelectSpan(f.span)}
               >
                 {isSelected && (
-                  <rect
-                    x={0}
-                    y={0}
-                    width={width}
-                    height={ROW_HEIGHT}
-                    fill={color}
-                    opacity={0.08}
-                  />
+                  <rect x={0} y={0} width={width} height={ROW_HEIGHT} fill={color} opacity={0.08} />
                 )}
 
                 <rect
@@ -278,7 +278,12 @@ function WaterfallInner({
                   onMouseEnter={(e) => handleMouseEnter(e, f.span)}
                   onMouseLeave={hideTooltip}
                 >
-                  {truncate(f.span.name, Math.floor((LABEL_WIDTH - INDENT_BASE - f.depth * INDENT_PER_DEPTH) / AVG_CHAR_WIDTH))}
+                  {truncate(
+                    f.span.name,
+                    Math.floor(
+                      (LABEL_WIDTH - INDENT_BASE - f.depth * INDENT_PER_DEPTH) / AVG_CHAR_WIDTH,
+                    ),
+                  )}
                 </text>
 
                 <rect

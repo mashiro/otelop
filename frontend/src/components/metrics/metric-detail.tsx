@@ -34,9 +34,7 @@ export function MetricDetail() {
           <span className="rounded-full bg-metric/15 px-2 py-0.5 text-[11px] font-medium text-metric">
             {metric.type}
           </span>
-          {metric.unit && (
-            <span className="text-xs text-muted-foreground">({metric.unit})</span>
-          )}
+          {metric.unit && <span className="text-xs text-muted-foreground">({metric.unit})</span>}
           <span className="text-xs text-muted-foreground">{metric.serviceName}</span>
         </div>
       </div>

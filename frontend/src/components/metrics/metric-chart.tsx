@@ -136,14 +136,8 @@ function ChartInner({ metric, width, height }: Props & { width: number; height: 
     });
   }, [allPoints, innerHeight]);
 
-  const {
-    showTooltip,
-    hideTooltip,
-    tooltipData,
-    tooltipLeft,
-    tooltipTop,
-    tooltipOpen,
-  } = useTooltip<TooltipData>();
+  const { showTooltip, hideTooltip, tooltipData, tooltipLeft, tooltipTop, tooltipOpen } =
+    useTooltip<TooltipData>();
 
   // Show all series values at the nearest timestamp.
   const handleMouseMove = useCallback(
@@ -358,12 +352,17 @@ function ChartInner({ metric, width, height }: Props & { width: number; height: 
       {showLegend && (
         <div className="flex flex-wrap gap-x-4 gap-y-1 px-2">
           {series.map((s) => (
-            <div key={s.key} className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+            <div
+              key={s.key}
+              className="flex items-center gap-1.5 text-[10px] text-muted-foreground"
+            >
               <span
                 className="inline-block h-2 w-2 shrink-0 rounded-full"
                 style={{ backgroundColor: s.color }}
               />
-              <span className="max-w-[250px] truncate font-mono" title={s.label}>{s.label}</span>
+              <span className="max-w-[250px] truncate font-mono" title={s.label}>
+                {s.label}
+              </span>
             </div>
           ))}
         </div>

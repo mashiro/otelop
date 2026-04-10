@@ -33,15 +33,11 @@ export function TraceDetail() {
           <span className="font-semibold text-foreground">
             {trace.rootSpan?.name ?? trace.spans[0]?.name}
           </span>
-          <span className="font-mono text-xs text-muted-foreground">
-            {shortID(trace.traceID)}
-          </span>
+          <span className="font-mono text-xs text-muted-foreground">{shortID(trace.traceID)}</span>
           <span className="rounded-full bg-trace/15 px-2 py-0.5 text-[11px] font-medium text-trace">
             {trace.spanCount} spans
           </span>
-          <span className="font-mono text-xs text-trace">
-            {formatDuration(trace.duration)}
-          </span>
+          <span className="font-mono text-xs text-trace">{formatDuration(trace.duration)}</span>
         </div>
         <Button
           variant="ghost"
