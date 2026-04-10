@@ -66,19 +66,19 @@ function App() {
           <TabsList className="w-fit gap-1 bg-transparent p-0">
             <TabsTrigger
               value="traces"
-              className="rounded-lg px-4 py-1.5 text-sm font-medium text-muted-foreground transition-all data-active:bg-trace/15 data-active:text-trace data-active:shadow-[0_0_12px_oklch(0.80_0.14_195/20%)] hover:text-foreground"
+              className="rounded-lg px-4 py-1.5 text-sm font-medium text-muted-foreground transition-all data-active:bg-trace/15 data-active:text-trace data-active:shadow-[0_0_12px_oklch(0.80_0.14_195/20%)] dark:data-active:bg-trace/15 dark:data-active:text-trace hover:text-foreground"
             >
               Traces
             </TabsTrigger>
             <TabsTrigger
               value="metrics"
-              className="rounded-lg px-4 py-1.5 text-sm font-medium text-muted-foreground transition-all data-active:bg-metric/15 data-active:text-metric data-active:shadow-[0_0_12px_oklch(0.82_0.14_80/20%)] hover:text-foreground"
+              className="rounded-lg px-4 py-1.5 text-sm font-medium text-muted-foreground transition-all data-active:bg-metric/15 data-active:text-metric data-active:shadow-[0_0_12px_oklch(0.82_0.14_80/20%)] dark:data-active:bg-metric/15 dark:data-active:text-metric hover:text-foreground"
             >
               Metrics
             </TabsTrigger>
             <TabsTrigger
               value="logs"
-              className="rounded-lg px-4 py-1.5 text-sm font-medium text-muted-foreground transition-all data-active:bg-log/15 data-active:text-log data-active:shadow-[0_0_12px_oklch(0.78_0.14_300/20%)] hover:text-foreground"
+              className="rounded-lg px-4 py-1.5 text-sm font-medium text-muted-foreground transition-all data-active:bg-log/15 data-active:text-log data-active:shadow-[0_0_12px_oklch(0.78_0.14_300/20%)] dark:data-active:bg-log/15 dark:data-active:text-log hover:text-foreground"
             >
               Logs
             </TabsTrigger>
