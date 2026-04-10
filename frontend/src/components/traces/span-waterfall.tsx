@@ -246,8 +246,9 @@ function WaterfallInner({
                 opacity={isSelected ? 1 : 0.8}
                 className="select-none"
               >
+                <title>{`${f.span.serviceName}: ${f.span.name}`}</title>
                 {truncate(
-                  `${f.span.serviceName}: ${f.span.name}`,
+                  f.span.name,
                   Math.floor((LABEL_WIDTH - 8 - f.depth * 16) / 6),
                 )}
               </text>
