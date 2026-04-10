@@ -6,6 +6,8 @@ import (
 	"net/http"
 
 	"github.com/CAFxX/httpcompression"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+
 	"github.com/mashiro/otelop/internal/store"
 	ws "github.com/mashiro/otelop/internal/websocket"
 )
@@ -17,8 +19,9 @@ type Server struct {
 	httpServer *http.Server
 }
 
-// New creates a new Server.
-func New(addr string, s *store.Store, hub *ws.Hub, frontendFS fs.FS) *Server {
+// New creates a new Server. When debug is true, HTTP requests are
+// instrumented with OpenTelemetry spans via otelhttp.
+func New(addr string, s *store.Store, hub *ws.Hub, frontendFS fs.FS, debug bool) *Server {
 	srv := &Server{
 		store: s,
 		hub:   hub,
@@ -50,6 +53,18 @@ func New(addr string, s *store.Store, hub *ws.Hub, frontendFS fs.FS) *Server {
 				return
 			}
 			compressed.ServeHTTP(w, r)
+		})
+	}
+
+	if debug {
+		base := handler
+		instrumented := otelhttp.NewHandler(base, "otelop")
+		handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Header.Get("Upgrade") == "websocket" {
+				base.ServeHTTP(w, r)
+				return
+			}
+			instrumented.ServeHTTP(w, r)
 		})
 	}
 	srv.httpServer = &http.Server{

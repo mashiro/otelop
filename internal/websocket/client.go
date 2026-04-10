@@ -2,7 +2,7 @@ package websocket
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"time"
 
 	"github.com/coder/websocket"
@@ -52,7 +52,7 @@ func (c *Client) WritePump(ctx context.Context) {
 			err := c.conn.Write(writeCtx, websocket.MessageText, msg)
 			cancel()
 			if err != nil {
-				log.Printf("websocket: write error: %v", err)
+				slog.Error("websocket: write error", "error", err)
 				return
 			}
 		case <-ticker.C:

@@ -3,7 +3,7 @@ package websocket
 import (
 	"context"
 	"encoding/json"
-	"log"
+	"log/slog"
 	"sync"
 
 	"github.com/mashiro/otelop/internal/store"
@@ -47,14 +47,18 @@ func (h *Hub) Run(ctx context.Context) {
 		case client := <-h.register:
 			h.mu.Lock()
 			h.clients[client] = struct{}{}
+			count := len(h.clients)
 			h.mu.Unlock()
+			slog.Debug("websocket: client connected", "clients", count)
 		case client := <-h.unregister:
 			h.mu.Lock()
 			if _, ok := h.clients[client]; ok {
 				close(client.send)
 				delete(h.clients, client)
 			}
+			count := len(h.clients)
 			h.mu.Unlock()
+			slog.Debug("websocket: client disconnected", "clients", count)
 		}
 	}
 }
@@ -72,9 +76,16 @@ func (h *Hub) Unregister(c *Client) {
 // Broadcast sends a message to all connected clients.
 // This is safe to call from any goroutine.
 func (h *Hub) Broadcast(msg Message) {
+	h.mu.RLock()
+	n := len(h.clients)
+	h.mu.RUnlock()
+	if n == 0 {
+		return
+	}
+
 	data, err := json.Marshal(msg)
 	if err != nil {
-		log.Printf("websocket: failed to marshal message: %v", err)
+		slog.Error("websocket: failed to marshal message", "error", err)
 		return
 	}
 

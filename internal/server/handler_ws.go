@@ -2,7 +2,7 @@ package server
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"net/http"
 
 	"github.com/coder/websocket"
@@ -15,7 +15,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		OriginPatterns: []string{"*"},
 	})
 	if err != nil {
-		log.Printf("websocket: accept error: %v", err)
+		slog.Error("websocket: accept error", "error", err)
 		return
 	}
 
