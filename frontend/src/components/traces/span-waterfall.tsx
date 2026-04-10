@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState, useRef } from "react";
 import { Group } from "@visx/group";
 import { scaleLinear } from "@visx/scale";
 import { ParentSize } from "@visx/responsive";
@@ -104,6 +104,12 @@ export function SpanWaterfall({ trace, onSelectSpan, selectedSpan }: Props) {
   );
 }
 
+interface TooltipInfo {
+  x: number;
+  y: number;
+  text: string;
+}
+
 function WaterfallInner({
   trace,
   width,
@@ -111,6 +117,8 @@ function WaterfallInner({
   onSelectSpan,
   selectedSpan,
 }: Props & { width: number; height: number }) {
+  const [tooltip, setTooltip] = useState<TooltipInfo | null>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
   const flatSpans = useMemo(() => buildTree(trace.spans), [trace.spans]);
 
   const serviceColorMap = useMemo(() => {
@@ -163,7 +171,7 @@ function WaterfallInner({
 
   return (
     <ScrollArea className="h-full">
-      <svg width={width} height={svgHeight}>
+      <svg ref={svgRef} width={width} height={svgHeight}>
         <defs>
           {[...serviceColorMap.entries()].map(([service, color]) => (
             <linearGradient key={service} id={`grad-${service.replace(/\W/g, "")}`} x1="0" y1="0" x2="1" y2="0">
@@ -245,8 +253,18 @@ function WaterfallInner({
                 fill="var(--foreground)"
                 opacity={isSelected ? 1 : 0.8}
                 className="select-none"
+                onMouseEnter={(e) => {
+                  const svg = svgRef.current;
+                  if (!svg) return;
+                  const rect = svg.getBoundingClientRect();
+                  setTooltip({
+                    x: e.clientX - rect.left,
+                    y: e.clientY - rect.top - 8,
+                    text: `${f.span.serviceName}: ${f.span.name}`,
+                  });
+                }}
+                onMouseLeave={() => setTooltip(null)}
               >
-                <title>{`${f.span.serviceName}: ${f.span.name}`}</title>
                 {truncate(
                   f.span.name,
                   Math.floor((LABEL_WIDTH - 8 - f.depth * 16) / 6),
@@ -292,6 +310,21 @@ function WaterfallInner({
             </Group>
           );
         })}
+
+        {/* Custom tooltip */}
+        {tooltip && (
+          <foreignObject
+            x={Math.min(tooltip.x, width - 240)}
+            y={Math.max(tooltip.y - 28, 0)}
+            width={240}
+            height={28}
+            pointerEvents="none"
+          >
+            <div className="w-fit max-w-[236px] truncate rounded bg-foreground px-2.5 py-1 text-xs text-background shadow-lg">
+              {tooltip.text}
+            </div>
+          </foreignObject>
+        )}
       </svg>
     </ScrollArea>
   );
