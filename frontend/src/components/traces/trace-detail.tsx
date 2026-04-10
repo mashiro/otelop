@@ -82,46 +82,47 @@ export function TraceDetail() {
 
 function SpanDetail({ span, onClose }: { span: SpanData; onClose: () => void }) {
   return (
-    <ScrollArea className="h-full">
-      <div className="animate-slide-up-fade space-y-5 p-4">
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-trace">Span Details</h3>
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            onClick={onClose}
-            className="text-muted-foreground hover:text-foreground"
-          >
-            <X className="h-3 w-3" />
-          </Button>
-        </div>
-
-        <div className="space-y-2.5">
-          <Field label="Name" value={span.name} />
-          <Field label="Service" value={span.serviceName} />
-          <Field label="Span ID" value={span.spanID} mono />
-          <Field label="Parent" value={span.parentSpanID || "(root)"} mono />
-          <Field label="Kind" value={span.kind} />
-          <Field label="Status" value={span.statusCode} />
-          {span.statusMessage && <Field label="Message" value={span.statusMessage} />}
-          <Field label="Duration" value={formatDuration(span.duration)} mono highlight />
-        </div>
-
-        <KVSection title="Attributes" data={span.attributes} />
-
-        {span.events.length > 0 && (
-          <Section title="Events">
-            {span.events.map((e, i) => (
-              <div key={i} className="text-xs">
-                <span className="font-medium text-foreground/80">{e.name}</span>
-              </div>
-            ))}
-          </Section>
-        )}
-
-        <KVSection title="Resource" data={span.resource} />
+    <div className="flex h-full flex-col">
+      <div className="flex items-center justify-between border-b border-border/50 px-4 py-2">
+        <h3 className="text-sm font-semibold text-trace">Span Details</h3>
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          onClick={onClose}
+          className="text-muted-foreground hover:text-foreground"
+        >
+          <X className="h-3 w-3" />
+        </Button>
       </div>
-    </ScrollArea>
+      <ScrollArea className="min-h-0 flex-1">
+        <div className="animate-slide-up-fade space-y-5 p-4">
+          <div className="space-y-2.5">
+            <Field label="Name" value={span.name} />
+            <Field label="Service" value={span.serviceName} />
+            <Field label="Span ID" value={span.spanID} mono />
+            <Field label="Parent" value={span.parentSpanID || "(root)"} mono />
+            <Field label="Kind" value={span.kind} />
+            <Field label="Status" value={span.statusCode} />
+            {span.statusMessage && <Field label="Message" value={span.statusMessage} />}
+            <Field label="Duration" value={formatDuration(span.duration)} mono highlight />
+          </div>
+
+          <KVSection title="Attributes" data={span.attributes} />
+
+          {span.events.length > 0 && (
+            <Section title="Events">
+              {span.events.map((e, i) => (
+                <div key={i} className="text-xs">
+                  <span className="font-medium text-foreground/80">{e.name}</span>
+                </div>
+              ))}
+            </Section>
+          )}
+
+          <KVSection title="Resource" data={span.resource} />
+        </div>
+      </ScrollArea>
+    </div>
   );
 }
 
