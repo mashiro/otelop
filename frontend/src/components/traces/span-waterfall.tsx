@@ -9,23 +9,27 @@ import { formatDuration } from "@/lib/format";
 import type { TraceData, SpanData } from "@/types/telemetry";
 
 const ROW_HEIGHT = 32;
+const HEADER_HEIGHT = 28;
 const LABEL_WIDTH = 260;
-const BAR_PADDING = 4;
+const BAR_PADDING = 8;
 const MIN_BAR_WIDTH = 3;
 const INDENT_BASE = 8;
 const INDENT_PER_DEPTH = 16;
+const SERVICE_BAR_WIDTH = 4;
+const SERVICE_GAP = 6;
 const AVG_CHAR_WIDTH = 6;
+const TICK_COUNT = 5;
 const ERROR_COLOR = "oklch(0.70 0.22 25)";
 
 const SERVICE_COLORS = [
-  "oklch(0.80 0.14 195)",
-  "oklch(0.82 0.14 80)",
-  "oklch(0.78 0.14 300)",
-  "oklch(0.78 0.17 155)",
-  "oklch(0.75 0.18 15)",
-  "oklch(0.80 0.12 230)",
-  "oklch(0.76 0.14 50)",
-  "oklch(0.74 0.16 340)",
+  "oklch(0.65 0.14 195)",
+  "oklch(0.67 0.14 80)",
+  "oklch(0.63 0.14 300)",
+  "oklch(0.63 0.17 155)",
+  "oklch(0.60 0.18 15)",
+  "oklch(0.65 0.12 230)",
+  "oklch(0.61 0.14 50)",
+  "oklch(0.59 0.16 340)",
 ];
 
 interface Props {
@@ -172,7 +176,16 @@ function WaterfallInner({
     range: [0, barWidth],
   });
 
-  const svgHeight = Math.max(flatSpans.length * ROW_HEIGHT, height);
+  const ticks = useMemo(() => {
+    const result = [];
+    for (let i = 0; i <= TICK_COUNT; i++) {
+      const ns = (totalNs / TICK_COUNT) * i;
+      result.push({ ns, x: xScale(ns) });
+    }
+    return result;
+  }, [totalNs, xScale]);
+
+  const svgHeight = Math.max(flatSpans.length * ROW_HEIGHT + HEADER_HEIGHT, height);
 
   const { showTooltip, hideTooltip, tooltipData, tooltipLeft, tooltipTop, tooltipOpen } =
     useTooltip<TooltipData>();
@@ -222,35 +235,107 @@ function WaterfallInner({
             </filter>
           </defs>
 
+          {/* Timeline header */}
+          <Group top={0}>
+            <rect
+              x={0}
+              y={0}
+              width={width}
+              height={HEADER_HEIGHT}
+              fill="var(--muted-foreground)"
+              opacity={0.1}
+            />
+            <text
+              x={INDENT_BASE}
+              y={HEADER_HEIGHT / 2}
+              dominantBaseline="central"
+              fontSize={11}
+              fontFamily="var(--font-sans)"
+              fontWeight="600"
+              fill="var(--muted-foreground)"
+              className="select-none"
+            >
+              Operation
+            </text>
+            {ticks.map((tick) => (
+              <Group key={tick.ns} left={LABEL_WIDTH + tick.x}>
+                <line
+                  x1={0}
+                  y1={0}
+                  x2={0}
+                  y2={HEADER_HEIGHT}
+                  stroke="var(--border)"
+                  strokeWidth={1}
+                />
+                <text
+                  x={4}
+                  y={HEADER_HEIGHT / 2}
+                  dominantBaseline="central"
+                  fontSize={10}
+                  fontFamily="var(--font-mono)"
+                  fill="var(--muted-foreground)"
+                  className="select-none"
+                >
+                  {formatDuration(tick.ns)}
+                </text>
+              </Group>
+            ))}
+            <line
+              x1={0}
+              y1={HEADER_HEIGHT}
+              x2={width}
+              y2={HEADER_HEIGHT}
+              stroke="var(--border)"
+              strokeWidth={1}
+            />
+          </Group>
+
           {/* Bar area background & divider */}
           <rect
             x={LABEL_WIDTH}
-            y={0}
+            y={HEADER_HEIGHT}
             width={width - LABEL_WIDTH}
-            height={svgHeight}
+            height={svgHeight - HEADER_HEIGHT}
             fill="var(--muted)"
             opacity={0.3}
           />
           <line
             x1={LABEL_WIDTH}
-            y1={0}
+            y1={HEADER_HEIGHT}
             x2={LABEL_WIDTH}
             y2={svgHeight}
             stroke="var(--border)"
             strokeWidth={1}
           />
+          {/* Tick grid lines */}
+          {ticks.map((tick) => (
+            <line
+              key={tick.ns}
+              x1={LABEL_WIDTH + tick.x}
+              y1={HEADER_HEIGHT}
+              x2={LABEL_WIDTH + tick.x}
+              y2={svgHeight}
+              stroke="var(--border)"
+              strokeWidth={0.5}
+              opacity={0.3}
+            />
+          ))}
 
           {flatSpans.map((f, i) => {
             const startOffset = toNsOffset(f.span.startTime, baseNs);
             const spanDurNs = f.span.duration > 0 ? f.span.duration : 0;
             const x = xScale(Math.max(startOffset, 0));
             const w = Math.max(xScale(spanDurNs) - xScale(0), MIN_BAR_WIDTH);
-            const y = i * ROW_HEIGHT;
+            const y = i * ROW_HEIGHT + HEADER_HEIGHT;
             const isSelected = selectedSpan?.spanID === f.span.spanID;
             const isError = f.span.statusCode === "Error";
             const serviceKey = f.span.serviceName.replace(/\W/g, "");
             const gradId = isError ? "grad-error" : `grad-${serviceKey}`;
             const color = isError ? ERROR_COLOR : serviceColorMap.get(f.span.serviceName)!;
+            const labelX =
+              INDENT_BASE + f.depth * INDENT_PER_DEPTH + SERVICE_BAR_WIDTH + SERVICE_GAP;
+            const availChars = Math.floor((LABEL_WIDTH - labelX) / AVG_CHAR_WIDTH);
+            const durLabel = formatDuration(f.span.duration);
 
             return (
               <Group
@@ -284,8 +369,19 @@ function WaterfallInner({
                   />
                 )}
 
-                <text
+                {/* Service color indicator */}
+                <rect
                   x={INDENT_BASE + f.depth * INDENT_PER_DEPTH}
+                  y={ROW_HEIGHT / 2 - 6}
+                  width={SERVICE_BAR_WIDTH}
+                  height={12}
+                  rx={1}
+                  fill={color}
+                />
+
+                {/* Operation name */}
+                <text
+                  x={labelX}
                   y={ROW_HEIGHT / 2}
                   dominantBaseline="central"
                   fontSize={11}
@@ -296,14 +392,10 @@ function WaterfallInner({
                   onMouseEnter={(e) => handleMouseEnter(e, f.span)}
                   onMouseLeave={hideTooltip}
                 >
-                  {truncate(
-                    f.span.name,
-                    Math.floor(
-                      (LABEL_WIDTH - INDENT_BASE - f.depth * INDENT_PER_DEPTH) / AVG_CHAR_WIDTH,
-                    ),
-                  )}
+                  {truncate(f.span.name, availChars)}
                 </text>
 
+                {/* Bar */}
                 <rect
                   x={LABEL_WIDTH + x}
                   y={BAR_PADDING}
@@ -314,7 +406,8 @@ function WaterfallInner({
                   filter={isSelected ? "url(#bar-glow)" : undefined}
                 />
 
-                {w > 50 && (
+                {/* Duration label: inside bar if fits, otherwise to the right */}
+                {w > 50 ? (
                   <text
                     x={LABEL_WIDTH + x + w / 2}
                     y={ROW_HEIGHT / 2}
@@ -327,7 +420,21 @@ function WaterfallInner({
                     opacity={0.9}
                     className="select-none"
                   >
-                    {formatDuration(f.span.duration)}
+                    {durLabel}
+                  </text>
+                ) : (
+                  <text
+                    x={LABEL_WIDTH + x + w + 4}
+                    y={ROW_HEIGHT / 2}
+                    dominantBaseline="central"
+                    textAnchor="start"
+                    fontSize={10}
+                    fontFamily="var(--font-mono)"
+                    fontWeight="500"
+                    fill="var(--muted-foreground)"
+                    className="select-none"
+                  >
+                    {durLabel}
                   </text>
                 )}
 
