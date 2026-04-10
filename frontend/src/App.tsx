@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { useAtomValue, useSetAtom } from "jotai";
+import { useThemeSync } from "@/hooks/use-theme";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Header } from "@/components/layout/header";
 import { TraceList } from "@/components/traces/trace-list";
@@ -17,6 +18,7 @@ import type { PaginatedResponse, TraceData, MetricData, LogData } from "@/types/
 import type { ServerConfig, TabValue } from "@/stores/telemetry";
 
 function App() {
+  useThemeSync();
   useWebSocket();
 
   const setTraces = useSetAtom(setTracesAtom);
@@ -85,7 +87,10 @@ function App() {
         <TabsContent value="traces" className="relative z-10 flex-1 overflow-hidden px-5 pb-4 pt-3">
           <TraceList />
         </TabsContent>
-        <TabsContent value="metrics" className="relative z-10 flex-1 overflow-hidden px-5 pb-4 pt-3">
+        <TabsContent
+          value="metrics"
+          className="relative z-10 flex-1 overflow-hidden px-5 pb-4 pt-3"
+        >
           <MetricList />
         </TabsContent>
         <TabsContent value="logs" className="relative z-10 flex-1 overflow-hidden px-5 pb-4 pt-3">
