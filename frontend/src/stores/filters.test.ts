@@ -2,11 +2,11 @@ import { describe, it, expect } from "vitest";
 import { createStore } from "jotai";
 import { tracesAtom, metricsAtom, logsAtom, logTraceFilterAtom } from "./telemetry";
 import {
-  traceFiltersAtom,
+  traceSearchAtom,
   filteredTracesAtom,
-  logFiltersAtom,
+  logSearchAtom,
   filteredLogsAtom,
-  metricFiltersAtom,
+  metricSearchAtom,
   filteredMetricsAtom,
 } from "./filters";
 import type { TraceData, MetricData, LogData, SpanData } from "@/types/telemetry";
@@ -71,81 +71,65 @@ function makeMetric(overrides: Partial<MetricData> = {}): MetricData {
 }
 
 describe("filteredTracesAtom", () => {
-  it("returns all traces when no filter is active", () => {
+  it("returns all traces when no search is active", () => {
     const store = createStore();
     const traces = [makeTrace({ traceID: "a" }), makeTrace({ traceID: "b" })];
     store.set(tracesAtom, traces);
     expect(store.get(filteredTracesAtom)).toBe(traces);
   });
 
-  it("filters by search text (service name)", () => {
+  it("filters by service name", () => {
     const store = createStore();
     store.set(tracesAtom, [
       makeTrace({ traceID: "a", serviceName: "frontend" }),
       makeTrace({ traceID: "b", serviceName: "backend" }),
     ]);
-    store.set(traceFiltersAtom, {
-      search: "front",
-      status: new Set(),
-      durationMin: null,
-      durationMax: null,
-    });
+    store.set(traceSearchAtom, "front");
     expect(store.get(filteredTracesAtom)).toHaveLength(1);
     expect(store.get(filteredTracesAtom)[0].traceID).toBe("a");
   });
 
-  it("filters by status", () => {
+  it("filters by span name", () => {
     const store = createStore();
     store.set(tracesAtom, [
-      makeTrace({ traceID: "ok", rootSpan: makeSpan({ statusCode: "Ok" }) }),
-      makeTrace({ traceID: "err", rootSpan: makeSpan({ statusCode: "Error" }) }),
+      makeTrace({ traceID: "a", rootSpan: makeSpan({ name: "GET /users" }) }),
+      makeTrace({ traceID: "b", rootSpan: makeSpan({ name: "POST /orders" }) }),
     ]);
-    store.set(traceFiltersAtom, {
-      search: "",
-      status: new Set(["Error"]),
-      durationMin: null,
-      durationMax: null,
-    });
+    store.set(traceSearchAtom, "users");
     expect(store.get(filteredTracesAtom)).toHaveLength(1);
-    expect(store.get(filteredTracesAtom)[0].traceID).toBe("err");
+    expect(store.get(filteredTracesAtom)[0].traceID).toBe("a");
   });
 
-  it("filters by duration range", () => {
+  it("filters by trace ID", () => {
     const store = createStore();
-    store.set(tracesAtom, [
-      makeTrace({ traceID: "fast", duration: 1_000 }),
-      makeTrace({ traceID: "slow", duration: 1_000_000 }),
-    ]);
-    store.set(traceFiltersAtom, {
-      search: "",
-      status: new Set(),
-      durationMin: 500_000,
-      durationMax: null,
-    });
+    store.set(tracesAtom, [makeTrace({ traceID: "abc123" }), makeTrace({ traceID: "def456" })]);
+    store.set(traceSearchAtom, "abc");
     expect(store.get(filteredTracesAtom)).toHaveLength(1);
-    expect(store.get(filteredTracesAtom)[0].traceID).toBe("slow");
   });
 });
 
 describe("filteredLogsAtom", () => {
-  it("returns all logs when no filter is active", () => {
+  it("returns all logs when no search is active", () => {
     const store = createStore();
     const logs = [makeLog(), makeLog({ body: "other" })];
     store.set(logsAtom, logs);
     expect(store.get(filteredLogsAtom)).toBe(logs);
   });
 
-  it("filters by body search text", () => {
+  it("filters by body text", () => {
     const store = createStore();
     store.set(logsAtom, [makeLog({ body: "error occurred" }), makeLog({ body: "all ok" })]);
-    store.set(logFiltersAtom, { search: "error", severity: new Set(), service: "" });
+    store.set(logSearchAtom, "error");
     expect(store.get(filteredLogsAtom)).toHaveLength(1);
   });
 
-  it("filters by severity", () => {
+  it("filters by severity text", () => {
     const store = createStore();
-    store.set(logsAtom, [makeLog({ severityText: "ERROR" }), makeLog({ severityText: "INFO" })]);
-    store.set(logFiltersAtom, { search: "", severity: new Set(["ERROR"]), service: "" });
+    store.set(logsAtom, [
+      makeLog({ severityText: "ERROR", body: "a" }),
+      makeLog({ severityText: "INFO", body: "b" }),
+    ]);
+    store.set(logSearchAtom, "error");
     expect(store.get(filteredLogsAtom)).toHaveLength(1);
   });
 
@@ -158,20 +142,20 @@ describe("filteredLogsAtom", () => {
 });
 
 describe("filteredMetricsAtom", () => {
-  it("returns all metrics when no filter is active", () => {
+  it("returns all metrics when no search is active", () => {
     const store = createStore();
     const metrics = [makeMetric()];
     store.set(metricsAtom, metrics);
     expect(store.get(filteredMetricsAtom)).toBe(metrics);
   });
 
-  it("filters by name search", () => {
+  it("filters by name", () => {
     const store = createStore();
     store.set(metricsAtom, [
       makeMetric({ name: "http.requests" }),
       makeMetric({ name: "db.queries" }),
     ]);
-    store.set(metricFiltersAtom, { search: "http", type: new Set() });
+    store.set(metricSearchAtom, "http");
     expect(store.get(filteredMetricsAtom)).toHaveLength(1);
   });
 
@@ -181,7 +165,7 @@ describe("filteredMetricsAtom", () => {
       makeMetric({ name: "a", type: "Gauge" }),
       makeMetric({ name: "b", type: "Sum" }),
     ]);
-    store.set(metricFiltersAtom, { search: "", type: new Set(["Gauge"]) });
+    store.set(metricSearchAtom, "gauge");
     expect(store.get(filteredMetricsAtom)).toHaveLength(1);
   });
 });

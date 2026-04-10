@@ -1,8 +1,8 @@
 import { Fragment, useState } from "react";
 import { useAtomValue, useSetAtom } from "jotai";
-import { Copy, Check } from "lucide-react";
-import { logsAtom, navigateToTraceAtom } from "@/stores/telemetry";
-import { filteredLogsAtom } from "@/stores/filters";
+import { Copy, Check, X } from "lucide-react";
+import { logsAtom, logTraceFilterAtom, navigateToTraceAtom } from "@/stores/telemetry";
+import { filteredLogsAtom, logSearchAtom } from "@/stores/filters";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Table,
@@ -15,7 +15,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { formatTimestamp, isZeroID, shortID } from "@/lib/format";
 import { KVSection } from "@/components/ui/kv-section";
-import { LogFilters } from "@/components/filters/log-filters";
+import { SearchFilter } from "@/components/filters/search-filter";
 import { useCopyJson } from "@/hooks/use-copy";
 import type { LogData } from "@/types/telemetry";
 
@@ -37,6 +37,8 @@ const defaultSeverity = {
 export function LogList() {
   const allLogs = useAtomValue(logsAtom);
   const logs = useAtomValue(filteredLogsAtom);
+  const traceFilter = useAtomValue(logTraceFilterAtom);
+  const setTraceFilter = useSetAtom(logTraceFilterAtom);
   const navigateToTrace = useSetAtom(navigateToTraceAtom);
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
 
@@ -67,7 +69,21 @@ export function LogList() {
 
   return (
     <div className="glass-card flex h-full flex-col overflow-hidden">
-      <LogFilters />
+      <div className="flex items-center gap-2 border-b border-border/50 px-4 py-2">
+        {traceFilter && (
+          <div className="flex items-center gap-1 rounded bg-trace/10 px-2 py-0.5 text-[11px] text-trace">
+            <span className="font-mono">{traceFilter.slice(0, 12)}...</span>
+            <button
+              type="button"
+              onClick={() => setTraceFilter(null)}
+              className="text-trace hover:text-foreground"
+            >
+              <X className="h-2.5 w-2.5" />
+            </button>
+          </div>
+        )}
+        <SearchFilter atom={logSearchAtom} placeholder="Search logs..." />
+      </div>
       {logs.length === 0 ? (
         <div className="flex flex-1 items-center justify-center">
           <p className="text-sm text-muted-foreground">No matching logs</p>

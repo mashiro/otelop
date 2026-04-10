@@ -2,9 +2,9 @@ import { useState } from "react";
 import { useAtomValue, useSetAtom } from "jotai";
 import { List, Network } from "lucide-react";
 import { tracesAtom, selectedTraceAtom } from "@/stores/telemetry";
-import { filteredTracesAtom } from "@/stores/filters";
+import { filteredTracesAtom, traceSearchAtom } from "@/stores/filters";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { TraceFilters } from "@/components/filters/trace-filters";
+import { SearchFilter } from "@/components/filters/search-filter";
 import { ServiceMap } from "./service-map";
 import {
   Table,
@@ -55,8 +55,8 @@ export function TraceList() {
 
   return (
     <div className="glass-card flex h-full flex-col overflow-hidden">
-      <div className="flex items-center border-b border-border/50">
-        <TraceFilters />
+      <div className="flex items-center border-b border-border/50 px-4 py-2">
+        <SearchFilter atom={traceSearchAtom} placeholder="Search traces..." />
         <div className="ml-auto flex items-center gap-1 px-3">
           <button
             type="button"
