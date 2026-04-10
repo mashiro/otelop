@@ -453,16 +453,6 @@ function WaterfallInner({
                     {durLabel}
                   </text>
                 )}
-
-                <line
-                  x1={0}
-                  x2={width}
-                  y1={ROW_HEIGHT}
-                  y2={ROW_HEIGHT}
-                  stroke="var(--border)"
-                  strokeWidth={0.5}
-                  opacity={0.5}
-                />
               </Group>
             );
           })}
