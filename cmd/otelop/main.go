@@ -129,14 +129,14 @@ func run(ctx context.Context, cmd *cli.Command) error {
 	}
 
 	fmt.Fprintf(os.Stderr, `
-  otelop — OpenTelemetry viewer
+  %sotelop%s
 
   %-14s http://%s
   %-14s %s
   %-14s %s
   %-14s traces=%d, metrics=%d, logs=%d, points/metric=%d
 
-`, "Web UI", displayAddr, "OTLP gRPC", otlpGRPCAddr, "OTLP HTTP", otlpHTTPAddr, "Capacity", traceCap, metricCap, logCap, maxDataPoints)
+`, "\033[1;36m", "\033[0m", "Web UI", displayAddr, "OTLP gRPC", otlpGRPCAddr, "OTLP HTTP", otlpHTTPAddr, "Capacity", traceCap, metricCap, logCap, maxDataPoints)
 
 	// Graceful shutdown
 	sigCh := make(chan os.Signal, 1)
