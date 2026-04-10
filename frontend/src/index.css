@@ -143,6 +143,7 @@
   }
   html {
     @apply font-sans antialiased;
+    scrollbar-gutter: stable;
   }
   button,
   [role="button"],
