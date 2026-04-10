@@ -47,5 +47,5 @@ export const metricSearchAtom = atom("");
 export const filteredMetricsAtom = createSearchAtom(
   metricsAtom,
   metricSearchAtom,
-  (m: MetricData) => [m.name, m.serviceName ?? "", m.type],
+  (m: MetricData) => [m.name, m.serviceName ?? "", m.type, m.description ?? ""],
 );

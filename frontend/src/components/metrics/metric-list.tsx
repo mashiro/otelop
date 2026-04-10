@@ -71,6 +71,7 @@ export function MetricList() {
               <TableRow className="border-b border-border/50 bg-muted hover:bg-muted">
                 <TableHead className="text-metric/70">Service</TableHead>
                 <TableHead className="text-metric/70">Name</TableHead>
+                <TableHead className="text-metric/70">Description</TableHead>
                 <TableHead className="text-metric/70">Type</TableHead>
                 <TableHead className="text-metric/70">Unit</TableHead>
                 <TableHead className="text-right text-metric/70">Points</TableHead>
@@ -90,6 +91,9 @@ export function MetricList() {
                   >
                     <TableCell className="font-medium">{metric.serviceName || "-"}</TableCell>
                     <TableCell className="text-foreground/80">{metric.name}</TableCell>
+                    <TableCell className="max-w-xs truncate text-muted-foreground">
+                      {metric.description || "-"}
+                    </TableCell>
                     <TableCell>
                       <span className="rounded-full bg-metric/15 px-2 py-0.5 text-[11px] font-medium text-metric">
                         {metric.type}
