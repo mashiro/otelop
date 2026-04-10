@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from "react";
-import { useSetAtom } from "jotai";
+import { useAtom } from "jotai";
 import { Search, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import type { PrimitiveAtom } from "jotai";
@@ -11,8 +11,8 @@ export function SearchFilter({
   atom: PrimitiveAtom<string>;
   placeholder: string;
 }) {
-  const setValue = useSetAtom(atom);
-  const [input, setInput] = useState("");
+  const [value, setValue] = useAtom(atom);
+  const [input, setInput] = useState(value);
   const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   useEffect(() => () => clearTimeout(timerRef.current), []);
@@ -34,7 +34,7 @@ export function SearchFilter({
   }, [setValue]);
 
   return (
-    <div className="relative">
+    <div className="relative w-fit">
       <Search className="absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground" />
       <Input
         placeholder={placeholder}
