@@ -171,6 +171,7 @@ function WaterfallInner({
   const svgHeight = Math.max(flatSpans.length * ROW_HEIGHT, height);
 
   return (
+    <div className="relative h-full">
     <ScrollArea className="h-full">
       <svg ref={svgRef} width={width} height={svgHeight}>
         <defs>
@@ -255,12 +256,12 @@ function WaterfallInner({
                 opacity={isSelected ? 1 : 0.8}
                 className="select-none"
                 onMouseEnter={(e) => {
-                  const svg = svgRef.current;
-                  if (!svg) return;
-                  const rect = svg.getBoundingClientRect();
+                  const container = svgRef.current?.parentElement?.parentElement;
+                  if (!container) return;
+                  const rect = container.getBoundingClientRect();
                   setTooltip({
                     x: e.clientX - rect.left,
-                    y: y,
+                    y: e.clientY - rect.top - 8,
                     service: f.span.serviceName,
                     name: f.span.name,
                   });
@@ -313,33 +314,26 @@ function WaterfallInner({
           );
         })}
 
-        {/* Custom tooltip */}
-        {tooltip && (
-          <foreignObject
-            x={0}
-            y={0}
-            width={width}
-            height={svgHeight}
-            pointerEvents="none"
-            overflow="visible"
-          >
-            <div
-              style={{
-                position: "absolute",
-                left: tooltip.x,
-                top: tooltip.y,
-                transform: "translate(-50%, -100%)",
-              }}
-              className="whitespace-nowrap rounded-md border border-border bg-card px-2.5 py-1.5 text-xs text-foreground shadow-lg"
-            >
-              <span className="text-muted-foreground">{tooltip.service}</span>
-              <span className="mx-1.5 text-border">:</span>
-              <span>{tooltip.name}</span>
-            </div>
-          </foreignObject>
-        )}
       </svg>
     </ScrollArea>
+
+    {/* Tooltip rendered outside ScrollArea to avoid clipping */}
+    {tooltip && (
+      <div
+        style={{
+          position: "absolute",
+          left: tooltip.x,
+          top: tooltip.y,
+          transform: "translate(-50%, -100%)",
+        }}
+        className="pointer-events-none z-50 whitespace-nowrap rounded-md border border-border bg-card px-2.5 py-1.5 text-xs text-foreground shadow-lg"
+      >
+        <span className="text-muted-foreground">{tooltip.service}</span>
+        <span className="mx-1.5 text-border">:</span>
+        <span>{tooltip.name}</span>
+      </div>
+    )}
+    </div>
   );
 }
 
