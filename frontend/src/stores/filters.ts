@@ -15,7 +15,8 @@ export const filteredTracesAtom = atom<TraceData[]>((get) => {
     const name = (t.rootSpan?.name ?? t.spans[0]?.name ?? "").toLowerCase();
     const svc = (t.serviceName ?? "").toLowerCase();
     const traceID = t.traceID.toLowerCase();
-    return name.includes(q) || svc.includes(q) || traceID.includes(q);
+    const status = (t.rootSpan?.statusCode ?? "Unset").toLowerCase();
+    return name.includes(q) || svc.includes(q) || traceID.includes(q) || status.includes(q);
   });
 });
 
@@ -34,7 +35,8 @@ export const filteredLogsAtom = atom<LogData[]>((get) => {
     const body = l.body.toLowerCase();
     const svc = (l.serviceName ?? "").toLowerCase();
     const sev = (l.severityText ?? "").toLowerCase();
-    return body.includes(q) || svc.includes(q) || sev.includes(q);
+    const tid = l.traceID.toLowerCase();
+    return body.includes(q) || svc.includes(q) || sev.includes(q) || tid.includes(q);
   });
 });
 
