@@ -88,7 +88,7 @@ export function TraceList() {
         <ScrollArea className="min-h-0 flex-1">
           <Table>
             <TableHeader>
-              <TableRow className="border-b border-border/50 hover:bg-transparent">
+              <TableRow className="border-b border-border/50 bg-muted hover:bg-muted">
                 <TableHead className="text-trace/70">Service</TableHead>
                 <TableHead className="text-trace/70">Name</TableHead>
                 <TableHead className="text-trace/70">Trace ID</TableHead>

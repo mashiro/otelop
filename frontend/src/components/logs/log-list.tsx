@@ -91,7 +91,7 @@ export function LogList() {
         <ScrollArea className="min-h-0 flex-1">
           <Table>
             <TableHeader>
-              <TableRow className="border-b border-border/50 hover:bg-transparent">
+              <TableRow className="border-b border-border/50 bg-muted hover:bg-muted">
                 <TableHead className="w-[110px] text-log/70">Timestamp</TableHead>
                 <TableHead className="w-[90px] text-log/70">Severity</TableHead>
                 <TableHead className="text-log/70">Service</TableHead>

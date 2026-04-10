@@ -40,7 +40,7 @@ export function SearchFilter({
         placeholder={placeholder}
         value={input}
         onChange={handleChange}
-        className="h-7 w-52 pl-7 pr-7 text-xs"
+        className="h-7 w-72 pl-7 pr-7 text-xs"
       />
       {input && (
         <button

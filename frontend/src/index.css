@@ -186,7 +186,7 @@
 
 /* ── Glassmorphism card ── */
 .glass-card {
-  background: oklch(0 0 0 / 3%);
+  background: oklch(1 0 0 / 60%);
   backdrop-filter: blur(12px);
   border: 1px solid oklch(0 0 0 / 6%);
   border-radius: var(--radius-lg);
