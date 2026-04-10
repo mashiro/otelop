@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+#MISE description="Format and auto-fix backend and frontend code"
+set -euo pipefail
+golangci-lint fmt ./...
+golangci-lint run --fix ./...
+(cd frontend && pnpm exec vp check --fix)

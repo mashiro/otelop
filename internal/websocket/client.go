@@ -36,7 +36,7 @@ func (c *Client) WritePump(ctx context.Context) {
 	ticker := time.NewTicker(pingInterval)
 	defer func() {
 		ticker.Stop()
-		c.conn.Close(websocket.StatusNormalClosure, "")
+		_ = c.conn.Close(websocket.StatusNormalClosure, "")
 	}()
 
 	for {

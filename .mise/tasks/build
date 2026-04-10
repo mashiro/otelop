@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-#MISE description="Build frontend and Go binary"
-#MISE depends=["frontend"]
+#MISE description="Build frontend and backend binary"
 set -euo pipefail
+(cd frontend && pnpm build)
 go build -tags embed -o otelop ./cmd/otelop

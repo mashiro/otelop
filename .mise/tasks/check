@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+#MISE description="Run backend and frontend linters"
+set -euo pipefail
+golangci-lint run ./... &
+(cd frontend && pnpm check) &
+wait

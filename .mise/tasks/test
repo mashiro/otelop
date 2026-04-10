@@ -1,4 +1,4 @@
 #!/usr/bin/env bash
-#MISE description="Run all Go tests"
+#MISE description="Run backend tests"
 set -euo pipefail
 go test ./...

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-#MISE description="Start Go backend and Vite dev server in parallel"
+#MISE description="Start backend and frontend dev servers in parallel"
 set -euo pipefail
 trap 'kill 0' EXIT
 go run ./cmd/otelop &
