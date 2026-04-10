@@ -1,6 +1,8 @@
 import { useAtomValue, useSetAtom } from "jotai";
 import { tracesAtom, selectedTraceAtom } from "@/stores/telemetry";
+import { filteredTracesAtom } from "@/stores/filters";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { TraceFilters } from "@/components/filters/trace-filters";
 import {
   Table,
   TableBody,
@@ -13,7 +15,8 @@ import { formatDuration, formatRelativeTime, shortID } from "@/lib/format";
 import { TraceDetail } from "./trace-detail";
 
 export function TraceList() {
-  const traces = useAtomValue(tracesAtom);
+  const allTraces = useAtomValue(tracesAtom);
+  const traces = useAtomValue(filteredTracesAtom);
   const selectedTrace = useAtomValue(selectedTraceAtom);
   const setSelectedTrace = useSetAtom(selectedTraceAtom);
 
@@ -21,7 +24,7 @@ export function TraceList() {
     return <TraceDetail />;
   }
 
-  if (traces.length === 0) {
+  if (allTraces.length === 0) {
     return (
       <div className="glass-card flex h-full items-center justify-center">
         <div className="animate-slide-up-fade flex flex-col items-center gap-4">
@@ -47,53 +50,62 @@ export function TraceList() {
   }
 
   return (
-    <div className="glass-card h-full overflow-hidden">
-      <ScrollArea className="h-full">
-        <Table>
-          <TableHeader>
-            <TableRow className="border-b border-border/50 hover:bg-transparent">
-              <TableHead className="text-trace/70">Service</TableHead>
-              <TableHead className="text-trace/70">Name</TableHead>
-              <TableHead className="text-trace/70">Trace ID</TableHead>
-              <TableHead className="text-right text-trace/70">Spans</TableHead>
-              <TableHead className="text-right text-trace/70">Duration</TableHead>
-              <TableHead className="text-trace/70">Started</TableHead>
-              <TableHead className="text-trace/70">Status</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {traces.map((trace, idx) => {
-              const status = trace.rootSpan?.statusCode ?? "Unset";
-              return (
-                <TableRow
-                  key={trace.traceID}
-                  className="stagger-row cursor-pointer border-b border-border/30 transition-colors hover:bg-trace/5"
-                  style={{ animationDelay: `${Math.min(idx * 20, 200)}ms` }}
-                  onClick={() => setSelectedTrace(trace)}
-                >
-                  <TableCell className="font-medium">{trace.serviceName || "-"}</TableCell>
-                  <TableCell className="text-foreground/80">
-                    {trace.rootSpan?.name ?? trace.spans[0]?.name ?? "-"}
-                  </TableCell>
-                  <TableCell className="font-mono text-xs text-muted-foreground">
-                    {shortID(trace.traceID)}
-                  </TableCell>
-                  <TableCell className="text-right font-mono text-xs">{trace.spanCount}</TableCell>
-                  <TableCell className="text-right font-mono text-xs text-trace">
-                    {formatDuration(trace.duration)}
-                  </TableCell>
-                  <TableCell className="text-xs text-muted-foreground">
-                    {formatRelativeTime(trace.startTime)}
-                  </TableCell>
-                  <TableCell>
-                    <StatusBadge status={status} />
-                  </TableCell>
-                </TableRow>
-              );
-            })}
-          </TableBody>
-        </Table>
-      </ScrollArea>
+    <div className="glass-card flex h-full flex-col overflow-hidden">
+      <TraceFilters />
+      {traces.length === 0 ? (
+        <div className="flex flex-1 items-center justify-center">
+          <p className="text-sm text-muted-foreground">No matching traces</p>
+        </div>
+      ) : (
+        <ScrollArea className="min-h-0 flex-1">
+          <Table>
+            <TableHeader>
+              <TableRow className="border-b border-border/50 hover:bg-transparent">
+                <TableHead className="text-trace/70">Service</TableHead>
+                <TableHead className="text-trace/70">Name</TableHead>
+                <TableHead className="text-trace/70">Trace ID</TableHead>
+                <TableHead className="text-right text-trace/70">Spans</TableHead>
+                <TableHead className="text-right text-trace/70">Duration</TableHead>
+                <TableHead className="text-trace/70">Started</TableHead>
+                <TableHead className="text-trace/70">Status</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {traces.map((trace, idx) => {
+                const status = trace.rootSpan?.statusCode ?? "Unset";
+                return (
+                  <TableRow
+                    key={trace.traceID}
+                    className="stagger-row cursor-pointer border-b border-border/30 transition-colors hover:bg-trace/5"
+                    style={{ animationDelay: `${Math.min(idx * 20, 200)}ms` }}
+                    onClick={() => setSelectedTrace(trace)}
+                  >
+                    <TableCell className="font-medium">{trace.serviceName || "-"}</TableCell>
+                    <TableCell className="text-foreground/80">
+                      {trace.rootSpan?.name ?? trace.spans[0]?.name ?? "-"}
+                    </TableCell>
+                    <TableCell className="font-mono text-xs text-muted-foreground">
+                      {shortID(trace.traceID)}
+                    </TableCell>
+                    <TableCell className="text-right font-mono text-xs">
+                      {trace.spanCount}
+                    </TableCell>
+                    <TableCell className="text-right font-mono text-xs text-trace">
+                      {formatDuration(trace.duration)}
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground">
+                      {formatRelativeTime(trace.startTime)}
+                    </TableCell>
+                    <TableCell>
+                      <StatusBadge status={status} />
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        </ScrollArea>
+      )}
     </div>
   );
 }
