@@ -1,6 +1,11 @@
 package store
 
-import "go.opentelemetry.io/collector/pdata/pcommon"
+import (
+	"math"
+	"strconv"
+
+	"go.opentelemetry.io/collector/pdata/pcommon"
+)
 
 // attributesToMap converts pcommon.Map to a plain map[string]any.
 func attributesToMap(attrs pcommon.Map) map[string]any {
@@ -19,7 +24,13 @@ func valueToAny(v pcommon.Value) any {
 	case pcommon.ValueTypeInt:
 		return v.Int()
 	case pcommon.ValueTypeDouble:
-		return v.Double()
+		// encoding/json rejects NaN/±Inf, so fall back to a string so the
+		// original information survives without breaking the broadcast.
+		d := v.Double()
+		if math.IsNaN(d) || math.IsInf(d, 0) {
+			return strconv.FormatFloat(d, 'g', -1, 64)
+		}
+		return d
 	case pcommon.ValueTypeBool:
 		return v.Bool()
 	case pcommon.ValueTypeBytes:

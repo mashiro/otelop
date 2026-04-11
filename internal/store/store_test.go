@@ -311,6 +311,33 @@ func TestConvertMetrics_SkipsNonFinite(t *testing.T) {
 	}
 }
 
+func TestAttributesToMap_NonFiniteDoubles(t *testing.T) {
+	attrs := pcommon.NewMap()
+	attrs.PutDouble("nan", math.NaN())
+	attrs.PutDouble("pos_inf", math.Inf(1))
+	attrs.PutDouble("neg_inf", math.Inf(-1))
+	attrs.PutDouble("finite", 1.5)
+
+	got := attributesToMap(attrs)
+
+	if got["nan"] != "NaN" {
+		t.Errorf("nan: expected %q, got %v", "NaN", got["nan"])
+	}
+	if got["pos_inf"] != "+Inf" {
+		t.Errorf("pos_inf: expected %q, got %v", "+Inf", got["pos_inf"])
+	}
+	if got["neg_inf"] != "-Inf" {
+		t.Errorf("neg_inf: expected %q, got %v", "-Inf", got["neg_inf"])
+	}
+	if got["finite"] != 1.5 {
+		t.Errorf("finite: expected 1.5, got %v", got["finite"])
+	}
+
+	if _, err := json.Marshal(got); err != nil {
+		t.Fatalf("expected sanitized attributes to be JSON-marshalable, got %v", err)
+	}
+}
+
 func TestStore_AddMetrics_DifferentNames(t *testing.T) {
 	s := NewStore(10, 10, 10, 100, nil)
 
