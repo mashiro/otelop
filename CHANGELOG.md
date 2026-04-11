@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.3.0](https://github.com/mashiro/otelop/compare/v0.2.0...v0.3.0) (2026-04-11)
+
+
+### Features
+
+* **metrics:** delta-ize cumulative metrics and add metric catalog ([#22](https://github.com/mashiro/otelop/issues/22)) ([c02f7c3](https://github.com/mashiro/otelop/commit/c02f7c343aa98e0482b97d0ffc85364b799a2ec4))
+
+
+### Bug Fixes
+
+* **store:** skip non-finite metric data points ([#19](https://github.com/mashiro/otelop/issues/19)) ([f001292](https://github.com/mashiro/otelop/commit/f001292437c01355d09bed3a45757c450c22650c))
+* **store:** stringify non-finite double attributes ([#21](https://github.com/mashiro/otelop/issues/21)) ([695fe1f](https://github.com/mashiro/otelop/commit/695fe1f3880b2fb49ed3e2e1a70606a08ff99a07))
+
 ## [0.2.0](https://github.com/mashiro/otelop/compare/v0.1.0...v0.2.0) (2026-04-11)
 
 
