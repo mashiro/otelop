@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+#MISE description="Install backend and frontend dependencies"
+set -euo pipefail
+go mod download &
+(cd frontend && pnpm install) &
+wait
