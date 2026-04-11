@@ -2,4 +2,4 @@
 #MISE description="Run all tests"
 set -euo pipefail
 go test ./...
-pnpm --filter otelop-frontend test
+(cd frontend && pnpm test)
