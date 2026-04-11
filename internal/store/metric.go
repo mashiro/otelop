@@ -1,6 +1,8 @@
 package store
 
 import (
+	"log/slog"
+	"math"
 	"time"
 
 	"go.opentelemetry.io/collector/pdata/pmetric"
@@ -41,6 +43,14 @@ func ConvertMetrics(md pmetric.Metrics) []*MetricData {
 			sm := rm.ScopeMetrics().At(j)
 			for k := 0; k < sm.Metrics().Len(); k++ {
 				m := sm.Metrics().At(k)
+				points, skipped := extractDataPoints(m)
+				if skipped > 0 {
+					slog.Warn("store: skipped non-finite metric data points",
+						"metric", m.Name(),
+						"service", svcName,
+						"skipped", skipped,
+					)
+				}
 				metric := &MetricData{
 					Name:        m.Name(),
 					Description: m.Description(),
@@ -48,7 +58,7 @@ func ConvertMetrics(md pmetric.Metrics) []*MetricData {
 					Type:        m.Type().String(),
 					ServiceName: svcName,
 					Resource:    resource,
-					DataPoints:  extractDataPoints(m),
+					DataPoints:  points,
 					ReceivedAt:  time.Now(),
 				}
 				result = append(result, metric)
@@ -59,17 +69,20 @@ func ConvertMetrics(md pmetric.Metrics) []*MetricData {
 	return result
 }
 
-func extractDataPoints(m pmetric.Metric) []DataPoint {
-	var points []DataPoint
-
+func extractDataPoints(m pmetric.Metric) (points []DataPoint, skipped int) {
 	switch m.Type() {
 	case pmetric.MetricTypeGauge:
 		dps := m.Gauge().DataPoints()
 		for i := 0; i < dps.Len(); i++ {
 			dp := dps.At(i)
+			v := numberValue(dp)
+			if math.IsNaN(v) || math.IsInf(v, 0) {
+				skipped++
+				continue
+			}
 			points = append(points, DataPoint{
 				Timestamp:  dp.Timestamp().AsTime(),
-				Value:      numberValue(dp),
+				Value:      v,
 				Attributes: attributesToMap(dp.Attributes()),
 			})
 		}
@@ -77,9 +90,14 @@ func extractDataPoints(m pmetric.Metric) []DataPoint {
 		dps := m.Sum().DataPoints()
 		for i := 0; i < dps.Len(); i++ {
 			dp := dps.At(i)
+			v := numberValue(dp)
+			if math.IsNaN(v) || math.IsInf(v, 0) {
+				skipped++
+				continue
+			}
 			points = append(points, DataPoint{
 				Timestamp:  dp.Timestamp().AsTime(),
-				Value:      numberValue(dp),
+				Value:      v,
 				Attributes: attributesToMap(dp.Attributes()),
 			})
 		}
@@ -115,7 +133,7 @@ func extractDataPoints(m pmetric.Metric) []DataPoint {
 		}
 	}
 
-	return points
+	return points, skipped
 }
 
 func numberValue(dp pmetric.NumberDataPoint) float64 {

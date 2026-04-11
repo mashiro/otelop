@@ -1,6 +1,8 @@
 package store
 
 import (
+	"encoding/json"
+	"math"
 	"testing"
 	"time"
 
@@ -266,6 +268,46 @@ func TestStore_AddMetrics_Merge(t *testing.T) {
 	}
 	if metrics[0].DataPoints[1].Value != 55.0 {
 		t.Errorf("expected second data point value 55.0, got %f", metrics[0].DataPoints[1].Value)
+	}
+}
+
+func TestConvertMetrics_SkipsNonFinite(t *testing.T) {
+	md := pmetric.NewMetrics()
+	rm := md.ResourceMetrics().AppendEmpty()
+	rm.Resource().Attributes().PutStr("service.name", "test-svc")
+	sm := rm.ScopeMetrics().AppendEmpty()
+
+	gauge := sm.Metrics().AppendEmpty()
+	gauge.SetName("ratio.gauge")
+	gauge.SetEmptyGauge()
+	gauge.Gauge().DataPoints().AppendEmpty().SetDoubleValue(math.NaN())
+	gauge.Gauge().DataPoints().AppendEmpty().SetDoubleValue(math.Inf(1))
+	gauge.Gauge().DataPoints().AppendEmpty().SetDoubleValue(math.Inf(-1))
+	gauge.Gauge().DataPoints().AppendEmpty().SetDoubleValue(1.5)
+
+	sum := sm.Metrics().AppendEmpty()
+	sum.SetName("rate.sum")
+	sum.SetEmptySum()
+	sum.Sum().DataPoints().AppendEmpty().SetDoubleValue(math.NaN())
+
+	got := ConvertMetrics(md)
+	if len(got) != 2 {
+		t.Fatalf("expected 2 metrics, got %d", len(got))
+	}
+
+	if len(got[0].DataPoints) != 1 {
+		t.Fatalf("expected 1 finite data point on gauge, got %d", len(got[0].DataPoints))
+	}
+	if got[0].DataPoints[0].Value != 1.5 {
+		t.Errorf("expected gauge value 1.5, got %f", got[0].DataPoints[0].Value)
+	}
+
+	if len(got[1].DataPoints) != 0 {
+		t.Errorf("expected sum to have all data points skipped, got %d", len(got[1].DataPoints))
+	}
+
+	if _, err := json.Marshal(got); err != nil {
+		t.Fatalf("expected sanitized metrics to be JSON-marshalable, got %v", err)
 	}
 }
 
