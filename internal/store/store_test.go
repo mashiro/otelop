@@ -315,6 +315,79 @@ func TestStore_Clear(t *testing.T) {
 	}
 }
 
+func TestStore_AddTraces_EvictionClearsIndex(t *testing.T) {
+	// Capacity 2 so that the 3rd distinct trace evicts the 1st.
+	s := NewStore(2, 10, 10, 100, nil)
+
+	add := func(traceByte byte) {
+		td := ptrace.NewTraces()
+		rs := td.ResourceSpans().AppendEmpty()
+		rs.Resource().Attributes().PutStr("service.name", "svc")
+		ss := rs.ScopeSpans().AppendEmpty()
+		sp := ss.Spans().AppendEmpty()
+		sp.SetTraceID(pcommon.TraceID([16]byte{traceByte}))
+		sp.SetSpanID(pcommon.SpanID([8]byte{traceByte}))
+		sp.SetStartTimestamp(pcommon.NewTimestampFromTime(time.Now()))
+		sp.SetEndTimestamp(pcommon.NewTimestampFromTime(time.Now()))
+		s.AddTraces(td)
+	}
+
+	add(1)
+	add(2)
+	add(3) // evicts trace 1
+
+	traces := s.GetTraces()
+	if len(traces) != 2 {
+		t.Fatalf("expected 2 traces after eviction, got %d", len(traces))
+	}
+	// The evicted traceID should not be findable.
+	firstID := pcommon.TraceID([16]byte{1}).String()
+	if _, ok := s.GetTraceByID(firstID); ok {
+		t.Error("evicted trace should not be findable by ID")
+	}
+	// Surviving traces should still be findable.
+	secondID := pcommon.TraceID([16]byte{2}).String()
+	if _, ok := s.GetTraceByID(secondID); !ok {
+		t.Error("trace 2 should still be findable by ID")
+	}
+	thirdID := pcommon.TraceID([16]byte{3}).String()
+	if _, ok := s.GetTraceByID(thirdID); !ok {
+		t.Error("trace 3 should be findable by ID")
+	}
+}
+
+func TestStore_GetTracesPage(t *testing.T) {
+	s := NewStore(10, 10, 10, 100, nil)
+
+	for i := 1; i <= 5; i++ {
+		td := ptrace.NewTraces()
+		rs := td.ResourceSpans().AppendEmpty()
+		rs.Resource().Attributes().PutStr("service.name", "svc")
+		ss := rs.ScopeSpans().AppendEmpty()
+		sp := ss.Spans().AppendEmpty()
+		sp.SetTraceID(pcommon.TraceID([16]byte{byte(i)}))
+		sp.SetSpanID(pcommon.SpanID([8]byte{byte(i)}))
+		sp.SetStartTimestamp(pcommon.NewTimestampFromTime(time.Now().Add(time.Duration(i) * time.Millisecond)))
+		sp.SetEndTimestamp(pcommon.NewTimestampFromTime(time.Now().Add(time.Duration(i) * time.Millisecond)))
+		s.AddTraces(td)
+	}
+
+	page, total := s.GetTracesPage(1, 2)
+	if total != 5 {
+		t.Errorf("total = %d, want 5", total)
+	}
+	if len(page) != 2 {
+		t.Fatalf("page len = %d, want 2", len(page))
+	}
+	// newest-first: rank 0 is trace 5, rank 1 is trace 4, rank 2 is trace 3.
+	if page[0].TraceID != pcommon.TraceID([16]byte{4}).String() {
+		t.Errorf("page[0] = %s, want trace 4", page[0].TraceID)
+	}
+	if page[1].TraceID != pcommon.TraceID([16]byte{3}).String() {
+		t.Errorf("page[1] = %s, want trace 3", page[1].TraceID)
+	}
+}
+
 func TestStore_NewestFirst(t *testing.T) {
 	s := NewStore(10, 10, 10, 100, nil)
 

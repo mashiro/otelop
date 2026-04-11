@@ -78,27 +78,74 @@ func TestHub_BroadcastDropsSlowClient(t *testing.T) {
 	defer cancel()
 	go hub.Run(ctx)
 
-	// Client with tiny buffer.
+	// Client with tiny buffer, intentionally pre-filled to simulate a slow reader.
 	slowClient := &Client{hub: hub, send: make(chan []byte, 1)}
+	slowClient.send <- []byte("placeholder")
+
 	hub.Register(slowClient)
 	time.Sleep(10 * time.Millisecond)
 
-	// Fill the buffer.
-	hub.Broadcast(Message{Type: store.SignalLogs, Data: "msg1"})
-	// This should be dropped (buffer full).
-	hub.Broadcast(Message{Type: store.SignalLogs, Data: "msg2"})
+	// Dispatch a broadcast. Because the client buffer is already full, the hub
+	// must drop the new payload rather than block waiting for the slow reader.
+	hub.Broadcast(Message{Type: store.SignalLogs, Data: "msg-should-drop"})
 
-	// Should only receive one message.
+	// Give the hub Run goroutine a chance to attempt delivery and drop.
+	time.Sleep(20 * time.Millisecond)
+
+	// Drain the pre-filled value.
 	select {
-	case <-slowClient.send:
+	case msg := <-slowClient.send:
+		if string(msg) != "placeholder" {
+			t.Errorf("first message = %q, want placeholder", string(msg))
+		}
 	case <-time.After(100 * time.Millisecond):
-		t.Error("expected at least one message")
+		t.Fatal("expected placeholder message")
 	}
 
+	// Nothing more should arrive — the broadcast was dropped for this slow client.
 	select {
-	case <-slowClient.send:
-		t.Error("expected second message to be dropped")
+	case extra := <-slowClient.send:
+		t.Errorf("expected broadcast to be dropped, but got %q", string(extra))
 	case <-time.After(50 * time.Millisecond):
-		// Good, message was dropped.
+	}
+}
+
+func TestHub_BroadcastIsNonBlockingAndPreservesOrder(t *testing.T) {
+	hub := NewHub()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go hub.Run(ctx)
+
+	client := &Client{hub: hub, send: make(chan []byte, 8)}
+	hub.Register(client)
+	time.Sleep(10 * time.Millisecond)
+
+	for i := 0; i < 5; i++ {
+		hub.Broadcast(Message{Type: store.SignalLogs, Data: i})
+	}
+
+	received := 0
+	timeout := time.After(200 * time.Millisecond)
+	for received < 5 {
+		select {
+		case <-client.send:
+			received++
+		case <-timeout:
+			t.Fatalf("only received %d of 5 messages", received)
+		}
+	}
+}
+
+func TestHub_BroadcastWithNoClients_IsNoop(t *testing.T) {
+	hub := NewHub()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go hub.Run(ctx)
+
+	// Must not panic or block even without any clients connected.
+	hub.Broadcast(Message{Type: store.SignalTraces, Data: "x"})
+	time.Sleep(10 * time.Millisecond)
+	if hub.ClientCount() != 0 {
+		t.Errorf("ClientCount = %d, want 0", hub.ClientCount())
 	}
 }
