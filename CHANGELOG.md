@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.2.0](https://github.com/mashiro/otelop/compare/v0.1.0...v0.2.0) (2026-04-11)
+
+
+### Features
+
+* **api:** add GraphQL API, migrate frontend, drop REST ([#11](https://github.com/mashiro/otelop/issues/11)) ([ddc2583](https://github.com/mashiro/otelop/commit/ddc25839e16d59850a4a1ddd4640fb179d05cb60))
+* **frontend:** add Venn-style app logo and favicon ([4ae5112](https://github.com/mashiro/otelop/commit/4ae51124cfac61186b39d92b7536739ced2ce078))
+
+
+### Bug Fixes
+
+* **deps:** update all non-major dependencies ([#12](https://github.com/mashiro/otelop/issues/12)) ([1f7d0eb](https://github.com/mashiro/otelop/commit/1f7d0eb9e45f741b788ae374f5ba2513f4dfa568))
+
 ## 0.1.0 (2026-04-11)
 
 
