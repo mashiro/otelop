@@ -9,25 +9,32 @@ import (
 	"time"
 
 	"github.com/CAFxX/httpcompression"
+	gqlgo "github.com/graph-gophers/graphql-go"
+	"github.com/graph-gophers/graphql-go/relay"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 
+	otelopgraphql "github.com/mashiro/otelop/internal/graphql"
+	"github.com/mashiro/otelop/internal/mcp"
 	"github.com/mashiro/otelop/internal/store"
 	ws "github.com/mashiro/otelop/internal/websocket"
 )
 
-// Server serves the REST API, WebSocket, and embedded frontend.
+// Server serves the REST API, WebSocket, GraphQL endpoint, and embedded
+// frontend.
 type Server struct {
 	store      *store.Store
 	hub        *ws.Hub
+	schema     *gqlgo.Schema
 	httpServer *http.Server
 }
 
 // New creates a new Server. When debug is true, HTTP requests are
 // instrumented with OpenTelemetry spans via otelhttp.
-func New(addr string, s *store.Store, hub *ws.Hub, frontendFS fs.FS, debug bool) *Server {
+func New(addr string, s *store.Store, hub *ws.Hub, frontendFS fs.FS, version string, debug bool) *Server {
 	srv := &Server{
-		store: s,
-		hub:   hub,
+		store:  s,
+		hub:    hub,
+		schema: otelopgraphql.MustNewSchema(s),
 	}
 
 	mux := http.NewServeMux()
@@ -40,6 +47,16 @@ func New(addr string, s *store.Store, hub *ws.Hub, frontendFS fs.FS, debug bool)
 	mux.HandleFunc("GET /api/logs", srv.handleGetLogs)
 	mux.HandleFunc("DELETE /api/clear", srv.handleClear)
 
+	// GraphQL — primary investigation surface for AI and other typed clients.
+	mux.Handle("POST /graphql", &relay.Handler{Schema: srv.schema})
+
+	// MCP — optional wrapper that exposes the GraphQL schema as a single
+	// `query` tool for clients that speak MCP. otelop is not always running,
+	// so this is not a persistent MCP server; it is only reachable while the
+	// HTTP listener is up. Shares the parsed schema with /graphql to avoid
+	// a second parse at startup.
+	mux.Handle("/mcp", mcp.NewHandler(srv.schema, version))
+
 	// WebSocket (no compression — it has its own framing)
 	mux.HandleFunc("GET /ws", srv.handleWebSocket)
 
@@ -49,12 +66,14 @@ func New(addr string, s *store.Store, hub *ws.Hub, frontendFS fs.FS, debug bool)
 	// Log API requests at debug level before compression so status codes are accurate.
 	logged := apiDebugLogger(mux)
 
-	// Wrap with brotli/gzip/deflate compression, skipping WebSocket upgrades.
+	// Wrap with brotli/gzip/deflate compression, skipping WebSocket upgrades
+	// and the MCP endpoint (which uses SSE for server→client streaming and
+	// would break if the compressor buffered the response).
 	var handler = logged
 	if compress, err := httpcompression.DefaultAdapter(); err == nil {
 		compressed := compress(logged)
 		handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.Header.Get("Upgrade") == "websocket" {
+			if r.Header.Get("Upgrade") == "websocket" || r.URL.Path == "/mcp" {
 				logged.ServeHTTP(w, r)
 				return
 			}

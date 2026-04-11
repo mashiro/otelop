@@ -125,7 +125,7 @@ func run(ctx context.Context, cmd *cli.Command) error {
 	})
 
 	frontendFS := otelop.FrontendFS()
-	srv := server.New(httpAddr, s, hub, frontendFS, debug)
+	srv := server.New(httpAddr, s, hub, frontendFS, version, debug)
 	go func() {
 		if err := srv.Start(ctx); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			slog.Error("HTTP server error", "error", err)

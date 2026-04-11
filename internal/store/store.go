@@ -173,6 +173,34 @@ func (s *Store) GetLogsPage(offset, limit int) (items []*LogData, total int) {
 	return s.logs.Page(offset, limit)
 }
 
+// GetLogsPageByTraceID returns a newest-first page of logs whose TraceID
+// matches traceID, with offset/limit applied to the filtered set. There is no
+// traceID index on logs, so this scans the whole buffer under the read lock.
+// Callers rely on this for the trace↔log correlation join.
+func (s *Store) GetLogsPageByTraceID(traceID string, offset, limit int) (items []*LogData, total int) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	all, _ := s.logs.Page(0, 0)
+	filtered := make([]*LogData, 0, len(all))
+	for _, l := range all {
+		if l.TraceID == traceID {
+			filtered = append(filtered, l)
+		}
+	}
+	total = len(filtered)
+	if offset < 0 {
+		offset = 0
+	}
+	if offset >= total {
+		return []*LogData{}, total
+	}
+	end := total
+	if limit > 0 && offset+limit < end {
+		end = offset + limit
+	}
+	return filtered[offset:end], total
+}
+
 // GetTraces returns all stored traces, newest first.
 func (s *Store) GetTraces() []*TraceData {
 	items, _ := s.GetTracesPage(0, 0)
