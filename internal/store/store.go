@@ -17,10 +17,12 @@ const (
 	SignalLogs    SignalType = "logs"
 )
 
-// OnAddFunc is called when new data is added to the store.
+// OnAddFunc is called when new data is added to the store. It runs outside the
+// store's write lock so implementations may take their time (e.g. serialize
+// and broadcast over a WebSocket).
 type OnAddFunc func(signalType SignalType, data any)
 
-// Store holds telemetry data in bounded ring buffers.
+// Store holds telemetry data in bounded ring buffers keyed for O(1) upsert.
 type Store struct {
 	mu            sync.RWMutex
 	traces        *RingBuffer[*TraceData]
@@ -41,53 +43,10 @@ func NewStore(traceCap, metricCap, logCap, maxDataPoints int, onAdd OnAddFunc) *
 		traces:        NewRingBuffer[*TraceData](traceCap),
 		metrics:       NewRingBuffer[*MetricData](metricCap),
 		logs:          NewRingBuffer[*LogData](logCap),
-		traceIndex:    make(map[string]int),
-		metricIndex:   make(map[string]int),
+		traceIndex:    make(map[string]int, traceCap),
+		metricIndex:   make(map[string]int, metricCap),
 		maxDataPoints: maxDataPoints,
 		onAdd:         onAdd,
-	}
-}
-
-// AddTraces converts and stores trace data.
-func (s *Store) AddTraces(td ptrace.Traces) {
-	converted := ConvertTraces(td)
-	s.mu.Lock()
-	for _, trace := range converted {
-		if idx, ok := s.traceIndex[trace.TraceID]; ok {
-			existing := s.traces.Get(idx)
-			if existing != nil && existing.TraceID == trace.TraceID {
-				// Deduplicate spans by spanID.
-				seen := make(map[string]struct{}, len(existing.Spans))
-				for _, s := range existing.Spans {
-					seen[s.SpanID] = struct{}{}
-				}
-				for _, s := range trace.Spans {
-					if _, dup := seen[s.SpanID]; !dup {
-						existing.Spans = append(existing.Spans, s)
-						seen[s.SpanID] = struct{}{}
-					}
-				}
-				existing.SpanCount = len(existing.Spans)
-				if trace.RootSpan != nil {
-					existing.RootSpan = trace.RootSpan
-					existing.ServiceName = trace.ServiceName
-					existing.Duration = trace.Duration
-				}
-				if trace.StartTime.Before(existing.StartTime) {
-					existing.StartTime = trace.StartTime
-				}
-				continue
-			}
-		}
-		idx := s.traces.Add(trace)
-		s.traceIndex[trace.TraceID] = idx
-	}
-	s.mu.Unlock()
-
-	if s.onAdd != nil {
-		for _, trace := range converted {
-			s.onAdd(SignalTraces, trace)
-		}
 	}
 }
 
@@ -99,30 +58,75 @@ func metricKey(serviceName, name string) string {
 	return serviceName + "\x00" + name
 }
 
+// AddTraces converts and stores trace data. Broadcasts fire outside the lock.
+func (s *Store) AddTraces(td ptrace.Traces) {
+	converted := ConvertTraces(td)
+	if len(converted) == 0 {
+		return
+	}
+
+	notify := make([]*TraceData, 0, len(converted))
+	s.mu.Lock()
+	for _, trace := range converted {
+		if idx, ok := s.traceIndex[trace.TraceID]; ok {
+			if existing := s.traces.Get(idx); existing != nil && existing.TraceID == trace.TraceID {
+				existing.Merge(trace)
+				notify = append(notify, existing)
+				continue
+			}
+			// index was stale — fall through to re-insert
+			delete(s.traceIndex, trace.TraceID)
+		}
+		idx, evicted, wasEvicted := s.traces.Add(trace)
+		if wasEvicted && evicted != nil {
+			delete(s.traceIndex, evicted.TraceID)
+		}
+		s.traceIndex[trace.TraceID] = idx
+		notify = append(notify, trace)
+	}
+	s.mu.Unlock()
+
+	if s.onAdd != nil {
+		for _, trace := range notify {
+			s.onAdd(SignalTraces, trace)
+		}
+	}
+}
+
 // AddMetrics converts and stores metric data, merging data points for the same metric.
 func (s *Store) AddMetrics(md pmetric.Metrics) {
 	converted := ConvertMetrics(md)
+	if len(converted) == 0 {
+		return
+	}
+
+	notify := make([]*MetricData, 0, len(converted))
 	s.mu.Lock()
 	for _, m := range converted {
 		key := metricKey(m.ServiceName, m.Name)
 		if idx, ok := s.metricIndex[key]; ok {
-			existing := s.metrics.Get(idx)
-			if existing != nil && existing.Name == m.Name && existing.ServiceName == m.ServiceName {
+			if existing := s.metrics.Get(idx); existing != nil && existing.Name == m.Name && existing.ServiceName == m.ServiceName {
 				existing.DataPoints = append(existing.DataPoints, m.DataPoints...)
 				if len(existing.DataPoints) > s.maxDataPoints {
 					existing.DataPoints = existing.DataPoints[len(existing.DataPoints)-s.maxDataPoints:]
 				}
 				existing.ReceivedAt = m.ReceivedAt
+				notify = append(notify, existing)
 				continue
 			}
+			delete(s.metricIndex, key)
 		}
-		idx := s.metrics.Add(m)
+		idx, evicted, wasEvicted := s.metrics.Add(m)
+		if wasEvicted && evicted != nil {
+			delete(s.metricIndex, metricKey(evicted.ServiceName, evicted.Name))
+		}
 		s.metricIndex[key] = idx
+		notify = append(notify, m)
 	}
 	s.mu.Unlock()
 
 	if s.onAdd != nil {
-		for _, m := range converted {
+		for _, m := range notify {
 			s.onAdd(SignalMetrics, m)
 		}
 	}
@@ -131,6 +135,10 @@ func (s *Store) AddMetrics(md pmetric.Metrics) {
 // AddLogs converts and stores log data.
 func (s *Store) AddLogs(ld plog.Logs) {
 	converted := ConvertLogs(ld)
+	if len(converted) == 0 {
+		return
+	}
+
 	s.mu.Lock()
 	for _, l := range converted {
 		s.logs.Add(l)
@@ -144,59 +152,59 @@ func (s *Store) AddLogs(ld plog.Logs) {
 	}
 }
 
-// GetTraces returns all stored traces, newest first.
-func (s *Store) GetTraces() []*TraceData {
+// GetTracesPage returns a newest-first page of traces plus the total buffer count.
+func (s *Store) GetTracesPage(offset, limit int) (items []*TraceData, total int) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	items := s.traces.Items()
-	// Reverse to return newest first.
-	reversed := make([]*TraceData, len(items))
-	for i, item := range items {
-		reversed[len(items)-1-i] = item
-	}
-	return reversed
+	return s.traces.Page(offset, limit)
+}
+
+// GetMetricsPage returns a newest-first page of metrics plus the total buffer count.
+func (s *Store) GetMetricsPage(offset, limit int) (items []*MetricData, total int) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.metrics.Page(offset, limit)
+}
+
+// GetLogsPage returns a newest-first page of logs plus the total buffer count.
+func (s *Store) GetLogsPage(offset, limit int) (items []*LogData, total int) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.logs.Page(offset, limit)
+}
+
+// GetTraces returns all stored traces, newest first.
+func (s *Store) GetTraces() []*TraceData {
+	items, _ := s.GetTracesPage(0, 0)
+	return items
 }
 
 // GetMetrics returns all stored metrics, newest first.
 func (s *Store) GetMetrics() []*MetricData {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	items := s.metrics.Items()
-	reversed := make([]*MetricData, len(items))
-	for i, item := range items {
-		reversed[len(items)-1-i] = item
-	}
-	return reversed
+	items, _ := s.GetMetricsPage(0, 0)
+	return items
 }
 
 // GetLogs returns all stored logs, newest first.
 func (s *Store) GetLogs() []*LogData {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	items := s.logs.Items()
-	reversed := make([]*LogData, len(items))
-	for i, item := range items {
-		reversed[len(items)-1-i] = item
-	}
-	return reversed
+	items, _ := s.GetLogsPage(0, 0)
+	return items
 }
 
-// GetTraceByID returns a trace by its trace ID.
+// GetTraceByID returns a trace by its trace ID. Lookup is O(1) — the index is
+// kept in sync with the ring buffer via eviction callbacks in AddTraces.
 func (s *Store) GetTraceByID(traceID string) (*TraceData, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	if idx, ok := s.traceIndex[traceID]; ok {
-		if item := s.traces.Get(idx); item != nil {
-			return item, true
-		}
+	idx, ok := s.traceIndex[traceID]
+	if !ok {
+		return nil, false
 	}
-	// Fallback: linear scan (in case index is stale after ring buffer wrap).
-	for _, item := range s.traces.Items() {
-		if item.TraceID == traceID {
-			return item, true
-		}
+	item := s.traces.Get(idx)
+	if item == nil || item.TraceID != traceID {
+		return nil, false
 	}
-	return nil, false
+	return item, true
 }
 
 // Capacity returns the store's configured limits.
@@ -218,11 +226,12 @@ func (s *Store) Clear() {
 	s.traces.Clear()
 	s.metrics.Clear()
 	s.logs.Clear()
-	s.traceIndex = make(map[string]int)
-	s.metricIndex = make(map[string]int)
+	clear(s.traceIndex)
+	clear(s.metricIndex)
 }
 
-// RingBuffer is a generic bounded FIFO buffer.
+// RingBuffer is a generic bounded FIFO buffer. Not safe for concurrent use —
+// callers (e.g. Store) synchronize externally.
 type RingBuffer[T any] struct {
 	items []T
 	head  int
@@ -238,19 +247,21 @@ func NewRingBuffer[T any](cap int) *RingBuffer[T] {
 	}
 }
 
-// Add appends an item to the buffer, overwriting the oldest if full.
-// Returns the index at which the item was stored.
-func (rb *RingBuffer[T]) Add(item T) int {
-	idx := (rb.head + rb.count) % rb.cap
+// Add appends an item to the buffer, overwriting the oldest if full. It returns
+// the stored index, the evicted value (zero if none), and whether an eviction
+// happened — giving callers enough to maintain secondary indexes.
+func (rb *RingBuffer[T]) Add(item T) (idx int, evicted T, wasEvicted bool) {
 	if rb.count == rb.cap {
-		// Buffer is full, overwrite oldest.
 		idx = rb.head
+		evicted = rb.items[idx]
+		wasEvicted = true
 		rb.head = (rb.head + 1) % rb.cap
 	} else {
+		idx = (rb.head + rb.count) % rb.cap
 		rb.count++
 	}
 	rb.items[idx] = item
-	return idx
+	return
 }
 
 // Get returns the item at the given absolute index, or the zero value if invalid.
@@ -269,6 +280,34 @@ func (rb *RingBuffer[T]) Items() []T {
 		result[i] = rb.items[(rb.head+i)%rb.cap]
 	}
 	return result
+}
+
+// Page returns up to `limit` items starting at `offset` counted from the newest.
+// When limit == 0, all items from offset to the end are returned. `total` is the
+// total number of items currently stored. The returned slice never aliases the
+// underlying buffer.
+func (rb *RingBuffer[T]) Page(offset, limit int) (items []T, total int) {
+	total = rb.count
+	if offset < 0 {
+		offset = 0
+	}
+	if offset >= total {
+		return nil, total
+	}
+	end := total
+	if limit > 0 && offset+limit < end {
+		end = offset + limit
+	}
+	n := end - offset
+	items = make([]T, n)
+	// Position of newest item: (head + count - 1) mod cap. Step backwards.
+	// Use +rb.cap before modulo to avoid negative intermediates.
+	for i := 0; i < n; i++ {
+		rank := offset + i
+		pos := (rb.head + rb.count - 1 - rank + rb.cap) % rb.cap
+		items[i] = rb.items[pos]
+	}
+	return
 }
 
 // Len returns the number of items in the buffer.

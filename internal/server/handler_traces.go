@@ -1,38 +1,16 @@
 package server
 
 import (
-	"encoding/json"
 	"net/http"
-	"strconv"
 
-	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+
+	"github.com/mashiro/otelop/internal/store"
 )
 
-var tracer = otel.Tracer("otelop.server")
-
 func (s *Server) handleGetTraces(w http.ResponseWriter, r *http.Request) {
-	limit, offset := parsePagination(r)
-
-	_, span := tracer.Start(r.Context(), "store.GetTraces")
-	traces := s.store.GetTraces()
-	total := len(traces)
-	span.SetAttributes(attribute.Int("total", total))
-	span.End()
-	if offset > total {
-		offset = total
-	}
-	end := offset + limit
-	if end > total {
-		end = total
-	}
-	page := traces[offset:end]
-
-	writeJSON(w, map[string]any{
-		"data":   page,
-		"total":  total,
-		"limit":  limit,
-		"offset": offset,
+	writePaginated(w, r, "store.GetTracesPage", func(offset, limit int) ([]*store.TraceData, int) {
+		return s.store.GetTracesPage(offset, limit)
 	})
 }
 
@@ -47,28 +25,4 @@ func (s *Server) handleGetTraceByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, trace)
-}
-
-func parsePagination(r *http.Request) (limit, offset int) {
-	limit = 50
-	offset = 0
-
-	if v := r.URL.Query().Get("limit"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			limit = n
-		}
-	}
-	if v := r.URL.Query().Get("offset"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
-			offset = n
-		}
-	}
-	return
-}
-
-func writeJSON(w http.ResponseWriter, data any) {
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(data); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
 }

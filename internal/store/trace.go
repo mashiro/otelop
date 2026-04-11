@@ -15,6 +15,35 @@ type TraceData struct {
 	SpanCount   int           `json:"spanCount"`
 	StartTime   time.Time     `json:"startTime"`
 	Duration    time.Duration `json:"duration"`
+
+	// spanIDs tracks known spanIDs for O(1) deduplication on merge. Not serialized.
+	spanIDs map[string]struct{} `json:"-"`
+}
+
+// Merge incorporates another TraceData sharing the same TraceID, deduplicating spans.
+func (t *TraceData) Merge(other *TraceData) {
+	if t.spanIDs == nil {
+		t.spanIDs = make(map[string]struct{}, len(t.Spans)+len(other.Spans))
+		for _, s := range t.Spans {
+			t.spanIDs[s.SpanID] = struct{}{}
+		}
+	}
+	for _, s := range other.Spans {
+		if _, dup := t.spanIDs[s.SpanID]; dup {
+			continue
+		}
+		t.spanIDs[s.SpanID] = struct{}{}
+		t.Spans = append(t.Spans, s)
+	}
+	t.SpanCount = len(t.Spans)
+	if other.RootSpan != nil {
+		t.RootSpan = other.RootSpan
+		t.ServiceName = other.ServiceName
+		t.Duration = other.Duration
+	}
+	if !other.StartTime.IsZero() && other.StartTime.Before(t.StartTime) {
+		t.StartTime = other.StartTime
+	}
 }
 
 // SpanData represents a single span.
@@ -42,23 +71,30 @@ type SpanEvent struct {
 	Attributes map[string]any `json:"attributes"`
 }
 
-// ConvertTraces converts ptrace.Traces into a map of TraceData keyed by trace ID.
-func ConvertTraces(td ptrace.Traces) map[string]*TraceData {
-	result := make(map[string]*TraceData)
+// ConvertTraces converts ptrace.Traces into a slice of TraceData, grouped by trace ID.
+// The returned slice preserves first-seen order, which callers rely on for deterministic
+// ingestion into the store.
+func ConvertTraces(td ptrace.Traces) []*TraceData {
+	var result []*TraceData
+	index := make(map[string]*TraceData)
 
-	for i := 0; i < td.ResourceSpans().Len(); i++ {
-		rs := td.ResourceSpans().At(i)
+	resourceSpans := td.ResourceSpans()
+	for i := 0; i < resourceSpans.Len(); i++ {
+		rs := resourceSpans.At(i)
 		resource := attributesToMap(rs.Resource().Attributes())
 		var svcName string
 		if serviceName, ok := rs.Resource().Attributes().Get("service.name"); ok {
 			svcName = serviceName.AsString()
 		}
 
-		for j := 0; j < rs.ScopeSpans().Len(); j++ {
-			ss := rs.ScopeSpans().At(j)
-			for k := 0; k < ss.Spans().Len(); k++ {
-				span := ss.Spans().At(k)
+		scopeSpans := rs.ScopeSpans()
+		for j := 0; j < scopeSpans.Len(); j++ {
+			spans := scopeSpans.At(j).Spans()
+			for k := 0; k < spans.Len(); k++ {
+				span := spans.At(k)
 				traceID := span.TraceID().String()
+				start := span.StartTimestamp().AsTime()
+				end := span.EndTimestamp().AsTime()
 
 				sd := &SpanData{
 					TraceID:      traceID,
@@ -67,9 +103,9 @@ func ConvertTraces(td ptrace.Traces) map[string]*TraceData {
 					Name:         span.Name(),
 					Kind:         span.Kind().String(),
 					ServiceName:  svcName,
-					StartTime:    span.StartTimestamp().AsTime(),
-					EndTime:      span.EndTimestamp().AsTime(),
-					Duration:     span.EndTimestamp().AsTime().Sub(span.StartTimestamp().AsTime()),
+					StartTime:    start,
+					EndTime:      end,
+					Duration:     end.Sub(start),
 					StatusCode:   span.Status().Code().String(),
 					StatusMsg:    span.Status().Message(),
 					Attributes:   attributesToMap(span.Attributes()),
@@ -77,13 +113,14 @@ func ConvertTraces(td ptrace.Traces) map[string]*TraceData {
 					Resource:     resource,
 				}
 
-				trace, ok := result[traceID]
+				trace, ok := index[traceID]
 				if !ok {
 					trace = &TraceData{
 						TraceID:   traceID,
 						StartTime: sd.StartTime,
 					}
-					result[traceID] = trace
+					index[traceID] = trace
+					result = append(result, trace)
 				}
 
 				trace.Spans = append(trace.Spans, sd)
@@ -93,7 +130,6 @@ func ConvertTraces(td ptrace.Traces) map[string]*TraceData {
 					trace.StartTime = sd.StartTime
 				}
 
-				// Root span: no parent
 				if span.ParentSpanID().IsEmpty() {
 					trace.RootSpan = sd
 					trace.ServiceName = svcName
@@ -103,22 +139,24 @@ func ConvertTraces(td ptrace.Traces) map[string]*TraceData {
 		}
 	}
 
-	// For traces without a root span, derive service name and duration from the earliest span.
+	// For traces without an explicit root span, derive service name and duration
+	// from the earliest/latest span in a single pass.
 	for _, trace := range result {
-		if trace.RootSpan == nil && len(trace.Spans) > 0 {
-			earliest := trace.Spans[0]
-			latest := trace.Spans[0]
-			for _, s := range trace.Spans[1:] {
-				if s.StartTime.Before(earliest.StartTime) {
-					earliest = s
-				}
-				if s.EndTime.After(latest.EndTime) {
-					latest = s
-				}
-			}
-			trace.ServiceName = earliest.ServiceName
-			trace.Duration = latest.EndTime.Sub(earliest.StartTime)
+		if trace.RootSpan != nil || len(trace.Spans) == 0 {
+			continue
 		}
+		earliest := trace.Spans[0]
+		latestEnd := earliest.EndTime
+		for _, s := range trace.Spans[1:] {
+			if s.StartTime.Before(earliest.StartTime) {
+				earliest = s
+			}
+			if s.EndTime.After(latestEnd) {
+				latestEnd = s.EndTime
+			}
+		}
+		trace.ServiceName = earliest.ServiceName
+		trace.Duration = latestEnd.Sub(earliest.StartTime)
 	}
 
 	return result
