@@ -31,8 +31,8 @@
     "graphql-request": "7.4.0",
     "jotai": "2.19.1",
     "lucide-react": "1.7.0",
-    "react": "19.2.4",
-    "react-dom": "19.2.4",
+    "react": "19.2.5",
+    "react-dom": "19.2.5",
     "shadcn": "4.2.0",
     "tailwind-merge": "3.5.0",
     "temporal-polyfill": "0.3.2"
