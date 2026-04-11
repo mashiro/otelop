@@ -22,7 +22,7 @@ func TestParsePagination(t *testing.T) {
 		{"invalid limit falls back", "limit=abc", defaultLimit, 0},
 		{"negative limit ignored", "limit=-5", defaultLimit, 0},
 		{"zero limit ignored", "limit=0", defaultLimit, 0},
-		{"limit clamped to max", "limit=99999", maxLimit, 0},
+		{"large limit passed through", "limit=99999", 99999, 0},
 		{"invalid offset ignored", "offset=foo", defaultLimit, 0},
 		{"negative offset ignored", "offset=-1", defaultLimit, 0},
 	}

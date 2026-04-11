@@ -11,10 +11,7 @@ import (
 
 var tracer = otel.Tracer("otelop.server")
 
-const (
-	defaultLimit = 50
-	maxLimit     = 10000
-)
+const defaultLimit = 50
 
 // pageFetcher returns a newest-first slice of items for the given offset/limit
 // along with the total buffer size. Implementations are expected to take locks
@@ -45,10 +42,11 @@ func parsePagination(r *http.Request) (limit, offset int) {
 	q := r.URL.Query()
 	if v := q.Get("limit"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			// No upper clamp: RingBuffer.Page allocates at most the actual buffer
+			// count, so the store's capacity is the real bound. Keeping a hardcoded
+			// max would silently truncate pages when users configure a large
+			// --trace-cap / --metric-cap / --log-cap.
 			limit = n
-			if limit > maxLimit {
-				limit = maxLimit
-			}
 		}
 	}
 	if v := q.Get("offset"); v != "" {
