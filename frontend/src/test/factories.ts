@@ -2,9 +2,9 @@ import type { SpanData, TraceData, LogData, MetricData } from "@/types/telemetry
 
 export function makeSpan(overrides: Partial<SpanData> = {}): SpanData {
   return {
-    traceID: "t1",
-    spanID: "s1",
-    parentSpanID: "",
+    traceId: "t1",
+    spanId: "s1",
+    parentSpanId: "",
     name: "GET /api",
     kind: "Server",
     serviceName: "frontend",
@@ -22,7 +22,7 @@ export function makeSpan(overrides: Partial<SpanData> = {}): SpanData {
 
 export function makeTrace(overrides: Partial<TraceData> = {}): TraceData {
   return {
-    traceID: "t1",
+    traceId: "t1",
     spans: [makeSpan()],
     spanCount: 1,
     serviceName: "frontend",
@@ -39,8 +39,8 @@ export function makeLog(overrides: Partial<LogData> = {}): LogData {
     severityNumber: 9,
     severityText: "INFO",
     body: "request handled",
-    traceID: "",
-    spanID: "",
+    traceId: "",
+    spanId: "",
     serviceName: "frontend",
     attributes: {},
     resource: {},

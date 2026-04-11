@@ -31,11 +31,11 @@ export const logsAtom = atom<LogData[]>([]);
 export const addTraceAtom = atom(null, (get, set, newTrace: TraceData) => {
   const current = get(tracesAtom);
   const maxTraces = get(serverConfigAtom).traceCap;
-  const idx = current.findIndex((t) => t.traceID === newTrace.traceID);
+  const idx = current.findIndex((t) => t.traceId === newTrace.traceId);
   if (idx >= 0) {
     const existing = current[idx];
-    const seen = new Set(existing.spans.map((s) => s.spanID));
-    const deduped = newTrace.spans.filter((s) => !seen.has(s.spanID));
+    const seen = new Set(existing.spans.map((s) => s.spanId));
+    const deduped = newTrace.spans.filter((s) => !seen.has(s.spanId));
     if (deduped.length === 0 && !newTrace.rootSpan) return;
     const mergedSpans = [...existing.spans, ...deduped];
     const updated = [...current];
@@ -125,13 +125,13 @@ export const selectedLogAtom = atom<LogData | null>(null);
 export type TabValue = "traces" | "metrics" | "logs";
 export const activeTabAtom = atom<TabValue>("traces");
 
-// Log filter by traceID (set when jumping from trace → logs)
+// Log filter by traceId (set when jumping from trace → logs)
 export const logTraceFilterAtom = atom<string | null>(null);
 
 // Navigate: log → trace (find trace by ID and switch tab)
-export const navigateToTraceAtom = atom(null, (get, set, traceID: string) => {
+export const navigateToTraceAtom = atom(null, (get, set, traceId: string) => {
   const traces = get(tracesAtom);
-  const trace = traces.find((t) => t.traceID === traceID);
+  const trace = traces.find((t) => t.traceId === traceId);
   if (trace) {
     set(selectedTraceAtom, trace);
     set(activeTabAtom, "traces");
@@ -139,8 +139,8 @@ export const navigateToTraceAtom = atom(null, (get, set, traceID: string) => {
 });
 
 // Navigate: trace → related logs (switch to logs tab with filter)
-export const navigateToLogsAtom = atom(null, (_get, set, traceID: string) => {
-  set(logTraceFilterAtom, traceID);
+export const navigateToLogsAtom = atom(null, (_get, set, traceId: string) => {
+  set(logTraceFilterAtom, traceId);
   set(activeTabAtom, "logs");
 });
 

@@ -76,29 +76,29 @@ export function buildTree(spans: SpanData[]): FlatSpan[] {
   const children = new Map<string, SpanData[]>();
 
   for (const s of spans) {
-    byId.set(s.spanID, s);
-    const parentID = s.parentSpanID || "";
-    if (!children.has(parentID)) children.set(parentID, []);
-    children.get(parentID)!.push(s);
+    byId.set(s.spanId, s);
+    const parentId = s.parentSpanId || "";
+    if (!children.has(parentId)) children.set(parentId, []);
+    children.get(parentId)!.push(s);
   }
 
   const result: FlatSpan[] = [];
-  function walk(parentID: string, depth: number) {
-    const kids = children.get(parentID) ?? [];
+  function walk(parentId: string, depth: number) {
+    const kids = children.get(parentId) ?? [];
     kids.sort(compareByStartTime);
     for (const s of kids) {
-      const hasKids = (children.get(s.spanID)?.length ?? 0) > 0;
+      const hasKids = (children.get(s.spanId)?.length ?? 0) > 0;
       result.push({ span: s, depth, hasChildren: hasKids });
-      walk(s.spanID, depth + 1);
+      walk(s.spanId, depth + 1);
     }
   }
 
-  const roots = spans.filter((s) => !s.parentSpanID || !byId.has(s.parentSpanID));
+  const roots = spans.filter((s) => !s.parentSpanId || !byId.has(s.parentSpanId));
   roots.sort(compareByStartTime);
   for (const r of roots) {
-    const hasKids = (children.get(r.spanID)?.length ?? 0) > 0;
+    const hasKids = (children.get(r.spanId)?.length ?? 0) > 0;
     result.push({ span: r, depth: 0, hasChildren: hasKids });
-    walk(r.spanID, 1);
+    walk(r.spanId, 1);
   }
 
   return result;
@@ -141,7 +141,7 @@ function WaterfallInner({
       if (skipDepth !== null && f.depth > skipDepth) continue;
       skipDepth = null;
       result.push(f);
-      if (collapsedSet.has(f.span.spanID)) {
+      if (collapsedSet.has(f.span.spanId)) {
         skipDepth = f.depth;
       }
     }
@@ -358,7 +358,7 @@ function WaterfallInner({
             const x = xScale(Math.max(startOffset, 0));
             const w = Math.max(xScale(spanDurNs) - xScale(0), MIN_BAR_WIDTH);
             const y = i * ROW_HEIGHT + HEADER_HEIGHT;
-            const isSelected = selectedSpan?.spanID === f.span.spanID;
+            const isSelected = selectedSpan?.spanId === f.span.spanId;
             const isError = f.span.statusCode === "Error";
             const serviceKey = f.span.serviceName.replace(/\W/g, "");
             const gradId = isError ? "grad-error" : `grad-${serviceKey}`;
@@ -374,7 +374,7 @@ function WaterfallInner({
 
             return (
               <Group
-                key={f.span.spanID}
+                key={f.span.spanId}
                 top={y}
                 className="cursor-pointer"
                 onClick={() => onSelectSpan(f.span)}
@@ -415,10 +415,10 @@ function WaterfallInner({
                     className="cursor-pointer select-none"
                     onClick={(e) => {
                       e.stopPropagation();
-                      handleToggleCollapse(f.span.spanID);
+                      handleToggleCollapse(f.span.spanId);
                     }}
                   >
-                    {collapsedSet.has(f.span.spanID) ? "▶" : "▼"}
+                    {collapsedSet.has(f.span.spanId) ? "▶" : "▼"}
                   </text>
                 )}
 

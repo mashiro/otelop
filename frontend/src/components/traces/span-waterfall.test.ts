@@ -4,7 +4,7 @@ import { makeSpan } from "@/test/factories";
 
 describe("buildTree", () => {
   it("returns a single root span", () => {
-    const spans = [makeSpan({ spanID: "a" })];
+    const spans = [makeSpan({ spanId: "a" })];
     const result = buildTree(spans);
     expect(result).toHaveLength(1);
     expect(result[0].depth).toBe(0);
@@ -13,13 +13,13 @@ describe("buildTree", () => {
 
   it("builds parent-child hierarchy with correct depths", () => {
     const spans = [
-      makeSpan({ spanID: "root", parentSpanID: "" }),
-      makeSpan({ spanID: "child", parentSpanID: "root" }),
-      makeSpan({ spanID: "grandchild", parentSpanID: "child" }),
+      makeSpan({ spanId: "root", parentSpanId: "" }),
+      makeSpan({ spanId: "child", parentSpanId: "root" }),
+      makeSpan({ spanId: "grandchild", parentSpanId: "child" }),
     ];
     const result = buildTree(spans);
     expect(result).toHaveLength(3);
-    expect(result.map((f) => ({ id: f.span.spanID, depth: f.depth }))).toEqual([
+    expect(result.map((f) => ({ id: f.span.spanId, depth: f.depth }))).toEqual([
       { id: "root", depth: 0 },
       { id: "child", depth: 1 },
       { id: "grandchild", depth: 2 },
@@ -28,9 +28,9 @@ describe("buildTree", () => {
 
   it("sets hasChildren correctly", () => {
     const spans = [
-      makeSpan({ spanID: "root", parentSpanID: "" }),
-      makeSpan({ spanID: "child", parentSpanID: "root" }),
-      makeSpan({ spanID: "leaf", parentSpanID: "child" }),
+      makeSpan({ spanId: "root", parentSpanId: "" }),
+      makeSpan({ spanId: "child", parentSpanId: "root" }),
+      makeSpan({ spanId: "leaf", parentSpanId: "child" }),
     ];
     const result = buildTree(spans);
     expect(result[0].hasChildren).toBe(true);
@@ -40,8 +40,8 @@ describe("buildTree", () => {
 
   it("handles orphan spans as roots", () => {
     const spans = [
-      makeSpan({ spanID: "a", parentSpanID: "nonexistent" }),
-      makeSpan({ spanID: "b", parentSpanID: "" }),
+      makeSpan({ spanId: "a", parentSpanId: "nonexistent" }),
+      makeSpan({ spanId: "b", parentSpanId: "" }),
     ];
     const result = buildTree(spans);
     expect(result).toHaveLength(2);

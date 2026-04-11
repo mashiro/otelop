@@ -4,6 +4,8 @@ import react, { reactCompilerPreset } from "@vitejs/plugin-react";
 import babel from "@rolldown/plugin-babel";
 import tailwindcss from "@tailwindcss/vite";
 
+const generatedSources = ["src/gql/**"];
+
 export default defineConfig({
   plugins: [react(), babel({ presets: [reactCompilerPreset()] }), tailwindcss()],
   resolve: {
@@ -18,13 +20,16 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      "/api": "http://localhost:4319",
+      "/graphql": "http://localhost:4319",
       "/ws": {
         target: "http://localhost:4319",
         ws: true,
       },
     },
   },
-  fmt: {},
-  lint: { options: { typeAware: true, typeCheck: true } },
+  fmt: { ignorePatterns: generatedSources },
+  lint: {
+    ignorePatterns: generatedSources,
+    options: { typeAware: true, typeCheck: true },
+  },
 });

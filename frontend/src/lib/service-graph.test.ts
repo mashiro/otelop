@@ -12,8 +12,8 @@ describe("buildServiceGraph", () => {
   it("creates nodes for each service", () => {
     const trace = makeTrace({
       spans: [
-        makeSpan({ spanID: "a", serviceName: "frontend" }),
-        makeSpan({ spanID: "b", serviceName: "backend", parentSpanID: "a" }),
+        makeSpan({ spanId: "a", serviceName: "frontend" }),
+        makeSpan({ spanId: "b", serviceName: "backend", parentSpanId: "a" }),
       ],
     });
     const graph = buildServiceGraph([trace]);
@@ -24,8 +24,8 @@ describe("buildServiceGraph", () => {
   it("creates edges between different services", () => {
     const trace = makeTrace({
       spans: [
-        makeSpan({ spanID: "a", serviceName: "frontend" }),
-        makeSpan({ spanID: "b", serviceName: "backend", parentSpanID: "a" }),
+        makeSpan({ spanId: "a", serviceName: "frontend" }),
+        makeSpan({ spanId: "b", serviceName: "backend", parentSpanId: "a" }),
       ],
     });
     const graph = buildServiceGraph([trace]);
@@ -40,8 +40,8 @@ describe("buildServiceGraph", () => {
   it("does not create edges within the same service", () => {
     const trace = makeTrace({
       spans: [
-        makeSpan({ spanID: "a", serviceName: "frontend" }),
-        makeSpan({ spanID: "b", serviceName: "frontend", parentSpanID: "a" }),
+        makeSpan({ spanId: "a", serviceName: "frontend" }),
+        makeSpan({ spanId: "b", serviceName: "frontend", parentSpanId: "a" }),
       ],
     });
     const graph = buildServiceGraph([trace]);
@@ -50,17 +50,17 @@ describe("buildServiceGraph", () => {
 
   it("accumulates call counts across traces", () => {
     const t1 = makeTrace({
-      traceID: "t1",
+      traceId: "t1",
       spans: [
-        makeSpan({ traceID: "t1", spanID: "a", serviceName: "web" }),
-        makeSpan({ traceID: "t1", spanID: "b", serviceName: "api", parentSpanID: "a" }),
+        makeSpan({ traceId: "t1", spanId: "a", serviceName: "web" }),
+        makeSpan({ traceId: "t1", spanId: "b", serviceName: "api", parentSpanId: "a" }),
       ],
     });
     const t2 = makeTrace({
-      traceID: "t2",
+      traceId: "t2",
       spans: [
-        makeSpan({ traceID: "t2", spanID: "c", serviceName: "web" }),
-        makeSpan({ traceID: "t2", spanID: "d", serviceName: "api", parentSpanID: "c" }),
+        makeSpan({ traceId: "t2", spanId: "c", serviceName: "web" }),
+        makeSpan({ traceId: "t2", spanId: "d", serviceName: "api", parentSpanId: "c" }),
       ],
     });
     const graph = buildServiceGraph([t1, t2]);
@@ -70,8 +70,8 @@ describe("buildServiceGraph", () => {
   it("counts errors per service", () => {
     const trace = makeTrace({
       spans: [
-        makeSpan({ spanID: "a", serviceName: "frontend", statusCode: "Ok" }),
-        makeSpan({ spanID: "b", serviceName: "backend", statusCode: "Error", parentSpanID: "a" }),
+        makeSpan({ spanId: "a", serviceName: "frontend", statusCode: "Ok" }),
+        makeSpan({ spanId: "b", serviceName: "backend", statusCode: "Error", parentSpanId: "a" }),
       ],
     });
     const graph = buildServiceGraph([trace]);

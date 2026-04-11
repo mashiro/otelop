@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { CopyJsonButton } from "@/components/ui/copy-json-button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { selectedTraceAtom, navigateToLogsAtom } from "@/stores/telemetry";
-import { formatDuration, shortID } from "@/lib/format";
+import { formatDuration, shortId } from "@/lib/format";
 import { downloadJson } from "@/lib/export";
 import { SpanWaterfall } from "./span-waterfall";
 import { KVSection } from "@/components/ui/kv-section";
@@ -29,7 +29,7 @@ export function TraceDetail() {
           <span className="font-semibold text-foreground">
             {trace.rootSpan?.name ?? trace.spans[0]?.name}
           </span>
-          <span className="font-mono text-xs text-muted-foreground">{shortID(trace.traceID)}</span>
+          <span className="font-mono text-xs text-muted-foreground">{shortId(trace.traceId)}</span>
           <Pill tone="trace">{trace.spanCount} spans</Pill>
           <span className="font-mono text-xs text-trace">{formatDuration(trace.duration)}</span>
         </>
@@ -40,7 +40,7 @@ export function TraceDetail() {
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => downloadJson(trace, `trace-${trace.traceID.slice(0, 8)}.json`)}
+            onClick={() => downloadJson(trace, `trace-${trace.traceId.slice(0, 8)}.json`)}
             className="text-muted-foreground hover:text-foreground"
             title="Download trace as JSON"
           >
@@ -49,7 +49,7 @@ export function TraceDetail() {
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => navigateToLogs(trace.traceID)}
+            onClick={() => navigateToLogs(trace.traceId)}
             className="gap-1.5 text-xs text-log hover:text-log"
             title="View related logs"
           >
@@ -92,8 +92,8 @@ function SpanDetail({ span, onClose }: { span: SpanData; onClose: () => void }) 
           <div className="space-y-2.5">
             <Field label="Name" value={span.name} />
             <Field label="Service" value={span.serviceName} />
-            <Field label="Span ID" value={span.spanID} mono />
-            <Field label="Parent" value={span.parentSpanID || "(root)"} mono />
+            <Field label="Span ID" value={span.spanId} mono />
+            <Field label="Parent" value={span.parentSpanId || "(root)"} mono />
             <Field label="Kind" value={span.kind} />
             <Field label="Status" value={span.statusCode} />
             {span.statusMessage && <Field label="Message" value={span.statusMessage} />}

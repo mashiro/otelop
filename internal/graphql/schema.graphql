@@ -1,0 +1,143 @@
+scalar Time
+scalar JSON
+
+schema {
+  query: Query
+  mutation: Mutation
+}
+
+type Query {
+  "Ring buffer capacity and current counts."
+  config: Config!
+
+  "List traces newest-first."
+  traces(limit: Int = 50, offset: Int = 0): TraceConnection!
+
+  "Fetch a single trace by its hex-encoded trace ID."
+  trace(traceId: ID!): Trace
+
+  "List metrics newest-first."
+  metrics(limit: Int = 50, offset: Int = 0): MetricConnection!
+
+  """
+  List log records newest-first. If traceId is given, only logs whose TraceID
+  matches are returned — the standard observability trace↔log correlation.
+  """
+  logs(limit: Int = 50, offset: Int = 0, traceId: String): LogConnection!
+}
+
+type Mutation {
+  "Drop every buffered trace, metric, and log."
+  clearSignals: Boolean!
+}
+
+type Config {
+  traceCap: Int!
+  metricCap: Int!
+  logCap: Int!
+  maxDataPoints: Int!
+  traceCount: Int!
+  metricCount: Int!
+  logCount: Int!
+}
+
+type TraceConnection {
+  items: [Trace!]!
+  total: Int!
+  limit: Int!
+  offset: Int!
+}
+
+type MetricConnection {
+  items: [Metric!]!
+  total: Int!
+  limit: Int!
+  offset: Int!
+}
+
+type LogConnection {
+  items: [Log!]!
+  total: Int!
+  limit: Int!
+  offset: Int!
+}
+
+type Trace {
+  traceId: ID!
+  serviceName: String!
+  rootSpan: Span
+  "Every span otelop has buffered under this trace."
+  spans: [Span!]!
+  spanCount: Int!
+  startTime: Time!
+  "Total trace duration in milliseconds."
+  durationMs: Float!
+  "True if any span under the trace has StatusCode='Error'."
+  hasError: Boolean!
+  "Log records whose TraceID matches this trace — correlation join."
+  logs: [Log!]!
+}
+
+type Span {
+  traceId: ID!
+  spanId: ID!
+  parentSpanId: String!
+  name: String!
+  kind: String!
+  serviceName: String!
+  startTime: Time!
+  endTime: Time!
+  "Span duration in milliseconds."
+  durationMs: Float!
+  statusCode: String!
+  statusMessage: String!
+  attributes: JSON!
+  events: [SpanEvent!]!
+  resource: JSON!
+  "Parent trace. Always present because spans are only returned via a trace."
+  trace: Trace!
+  "Parent span within the same trace, if any. Null for root spans."
+  parent: Span
+}
+
+type SpanEvent {
+  name: String!
+  timestamp: Time!
+  attributes: JSON!
+}
+
+type Metric {
+  name: String!
+  description: String!
+  unit: String!
+  type: String!
+  serviceName: String!
+  resource: JSON!
+  dataPoints: [DataPoint!]!
+  "Length of dataPoints without requesting the array."
+  pointCount: Int!
+  receivedAt: Time!
+}
+
+type DataPoint {
+  timestamp: Time!
+  value: Float!
+  attributes: JSON!
+}
+
+type Log {
+  timestamp: Time!
+  observedTimestamp: Time!
+  traceId: String!
+  spanId: String!
+  severityNumber: Int!
+  severityText: String!
+  body: String!
+  serviceName: String!
+  attributes: JSON!
+  resource: JSON!
+  "Correlated trace, or null if the log has no traceId or the trace has been evicted from the ring buffer."
+  trace: Trace
+  "Correlated span within the trace, or null if traceId/spanId are unset or the trace/span is missing."
+  span: Span
+}
