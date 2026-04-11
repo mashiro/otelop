@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+#MISE description="Build Go binary (requires frontend assets)"
+#MISE depends=["build-frontend"]
+set -euo pipefail
+go build -tags embed -o otelop ./cmd/otelop

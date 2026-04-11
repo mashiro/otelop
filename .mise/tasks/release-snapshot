@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+#MISE description="Run goreleaser in snapshot mode (no publish)"
+set -euo pipefail
+goreleaser release --snapshot --clean

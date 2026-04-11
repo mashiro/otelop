@@ -26,10 +26,22 @@ import (
 	ws "github.com/mashiro/otelop/internal/websocket"
 )
 
+var version = "dev"
+
 func main() {
 	app := &cli.Command{
 		Name:  "otelop",
 		Usage: "Browser-based OpenTelemetry viewer",
+		Commands: []*cli.Command{
+			{
+				Name:  "version",
+				Usage: "Print version",
+				Action: func(_ context.Context, _ *cli.Command) error {
+					fmt.Println(version)
+					return nil
+				},
+			},
+		},
 		Flags: []cli.Flag{
 			&cli.StringFlag{
 				Name:  "http",
