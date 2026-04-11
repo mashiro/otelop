@@ -1,6 +1,7 @@
 import { useAtomValue, useSetAtom } from "jotai";
 import { Trash2, Sun, Moon, Monitor } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Logo } from "@/components/ui/logo";
 import {
   wsStatusAtom,
   traceCountAtom,
@@ -48,15 +49,8 @@ export function Header() {
   return (
     <header className="relative z-10 flex items-center justify-between border-b border-border/50 px-5 py-3">
       <div className="flex items-center gap-5">
-        {/* Logo */}
         <div className="flex items-center gap-2">
-          <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary/15">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <circle cx="8" cy="8" r="3" stroke="var(--primary)" strokeWidth="1.5" />
-              <circle cx="8" cy="8" r="6.5" stroke="var(--primary)" strokeWidth="1" opacity="0.4" />
-              <circle cx="8" cy="8" r="1" fill="var(--primary)" />
-            </svg>
-          </div>
+          <Logo className="h-7 w-7" />
           <h1 className="text-base font-semibold tracking-tight">otelop</h1>
         </div>
 
