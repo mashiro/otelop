@@ -128,9 +128,9 @@ per-interval activity, not running totals.
 type DataPoint {
   timestamp: Time!
   """
-  The primary scalar for this point. Gauge: instantaneous value. Sum: delta.
-  Histogram / Summary / ExponentialHistogram: delta count, i.e. observations
-  per window.
+  The primary scalar for this point. Gauge: instantaneous value. Sum: per-window
+  delta. Histogram / Summary / ExponentialHistogram: per-window arithmetic mean
+  (sum / count) so the metric's declared unit applies directly.
   """
   value: Float!
   "Delta observation count for distribution metrics. Null for Gauge/Sum."

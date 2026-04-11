@@ -137,11 +137,7 @@ function DataPointsTable({ metric }: { metric: MetricData }) {
   const hasDistribution = useMemo(
     () =>
       metric.dataPoints.some(
-        (dp) =>
-          dp.count !== undefined ||
-          dp.sum !== undefined ||
-          dp.min !== undefined ||
-          dp.max !== undefined,
+        (dp) => dp.count != null || dp.sum != null || dp.min != null || dp.max != null,
       ),
     [metric.dataPoints],
   );
@@ -205,16 +201,16 @@ function DataPointsTable({ metric }: { metric: MetricData }) {
                 {hasDistribution && (
                   <>
                     <td className="px-3 py-1.5 text-right font-mono text-foreground/70">
-                      {dp.count !== undefined ? dp.count.toLocaleString() : "-"}
+                      {dp.count != null ? dp.count.toLocaleString() : "-"}
                     </td>
                     <td className="px-3 py-1.5 text-right font-mono text-foreground/70">
-                      {dp.sum !== undefined ? formatMetricValue(dp.sum, unit) : "-"}
+                      {dp.sum != null ? formatMetricValue(dp.sum, unit) : "-"}
                     </td>
                     <td className="px-3 py-1.5 text-right font-mono text-foreground/70">
-                      {dp.min !== undefined ? formatMetricValue(dp.min, unit) : "-"}
+                      {dp.min != null ? formatMetricValue(dp.min, unit) : "-"}
                     </td>
                     <td className="px-3 py-1.5 text-right font-mono text-foreground/70">
-                      {dp.max !== undefined ? formatMetricValue(dp.max, unit) : "-"}
+                      {dp.max != null ? formatMetricValue(dp.max, unit) : "-"}
                     </td>
                   </>
                 )}

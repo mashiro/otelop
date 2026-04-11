@@ -44,6 +44,10 @@ const InitialLoadQuery = graphql(`
         dataPoints {
           timestamp
           value
+          count
+          sum
+          min
+          max
           attributes
         }
       }

@@ -39,11 +39,12 @@ export interface DataPoint {
   value: number;
   // Distribution-only fields (Histogram / Summary / ExponentialHistogram).
   // Counts and sums are per-window deltas; min/max are per-window extrema
-  // reported by the SDK and cannot be delta'd.
-  count?: number;
-  sum?: number;
-  min?: number;
-  max?: number;
+  // reported by the SDK and cannot be delta'd. Null when the metric type
+  // doesn't carry the field — use `!= null` checks.
+  count?: number | null;
+  sum?: number | null;
+  min?: number | null;
+  max?: number | null;
   attributes: Record<string, unknown>;
 }
 
