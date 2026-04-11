@@ -29,7 +29,7 @@ export function MetricDetail() {
         </>
       }
     >
-      <ScrollArea className="flex-1">
+      <ScrollArea className="min-h-0 flex-1">
         <div className="p-4">
           {metric.description && (
             <p className="mb-4 text-sm text-muted-foreground">{metric.description}</p>
@@ -48,7 +48,7 @@ export function MetricDetail() {
               <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                 Data Points ({metric.dataPoints.length})
               </h4>
-              <div className="max-h-[200px] overflow-auto rounded-md border border-border/30 bg-muted/50">
+              <div className="max-h-[360px] overflow-auto rounded-md border border-border/30 bg-muted/50">
                 <table className="w-full text-xs">
                   <thead>
                     <tr className="border-b border-border/30">
