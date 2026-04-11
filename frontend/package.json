@@ -29,11 +29,11 @@
     "class-variance-authority": "0.7.1",
     "clsx": "2.1.1",
     "graphql-request": "7.4.0",
-    "jotai": "2.19.0",
+    "jotai": "2.19.1",
     "lucide-react": "1.7.0",
     "react": "19.2.4",
     "react-dom": "19.2.4",
-    "shadcn": "4.1.2",
+    "shadcn": "4.2.0",
     "tailwind-merge": "3.5.0",
     "temporal-polyfill": "0.3.2"
   },
