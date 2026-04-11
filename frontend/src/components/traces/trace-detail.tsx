@@ -8,6 +8,8 @@ import { formatDuration, shortID } from "@/lib/format";
 import { downloadJson } from "@/lib/export";
 import { SpanWaterfall } from "./span-waterfall";
 import { KVSection } from "@/components/ui/kv-section";
+import { DetailPanel } from "@/components/common/detail-panel";
+import { Pill } from "@/components/common/pill";
 import type { SpanData } from "@/types/telemetry";
 import { useState } from "react";
 
@@ -20,28 +22,20 @@ export function TraceDetail() {
   if (!trace) return null;
 
   return (
-    <div className="glass-card animate-fade-in flex h-full flex-col overflow-hidden">
-      {/* Header bar */}
-      <div className="flex items-center justify-between border-b border-border/50 px-4 py-2.5">
-        <div className="flex items-center gap-3">
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            onClick={() => setSelected(null)}
-            className="text-muted-foreground hover:text-foreground"
-          >
-            <X className="h-4 w-4" />
-          </Button>
+    <DetailPanel
+      onClose={() => setSelected(null)}
+      header={
+        <>
           <span className="font-semibold text-foreground">
             {trace.rootSpan?.name ?? trace.spans[0]?.name}
           </span>
           <span className="font-mono text-xs text-muted-foreground">{shortID(trace.traceID)}</span>
-          <span className="rounded-full bg-trace/15 px-2 py-0.5 text-[11px] font-medium text-trace">
-            {trace.spanCount} spans
-          </span>
+          <Pill tone="trace">{trace.spanCount} spans</Pill>
           <span className="font-mono text-xs text-trace">{formatDuration(trace.duration)}</span>
-        </div>
-        <div className="flex items-center gap-1">
+        </>
+      }
+      actions={
+        <>
           <CopyJsonButton data={trace} />
           <Button
             variant="ghost"
@@ -62,10 +56,9 @@ export function TraceDetail() {
             <FileText className="h-3.5 w-3.5" />
             Logs
           </Button>
-        </div>
-      </div>
-
-      {/* Content */}
+        </>
+      }
+    >
       <div className="flex flex-1 overflow-hidden">
         <div className="flex-1 overflow-hidden">
           <SpanWaterfall trace={trace} onSelectSpan={setSelectedSpan} selectedSpan={selectedSpan} />
@@ -76,7 +69,7 @@ export function TraceDetail() {
           </div>
         )}
       </div>
-    </div>
+    </DetailPanel>
   );
 }
 

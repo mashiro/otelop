@@ -9,6 +9,7 @@ import {
   clearAllAtom,
 } from "@/stores/telemetry";
 import { themeAtom, type Theme } from "@/stores/theme";
+import { SIGNALS, type SignalConfig } from "@/lib/signals";
 
 const statusConfig: Record<string, { color: string; glow: string; label: string }> = {
   connected: {
@@ -61,9 +62,9 @@ export function Header() {
 
         {/* Signal counters */}
         <div className="flex items-center gap-3">
-          <CounterBadge label="T" count={traceCount} color="trace" />
-          <CounterBadge label="M" count={metricCount} color="metric" />
-          <CounterBadge label="L" count={logCount} color="log" />
+          <CounterBadge signal={SIGNALS.traces} count={traceCount} />
+          <CounterBadge signal={SIGNALS.metrics} count={metricCount} />
+          <CounterBadge signal={SIGNALS.logs} count={logCount} />
         </div>
       </div>
 
@@ -91,29 +92,14 @@ export function Header() {
   );
 }
 
-const counterStyles: Record<string, { wrapper: string; text: string }> = {
-  trace: {
-    wrapper: "bg-trace/10",
-    text: "text-trace",
-  },
-  metric: {
-    wrapper: "bg-metric/10",
-    text: "text-metric",
-  },
-  log: {
-    wrapper: "bg-log/10",
-    text: "text-log",
-  },
-};
-
-function CounterBadge({ label, count, color }: { label: string; count: number; color: string }) {
-  const style = counterStyles[color] ?? counterStyles.trace;
+function CounterBadge({ signal, count }: { signal: SignalConfig; count: number }) {
+  const { bgLight, text } = signal.classes;
   return (
-    <div className={`flex items-center gap-1.5 rounded-md px-2 py-0.5 ${style.wrapper}`}>
-      <span className={`text-[10px] font-bold uppercase tracking-wider ${style.text}`}>
-        {label}
+    <div className={`flex items-center gap-1.5 rounded-md px-2 py-0.5 ${bgLight}`}>
+      <span className={`text-[10px] font-bold uppercase tracking-wider ${text}`}>
+        {signal.shortLabel}
       </span>
-      <span className={`font-mono text-xs font-semibold ${style.text}`}>{count}</span>
+      <span className={`font-mono text-xs font-semibold ${text}`}>{count}</span>
     </div>
   );
 }
