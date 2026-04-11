@@ -1,10 +1,10 @@
 import { useMemo } from "react";
 import { useAtomValue, useSetAtom } from "jotai";
-import { X } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { selectedMetricAtom } from "@/stores/telemetry";
 import { MetricChart, attrKey } from "./metric-chart";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { DetailPanel } from "@/components/common/detail-panel";
+import { Pill } from "@/components/common/pill";
 
 export function MetricDetail() {
   const metric = useAtomValue(selectedMetricAtom);
@@ -18,28 +18,17 @@ export function MetricDetail() {
   if (!metric) return null;
 
   return (
-    <div className="glass-card animate-fade-in flex h-full flex-col overflow-hidden">
-      {/* Header */}
-      <div className="flex items-center justify-between border-b border-border/50 px-4 py-2.5">
-        <div className="flex items-center gap-3">
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            onClick={() => setSelected(null)}
-            className="text-muted-foreground hover:text-foreground"
-          >
-            <X className="h-4 w-4" />
-          </Button>
+    <DetailPanel
+      onClose={() => setSelected(null)}
+      header={
+        <>
           <span className="font-semibold text-foreground">{metric.name}</span>
-          <span className="rounded-full bg-metric/15 px-2 py-0.5 text-[11px] font-medium text-metric">
-            {metric.type}
-          </span>
+          <Pill tone="metric">{metric.type}</Pill>
           {metric.unit && <span className="text-xs text-muted-foreground">({metric.unit})</span>}
           <span className="text-xs text-muted-foreground">{metric.serviceName}</span>
-        </div>
-      </div>
-
-      {/* Content */}
+        </>
+      }
+    >
       <ScrollArea className="flex-1">
         <div className="p-4">
           {metric.description && (
@@ -102,6 +91,6 @@ export function MetricDetail() {
           )}
         </div>
       </ScrollArea>
-    </div>
+    </DetailPanel>
   );
 }

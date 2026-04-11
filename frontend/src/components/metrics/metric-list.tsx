@@ -4,7 +4,8 @@ import { metricsAtom, selectedMetricAtom } from "@/stores/telemetry";
 import { filteredMetricsAtom, metricSearchAtom } from "@/stores/filters";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { SearchFilter } from "@/components/filters/search-filter";
-import { ListToolbar } from "@/components/filters/list-toolbar";
+import { ListPanel } from "@/components/common/list-panel";
+import { EmptyMatches } from "@/components/common/empty-state";
 import {
   Table,
   TableBody,
@@ -15,6 +16,9 @@ import {
 } from "@/components/ui/table";
 import { formatRelativeTime } from "@/lib/format";
 import { MetricDetail } from "./metric-detail";
+import { EmptyState } from "@/components/common/empty-state";
+import { Pill } from "@/components/common/pill";
+import { SIGNALS } from "@/lib/signals";
 
 export function MetricList() {
   const allMetrics = useAtomValue(metricsAtom);
@@ -31,40 +35,13 @@ export function MetricList() {
   }
 
   if (allMetrics.length === 0) {
-    return (
-      <div className="glass-card flex h-full items-center justify-center">
-        <div className="animate-slide-up-fade flex flex-col items-center gap-4">
-          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-metric/10">
-            <svg
-              width="28"
-              height="28"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="var(--metric)"
-              strokeWidth="1.5"
-            >
-              <path d="M3 3v18h18" />
-              <path d="M7 16l4-8 4 4 6-10" />
-            </svg>
-          </div>
-          <div className="text-center">
-            <p className="text-sm font-medium text-foreground/70">No metrics yet</p>
-            <p className="mt-1 text-xs text-muted-foreground">Send OTLP data to see them here</p>
-          </div>
-        </div>
-      </div>
-    );
+    return <EmptyState signal={SIGNALS.metrics} />;
   }
 
   return (
-    <div className="glass-card flex h-full flex-col overflow-hidden">
-      <ListToolbar>
-        <SearchFilter atom={metricSearchAtom} placeholder="Search metrics..." />
-      </ListToolbar>
+    <ListPanel toolbar={<SearchFilter atom={metricSearchAtom} placeholder="Search metrics..." />}>
       {metrics.length === 0 ? (
-        <div className="flex flex-1 items-center justify-center">
-          <p className="text-sm text-muted-foreground">No matching metrics</p>
-        </div>
+        <EmptyMatches label="metrics" />
       ) : (
         <ScrollArea className="min-h-0 flex-1">
           <Table>
@@ -96,9 +73,7 @@ export function MetricList() {
                       {metric.description || "-"}
                     </TableCell>
                     <TableCell>
-                      <span className="rounded-full bg-metric/15 px-2 py-0.5 text-[11px] font-medium text-metric">
-                        {metric.type}
-                      </span>
+                      <Pill tone="metric">{metric.type}</Pill>
                     </TableCell>
                     <TableCell className="text-muted-foreground">{metric.unit || "-"}</TableCell>
                     <TableCell className="text-right font-mono text-xs">
@@ -117,6 +92,6 @@ export function MetricList() {
           </Table>
         </ScrollArea>
       )}
-    </div>
+    </ListPanel>
   );
 }

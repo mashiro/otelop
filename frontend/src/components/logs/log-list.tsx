@@ -16,23 +16,12 @@ import { CopyJsonButton } from "@/components/ui/copy-json-button";
 import { formatTimestamp, isZeroID, shortID } from "@/lib/format";
 import { KVSection } from "@/components/ui/kv-section";
 import { SearchFilter } from "@/components/filters/search-filter";
-import { ListToolbar } from "@/components/filters/list-toolbar";
+import { ListPanel } from "@/components/common/list-panel";
+import { EmptyState, EmptyMatches } from "@/components/common/empty-state";
+import { Pill } from "@/components/common/pill";
+import { SIGNALS } from "@/lib/signals";
+import { severityTone } from "@/lib/tones";
 import type { LogData } from "@/types/telemetry";
-
-const severityStyle: Record<string, { bg: string; text: string; dot: string }> = {
-  TRACE: { bg: "bg-muted", text: "text-muted-foreground", dot: "bg-muted-foreground/40" },
-  DEBUG: { bg: "bg-muted", text: "text-muted-foreground", dot: "bg-muted-foreground/40" },
-  INFO: { bg: "bg-primary/15", text: "text-primary", dot: "bg-primary" },
-  WARN: { bg: "bg-warning/15", text: "text-warning", dot: "bg-warning" },
-  ERROR: { bg: "bg-destructive/15", text: "text-destructive", dot: "bg-destructive" },
-  FATAL: { bg: "bg-destructive/20", text: "text-destructive", dot: "bg-destructive" },
-};
-
-const defaultSeverity = {
-  bg: "bg-muted",
-  text: "text-muted-foreground",
-  dot: "bg-muted-foreground/40",
-};
 
 export function LogList() {
   const allLogs = useAtomValue(logsAtom);
@@ -43,51 +32,31 @@ export function LogList() {
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
 
   if (allLogs.length === 0) {
-    return (
-      <div className="glass-card flex h-full items-center justify-center">
-        <div className="animate-slide-up-fade flex flex-col items-center gap-4">
-          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-log/10">
-            <svg
-              width="28"
-              height="28"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="var(--log)"
-              strokeWidth="1.5"
-            >
-              <path d="M4 6h16M4 12h16M4 18h10" />
-            </svg>
-          </div>
-          <div className="text-center">
-            <p className="text-sm font-medium text-foreground/70">No logs yet</p>
-            <p className="mt-1 text-xs text-muted-foreground">Send OTLP data to see them here</p>
-          </div>
-        </div>
-      </div>
-    );
+    return <EmptyState signal={SIGNALS.logs} />;
   }
 
   return (
-    <div className="glass-card flex h-full flex-col overflow-hidden">
-      <ListToolbar>
-        {traceFilter && (
-          <div className="flex items-center gap-1 rounded bg-trace/10 px-2 py-0.5 text-[11px] text-trace">
-            <span className="font-mono">{traceFilter.slice(0, 12)}...</span>
-            <button
-              type="button"
-              onClick={() => setTraceFilter(null)}
-              className="text-trace hover:text-foreground"
-            >
-              <X className="h-2.5 w-2.5" />
-            </button>
-          </div>
-        )}
-        <SearchFilter atom={logSearchAtom} placeholder="Search logs..." />
-      </ListToolbar>
+    <ListPanel
+      toolbar={
+        <>
+          {traceFilter && (
+            <div className="flex items-center gap-1 rounded bg-trace/10 px-2 py-0.5 text-[11px] text-trace">
+              <span className="font-mono">{traceFilter.slice(0, 12)}...</span>
+              <button
+                type="button"
+                onClick={() => setTraceFilter(null)}
+                className="text-trace hover:text-foreground"
+              >
+                <X className="h-2.5 w-2.5" />
+              </button>
+            </div>
+          )}
+          <SearchFilter atom={logSearchAtom} placeholder="Search logs..." />
+        </>
+      }
+    >
       {logs.length === 0 ? (
-        <div className="flex flex-1 items-center justify-center">
-          <p className="text-sm text-muted-foreground">No matching logs</p>
-        </div>
+        <EmptyMatches label="logs" />
       ) : (
         <ScrollArea className="min-h-0 flex-1">
           <Table>
@@ -102,7 +71,6 @@ export function LogList() {
             </TableHeader>
             <TableBody>
               {logs.map((log, i) => {
-                const style = severityStyle[log.severityText] ?? defaultSeverity;
                 const hasTrace = !isZeroID(log.traceID);
                 return (
                   <Fragment key={i}>
@@ -115,12 +83,9 @@ export function LogList() {
                         {formatTimestamp(log.timestamp)}
                       </TableCell>
                       <TableCell>
-                        <span
-                          className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${style.bg} ${style.text}`}
-                        >
-                          <span className={`h-1.5 w-1.5 rounded-full ${style.dot}`} />
+                        <Pill tone={severityTone(log.severityText)} dot>
                           {log.severityText || "UNSET"}
-                        </span>
+                        </Pill>
                       </TableCell>
                       <TableCell className="font-medium">{log.serviceName || "-"}</TableCell>
                       <TableCell className="max-w-[400px] truncate text-sm text-foreground/80">
@@ -158,7 +123,7 @@ export function LogList() {
           </Table>
         </ScrollArea>
       )}
-    </div>
+    </ListPanel>
   );
 }
 

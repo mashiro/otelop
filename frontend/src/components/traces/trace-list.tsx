@@ -5,7 +5,8 @@ import { tracesAtom, selectedTraceAtom } from "@/stores/telemetry";
 import { filteredTracesAtom, traceSearchAtom } from "@/stores/filters";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { SearchFilter } from "@/components/filters/search-filter";
-import { ListToolbar } from "@/components/filters/list-toolbar";
+import { ListPanel } from "@/components/common/list-panel";
+import { EmptyMatches } from "@/components/common/empty-state";
 import { ServiceMap } from "./service-map";
 import {
   Table,
@@ -17,6 +18,10 @@ import {
 } from "@/components/ui/table";
 import { formatDuration, formatRelativeTime, shortID } from "@/lib/format";
 import { TraceDetail } from "./trace-detail";
+import { EmptyState } from "@/components/common/empty-state";
+import { Pill } from "@/components/common/pill";
+import { SIGNALS } from "@/lib/signals";
+import { traceStatusTone } from "@/lib/tones";
 
 export function TraceList() {
   const allTraces = useAtomValue(tracesAtom);
@@ -30,61 +35,41 @@ export function TraceList() {
   }
 
   if (allTraces.length === 0) {
-    return (
-      <div className="glass-card flex h-full items-center justify-center">
-        <div className="animate-slide-up-fade flex flex-col items-center gap-4">
-          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-trace/10">
-            <svg
-              width="28"
-              height="28"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="var(--trace)"
-              strokeWidth="1.5"
-            >
-              <path d="M3 12h4l3-9 4 18 3-9h4" />
-            </svg>
-          </div>
-          <div className="text-center">
-            <p className="text-sm font-medium text-foreground/70">No traces yet</p>
-            <p className="mt-1 text-xs text-muted-foreground">Send OTLP data to see them here</p>
-          </div>
-        </div>
-      </div>
-    );
+    return <EmptyState signal={SIGNALS.traces} />;
   }
 
   return (
-    <div className="glass-card flex h-full flex-col overflow-hidden">
-      <ListToolbar>
-        <SearchFilter atom={traceSearchAtom} placeholder="Search traces..." />
-        <div className="ml-auto flex items-center gap-1 px-3">
-          <button
-            type="button"
-            onClick={() => setView("list")}
-            className={`rounded p-1 transition-colors ${view === "list" ? "bg-trace/15 text-trace" : "text-muted-foreground hover:text-foreground"}`}
-            title="List view"
-          >
-            <List className="h-3.5 w-3.5" />
-          </button>
-          <button
-            type="button"
-            onClick={() => setView("map")}
-            className={`rounded p-1 transition-colors ${view === "map" ? "bg-trace/15 text-trace" : "text-muted-foreground hover:text-foreground"}`}
-            title="Service map"
-          >
-            <Network className="h-3.5 w-3.5" />
-          </button>
-        </div>
-      </ListToolbar>
+    <ListPanel
+      toolbar={
+        <>
+          <SearchFilter atom={traceSearchAtom} placeholder="Search traces..." />
+          <div className="ml-auto flex items-center gap-1 px-3">
+            <button
+              type="button"
+              onClick={() => setView("list")}
+              className={`rounded p-1 transition-colors ${view === "list" ? "bg-trace/15 text-trace" : "text-muted-foreground hover:text-foreground"}`}
+              title="List view"
+            >
+              <List className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setView("map")}
+              className={`rounded p-1 transition-colors ${view === "map" ? "bg-trace/15 text-trace" : "text-muted-foreground hover:text-foreground"}`}
+              title="Service map"
+            >
+              <Network className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </>
+      }
+    >
       {view === "map" ? (
         <div className="min-h-0 flex-1">
           <ServiceMap />
         </div>
       ) : traces.length === 0 ? (
-        <div className="flex flex-1 items-center justify-center">
-          <p className="text-sm text-muted-foreground">No matching traces</p>
-        </div>
+        <EmptyMatches label="traces" />
       ) : (
         <ScrollArea className="min-h-0 flex-1">
           <Table>
@@ -126,7 +111,9 @@ export function TraceList() {
                       {formatRelativeTime(trace.startTime)}
                     </TableCell>
                     <TableCell>
-                      <StatusBadge status={status} />
+                      <Pill tone={traceStatusTone(status)} dot>
+                        {status === "Unset" ? "Unset" : status}
+                      </Pill>
                     </TableCell>
                   </TableRow>
                 );
@@ -135,29 +122,6 @@ export function TraceList() {
           </Table>
         </ScrollArea>
       )}
-    </div>
-  );
-}
-
-function StatusBadge({ status }: { status: string }) {
-  if (status === "Ok")
-    return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-success/15 px-2 py-0.5 text-[11px] font-medium text-success">
-        <span className="h-1.5 w-1.5 rounded-full bg-success" />
-        Ok
-      </span>
-    );
-  if (status === "Error")
-    return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-destructive/15 px-2 py-0.5 text-[11px] font-medium text-destructive">
-        <span className="h-1.5 w-1.5 rounded-full bg-destructive" />
-        Error
-      </span>
-    );
-  return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
-      <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/40" />
-      Unset
-    </span>
+    </ListPanel>
   );
 }
