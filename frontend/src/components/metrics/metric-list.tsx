@@ -15,6 +15,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { formatRelativeTime } from "@/lib/format";
+import { resolveMetricUnit } from "@/lib/metric-catalog";
 import { MetricDetail } from "./metric-detail";
 import { EmptyState } from "@/components/common/empty-state";
 import { Pill } from "@/components/common/pill";
@@ -31,7 +32,10 @@ export function MetricList() {
   const setSelectedMetric = useSetAtom(selectedMetricAtom);
 
   if (selectedMetric) {
-    return <MetricDetail />;
+    // Remount when a different metric is picked so facet state in MetricDetail
+    // resets cleanly instead of clinging to an attribute that may not exist
+    // in the new metric.
+    return <MetricDetail key={selectedMetric.name} />;
   }
 
   if (allMetrics.length === 0) {
@@ -75,7 +79,9 @@ export function MetricList() {
                     <TableCell>
                       <Pill tone="metric">{metric.type}</Pill>
                     </TableCell>
-                    <TableCell className="text-muted-foreground">{metric.unit || "-"}</TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {resolveMetricUnit(metric.name, metric.unit) || "-"}
+                    </TableCell>
                     <TableCell className="text-right font-mono text-xs">
                       {metric.dataPoints.length}
                     </TableCell>

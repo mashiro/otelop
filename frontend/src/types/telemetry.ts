@@ -33,7 +33,17 @@ export interface TraceData {
 
 export interface DataPoint {
   timestamp: string;
+  // For Gauge: instantaneous value. For Sum: per-window delta. For
+  // Histogram/Summary/ExponentialHistogram: per-window mean (sum/count), so
+  // the metric's declared unit applies directly.
   value: number;
+  // Distribution-only fields (Histogram / Summary / ExponentialHistogram).
+  // Counts and sums are per-window deltas; min/max are per-window extrema
+  // reported by the SDK and cannot be delta'd.
+  count?: number;
+  sum?: number;
+  min?: number;
+  max?: number;
   attributes: Record<string, unknown>;
 }
 

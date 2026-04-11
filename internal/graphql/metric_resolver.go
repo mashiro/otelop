@@ -33,4 +33,8 @@ type DataPointResolver struct {
 
 func (r *DataPointResolver) Timestamp() gql.Time { return gql.Time{Time: r.dp.Timestamp} }
 func (r *DataPointResolver) Value() float64      { return r.dp.Value }
+func (r *DataPointResolver) Count() *float64     { return r.dp.Count }
+func (r *DataPointResolver) Sum() *float64       { return r.dp.Sum }
+func (r *DataPointResolver) Min() *float64       { return r.dp.Min }
+func (r *DataPointResolver) Max() *float64       { return r.dp.Max }
 func (r *DataPointResolver) Attributes() JSONMap { return attrsToJSON(r.dp.Attributes) }

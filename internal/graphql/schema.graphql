@@ -119,9 +119,28 @@ type Metric {
   receivedAt: Time!
 }
 
+"""
+One point in a metric's series. For cumulative OTLP inputs (monotonic Sum,
+Histogram, Summary, ExponentialHistogram) the server delta-izes against the
+previous observation before returning, so the fields below describe
+per-interval activity, not running totals.
+"""
 type DataPoint {
   timestamp: Time!
+  """
+  The primary scalar for this point. Gauge: instantaneous value. Sum: delta.
+  Histogram / Summary / ExponentialHistogram: delta count, i.e. observations
+  per window.
+  """
   value: Float!
+  "Delta observation count for distribution metrics. Null for Gauge/Sum."
+  count: Float
+  "Delta of observation sums for distribution metrics. Null for Gauge/Sum."
+  sum: Float
+  "Minimum observation in this window, as reported by the SDK. Null when unavailable."
+  min: Float
+  "Maximum observation in this window, as reported by the SDK. Null when unavailable."
+  max: Float
   attributes: JSON!
 }
 

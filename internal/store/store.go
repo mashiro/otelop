@@ -30,6 +30,7 @@ type Store struct {
 	logs          *RingBuffer[*LogData]
 	traceIndex    map[string]int
 	metricIndex   map[string]int
+	series        *seriesStore
 	maxDataPoints int
 	onAdd         OnAddFunc
 }
@@ -45,6 +46,7 @@ func NewStore(traceCap, metricCap, logCap, maxDataPoints int, onAdd OnAddFunc) *
 		logs:          NewRingBuffer[*LogData](logCap),
 		traceIndex:    make(map[string]int, traceCap),
 		metricIndex:   make(map[string]int, metricCap),
+		series:        newSeriesStore(),
 		maxDataPoints: maxDataPoints,
 		onAdd:         onAdd,
 	}
@@ -95,7 +97,7 @@ func (s *Store) AddTraces(td ptrace.Traces) {
 
 // AddMetrics converts and stores metric data, merging data points for the same metric.
 func (s *Store) AddMetrics(md pmetric.Metrics) {
-	converted := ConvertMetrics(md)
+	converted := ConvertMetrics(md, s.series)
 	if len(converted) == 0 {
 		return
 	}
@@ -256,6 +258,7 @@ func (s *Store) Clear() {
 	s.logs.Clear()
 	clear(s.traceIndex)
 	clear(s.metricIndex)
+	s.series.clear()
 }
 
 // RingBuffer is a generic bounded FIFO buffer. Not safe for concurrent use —
