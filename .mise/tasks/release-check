@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+#MISE description="Validate .goreleaser.yml"
+set -euo pipefail
+goreleaser check
