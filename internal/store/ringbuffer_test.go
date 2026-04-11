@@ -1,6 +1,7 @@
 package store
 
 import (
+	"encoding/json"
 	"reflect"
 	"testing"
 )
@@ -51,7 +52,7 @@ func TestRingBuffer_Page(t *testing.T) {
 		{"all newest first", 0, 0, []int{5, 4, 3, 2, 1}, 5},
 		{"limit 2 from newest", 0, 2, []int{5, 4}, 5},
 		{"offset 2 limit 2", 2, 2, []int{3, 2}, 5},
-		{"offset past end", 10, 5, nil, 5},
+		{"offset past end", 10, 5, []int{}, 5},
 		{"offset 4 limit 10", 4, 10, []int{1}, 5},
 		{"negative offset treated as 0", -5, 1, []int{5}, 5},
 	}
@@ -97,8 +98,25 @@ func TestRingBuffer_Page_Empty(t *testing.T) {
 	if total != 0 {
 		t.Errorf("total = %d, want 0", total)
 	}
-	if items != nil {
-		t.Errorf("items = %v, want nil", items)
+	// The slice must be non-nil so JSON API responses marshal to [] not null;
+	// the frontend assumes `data` is always an array.
+	if items == nil {
+		t.Fatal("items should be empty slice, not nil")
+	}
+	if len(items) != 0 {
+		t.Errorf("items = %v, want empty", items)
+	}
+}
+
+func TestRingBuffer_Page_Empty_MarshalsToArray(t *testing.T) {
+	rb := NewRingBuffer[int](3)
+	items, _ := rb.Page(0, 0)
+	encoded, err := json.Marshal(items)
+	if err != nil {
+		t.Fatalf("marshal error: %v", err)
+	}
+	if string(encoded) != "[]" {
+		t.Errorf("json = %s, want []", encoded)
 	}
 }
 

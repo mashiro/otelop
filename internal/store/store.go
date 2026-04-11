@@ -284,15 +284,16 @@ func (rb *RingBuffer[T]) Items() []T {
 
 // Page returns up to `limit` items starting at `offset` counted from the newest.
 // When limit == 0, all items from offset to the end are returned. `total` is the
-// total number of items currently stored. The returned slice never aliases the
-// underlying buffer.
+// total number of items currently stored. The returned slice is always non-nil
+// (empty when there is nothing to return) so JSON-marshaled API responses emit
+// `[]` rather than `null`, and never aliases the underlying buffer.
 func (rb *RingBuffer[T]) Page(offset, limit int) (items []T, total int) {
 	total = rb.count
 	if offset < 0 {
 		offset = 0
 	}
 	if offset >= total {
-		return nil, total
+		return []T{}, total
 	}
 	end := total
 	if limit > 0 && offset+limit < end {
