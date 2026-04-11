@@ -5,9 +5,9 @@ export interface SpanEvent {
 }
 
 export interface SpanData {
-  traceID: string;
-  spanID: string;
-  parentSpanID: string;
+  traceId: string;
+  spanId: string;
+  parentSpanId: string;
   name: string;
   kind: string;
   serviceName: string;
@@ -22,7 +22,7 @@ export interface SpanData {
 }
 
 export interface TraceData {
-  traceID: string;
+  traceId: string;
   rootSpan?: SpanData;
   spans: SpanData[];
   serviceName: string;
@@ -51,21 +51,14 @@ export interface MetricData {
 export interface LogData {
   timestamp: string;
   observedTimestamp: string;
-  traceID: string;
-  spanID: string;
+  traceId: string;
+  spanId: string;
   severityNumber: number;
   severityText: string;
   body: string;
   serviceName: string;
   attributes: Record<string, unknown>;
   resource: Record<string, unknown>;
-}
-
-export interface PaginatedResponse<T> {
-  data: T[];
-  total: number;
-  limit: number;
-  offset: number;
 }
 
 export interface WsMessage {

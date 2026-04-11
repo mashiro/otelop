@@ -10,8 +10,8 @@ import (
 type LogData struct {
 	Timestamp         time.Time      `json:"timestamp"`
 	ObservedTimestamp time.Time      `json:"observedTimestamp"`
-	TraceID           string         `json:"traceID"`
-	SpanID            string         `json:"spanID"`
+	TraceID           string         `json:"traceId"`
+	SpanID            string         `json:"spanId"`
 	SeverityNumber    int32          `json:"severityNumber"`
 	SeverityText      string         `json:"severityText"`
 	Body              string         `json:"body"`

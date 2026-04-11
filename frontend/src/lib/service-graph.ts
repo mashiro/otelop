@@ -24,7 +24,7 @@ export function buildServiceGraph(traces: TraceData[]): ServiceGraph {
   for (const trace of traces) {
     const spanById = new Map<string, SpanData>();
     for (const span of trace.spans) {
-      spanById.set(span.spanID, span);
+      spanById.set(span.spanId, span);
       const node = nodeMap.get(span.serviceName) ?? {
         id: span.serviceName,
         spanCount: 0,
@@ -35,8 +35,8 @@ export function buildServiceGraph(traces: TraceData[]): ServiceGraph {
       nodeMap.set(span.serviceName, node);
     }
     for (const span of trace.spans) {
-      if (!span.parentSpanID) continue;
-      const parent = spanById.get(span.parentSpanID);
+      if (!span.parentSpanId) continue;
+      const parent = spanById.get(span.parentSpanId);
       if (!parent || parent.serviceName === span.serviceName) continue;
       const key = `${parent.serviceName}->${span.serviceName}`;
       const edge = edgeMap.get(key) ?? {

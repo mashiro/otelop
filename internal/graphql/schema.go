@@ -26,7 +26,7 @@ var schemaSource string
 // by the given store. It panics on schema errors so misconfigurations fail at
 // startup, not at query time.
 func MustNewSchema(s *store.Store) *gql.Schema {
-	return gql.MustParseSchema(schemaSource, &Resolver{store: s})
+	return gql.MustParseSchema(schemaSource, &Resolver{store: s}, gql.Tracer(slogTracer{}))
 }
 
 // Source returns the raw GraphQL schema document. Useful for tests and for

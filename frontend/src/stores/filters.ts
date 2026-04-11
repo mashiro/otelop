@@ -22,7 +22,7 @@ export const traceSearchAtom = atom("");
 export const filteredTracesAtom = createSearchAtom(tracesAtom, traceSearchAtom, (t: TraceData) => [
   t.rootSpan?.name ?? t.spans[0]?.name ?? "",
   t.serviceName ?? "",
-  t.traceID,
+  t.traceId,
   t.rootSpan?.statusCode ?? "Unset",
 ]);
 
@@ -32,14 +32,14 @@ const filteredLogsBySearchAtom = createSearchAtom(logsAtom, logSearchAtom, (l: L
   l.body,
   l.serviceName ?? "",
   l.severityText ?? "",
-  l.traceID,
+  l.traceId,
 ]);
 
 export const filteredLogsAtom = atom<LogData[]>((get) => {
   const traceFilter = get(logTraceFilterAtom);
   const logs = get(filteredLogsBySearchAtom);
   if (!traceFilter) return logs;
-  return logs.filter((l) => l.traceID === traceFilter);
+  return logs.filter((l) => l.traceId === traceFilter);
 });
 
 export const metricSearchAtom = atom("");

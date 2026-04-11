@@ -35,10 +35,10 @@ export function formatTimestamp(iso: string): string {
 
 const ZERO_TRACE_ID = "00000000000000000000000000000000";
 
-export function isZeroID(id: string): boolean {
+export function isZeroId(id: string): boolean {
   return !id || id === ZERO_TRACE_ID || id === "0000000000000000";
 }
 
-export function shortID(id: string, len = 16): string {
+export function shortId(id: string, len = 16): string {
   return id.slice(0, len);
 }

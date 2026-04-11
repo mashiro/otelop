@@ -3,10 +3,7 @@ package server
 import (
 	"context"
 	"io/fs"
-	"log/slog"
 	"net/http"
-	"strings"
-	"time"
 
 	"github.com/CAFxX/httpcompression"
 	gqlgo "github.com/graph-gophers/graphql-go"
@@ -19,8 +16,8 @@ import (
 	ws "github.com/mashiro/otelop/internal/websocket"
 )
 
-// Server serves the REST API, WebSocket, GraphQL endpoint, and embedded
-// frontend.
+// Server serves the GraphQL endpoint, MCP endpoint, WebSocket stream, and
+// embedded frontend.
 type Server struct {
 	store      *store.Store
 	hub        *ws.Hub
@@ -29,7 +26,8 @@ type Server struct {
 }
 
 // New creates a new Server. When debug is true, HTTP requests are
-// instrumented with OpenTelemetry spans via otelhttp.
+// instrumented with OpenTelemetry spans via otelhttp. The version string is
+// advertised via the MCP Implementation metadata at /mcp.
 func New(addr string, s *store.Store, hub *ws.Hub, frontendFS fs.FS, version string, debug bool) *Server {
 	srv := &Server{
 		store:  s,
@@ -39,22 +37,12 @@ func New(addr string, s *store.Store, hub *ws.Hub, frontendFS fs.FS, version str
 
 	mux := http.NewServeMux()
 
-	// REST API
-	mux.HandleFunc("GET /api/config", srv.handleGetConfig)
-	mux.HandleFunc("GET /api/traces", srv.handleGetTraces)
-	mux.HandleFunc("GET /api/traces/{traceID}", srv.handleGetTraceByID)
-	mux.HandleFunc("GET /api/metrics", srv.handleGetMetrics)
-	mux.HandleFunc("GET /api/logs", srv.handleGetLogs)
-	mux.HandleFunc("DELETE /api/clear", srv.handleClear)
-
-	// GraphQL — primary investigation surface for AI and other typed clients.
+	// GraphQL — primary data surface for the frontend and AI clients.
 	mux.Handle("POST /graphql", &relay.Handler{Schema: srv.schema})
 
-	// MCP — optional wrapper that exposes the GraphQL schema as a single
-	// `query` tool for clients that speak MCP. otelop is not always running,
-	// so this is not a persistent MCP server; it is only reachable while the
-	// HTTP listener is up. Shares the parsed schema with /graphql to avoid
-	// a second parse at startup.
+	// MCP — optional wrapper exposing the GraphQL schema as a single `query`
+	// tool. Shares the parsed schema with /graphql to avoid a second parse at
+	// startup.
 	mux.Handle("/mcp", mcp.NewHandler(srv.schema, version))
 
 	// WebSocket (no compression — it has its own framing)
@@ -63,18 +51,15 @@ func New(addr string, s *store.Store, hub *ws.Hub, frontendFS fs.FS, version str
 	// Static files with SPA fallback
 	mux.Handle("/", spaHandler(frontendFS))
 
-	// Log API requests at debug level before compression so status codes are accurate.
-	logged := apiDebugLogger(mux)
-
 	// Wrap with brotli/gzip/deflate compression, skipping WebSocket upgrades
 	// and the MCP endpoint (which uses SSE for server→client streaming and
 	// would break if the compressor buffered the response).
-	var handler = logged
+	var handler http.Handler = mux
 	if compress, err := httpcompression.DefaultAdapter(); err == nil {
-		compressed := compress(logged)
+		compressed := compress(mux)
 		handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.Header.Get("Upgrade") == "websocket" || r.URL.Path == "/mcp" {
-				logged.ServeHTTP(w, r)
+				mux.ServeHTTP(w, r)
 				return
 			}
 			compressed.ServeHTTP(w, r)
@@ -135,58 +120,4 @@ func spaHandler(fsys fs.FS) http.Handler {
 		}
 		fileServer.ServeHTTP(w, r)
 	})
-}
-
-func (s *Server) handleGetConfig(w http.ResponseWriter, _ *http.Request) {
-	traceCap, metricCap, logCap, maxDataPoints := s.store.Capacity()
-	writeJSON(w, map[string]int{
-		"traceCap":      traceCap,
-		"metricCap":     metricCap,
-		"logCap":        logCap,
-		"maxDataPoints": maxDataPoints,
-	})
-}
-
-func (s *Server) handleClear(w http.ResponseWriter, _ *http.Request) {
-	s.store.Clear()
-	w.WriteHeader(http.StatusNoContent)
-}
-
-// apiDebugLogger emits a slog.Debug record for every /api/* request with the
-// method, path, response status, and elapsed time. Non-API paths (static
-// assets, WebSocket) are passed through untouched.
-func apiDebugLogger(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !strings.HasPrefix(r.URL.Path, "/api/") || !slog.Default().Enabled(r.Context(), slog.LevelDebug) {
-			next.ServeHTTP(w, r)
-			return
-		}
-		start := time.Now()
-		rw := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
-		next.ServeHTTP(rw, r)
-		attrs := []any{
-			"method", r.Method,
-			"path", r.URL.Path,
-			"status", rw.status,
-			"duration", time.Since(start),
-		}
-		if r.URL.RawQuery != "" {
-			attrs = append(attrs, "query", r.URL.RawQuery)
-		}
-		slog.DebugContext(r.Context(), "api request", attrs...)
-	})
-}
-
-type statusRecorder struct {
-	http.ResponseWriter
-	status  int
-	written bool
-}
-
-func (r *statusRecorder) WriteHeader(code int) {
-	if !r.written {
-		r.status = code
-		r.written = true
-	}
-	r.ResponseWriter.WriteHeader(code)
 }

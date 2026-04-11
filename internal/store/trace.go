@@ -8,7 +8,7 @@ import (
 
 // TraceData represents a group of spans sharing the same trace ID.
 type TraceData struct {
-	TraceID     string        `json:"traceID"`
+	TraceID     string        `json:"traceId"`
 	RootSpan    *SpanData     `json:"rootSpan,omitempty"`
 	Spans       []*SpanData   `json:"spans"`
 	ServiceName string        `json:"serviceName"`
@@ -48,9 +48,9 @@ func (t *TraceData) Merge(other *TraceData) {
 
 // SpanData represents a single span.
 type SpanData struct {
-	TraceID      string         `json:"traceID"`
-	SpanID       string         `json:"spanID"`
-	ParentSpanID string         `json:"parentSpanID"`
+	TraceID      string         `json:"traceId"`
+	SpanID       string         `json:"spanId"`
+	ParentSpanID string         `json:"parentSpanId"`
 	Name         string         `json:"name"`
 	Kind         string         `json:"kind"`
 	ServiceName  string         `json:"serviceName"`

@@ -2,6 +2,8 @@ import { useAtomValue, useSetAtom } from "jotai";
 import { Trash2, Sun, Moon, Monitor } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Logo } from "@/components/ui/logo";
+import { graphql } from "@/gql";
+import { gqlClient } from "@/lib/graphql";
 import {
   wsStatusAtom,
   traceCountAtom,
@@ -11,6 +13,12 @@ import {
 } from "@/stores/telemetry";
 import { themeAtom, type Theme } from "@/stores/theme";
 import { SIGNALS, type SignalConfig } from "@/lib/signals";
+
+const ClearSignalsMutation = graphql(`
+  mutation ClearSignals {
+    clearSignals
+  }
+`);
 
 const statusConfig: Record<string, { color: string; glow: string; label: string }> = {
   connected: {
@@ -40,7 +48,7 @@ export function Header() {
   const setTheme = useSetAtom(themeAtom);
 
   const handleClear = async () => {
-    await fetch("/api/clear", { method: "DELETE" });
+    await gqlClient.request(ClearSignalsMutation);
     clearAll();
   };
 
@@ -54,7 +62,6 @@ export function Header() {
           <h1 className="text-base font-semibold tracking-tight">otelop</h1>
         </div>
 
-        {/* Signal counters */}
         <div className="flex items-center gap-3">
           <CounterBadge signal={SIGNALS.traces} count={traceCount} />
           <CounterBadge signal={SIGNALS.metrics} count={metricCount} />
@@ -63,16 +70,13 @@ export function Header() {
       </div>
 
       <div className="flex items-center gap-4">
-        {/* Connection status */}
         <div className="flex items-center gap-2">
           <div className={`h-2 w-2 rounded-full ${status.color} ${status.glow}`} />
           <span className="text-xs font-medium text-muted-foreground">{status.label}</span>
         </div>
 
-        {/* Theme toggle */}
         <ThemeToggle theme={theme} setTheme={setTheme} />
 
-        {/* Clear button */}
         <Button
           variant="ghost"
           size="sm"

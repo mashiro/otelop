@@ -13,7 +13,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { CopyJsonButton } from "@/components/ui/copy-json-button";
-import { formatTimestamp, isZeroID, shortID } from "@/lib/format";
+import { formatTimestamp, isZeroId, shortId } from "@/lib/format";
 import { KVSection } from "@/components/ui/kv-section";
 import { SearchFilter } from "@/components/filters/search-filter";
 import { ListPanel } from "@/components/common/list-panel";
@@ -71,7 +71,7 @@ export function LogList() {
             </TableHeader>
             <TableBody>
               {logs.map((log, i) => {
-                const hasTrace = !isZeroID(log.traceID);
+                const hasTrace = !isZeroId(log.traceId);
                 return (
                   <Fragment key={i}>
                     <TableRow
@@ -97,11 +97,11 @@ export function LogList() {
                             className="font-mono text-xs text-trace underline decoration-trace/30 underline-offset-2 transition-colors hover:text-trace hover:decoration-trace/60"
                             onClick={(e) => {
                               e.stopPropagation();
-                              navigateToTrace(log.traceID);
+                              navigateToTrace(log.traceId);
                             }}
                             title="View trace"
                           >
-                            {shortID(log.traceID, 8)}
+                            {shortId(log.traceId, 8)}
                           </button>
                         ) : null}
                       </TableCell>
@@ -142,24 +142,24 @@ function LogDetail({
       <div className="whitespace-pre-wrap break-all pr-20 font-mono text-foreground/80">
         {log.body}
       </div>
-      {!isZeroID(log.traceID) && (
+      {!isZeroId(log.traceId) && (
         <div className="flex items-center gap-2">
           <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
             Trace ID{" "}
           </span>
           <button
             className="font-mono text-trace underline decoration-trace/30 underline-offset-2 transition-colors hover:decoration-trace/60"
-            onClick={() => onNavigateToTrace(log.traceID)}
+            onClick={() => onNavigateToTrace(log.traceId)}
           >
-            {log.traceID}
+            {log.traceId}
           </button>
-          {!isZeroID(log.spanID) && (
+          {!isZeroId(log.spanId) && (
             <>
               <span className="mx-1 text-muted-foreground">/</span>
               <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                 Span ID{" "}
               </span>
-              <span className="font-mono text-log">{log.spanID}</span>
+              <span className="font-mono text-log">{log.spanId}</span>
             </>
           )}
         </div>

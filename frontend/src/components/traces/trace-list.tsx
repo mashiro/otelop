@@ -16,7 +16,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { formatDuration, formatRelativeTime, shortID } from "@/lib/format";
+import { formatDuration, formatRelativeTime, shortId } from "@/lib/format";
 import { TraceDetail } from "./trace-detail";
 import { EmptyState } from "@/components/common/empty-state";
 import { Pill } from "@/components/common/pill";
@@ -89,7 +89,7 @@ export function TraceList() {
                 const status = trace.rootSpan?.statusCode ?? "Unset";
                 return (
                   <TableRow
-                    key={trace.traceID}
+                    key={trace.traceId}
                     className="stagger-row cursor-pointer border-b border-border/30 transition-colors hover:bg-trace/5"
                     style={{ animationDelay: `${Math.min(idx * 20, 200)}ms` }}
                     onClick={() => setSelectedTrace(trace)}
@@ -99,7 +99,7 @@ export function TraceList() {
                       {trace.rootSpan?.name ?? trace.spans[0]?.name ?? "-"}
                     </TableCell>
                     <TableCell className="font-mono text-xs text-muted-foreground">
-                      {shortID(trace.traceID)}
+                      {shortId(trace.traceId)}
                     </TableCell>
                     <TableCell className="text-right font-mono text-xs">
                       {trace.spanCount}

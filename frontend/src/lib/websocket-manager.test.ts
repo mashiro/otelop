@@ -101,12 +101,12 @@ describe("WsManager.subscribe", () => {
     MockSocket.instances[0].simulateOpen();
     MockSocket.instances[0].simulateMessage({
       type: "traces",
-      data: { traceID: "t1" },
+      data: { traceId: "t1" },
     });
 
     expect(a).toHaveBeenCalledTimes(1);
     expect(b).toHaveBeenCalledTimes(1);
-    expect(a.mock.calls[0][0]).toEqual({ type: "traces", data: { traceID: "t1" } });
+    expect(a.mock.calls[0][0]).toEqual({ type: "traces", data: { traceId: "t1" } });
   });
 
   it("ignores unparseable messages", () => {
