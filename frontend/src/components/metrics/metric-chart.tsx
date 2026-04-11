@@ -7,13 +7,10 @@ import { ParentSize } from "@visx/responsive";
 import { curveMonotoneX } from "@visx/curve";
 import { useTooltip, TooltipWithBounds } from "@visx/tooltip";
 import type { MetricData } from "@/types/telemetry";
+import { formatMetricValue } from "@/lib/format-metric";
+import { resolveMetricUnit, type MetricFacet } from "@/lib/metric-catalog";
 
-const MARGIN = { top: 10, right: 20, bottom: 40, left: 64 };
-
-const compactFmt = new Intl.NumberFormat(undefined, {
-  notation: "compact",
-  maximumFractionDigits: 1,
-});
+const MARGIN = { top: 10, right: 20, bottom: 40, left: 72 };
 
 function formatTick(d: Date): string {
   return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
@@ -52,6 +49,9 @@ interface TooltipData {
 
 interface Props {
   metric: MetricData;
+  // Facet to group series by; when null/undefined, series are keyed by the
+  // full attribute combination (the "All" view).
+  facet?: MetricFacet | null;
 }
 
 /** Serialize attributes to a stable string key for grouping. */
@@ -59,6 +59,16 @@ function attrKey(attrs: Record<string, unknown>): string {
   const entries = Object.entries(attrs).sort(([a], [b]) => a.localeCompare(b));
   if (entries.length === 0) return "";
   return entries.map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(", ");
+}
+
+/** Render a single attribute value (already safely narrowed from unknown). */
+function formatAttrValue(v: unknown): string {
+  if (v === undefined || v === null) return "(unset)";
+  if (typeof v === "string") return v;
+  if (typeof v === "number" || typeof v === "boolean" || typeof v === "bigint") {
+    return String(v);
+  }
+  return JSON.stringify(v);
 }
 
 /** Find the point in a series closest to a given time. */
@@ -75,25 +85,31 @@ function closestPoint(points: PointData[], targetMs: number): PointData | undefi
   return best;
 }
 
-export function MetricChart({ metric }: Props) {
+export function MetricChart({ metric, facet }: Props) {
   return (
     <ParentSize>
       {({ width, height }) =>
         width > 0 && height > 0 ? (
-          <ChartInner metric={metric} width={width} height={height} />
+          <ChartInner metric={metric} facet={facet} width={width} height={height} />
         ) : null
       }
     </ParentSize>
   );
 }
 
-function ChartInner({ metric, width, height }: Props & { width: number; height: number }) {
+function ChartInner({ metric, facet, width, height }: Props & { width: number; height: number }) {
   const svgRef = useRef<SVGSVGElement>(null);
+  const unit = resolveMetricUnit(metric.name, metric.unit);
 
   const series = useMemo(() => {
     const groups = new Map<string, PointData[]>();
     for (const dp of metric.dataPoints) {
-      const key = attrKey(dp.attributes);
+      let key: string;
+      if (facet) {
+        key = facet.attributes.map((a) => formatAttrValue(dp.attributes[a])).join(" ");
+      } else {
+        key = attrKey(dp.attributes);
+      }
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key)!.push({ time: new Date(dp.timestamp), value: dp.value });
     }
@@ -110,7 +126,7 @@ function ChartInner({ metric, width, height }: Props & { width: number; height: 
       i++;
     }
     return result;
-  }, [metric.dataPoints]);
+  }, [metric.dataPoints, facet]);
 
   const allPoints = useMemo(() => series.flatMap((s) => s.points), [series]);
 
@@ -223,7 +239,7 @@ function ChartInner({ metric, width, height }: Props & { width: number; height: 
           <AxisLeft
             scale={yScale}
             numTicks={5}
-            tickFormat={(v) => compactFmt.format(v as number)}
+            tickFormat={(v) => formatMetricValue(v as number, unit)}
             tickLabelProps={{
               fontSize: 10,
               fontFamily: "var(--font-mono)",
@@ -350,8 +366,7 @@ function ChartInner({ metric, width, height }: Props & { width: number; height: 
                   {row.label}
                 </span>
                 <span className="shrink-0 font-mono font-semibold" style={{ color: row.color }}>
-                  {row.value.toLocaleString()}
-                  {metric.unit ? ` ${metric.unit}` : ""}
+                  {formatMetricValue(row.value, unit)}
                 </span>
               </div>
             ))}

@@ -31,9 +31,15 @@ export interface TraceData {
   duration: number;
 }
 
+// Distribution-only fields are null for Gauge/Sum. See schema.graphql for
+// semantics of value/count/sum/min/max across metric types.
 export interface DataPoint {
   timestamp: string;
   value: number;
+  count?: number | null;
+  sum?: number | null;
+  min?: number | null;
+  max?: number | null;
   attributes: Record<string, unknown>;
 }
 
