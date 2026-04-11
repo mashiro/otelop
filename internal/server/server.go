@@ -3,7 +3,10 @@ package server
 import (
 	"context"
 	"io/fs"
+	"log/slog"
 	"net/http"
+	"strings"
+	"time"
 
 	"github.com/CAFxX/httpcompression"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
@@ -43,13 +46,16 @@ func New(addr string, s *store.Store, hub *ws.Hub, frontendFS fs.FS, debug bool)
 	// Static files with SPA fallback
 	mux.Handle("/", spaHandler(frontendFS))
 
+	// Log API requests at debug level before compression so status codes are accurate.
+	logged := apiDebugLogger(mux)
+
 	// Wrap with brotli/gzip/deflate compression, skipping WebSocket upgrades.
-	var handler http.Handler = mux
+	var handler = logged
 	if compress, err := httpcompression.DefaultAdapter(); err == nil {
-		compressed := compress(mux)
+		compressed := compress(logged)
 		handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.Header.Get("Upgrade") == "websocket" {
-				mux.ServeHTTP(w, r)
+				logged.ServeHTTP(w, r)
 				return
 			}
 			compressed.ServeHTTP(w, r)
@@ -125,4 +131,43 @@ func (s *Server) handleGetConfig(w http.ResponseWriter, _ *http.Request) {
 func (s *Server) handleClear(w http.ResponseWriter, _ *http.Request) {
 	s.store.Clear()
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// apiDebugLogger emits a slog.Debug record for every /api/* request with the
+// method, path, response status, and elapsed time. Non-API paths (static
+// assets, WebSocket) are passed through untouched.
+func apiDebugLogger(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasPrefix(r.URL.Path, "/api/") || !slog.Default().Enabled(r.Context(), slog.LevelDebug) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		start := time.Now()
+		rw := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+		next.ServeHTTP(rw, r)
+		attrs := []any{
+			"method", r.Method,
+			"path", r.URL.Path,
+			"status", rw.status,
+			"duration", time.Since(start),
+		}
+		if r.URL.RawQuery != "" {
+			attrs = append(attrs, "query", r.URL.RawQuery)
+		}
+		slog.DebugContext(r.Context(), "api request", attrs...)
+	})
+}
+
+type statusRecorder struct {
+	http.ResponseWriter
+	status  int
+	written bool
+}
+
+func (r *statusRecorder) WriteHeader(code int) {
+	if !r.written {
+		r.status = code
+		r.written = true
+	}
+	r.ResponseWriter.WriteHeader(code)
 }
