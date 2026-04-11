@@ -2,5 +2,10 @@
 #MISE description="Install backend and frontend dependencies"
 set -euo pipefail
 go mod download &
+go_pid=$!
 (cd frontend && pnpm install) &
-wait
+pnpm_pid=$!
+# Wait for each PID explicitly so set -e propagates individual failures.
+# Bare `wait` returns 0 regardless and hides errors (silent failure on CI).
+wait "$go_pid"
+wait "$pnpm_pid"

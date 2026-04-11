@@ -2,5 +2,10 @@
 #MISE description="Run backend and frontend linters"
 set -euo pipefail
 golangci-lint run ./... &
+go_pid=$!
 (cd frontend && pnpm check) &
-wait
+pnpm_pid=$!
+# Wait for each PID explicitly so set -e propagates individual failures.
+# Bare `wait` returns 0 regardless and hides errors.
+wait "$go_pid"
+wait "$pnpm_pid"
