@@ -31,16 +31,11 @@ export interface TraceData {
   duration: number;
 }
 
+// Distribution-only fields are null for Gauge/Sum. See schema.graphql for
+// semantics of value/count/sum/min/max across metric types.
 export interface DataPoint {
   timestamp: string;
-  // For Gauge: instantaneous value. For Sum: per-window delta. For
-  // Histogram/Summary/ExponentialHistogram: per-window mean (sum/count), so
-  // the metric's declared unit applies directly.
   value: number;
-  // Distribution-only fields (Histogram / Summary / ExponentialHistogram).
-  // Counts and sums are per-window deltas; min/max are per-window extrema
-  // reported by the SDK and cannot be delta'd. Null when the metric type
-  // doesn't carry the field — use `!= null` checks.
   count?: number | null;
   sum?: number | null;
   min?: number | null;

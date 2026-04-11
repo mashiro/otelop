@@ -8,6 +8,7 @@ import { Pill } from "@/components/common/pill";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   facetId,
+  isDistributionMetric,
   resolveMetricFacets,
   resolveMetricUnit,
   type MetricFacet,
@@ -80,8 +81,6 @@ function ChartSection({ metric }: { metric: MetricData }) {
   );
 
   const [pickedId, setPickedId] = useState<string | null>(null);
-  // Fall back to the first facet until the user picks one; if the picked
-  // facet is no longer available, fall back too.
   const effectiveFacet = useMemo<MetricFacet | null>(() => {
     if (pickedId === ALL_FACET) return null;
     if (pickedId) {
@@ -127,20 +126,17 @@ function ChartSection({ metric }: { metric: MetricData }) {
   );
 }
 
+const headCls =
+  "px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground";
+const numCellCls = "px-3 py-1.5 text-right font-mono text-foreground/70";
+
+function formatDistributionCell(v: number | null | undefined, unit: string): string {
+  return v != null ? formatMetricValue(v, unit) : "-";
+}
+
 function DataPointsTable({ metric }: { metric: MetricData }) {
-  const hasAttributes = useMemo(
-    () => metric.dataPoints.some((dp) => Object.keys(dp.attributes).length > 0),
-    [metric.dataPoints],
-  );
-  // Distribution metrics carry Count/Sum/Min/Max alongside Value. Hide these
-  // columns for Gauge/Sum where every cell would be "-".
-  const hasDistribution = useMemo(
-    () =>
-      metric.dataPoints.some(
-        (dp) => dp.count != null || dp.sum != null || dp.min != null || dp.max != null,
-      ),
-    [metric.dataPoints],
-  );
+  const hasAttributes = metric.dataPoints.some((dp) => Object.keys(dp.attributes).length > 0);
+  const isDistribution = isDistributionMetric(metric.type);
   const unit = resolveMetricUnit(metric.name, metric.unit);
 
   return (
@@ -152,31 +148,15 @@ function DataPointsTable({ metric }: { metric: MetricData }) {
         <table className="w-full text-xs">
           <thead>
             <tr className="border-b border-border/30">
-              <th className="px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Timestamp
-              </th>
-              {hasAttributes && (
-                <th className="px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  Attributes
-                </th>
-              )}
-              <th className="px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                {hasDistribution ? "Mean" : "Value"}
-              </th>
-              {hasDistribution && (
+              <th className={`${headCls} text-left`}>Timestamp</th>
+              {hasAttributes && <th className={`${headCls} text-left`}>Attributes</th>}
+              <th className={`${headCls} text-right`}>{isDistribution ? "Mean" : "Value"}</th>
+              {isDistribution && (
                 <>
-                  <th className="px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    Count
-                  </th>
-                  <th className="px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    Sum
-                  </th>
-                  <th className="px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    Min
-                  </th>
-                  <th className="px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    Max
-                  </th>
+                  <th className={`${headCls} text-right`}>Count</th>
+                  <th className={`${headCls} text-right`}>Sum</th>
+                  <th className={`${headCls} text-right`}>Min</th>
+                  <th className={`${headCls} text-right`}>Max</th>
                 </>
               )}
             </tr>
@@ -198,20 +178,14 @@ function DataPointsTable({ metric }: { metric: MetricData }) {
                 <td className="px-3 py-1.5 text-right font-mono text-metric">
                   {formatMetricValue(dp.value, unit)}
                 </td>
-                {hasDistribution && (
+                {isDistribution && (
                   <>
-                    <td className="px-3 py-1.5 text-right font-mono text-foreground/70">
+                    <td className={numCellCls}>
                       {dp.count != null ? dp.count.toLocaleString() : "-"}
                     </td>
-                    <td className="px-3 py-1.5 text-right font-mono text-foreground/70">
-                      {dp.sum != null ? formatMetricValue(dp.sum, unit) : "-"}
-                    </td>
-                    <td className="px-3 py-1.5 text-right font-mono text-foreground/70">
-                      {dp.min != null ? formatMetricValue(dp.min, unit) : "-"}
-                    </td>
-                    <td className="px-3 py-1.5 text-right font-mono text-foreground/70">
-                      {dp.max != null ? formatMetricValue(dp.max, unit) : "-"}
-                    </td>
+                    <td className={numCellCls}>{formatDistributionCell(dp.sum, unit)}</td>
+                    <td className={numCellCls}>{formatDistributionCell(dp.min, unit)}</td>
+                    <td className={numCellCls}>{formatDistributionCell(dp.max, unit)}</td>
                   </>
                 )}
               </tr>

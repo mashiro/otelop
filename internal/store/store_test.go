@@ -290,7 +290,7 @@ func TestConvertMetrics_SkipsNonFinite(t *testing.T) {
 	sum.SetEmptySum()
 	sum.Sum().DataPoints().AppendEmpty().SetDoubleValue(math.NaN())
 
-	got := ConvertMetrics(md, newSeriesStore())
+	got := convertMetrics(md, newSeriesStore())
 	if len(got) != 2 {
 		t.Fatalf("expected 2 metrics, got %d", len(got))
 	}

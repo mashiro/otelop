@@ -14,6 +14,15 @@
 // Rules are scanned in order and the first prefix match wins, so exact
 // metric names must come before broader domain prefixes.
 
+// Metric types that carry a per-window observation distribution
+// (count/sum/min/max) in addition to the primary Value scalar. Matches the
+// enum string Go emits from pmetric.MetricType.String().
+export const DISTRIBUTION_METRIC_TYPES = new Set(["Histogram", "Summary", "ExponentialHistogram"]);
+
+export function isDistributionMetric(type: string): boolean {
+  return DISTRIBUTION_METRIC_TYPES.has(type);
+}
+
 export interface MetricFacet {
   // One or more attributes whose values are joined to form the series key.
   attributes: string[];

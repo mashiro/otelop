@@ -97,7 +97,7 @@ func (s *Store) AddTraces(td ptrace.Traces) {
 
 // AddMetrics converts and stores metric data, merging data points for the same metric.
 func (s *Store) AddMetrics(md pmetric.Metrics) {
-	converted := ConvertMetrics(md, s.series)
+	converted := convertMetrics(md, s.series)
 	if len(converted) == 0 {
 		return
 	}

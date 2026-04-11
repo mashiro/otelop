@@ -20,22 +20,14 @@ type MetricData struct {
 	ReceivedAt  time.Time      `json:"receivedAt"`
 }
 
-// DataPoint represents a single data point in a metric. For cumulative-type
-// metrics (monotonic Sum, Histogram, Summary, ExponentialHistogram) the
-// fields carry per-interval deltas, not running totals — the store converts
-// cumulative OTLP input into deltas before building this struct so the UI
-// always sees "what happened in this window".
+// DataPoint is one observation in a metric series. For cumulative OTLP inputs
+// (monotonic Sum, Histogram, Summary, ExponentialHistogram) the numeric
+// fields carry per-interval deltas so the UI can show "what happened in this
+// window" instead of running totals.
 //
-// Value carries the primary number to chart per metric type:
-//   - Gauge: the instantaneous value
-//   - Sum:   the delta (or the raw value when the exporter already emits deltas)
-//   - Histogram/Summary/ExponentialHistogram: the arithmetic mean of the
-//     observations in this window (sum / count). This matches the metric's
-//     declared unit, unlike "count", which is dimensionless.
-//
-// Count/Sum/Min/Max are only set for distribution types (Histogram,
-// ExponentialHistogram, Summary) so clients can render request rate, totals,
-// or per-interval extrema on top of the mean.
+// Value is the primary chart scalar per type: instantaneous for Gauge, delta
+// for Sum, per-window mean (sum/count) for Histogram/Summary/ExponentialHistogram.
+// Count/Sum/Min/Max are only set for distribution types.
 type DataPoint struct {
 	Timestamp  time.Time      `json:"timestamp"`
 	Value      float64        `json:"value"`
@@ -46,11 +38,10 @@ type DataPoint struct {
 	Attributes map[string]any `json:"attributes"`
 }
 
-// ConvertMetrics converts pmetric.Metrics into a slice of MetricData,
-// delta-izing cumulative inputs against the given seriesStore. Pass a fresh
-// seriesStore in tests to get deterministic behavior; production code should
-// reuse the Store-owned instance so state survives across calls.
-func ConvertMetrics(md pmetric.Metrics, series *seriesStore) []*MetricData {
+// convertMetrics converts pmetric.Metrics into a slice of MetricData,
+// delta-izing cumulative inputs against the given seriesStore. Tests pass a
+// fresh seriesStore for determinism; Store reuses its own.
+func convertMetrics(md pmetric.Metrics, series *seriesStore) []*MetricData {
 	var result []*MetricData
 	now := time.Now()
 
@@ -92,6 +83,22 @@ func ConvertMetrics(md pmetric.Metrics, series *seriesStore) []*MetricData {
 	return result
 }
 
+// histogramPoint is the subset of fields shared by Histogram,
+// ExponentialHistogram, and Summary data points. Having a small adapter type
+// lets a single helper handle delta-ization and DataPoint construction for
+// all three metric types without pulling in a generic constraint.
+type histogramPoint struct {
+	timestamp  time.Time
+	count      uint64
+	sum        float64
+	hasSum     bool
+	min        float64
+	hasMin     bool
+	max        float64
+	hasMax     bool
+	attributes map[string]any
+}
+
 func extractDataPoints(m pmetric.Metric, serviceName string, series *seriesStore, now time.Time) (points []DataPoint, skipped int) {
 	switch m.Type() {
 	case pmetric.MetricTypeGauge:
@@ -125,8 +132,6 @@ func extractDataPoints(m pmetric.Metric, serviceName string, series *seriesStore
 				key := seriesKey(serviceName, m.Name(), attrs)
 				delta, ok := series.numberDelta(key, v, now)
 				if !ok {
-					// Baseline or reset — drop the point so charts don't
-					// show the cumulative value or a negative spike.
 					continue
 				}
 				v = delta
@@ -143,69 +148,43 @@ func extractDataPoints(m pmetric.Metric, serviceName string, series *seriesStore
 		dps := hist.DataPoints()
 		for i := 0; i < dps.Len(); i++ {
 			dp := dps.At(i)
-			attrs := attributesToMap(dp.Attributes())
-			count := dp.Count()
-			var rawSum float64
-			if dp.HasSum() {
-				rawSum = dp.Sum()
+			hp := histogramPoint{
+				timestamp:  dp.Timestamp().AsTime(),
+				count:      dp.Count(),
+				hasSum:     dp.HasSum(),
+				hasMin:     dp.HasMin(),
+				hasMax:     dp.HasMax(),
+				attributes: attributesToMap(dp.Attributes()),
 			}
-			emitCount, emitSum := float64(count), rawSum
-			if cumulative && series != nil {
-				key := seriesKey(serviceName, m.Name(), attrs)
-				countDelta, sumDelta, ok := series.histogramDelta(key, count, rawSum, now)
-				if !ok {
-					continue
-				}
-				emitCount = float64(countDelta)
-				emitSum = sumDelta
+			if hp.hasSum {
+				hp.sum = dp.Sum()
 			}
-			point := DataPoint{
-				Timestamp:  dp.Timestamp().AsTime(),
-				Value:      histogramMean(emitCount, emitSum, dp.HasSum()),
-				Count:      &emitCount,
-				Attributes: attrs,
+			if hp.hasMin {
+				hp.min = dp.Min()
 			}
-			if dp.HasSum() {
-				s := emitSum
-				point.Sum = &s
+			if hp.hasMax {
+				hp.max = dp.Max()
 			}
-			// Min/Max are per-point extrema in OTLP and can't be delta'd;
-			// pass them through as-is so clients see the observation range
-			// reported by the SDK for this window.
-			if dp.HasMin() {
-				point.Min = floatPtr(dp.Min())
+			if p, ok := emitDistributionPoint(hp, m.Name(), serviceName, series, now, cumulative); ok {
+				points = append(points, p)
 			}
-			if dp.HasMax() {
-				point.Max = floatPtr(dp.Max())
-			}
-			points = append(points, point)
 		}
 	case pmetric.MetricTypeSummary:
 		dps := m.Summary().DataPoints()
 		for i := 0; i < dps.Len(); i++ {
 			dp := dps.At(i)
-			attrs := attributesToMap(dp.Attributes())
-			count := dp.Count()
-			rawSum := dp.Sum()
-			emitCount, emitSum := float64(count), rawSum
-			// Summary has no temporality field in OTLP; treat it as
-			// cumulative-ish so Value matches Histogram semantics.
-			if series != nil {
-				key := seriesKey(serviceName, m.Name(), attrs)
-				countDelta, sumDelta, ok := series.histogramDelta(key, count, rawSum, now)
-				if !ok {
-					continue
-				}
-				emitCount = float64(countDelta)
-				emitSum = sumDelta
+			// Summary has no temporality field; treat as cumulative so Value
+			// matches Histogram semantics.
+			hp := histogramPoint{
+				timestamp:  dp.Timestamp().AsTime(),
+				count:      dp.Count(),
+				sum:        dp.Sum(),
+				hasSum:     true,
+				attributes: attributesToMap(dp.Attributes()),
 			}
-			points = append(points, DataPoint{
-				Timestamp:  dp.Timestamp().AsTime(),
-				Value:      histogramMean(emitCount, emitSum, true),
-				Count:      &emitCount,
-				Sum:        &emitSum,
-				Attributes: attrs,
-			})
+			if p, ok := emitDistributionPoint(hp, m.Name(), serviceName, series, now, true); ok {
+				points = append(points, p)
+			}
 		}
 	case pmetric.MetricTypeExponentialHistogram:
 		eh := m.ExponentialHistogram()
@@ -213,51 +192,72 @@ func extractDataPoints(m pmetric.Metric, serviceName string, series *seriesStore
 		dps := eh.DataPoints()
 		for i := 0; i < dps.Len(); i++ {
 			dp := dps.At(i)
-			attrs := attributesToMap(dp.Attributes())
-			count := dp.Count()
-			var rawSum float64
-			if dp.HasSum() {
-				rawSum = dp.Sum()
+			hp := histogramPoint{
+				timestamp:  dp.Timestamp().AsTime(),
+				count:      dp.Count(),
+				hasSum:     dp.HasSum(),
+				hasMin:     dp.HasMin(),
+				hasMax:     dp.HasMax(),
+				attributes: attributesToMap(dp.Attributes()),
 			}
-			emitCount, emitSum := float64(count), rawSum
-			if cumulative && series != nil {
-				key := seriesKey(serviceName, m.Name(), attrs)
-				countDelta, sumDelta, ok := series.histogramDelta(key, count, rawSum, now)
-				if !ok {
-					continue
-				}
-				emitCount = float64(countDelta)
-				emitSum = sumDelta
+			if hp.hasSum {
+				hp.sum = dp.Sum()
 			}
-			point := DataPoint{
-				Timestamp:  dp.Timestamp().AsTime(),
-				Value:      histogramMean(emitCount, emitSum, dp.HasSum()),
-				Count:      &emitCount,
-				Attributes: attrs,
+			if hp.hasMin {
+				hp.min = dp.Min()
 			}
-			if dp.HasSum() {
-				s := emitSum
-				point.Sum = &s
+			if hp.hasMax {
+				hp.max = dp.Max()
 			}
-			if dp.HasMin() {
-				point.Min = floatPtr(dp.Min())
+			if p, ok := emitDistributionPoint(hp, m.Name(), serviceName, series, now, cumulative); ok {
+				points = append(points, p)
 			}
-			if dp.HasMax() {
-				point.Max = floatPtr(dp.Max())
-			}
-			points = append(points, point)
 		}
 	}
 
 	return points, skipped
 }
 
+// emitDistributionPoint converts one raw histogram-shaped observation into a
+// DataPoint, delta-izing count/sum when cumulative and a series store is
+// available. Returns ok=false when the point should be dropped (baseline /
+// reset observations).
+func emitDistributionPoint(hp histogramPoint, metricName, serviceName string, series *seriesStore, now time.Time, cumulative bool) (DataPoint, bool) {
+	emitCount, emitSum := float64(hp.count), hp.sum
+	if cumulative && series != nil {
+		key := seriesKey(serviceName, metricName, hp.attributes)
+		countDelta, sumDelta, ok := series.histogramDelta(key, hp.count, hp.sum, now)
+		if !ok {
+			return DataPoint{}, false
+		}
+		emitCount = float64(countDelta)
+		emitSum = sumDelta
+	}
+	point := DataPoint{
+		Timestamp:  hp.timestamp,
+		Value:      histogramMean(emitCount, emitSum, hp.hasSum),
+		Count:      &emitCount,
+		Attributes: hp.attributes,
+	}
+	if hp.hasSum {
+		point.Sum = floatPtr(emitSum)
+	}
+	// Min/Max are per-point extrema reported by the SDK; they can't be
+	// delta'd so they pass through untouched.
+	if hp.hasMin {
+		point.Min = floatPtr(hp.min)
+	}
+	if hp.hasMax {
+		point.Max = floatPtr(hp.max)
+	}
+	return point, true
+}
+
 func floatPtr(v float64) *float64 { return &v }
 
-// histogramMean returns sum/count as the primary chart scalar for
-// distribution metrics. When the window had no observations or the SDK
-// omitted the sum, it returns 0 so consumers can render a zero instead of
-// NaN — the companion Count field still tells them "nothing happened here".
+// histogramMean returns sum/count for the window, or 0 when the window is
+// empty or the SDK omitted the sum (Count still tells the consumer whether
+// anything was observed).
 func histogramMean(count, sum float64, hasSum bool) float64 {
 	if !hasSum || count <= 0 {
 		return 0

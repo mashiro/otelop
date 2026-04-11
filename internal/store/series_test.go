@@ -103,7 +103,7 @@ func TestConvertMetrics_CumulativeSumDeltaized(t *testing.T) {
 	dp := s1.DataPoints().AppendEmpty()
 	dp.SetIntValue(100)
 
-	got := ConvertMetrics(md, s)
+	got := convertMetrics(md, s)
 	if len(got) != 1 || len(got[0].DataPoints) != 0 {
 		t.Fatalf("baseline scrape should produce 0 points, got metrics=%d points=%d", len(got), len(got[0].DataPoints))
 	}
@@ -121,7 +121,7 @@ func TestConvertMetrics_CumulativeSumDeltaized(t *testing.T) {
 	dp2 := s2.DataPoints().AppendEmpty()
 	dp2.SetIntValue(150)
 
-	got = ConvertMetrics(md2, s)
+	got = convertMetrics(md2, s)
 	if len(got[0].DataPoints) != 1 {
 		t.Fatalf("second scrape should produce 1 point, got %d", len(got[0].DataPoints))
 	}
@@ -143,7 +143,7 @@ func TestConvertMetrics_NonMonotonicSumPassthrough(t *testing.T) {
 	sum.SetAggregationTemporality(pmetric.AggregationTemporalityCumulative)
 	sum.DataPoints().AppendEmpty().SetIntValue(42)
 
-	got := ConvertMetrics(md, s)
+	got := convertMetrics(md, s)
 	if len(got[0].DataPoints) != 1 || got[0].DataPoints[0].Value != 42 {
 		t.Fatalf("non-monotonic sum should pass through unchanged, got %+v", got[0].DataPoints)
 	}
@@ -169,13 +169,13 @@ func TestConvertMetrics_HistogramDeltaized(t *testing.T) {
 	}
 
 	// Baseline.
-	got := ConvertMetrics(build(10, 2.5, 0.01, 0.8), s)
+	got := convertMetrics(build(10, 2.5, 0.01, 0.8), s)
 	if len(got[0].DataPoints) != 0 {
 		t.Fatalf("baseline histogram should emit nothing, got %d", len(got[0].DataPoints))
 	}
 
 	// Delta window: +5 requests, +1.5s total.
-	got = ConvertMetrics(build(15, 4.0, 0.02, 0.9), s)
+	got = convertMetrics(build(15, 4.0, 0.02, 0.9), s)
 	if len(got[0].DataPoints) != 1 {
 		t.Fatalf("expected 1 delta point, got %d", len(got[0].DataPoints))
 	}
@@ -210,7 +210,7 @@ func TestConvertMetrics_GaugeUnaffected(t *testing.T) {
 	g := m.SetEmptyGauge()
 	g.DataPoints().AppendEmpty().SetDoubleValue(0.7)
 
-	got := ConvertMetrics(md, s)
+	got := convertMetrics(md, s)
 	if got[0].DataPoints[0].Value != 0.7 {
 		t.Fatalf("gauge should pass through, got %v", got[0].DataPoints[0].Value)
 	}

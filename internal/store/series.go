@@ -9,10 +9,15 @@ import (
 	"time"
 )
 
-// defaultSeriesTTL is how long a series entry lingers without being observed
-// before it's considered abandoned. Abandoned entries are pruned lazily on
-// writes so stale label sets don't leak forever.
-const defaultSeriesTTL = 10 * time.Minute
+const (
+	// defaultSeriesTTL is how long an unobserved entry lingers before being
+	// pruned. Lazy — only runs on writes.
+	defaultSeriesTTL = 10 * time.Minute
+	// defaultSeriesMaxEntries caps how many series the store tracks so a
+	// high-cardinality attribute (e.g. request_id) can't leak memory. The
+	// oldest-lastSeen entry is evicted when the cap is hit.
+	defaultSeriesMaxEntries = 50_000
+)
 
 // seriesState is the last raw (un-converted) OTLP observation of one metric
 // series. We keep it so cumulative -> delta conversion is a pure function
@@ -36,15 +41,18 @@ type seriesState struct {
 // ring buffer. Safe for concurrent use on its own, but in practice callers
 // (Store) already hold their own lock during ingest.
 type seriesStore struct {
-	mu      sync.Mutex
-	entries map[string]*seriesState
-	ttl     time.Duration
+	mu         sync.Mutex
+	entries    map[string]*seriesState
+	ttl        time.Duration
+	maxEntries int
+	lastPrune  time.Time
 }
 
 func newSeriesStore() *seriesStore {
 	return &seriesStore{
-		entries: make(map[string]*seriesState),
-		ttl:     defaultSeriesTTL,
+		entries:    make(map[string]*seriesState),
+		ttl:        defaultSeriesTTL,
+		maxEntries: defaultSeriesMaxEntries,
 	}
 }
 
@@ -101,7 +109,7 @@ func (s *seriesStore) numberDelta(key string, rawValue float64, now time.Time) (
 	s.pruneLocked(now)
 	entry, exists := s.entries[key]
 	if !exists {
-		s.entries[key] = &seriesState{lastSeen: now, value: rawValue, hasValue: true}
+		s.admitLocked(key, &seriesState{lastSeen: now, value: rawValue, hasValue: true})
 		return 0, false
 	}
 	entry.lastSeen = now
@@ -123,13 +131,13 @@ func (s *seriesStore) histogramDelta(key string, rawCount uint64, rawSum float64
 	s.pruneLocked(now)
 	entry, exists := s.entries[key]
 	if !exists {
-		s.entries[key] = &seriesState{
+		s.admitLocked(key, &seriesState{
 			lastSeen: now,
 			count:    rawCount,
 			hasCount: true,
 			sum:      rawSum,
 			hasSum:   true,
-		}
+		})
 		return 0, 0, false
 	}
 	entry.lastSeen = now
@@ -147,12 +155,38 @@ func (s *seriesStore) histogramDelta(key string, rawCount uint64, rawSum float64
 	return countDelta, sumDelta, true
 }
 
-// pruneLocked drops entries older than the TTL. Called on every mutation so
-// the map shrinks naturally without a background goroutine.
+// admitLocked inserts a new entry, evicting the oldest-lastSeen entry when
+// the cap is hit. O(N) on eviction but only fires when the map is full, so
+// steady-state cost is O(1).
+func (s *seriesStore) admitLocked(key string, state *seriesState) {
+	if s.maxEntries > 0 && len(s.entries) >= s.maxEntries {
+		var oldestKey string
+		var oldestSeen time.Time
+		for k, v := range s.entries {
+			if oldestKey == "" || v.lastSeen.Before(oldestSeen) {
+				oldestKey = k
+				oldestSeen = v.lastSeen
+			}
+		}
+		delete(s.entries, oldestKey)
+	}
+	s.entries[key] = state
+}
+
+// pruneLocked drops entries older than the TTL. Rate-limited to once per
+// ttl/10 so a single scrape burst doesn't turn into O(N²) scans.
 func (s *seriesStore) pruneLocked(now time.Time) {
 	if s.ttl <= 0 {
 		return
 	}
+	interval := s.ttl / 10
+	if interval < time.Second {
+		interval = time.Second
+	}
+	if !s.lastPrune.IsZero() && now.Sub(s.lastPrune) < interval {
+		return
+	}
+	s.lastPrune = now
 	cutoff := now.Add(-s.ttl)
 	for k, v := range s.entries {
 		if v.lastSeen.Before(cutoff) {
