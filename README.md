@@ -95,6 +95,11 @@ otelop version
   --otlp-http        OTLP HTTP receiver endpoint     (default 0.0.0.0:4318)
   --proxy-url        upstream OTLP endpoint for forwarding
   --proxy-protocol   upstream OTLP protocol          (grpc|http)
+  --proxy-auth-type  upstream OTLP auth type         (bearer|basic|headers)
+  --proxy-auth-token upstream bearer token
+  --proxy-auth-username upstream basic auth username
+  --proxy-auth-password upstream basic auth password
+  --proxy-header     upstream header                 (repeatable key=value)
   --trace-cap        max traces in memory            (default 1000)
   --metric-cap       max metric series in memory     (default 3000)
   --log-cap          max log entries in memory       (default 1000)
@@ -118,8 +123,15 @@ Example `~/.config/otelop/config.toml`:
 http = ":4319"
 otlp_grpc = "0.0.0.0:4317"
 otlp_http = "0.0.0.0:4318"
-proxy_url = "http://collector.internal:4318"
-proxy_protocol = "http"
+
+[proxy]
+url = "https://collector.internal:4318"
+protocol = "http"
+
+[proxy.auth]
+type = "bearer"
+token = "replace-me"
+
 trace_cap = 1000
 metric_cap = 3000
 log_cap = 1000
@@ -128,9 +140,17 @@ log_level = "warn"
 debug = false
 ```
 
-The matching environment variables are `OTELOP_HTTP`, `OTELOP_OTLP_GRPC`, `OTELOP_OTLP_HTTP`, `OTELOP_PROXY_URL`, `OTELOP_PROXY_PROTOCOL`, `OTELOP_TRACE_CAP`, `OTELOP_METRIC_CAP`, `OTELOP_LOG_CAP`, `OTELOP_MAX_DATA_POINTS`, `OTELOP_LOG_LEVEL`, and `OTELOP_DEBUG`.
+The matching environment variables are `OTELOP_HTTP`, `OTELOP_OTLP_GRPC`, `OTELOP_OTLP_HTTP`, `OTELOP_PROXY_URL`, `OTELOP_PROXY_PROTOCOL`, `OTELOP_PROXY_AUTH_TYPE`, `OTELOP_PROXY_AUTH_TOKEN`, `OTELOP_PROXY_AUTH_USERNAME`, `OTELOP_PROXY_AUTH_PASSWORD`, `OTELOP_PROXY_HEADERS`, `OTELOP_TRACE_CAP`, `OTELOP_METRIC_CAP`, `OTELOP_LOG_CAP`, `OTELOP_MAX_DATA_POINTS`, `OTELOP_LOG_LEVEL`, and `OTELOP_DEBUG`.
 
 When proxying is enabled, `otelop` still buffers incoming telemetry locally for the UI and also forwards the same traces, metrics, and logs to the configured upstream OTLP endpoint.
+
+`proxy.auth.type` supports:
+
+- `bearer`: sends `Authorization: Bearer <token>`
+- `basic`: sends `Authorization: Basic <base64(username:password)>`
+- `headers`: sends the exact headers configured under `[proxy.auth.headers]` or `--proxy-header`
+
+Do not embed credentials in `proxy.url`; `otelop` rejects URLs with userinfo such as `https://user:pass@example.com`.
 
 ## License
 

@@ -32,6 +32,7 @@ const (
 	DefaultOTLPHTTPAddr  = "0.0.0.0:4318"
 	DefaultProxyURL      = ""
 	DefaultProxyProtocol = ""
+	DefaultProxyAuthType = ""
 	DefaultTraceCap      = 1000
 	DefaultMetricCap     = 3000
 	DefaultLogCap        = 1000
@@ -39,21 +40,34 @@ const (
 	DefaultLogLevel      = "warn"
 )
 
+type ProxyAuthConfig struct {
+	Type     string            `toml:"type"`
+	Token    string            `toml:"token"`
+	Username string            `toml:"username"`
+	Password string            `toml:"password"`
+	Headers  map[string]string `toml:"headers"`
+}
+
+type ProxyConfig struct {
+	URL      string          `toml:"url"`
+	Protocol string          `toml:"protocol"`
+	Auth     ProxyAuthConfig `toml:"auth"`
+}
+
 // Config is the on-disk shape of the TOML config file. Fields use snake_case
 // keys to match TOML conventions (CLI flags are kebab-case, env vars are
 // SCREAMING_SNAKE — pick whichever surface is most ergonomic).
 type Config struct {
-	HTTPAddr      string `toml:"http"`
-	OTLPGRPCAddr  string `toml:"otlp_grpc"`
-	OTLPHTTPAddr  string `toml:"otlp_http"`
-	ProxyURL      string `toml:"proxy_url"`
-	ProxyProtocol string `toml:"proxy_protocol"`
-	TraceCap      int    `toml:"trace_cap"`
-	MetricCap     int    `toml:"metric_cap"`
-	LogCap        int    `toml:"log_cap"`
-	MaxDataPoints int    `toml:"max_data_points"`
-	LogLevel      string `toml:"log_level"`
-	Debug         bool   `toml:"debug"`
+	HTTPAddr      string      `toml:"http"`
+	OTLPGRPCAddr  string      `toml:"otlp_grpc"`
+	OTLPHTTPAddr  string      `toml:"otlp_http"`
+	Proxy         ProxyConfig `toml:"proxy"`
+	TraceCap      int         `toml:"trace_cap"`
+	MetricCap     int         `toml:"metric_cap"`
+	LogCap        int         `toml:"log_cap"`
+	MaxDataPoints int         `toml:"max_data_points"`
+	LogLevel      string      `toml:"log_level"`
+	Debug         bool        `toml:"debug"`
 }
 
 // Defaults returns a Config populated with the built-in fallback values.
@@ -61,11 +75,16 @@ type Config struct {
 // values.
 func Defaults() Config {
 	return Config{
-		HTTPAddr:      DefaultHTTPAddr,
-		OTLPGRPCAddr:  DefaultOTLPGRPCAddr,
-		OTLPHTTPAddr:  DefaultOTLPHTTPAddr,
-		ProxyURL:      DefaultProxyURL,
-		ProxyProtocol: DefaultProxyProtocol,
+		HTTPAddr:     DefaultHTTPAddr,
+		OTLPGRPCAddr: DefaultOTLPGRPCAddr,
+		OTLPHTTPAddr: DefaultOTLPHTTPAddr,
+		Proxy: ProxyConfig{
+			URL:      DefaultProxyURL,
+			Protocol: DefaultProxyProtocol,
+			Auth: ProxyAuthConfig{
+				Type: DefaultProxyAuthType,
+			},
+		},
 		TraceCap:      DefaultTraceCap,
 		MetricCap:     DefaultMetricCap,
 		LogCap:        DefaultLogCap,

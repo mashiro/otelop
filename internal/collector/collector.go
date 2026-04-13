@@ -3,6 +3,7 @@ package collector
 import (
 	"fmt"
 	"net/url"
+	"sort"
 	"strings"
 
 	"go.opentelemetry.io/collector/component"
@@ -20,6 +21,7 @@ type Config struct {
 	HTTPEndpoint  string
 	ProxyURL      string
 	ProxyProtocol string
+	ProxyHeaders  map[string]string
 	LogLevel      string
 }
 
@@ -76,12 +78,29 @@ func buildProxyExporterConfig(cfg Config) (string, string) {
 		if insecure {
 			tlsConfig = "\n    tls:\n      insecure: true"
 		}
-		return fmt.Sprintf("  otlp_grpc/proxy:\n    endpoint: %q%s", endpoint, tlsConfig), "otelop, otlp_grpc/proxy"
+		return fmt.Sprintf("  otlp_grpc/proxy:\n    endpoint: %q%s%s", endpoint, tlsConfig, renderHeaders(cfg.ProxyHeaders)), "otelop, otlp_grpc/proxy"
 	case "http":
-		return fmt.Sprintf("  otlphttp/proxy:\n    endpoint: %q", cfg.ProxyURL), "otelop, otlphttp/proxy"
+		return fmt.Sprintf("  otlphttp/proxy:\n    endpoint: %q%s", cfg.ProxyURL, renderHeaders(cfg.ProxyHeaders)), "otelop, otlphttp/proxy"
 	default:
 		return "", "otelop"
 	}
+}
+
+func renderHeaders(headers map[string]string) string {
+	if len(headers) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(headers))
+	for k := range headers {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var b strings.Builder
+	b.WriteString("\n    headers:")
+	for _, k := range keys {
+		fmt.Fprintf(&b, "\n      %q: %q", k, headers[k])
+	}
+	return b.String()
 }
 
 func normalizeGRPCProxyURL(raw string) (endpoint string, insecure bool) {
