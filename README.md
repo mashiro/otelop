@@ -101,6 +101,30 @@ otelop version
 
 PID, log, and metadata files live in `$XDG_STATE_HOME/otelop/` (defaults to `~/.local/state/otelop/`).
 
+## Configuration
+
+Every `start` flag can be set three ways. Higher precedence wins:
+
+1. CLI flag (`otelop start --http :4319`)
+2. Environment variable (`OTELOP_HTTP=:4319 otelop start`)
+3. TOML config file at `$XDG_CONFIG_HOME/otelop/config.toml` (defaults to `~/.config/otelop/config.toml`; override with `OTELOP_CONFIG_FILE=/path/to/config.toml`)
+
+Example `~/.config/otelop/config.toml`:
+
+```toml
+http = ":4319"
+otlp_grpc = "0.0.0.0:4317"
+otlp_http = "0.0.0.0:4318"
+trace_cap = 1000
+metric_cap = 3000
+log_cap = 1000
+max_data_points = 1000
+log_level = "warn"
+debug = false
+```
+
+The matching environment variables are `OTELOP_HTTP`, `OTELOP_OTLP_GRPC`, `OTELOP_OTLP_HTTP`, `OTELOP_TRACE_CAP`, `OTELOP_METRIC_CAP`, `OTELOP_LOG_CAP`, `OTELOP_MAX_DATA_POINTS`, `OTELOP_LOG_LEVEL`, and `OTELOP_DEBUG`.
+
 ## License
 
 MIT

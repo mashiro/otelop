@@ -20,6 +20,7 @@ import (
 
 	otelop "github.com/mashiro/otelop"
 	"github.com/mashiro/otelop/internal/collector"
+	"github.com/mashiro/otelop/internal/config"
 	"github.com/mashiro/otelop/internal/daemon"
 	otelopexporter "github.com/mashiro/otelop/internal/exporter"
 	otelopgraphql "github.com/mashiro/otelop/internal/graphql"
@@ -31,26 +32,40 @@ import (
 )
 
 func startCommand() *cli.Command {
+	// Load the TOML config file once at command-construction time. Its
+	// values become each flag's Default, so the resolved precedence is:
+	//   CLI flag > env var (Sources) > config file (Default) > built-in.
+	// A missing file is silently treated as "all defaults". A parse error
+	// is fatal at the next runtime call, surfaced from runStart.
+	cfg, cfgPath, cfgErr := config.Load()
+
 	return &cli.Command{
 		Name:  "start",
 		Usage: "Start the otelop server (backgrounded by default)",
+		Before: func(_ context.Context, _ *cli.Command) (context.Context, error) {
+			if cfgErr != nil {
+				return nil, fmt.Errorf("config: %w", cfgErr)
+			}
+			return nil, nil
+		},
 		Flags: []cli.Flag{
 			&cli.BoolFlag{
 				Name:    "foreground",
 				Aliases: []string{"f"},
 				Usage:   "run in the foreground instead of detaching",
 			},
-			&cli.StringFlag{Name: "http", Value: ":4319", Usage: "Web UI + REST API listen address"},
-			&cli.StringFlag{Name: "otlp-grpc", Value: "0.0.0.0:4317", Usage: "OTLP gRPC receiver endpoint"},
-			&cli.StringFlag{Name: "otlp-http", Value: "0.0.0.0:4318", Usage: "OTLP HTTP receiver endpoint"},
-			&cli.IntFlag{Name: "trace-cap", Value: 1000, Usage: "max traces to keep in memory"},
-			&cli.IntFlag{Name: "metric-cap", Value: 3000, Usage: "max metric series to keep in memory"},
-			&cli.IntFlag{Name: "log-cap", Value: 1000, Usage: "max log entries to keep in memory"},
-			&cli.IntFlag{Name: "max-data-points", Value: 1000, Usage: "max data points per metric series"},
-			&cli.StringFlag{Name: "log-level", Value: "warn", Usage: "log level (debug|info|warn|error)"},
-			&cli.BoolFlag{Name: "debug", Usage: "export otelop's own telemetry to itself"},
+			&cli.StringFlag{Name: "http", Value: cfg.HTTPAddr, Usage: "Web UI + REST API listen address", Sources: cli.EnvVars("OTELOP_HTTP")},
+			&cli.StringFlag{Name: "otlp-grpc", Value: cfg.OTLPGRPCAddr, Usage: "OTLP gRPC receiver endpoint", Sources: cli.EnvVars("OTELOP_OTLP_GRPC")},
+			&cli.StringFlag{Name: "otlp-http", Value: cfg.OTLPHTTPAddr, Usage: "OTLP HTTP receiver endpoint", Sources: cli.EnvVars("OTELOP_OTLP_HTTP")},
+			&cli.IntFlag{Name: "trace-cap", Value: cfg.TraceCap, Usage: "max traces to keep in memory", Sources: cli.EnvVars("OTELOP_TRACE_CAP")},
+			&cli.IntFlag{Name: "metric-cap", Value: cfg.MetricCap, Usage: "max metric series to keep in memory", Sources: cli.EnvVars("OTELOP_METRIC_CAP")},
+			&cli.IntFlag{Name: "log-cap", Value: cfg.LogCap, Usage: "max log entries to keep in memory", Sources: cli.EnvVars("OTELOP_LOG_CAP")},
+			&cli.IntFlag{Name: "max-data-points", Value: cfg.MaxDataPoints, Usage: "max data points per metric series", Sources: cli.EnvVars("OTELOP_MAX_DATA_POINTS")},
+			&cli.StringFlag{Name: "log-level", Value: cfg.LogLevel, Usage: "log level (debug|info|warn|error)", Sources: cli.EnvVars("OTELOP_LOG_LEVEL")},
+			&cli.BoolFlag{Name: "debug", Value: cfg.Debug, Usage: "export otelop's own telemetry to itself", Sources: cli.EnvVars("OTELOP_DEBUG")},
 		},
-		Action: runStart,
+		Action:      runStart,
+		Description: fmt.Sprintf("Reads defaults from %s when present. Override with environment variables (OTELOP_HTTP, OTELOP_OTLP_GRPC, ...) or CLI flags.", cfgPath),
 	}
 }
 
@@ -72,10 +87,10 @@ func optionsFromCmd(cmd *cli.Command) startOptions {
 		HTTPAddr:      cmd.String("http"),
 		OTLPGRPCAddr:  cmd.String("otlp-grpc"),
 		OTLPHTTPAddr:  cmd.String("otlp-http"),
-		TraceCap:      int(cmd.Int("trace-cap")),
-		MetricCap:     int(cmd.Int("metric-cap")),
-		LogCap:        int(cmd.Int("log-cap")),
-		MaxDataPoints: int(cmd.Int("max-data-points")),
+		TraceCap:      cmd.Int("trace-cap"),
+		MetricCap:     cmd.Int("metric-cap"),
+		LogCap:        cmd.Int("log-cap"),
+		MaxDataPoints: cmd.Int("max-data-points"),
 		LogLevel:      cmd.String("log-level"),
 		Debug:         cmd.Bool("debug"),
 		Foreground:    cmd.Bool("foreground"),
