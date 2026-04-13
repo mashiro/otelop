@@ -2,6 +2,9 @@ package collector
 
 import (
 	"fmt"
+	"net/url"
+	"sort"
+	"strings"
 
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/confmap"
@@ -14,31 +17,37 @@ var version = "dev"
 
 // Config holds runtime-configurable collector settings.
 type Config struct {
-	GRPCEndpoint string
-	HTTPEndpoint string
-	LogLevel     string
+	GRPCEndpoint  string
+	HTTPEndpoint  string
+	ProxyURL      string
+	ProxyProtocol string
+	ProxyHeaders  map[string]string
+	LogLevel      string
 }
 
 func buildConfig(cfg Config) string {
+	exporterConfig, pipelineExporters := buildProxyExporterConfig(cfg)
+
 	return fmt.Sprintf(`
 receivers:
   otlp:
     protocols:
       grpc:
-        endpoint: %s
+        endpoint: %q
       http:
-        endpoint: %s
+        endpoint: %q
         cors:
           allowed_origins:
             - "*"
 
 exporters:
   otelop: {}
+%s
 
 service:
   telemetry:
     logs:
-      level: %s
+      level: %q
     # Disable the Collector's own Prometheus self-metrics listener on :8888.
     # otelop doesn't consume it anywhere and the listener would conflict with
     # a second otelop instance on the same host.
@@ -47,14 +56,66 @@ service:
   pipelines:
     traces:
       receivers: [otlp]
-      exporters: [otelop]
+      exporters: [%[5]s]
     metrics:
       receivers: [otlp]
-      exporters: [otelop]
+      exporters: [%[5]s]
     logs:
       receivers: [otlp]
-      exporters: [otelop]
-`, cfg.GRPCEndpoint, cfg.HTTPEndpoint, cfg.LogLevel)
+      exporters: [%[5]s]
+`, cfg.GRPCEndpoint, cfg.HTTPEndpoint, exporterConfig, cfg.LogLevel, pipelineExporters)
+}
+
+func buildProxyExporterConfig(cfg Config) (string, string) {
+	if cfg.ProxyURL == "" || cfg.ProxyProtocol == "" {
+		return "", "otelop"
+	}
+
+	switch cfg.ProxyProtocol {
+	case "grpc":
+		endpoint, insecure := normalizeGRPCProxyURL(cfg.ProxyURL)
+		tlsConfig := ""
+		if insecure {
+			tlsConfig = "\n    tls:\n      insecure: true"
+		}
+		return fmt.Sprintf("  otlp_grpc/proxy:\n    endpoint: %q%s%s", endpoint, tlsConfig, renderHeaders(cfg.ProxyHeaders)), "otelop, otlp_grpc/proxy"
+	case "http":
+		return fmt.Sprintf("  otlphttp/proxy:\n    endpoint: %q%s", cfg.ProxyURL, renderHeaders(cfg.ProxyHeaders)), "otelop, otlphttp/proxy"
+	default:
+		return "", "otelop"
+	}
+}
+
+func renderHeaders(headers map[string]string) string {
+	if len(headers) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(headers))
+	for k := range headers {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var b strings.Builder
+	b.WriteString("\n    headers:")
+	for _, k := range keys {
+		fmt.Fprintf(&b, "\n      %q: %q", k, headers[k])
+	}
+	return b.String()
+}
+
+func normalizeGRPCProxyURL(raw string) (endpoint string, insecure bool) {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme == "" {
+		return raw, true
+	}
+	switch strings.ToLower(u.Scheme) {
+	case "http":
+		return u.Host, true
+	case "https":
+		return u.Host, false
+	default:
+		return raw, true
+	}
 }
 
 // New creates a new OTel Collector configured with an OTLP receiver

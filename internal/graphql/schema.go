@@ -27,12 +27,14 @@ var schemaSource string
 // `status` query can report process-level state without reaching into
 // package globals.
 type RuntimeInfo struct {
-	Version      string
-	StartedAt    time.Time
-	HTTPAddr     string
-	OTLPGRPCAddr string
-	OTLPHTTPAddr string
-	Debug        bool
+	Version       string
+	StartedAt     time.Time
+	HTTPAddr      string
+	OTLPGRPCAddr  string
+	OTLPHTTPAddr  string
+	ProxyURL      string
+	ProxyProtocol string
+	Debug         bool
 }
 
 // MustNewSchema parses the embedded schema and binds it to a resolver backed

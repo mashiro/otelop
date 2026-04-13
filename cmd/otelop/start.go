@@ -2,13 +2,18 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
+	"sort"
+	"strings"
 	"syscall"
 	"time"
 
@@ -57,6 +62,13 @@ func startCommand() *cli.Command {
 			&cli.StringFlag{Name: "http", Value: cfg.HTTPAddr, Usage: "Web UI + REST API listen address", Sources: cli.EnvVars("OTELOP_HTTP")},
 			&cli.StringFlag{Name: "otlp-grpc", Value: cfg.OTLPGRPCAddr, Usage: "OTLP gRPC receiver endpoint", Sources: cli.EnvVars("OTELOP_OTLP_GRPC")},
 			&cli.StringFlag{Name: "otlp-http", Value: cfg.OTLPHTTPAddr, Usage: "OTLP HTTP receiver endpoint", Sources: cli.EnvVars("OTELOP_OTLP_HTTP")},
+			&cli.StringFlag{Name: "proxy-url", Value: cfg.Proxy.URL, Usage: "upstream OTLP endpoint for forwarding", Sources: cli.EnvVars("OTELOP_PROXY_URL")},
+			&cli.StringFlag{Name: "proxy-protocol", Value: cfg.Proxy.Protocol, Usage: "upstream OTLP protocol (grpc|http)", Sources: cli.EnvVars("OTELOP_PROXY_PROTOCOL")},
+			&cli.StringFlag{Name: "proxy-auth-type", Value: cfg.Proxy.Auth.Type, Usage: "upstream OTLP auth type (bearer|basic|headers)", Sources: cli.EnvVars("OTELOP_PROXY_AUTH_TYPE")},
+			&cli.StringFlag{Name: "proxy-auth-token", Value: cfg.Proxy.Auth.Token, Usage: "upstream bearer token", Sources: cli.EnvVars("OTELOP_PROXY_AUTH_TOKEN")},
+			&cli.StringFlag{Name: "proxy-auth-username", Value: cfg.Proxy.Auth.Username, Usage: "upstream basic auth username", Sources: cli.EnvVars("OTELOP_PROXY_AUTH_USERNAME")},
+			&cli.StringFlag{Name: "proxy-auth-password", Value: cfg.Proxy.Auth.Password, Usage: "upstream basic auth password", Sources: cli.EnvVars("OTELOP_PROXY_AUTH_PASSWORD")},
+			&cli.StringSliceFlag{Name: "proxy-header", Value: headerPairs(cfg.Proxy.Auth.Headers), Usage: "upstream header in key=value form (repeatable)", Sources: cli.EnvVars("OTELOP_PROXY_HEADERS")},
 			&cli.IntFlag{Name: "trace-cap", Value: cfg.TraceCap, Usage: "max traces to keep in memory", Sources: cli.EnvVars("OTELOP_TRACE_CAP")},
 			&cli.IntFlag{Name: "metric-cap", Value: cfg.MetricCap, Usage: "max metric series to keep in memory", Sources: cli.EnvVars("OTELOP_METRIC_CAP")},
 			&cli.IntFlag{Name: "log-cap", Value: cfg.LogCap, Usage: "max log entries to keep in memory", Sources: cli.EnvVars("OTELOP_LOG_CAP")},
@@ -69,10 +81,21 @@ func startCommand() *cli.Command {
 	}
 }
 
+type proxyAuthOptions struct {
+	Type     string
+	Token    string
+	Username string
+	Password string
+	Headers  map[string]string
+}
+
 type startOptions struct {
 	HTTPAddr      string
 	OTLPGRPCAddr  string
 	OTLPHTTPAddr  string
+	ProxyURL      string
+	ProxyProtocol string
+	ProxyAuth     proxyAuthOptions
 	TraceCap      int
 	MetricCap     int
 	LogCap        int
@@ -87,6 +110,15 @@ func optionsFromCmd(cmd *cli.Command) startOptions {
 		HTTPAddr:      cmd.String("http"),
 		OTLPGRPCAddr:  cmd.String("otlp-grpc"),
 		OTLPHTTPAddr:  cmd.String("otlp-http"),
+		ProxyURL:      strings.TrimSpace(cmd.String("proxy-url")),
+		ProxyProtocol: normalizeProxyProtocol(cmd.String("proxy-protocol")),
+		ProxyAuth: proxyAuthOptions{
+			Type:     normalizeProxyAuthType(cmd.String("proxy-auth-type")),
+			Token:    cmd.String("proxy-auth-token"),
+			Username: cmd.String("proxy-auth-username"),
+			Password: cmd.String("proxy-auth-password"),
+			Headers:  parseHeaderArgs(cmd.StringSlice("proxy-header")),
+		},
 		TraceCap:      cmd.Int("trace-cap"),
 		MetricCap:     cmd.Int("metric-cap"),
 		LogCap:        cmd.Int("log-cap"),
@@ -99,6 +131,9 @@ func optionsFromCmd(cmd *cli.Command) startOptions {
 
 func runStart(ctx context.Context, cmd *cli.Command) error {
 	opts := optionsFromCmd(cmd)
+	if err := validateProxyOptions(opts); err != nil {
+		return err
+	}
 	if !daemon.IsDaemonChild() && !opts.Foreground {
 		return runDaemonParent(ctx)
 	}
@@ -119,12 +154,14 @@ func runServer(ctx context.Context, opts startOptions) error {
 
 	if ready != nil {
 		meta := daemon.Metadata{
-			PID:          os.Getpid(),
-			StartedAt:    rt.startedAt,
-			HTTPAddr:     opts.HTTPAddr,
-			OTLPGRPCAddr: opts.OTLPGRPCAddr,
-			OTLPHTTPAddr: opts.OTLPHTTPAddr,
-			Version:      version,
+			PID:           os.Getpid(),
+			StartedAt:     rt.startedAt,
+			HTTPAddr:      opts.HTTPAddr,
+			OTLPGRPCAddr:  opts.OTLPGRPCAddr,
+			OTLPHTTPAddr:  opts.OTLPHTTPAddr,
+			ProxyURL:      redactURL(opts.ProxyURL),
+			ProxyProtocol: opts.ProxyProtocol,
+			Version:       version,
 		}
 		if err := daemon.WriteMetadata(meta); err != nil {
 			daemon.SignalError(ready, err)
@@ -182,6 +219,7 @@ func runDaemonParent(ctx context.Context) error {
 		{"Web UI", "http://" + webUIDisplay(meta.HTTPAddr)},
 		{"OTLP gRPC", meta.OTLPGRPCAddr},
 		{"OTLP HTTP", meta.OTLPHTTPAddr},
+		{"Proxy", formatProxyStatus(meta.ProxyURL, meta.ProxyProtocol)},
 		{"Log", logPath},
 	})
 	_, _ = fmt.Fprintln(os.Stderr, "  Use `otelop status` to inspect, `otelop stop` to shut down.")
@@ -220,12 +258,14 @@ func bootstrap(ctx context.Context, opts startOptions) (*runtime, error) {
 	})
 
 	runtimeInfo := otelopgraphql.RuntimeInfo{
-		Version:      version,
-		StartedAt:    rt.startedAt,
-		HTTPAddr:     opts.HTTPAddr,
-		OTLPGRPCAddr: opts.OTLPGRPCAddr,
-		OTLPHTTPAddr: opts.OTLPHTTPAddr,
-		Debug:        opts.Debug,
+		Version:       version,
+		StartedAt:     rt.startedAt,
+		HTTPAddr:      opts.HTTPAddr,
+		OTLPGRPCAddr:  opts.OTLPGRPCAddr,
+		OTLPHTTPAddr:  opts.OTLPHTTPAddr,
+		ProxyURL:      redactURL(opts.ProxyURL),
+		ProxyProtocol: opts.ProxyProtocol,
+		Debug:         opts.Debug,
 	}
 	rt.srv = server.New(rt.store, rt.hub, otelop.FrontendFS(), runtimeInfo)
 
@@ -243,9 +283,12 @@ func bootstrap(ctx context.Context, opts startOptions) (*runtime, error) {
 
 	slog.Debug("starting collector", "grpc", opts.OTLPGRPCAddr, "http", opts.OTLPHTTPAddr)
 	col, err := collector.New(otelopexporter.NewFactory(rt.store), collector.Config{
-		GRPCEndpoint: opts.OTLPGRPCAddr,
-		HTTPEndpoint: opts.OTLPHTTPAddr,
-		LogLevel:     opts.LogLevel,
+		GRPCEndpoint:  opts.OTLPGRPCAddr,
+		HTTPEndpoint:  opts.OTLPHTTPAddr,
+		ProxyURL:      opts.ProxyURL,
+		ProxyProtocol: opts.ProxyProtocol,
+		ProxyHeaders:  buildProxyHeaders(opts.ProxyAuth),
+		LogLevel:      opts.LogLevel,
 	})
 	if err != nil {
 		rt.shutdown()
@@ -332,9 +375,239 @@ func (r *runtime) printBanner(w io.Writer, opts startOptions) {
 		{"Web UI", "http://" + webUIDisplay(opts.HTTPAddr)},
 		{"OTLP gRPC", opts.OTLPGRPCAddr},
 		{"OTLP HTTP", opts.OTLPHTTPAddr},
+		{"Proxy", formatProxyStatus(opts.ProxyURL, opts.ProxyProtocol)},
 		{"Capacity", fmt.Sprintf("traces=%d, metrics=%d, logs=%d, points/metric=%d",
 			opts.TraceCap, opts.MetricCap, opts.LogCap, opts.MaxDataPoints)},
 	})
+}
+
+func normalizeProxyProtocol(v string) string {
+	return strings.ToLower(strings.TrimSpace(v))
+}
+
+func normalizeProxyAuthType(v string) string {
+	return strings.ToLower(strings.TrimSpace(v))
+}
+
+func validateProxyOptions(opts startOptions) error {
+	if opts.ProxyURL == "" && opts.ProxyProtocol == "" {
+		if opts.ProxyAuth.Type != "" || hasProxyAuthFields(opts.ProxyAuth) {
+			return errors.New("proxy auth requires --proxy-url and --proxy-protocol")
+		}
+		return nil
+	}
+	if opts.ProxyURL == "" {
+		return errors.New("proxy-protocol requires --proxy-url")
+	}
+	if opts.ProxyProtocol == "" {
+		return errors.New("proxy-url requires --proxy-protocol (grpc|http)")
+	}
+	u, err := url.Parse(opts.ProxyURL)
+	if err != nil {
+		return fmt.Errorf("invalid proxy-url: %w", err)
+	}
+	if u.User != nil {
+		return errors.New("proxy-url must not contain embedded credentials; use --proxy-auth-* instead")
+	}
+	if err := validateProxyAuth(opts.ProxyAuth); err != nil {
+		return err
+	}
+	switch opts.ProxyProtocol {
+	case "grpc":
+		if err := validateGRPCProxyURL(u, opts.ProxyURL); err != nil {
+			return err
+		}
+		return validateNoSelfProxy(u, opts.ProxyURL, opts.OTLPGRPCAddr, "grpc")
+	case "http":
+		if err := validateHTTPProxyURL(u, opts.ProxyURL); err != nil {
+			return err
+		}
+		return validateNoSelfProxy(u, opts.ProxyURL, opts.OTLPHTTPAddr, "http")
+	default:
+		return fmt.Errorf("invalid proxy-protocol %q: want grpc or http", opts.ProxyProtocol)
+	}
+}
+
+func validateGRPCProxyURL(u *url.URL, raw string) error {
+	if u.Scheme == "" {
+		if raw == "" || strings.Contains(raw, "/") {
+			return fmt.Errorf("invalid proxy-url %q for grpc: want host:port or http(s)://host:port", raw)
+		}
+		return nil
+	}
+	switch strings.ToLower(u.Scheme) {
+	case "http", "https":
+		if u.Host == "" {
+			return fmt.Errorf("invalid proxy-url %q for grpc: missing host", raw)
+		}
+		return nil
+	default:
+		return fmt.Errorf("invalid proxy-url %q for grpc: unsupported scheme %q", raw, u.Scheme)
+	}
+}
+
+func validateHTTPProxyURL(u *url.URL, raw string) error {
+	if u.Scheme == "" || u.Host == "" {
+		return fmt.Errorf("invalid proxy-url %q for http: want http://host:port or https://host:port", raw)
+	}
+	switch strings.ToLower(u.Scheme) {
+	case "http", "https":
+		return nil
+	default:
+		return fmt.Errorf("invalid proxy-url %q for http: unsupported scheme %q", raw, u.Scheme)
+	}
+}
+
+func validateProxyAuth(auth proxyAuthOptions) error {
+	switch auth.Type {
+	case "":
+		if hasProxyAuthFields(auth) {
+			return errors.New("proxy auth fields require --proxy-auth-type")
+		}
+		return nil
+	case "bearer":
+		if auth.Token == "" {
+			return errors.New("proxy-auth-type bearer requires --proxy-auth-token")
+		}
+		if auth.Username != "" || auth.Password != "" || len(auth.Headers) > 0 {
+			return errors.New("proxy-auth-type bearer only supports --proxy-auth-token")
+		}
+	case "basic":
+		if auth.Username == "" || auth.Password == "" {
+			return errors.New("proxy-auth-type basic requires --proxy-auth-username and --proxy-auth-password")
+		}
+		if auth.Token != "" || len(auth.Headers) > 0 {
+			return errors.New("proxy-auth-type basic only supports username/password")
+		}
+	case "headers":
+		if len(auth.Headers) == 0 {
+			return errors.New("proxy-auth-type headers requires at least one --proxy-header")
+		}
+		if auth.Token != "" || auth.Username != "" || auth.Password != "" {
+			return errors.New("proxy-auth-type headers only supports --proxy-header")
+		}
+	default:
+		return fmt.Errorf("invalid proxy-auth-type %q: want bearer, basic, or headers", auth.Type)
+	}
+	return nil
+}
+
+func validateNoSelfProxy(u *url.URL, proxyURL, listenAddr, protocol string) error {
+	target, err := comparableProxyHostPort(u, proxyURL, protocol)
+	if err != nil {
+		return err
+	}
+	local, err := normalizeHostPort(listenAddr)
+	if err != nil {
+		return err
+	}
+	if target == local {
+		return fmt.Errorf("proxy-url %q points back to otelop's own OTLP %s listener %q", proxyURL, protocol, listenAddr)
+	}
+	return nil
+}
+
+func comparableProxyHostPort(u *url.URL, proxyURL, protocol string) (string, error) {
+	if protocol == "grpc" && u.Scheme == "" {
+		return normalizeHostPort(proxyURL)
+	}
+	return normalizeHostPort(u.Host)
+}
+
+func normalizeHostPort(addr string) (string, error) {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return "", err
+	}
+	host = strings.ToLower(strings.Trim(host, "[]"))
+	switch host {
+	case "", "0.0.0.0", "::", "::1", "127.0.0.1", "localhost":
+		host = "localhost"
+	}
+	return net.JoinHostPort(host, port), nil
+}
+
+func hasProxyAuthFields(auth proxyAuthOptions) bool {
+	return auth.Token != "" || auth.Username != "" || auth.Password != "" || len(auth.Headers) > 0
+}
+
+func buildProxyHeaders(auth proxyAuthOptions) map[string]string {
+	switch auth.Type {
+	case "bearer":
+		return map[string]string{"Authorization": "Bearer " + auth.Token}
+	case "basic":
+		token := base64.StdEncoding.EncodeToString([]byte(auth.Username + ":" + auth.Password))
+		return map[string]string{"Authorization": "Basic " + token}
+	case "headers":
+		out := make(map[string]string, len(auth.Headers))
+		for k, v := range auth.Headers {
+			out[k] = v
+		}
+		return out
+	default:
+		return nil
+	}
+}
+
+func parseHeaderArgs(args []string) map[string]string {
+	if len(args) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(args))
+	for _, arg := range args {
+		if arg == "" {
+			continue
+		}
+		k, v, ok := strings.Cut(arg, "=")
+		if !ok {
+			continue
+		}
+		k = strings.TrimSpace(k)
+		v = strings.TrimSpace(v)
+		if k == "" {
+			continue
+		}
+		out[k] = v
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func headerPairs(headers map[string]string) []string {
+	if len(headers) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(headers))
+	for k := range headers {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	out := make([]string, 0, len(keys))
+	for _, k := range keys {
+		out = append(out, k+"="+headers[k])
+	}
+	return out
+}
+
+func redactURL(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.User == nil {
+		return raw
+	}
+	u.User = url.UserPassword("REDACTED", "REDACTED")
+	return u.String()
+}
+
+func formatProxyStatus(proxyURL, proxyProtocol string) string {
+	if proxyURL == "" || proxyProtocol == "" {
+		return "disabled"
+	}
+	return fmt.Sprintf("%s %s", strings.ToUpper(proxyProtocol), proxyURL)
 }
 
 func (r *runtime) waitForSignal(ctx context.Context) {

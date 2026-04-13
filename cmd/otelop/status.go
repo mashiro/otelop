@@ -26,14 +26,16 @@ func statusCommand() *cli.Command {
 // statusPayload mirrors the Status type in internal/graphql/schema.graphql.
 // Keep field names in sync when the schema changes.
 type statusPayload struct {
-	Version      string    `json:"version"`
-	StartedAt    time.Time `json:"startedAt"`
-	UptimeMs     float64   `json:"uptimeMs"`
-	HTTPAddr     string    `json:"httpAddr"`
-	OTLPGrpcAddr string    `json:"otlpGrpcAddr"`
-	OTLPHTTPAddr string    `json:"otlpHttpAddr"`
-	Debug        bool      `json:"debug"`
-	Config       struct {
+	Version       string    `json:"version"`
+	StartedAt     time.Time `json:"startedAt"`
+	UptimeMs      float64   `json:"uptimeMs"`
+	HTTPAddr      string    `json:"httpAddr"`
+	OTLPGrpcAddr  string    `json:"otlpGrpcAddr"`
+	OTLPHTTPAddr  string    `json:"otlpHttpAddr"`
+	ProxyURL      string    `json:"proxyUrl"`
+	ProxyProtocol string    `json:"proxyProtocol"`
+	Debug         bool      `json:"debug"`
+	Config        struct {
 		TraceCount  int32 `json:"traceCount"`
 		MetricCount int32 `json:"metricCount"`
 		LogCount    int32 `json:"logCount"`
@@ -51,6 +53,8 @@ const statusQuery = `{
     httpAddr
     otlpGrpcAddr
     otlpHttpAddr
+    proxyUrl
+    proxyProtocol
     debug
     config {
       traceCount
@@ -147,6 +151,7 @@ func printFull(w io.Writer, meta *daemon.Metadata, s *statusPayload) {
 		{"Web UI", "http://" + webUIDisplay(s.HTTPAddr)},
 		{"OTLP gRPC", s.OTLPGrpcAddr},
 		{"OTLP HTTP", s.OTLPHTTPAddr},
+		{"Proxy", formatProxyStatus(s.ProxyURL, s.ProxyProtocol)},
 		{"Buffered", fmt.Sprintf("traces=%d/%d metrics=%d/%d logs=%d/%d",
 			s.Config.TraceCount, s.Config.TraceCap,
 			s.Config.MetricCount, s.Config.MetricCap,
@@ -163,6 +168,7 @@ func printMetaOnly(w io.Writer, meta *daemon.Metadata) {
 		{"Web UI", "http://" + webUIDisplay(meta.HTTPAddr)},
 		{"OTLP gRPC", meta.OTLPGRPCAddr},
 		{"OTLP HTTP", meta.OTLPHTTPAddr},
+		{"Proxy", formatProxyStatus(meta.ProxyURL, meta.ProxyProtocol)},
 		{"Log", logFile},
 	})
 }

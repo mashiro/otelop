@@ -118,12 +118,14 @@ func TestStatusQuery(t *testing.T) {
 	s := seedStore(t)
 	started := time.Date(2026, 4, 13, 10, 0, 0, 0, time.UTC)
 	runtime := otelopgraphql.RuntimeInfo{
-		Version:      "v1.2.3",
-		StartedAt:    started,
-		HTTPAddr:     ":4319",
-		OTLPGRPCAddr: "0.0.0.0:4317",
-		OTLPHTTPAddr: "0.0.0.0:4318",
-		Debug:        true,
+		Version:       "v1.2.3",
+		StartedAt:     started,
+		HTTPAddr:      ":4319",
+		OTLPGRPCAddr:  "0.0.0.0:4317",
+		OTLPHTTPAddr:  "0.0.0.0:4318",
+		ProxyURL:      "https://upstream.example.com:4317",
+		ProxyProtocol: "grpc",
+		Debug:         true,
 	}
 	schema := otelopgraphql.MustNewSchema(s, runtime)
 	resp := schema.Exec(context.Background(), `{
@@ -133,6 +135,8 @@ func TestStatusQuery(t *testing.T) {
 			httpAddr
 			otlpGrpcAddr
 			otlpHttpAddr
+			proxyUrl
+			proxyProtocol
 			debug
 			config { traceCount metricCount logCount traceCap }
 		}
@@ -153,6 +157,12 @@ func TestStatusQuery(t *testing.T) {
 	}
 	if st["otlpGrpcAddr"] != "0.0.0.0:4317" {
 		t.Errorf("otlpGrpcAddr = %v", st["otlpGrpcAddr"])
+	}
+	if st["proxyUrl"] != "https://upstream.example.com:4317" {
+		t.Errorf("proxyUrl = %v", st["proxyUrl"])
+	}
+	if st["proxyProtocol"] != "grpc" {
+		t.Errorf("proxyProtocol = %v", st["proxyProtocol"])
 	}
 	if st["debug"] != true {
 		t.Errorf("debug = %v", st["debug"])

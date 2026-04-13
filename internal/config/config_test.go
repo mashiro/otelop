@@ -57,8 +57,49 @@ debug = true
 	if cfg.OTLPGRPCAddr != DefaultOTLPGRPCAddr {
 		t.Errorf("OTLPGRPCAddr = %q, want default %q", cfg.OTLPGRPCAddr, DefaultOTLPGRPCAddr)
 	}
+	if cfg.Proxy.URL != "" {
+		t.Errorf("Proxy.URL = %q, want empty default", cfg.Proxy.URL)
+	}
 	if cfg.LogLevel != DefaultLogLevel {
 		t.Errorf("LogLevel = %q, want default %q", cfg.LogLevel, DefaultLogLevel)
+	}
+}
+
+func TestLoad_ProxySettings(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	body := `
+[proxy]
+url = "https://upstream.example.com:4317"
+protocol = "grpc"
+
+[proxy.auth]
+type = "headers"
+
+[proxy.auth.headers]
+Authorization = "Bearer abc"
+X-Api-Key = "secret"
+`
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	t.Setenv(EnvConfigFile, path)
+
+	cfg, _, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Proxy.URL != "https://upstream.example.com:4317" {
+		t.Errorf("Proxy.URL = %q", cfg.Proxy.URL)
+	}
+	if cfg.Proxy.Protocol != "grpc" {
+		t.Errorf("Proxy.Protocol = %q", cfg.Proxy.Protocol)
+	}
+	if cfg.Proxy.Auth.Type != "headers" {
+		t.Errorf("Proxy.Auth.Type = %q", cfg.Proxy.Auth.Type)
+	}
+	if got := cfg.Proxy.Auth.Headers["Authorization"]; got != "Bearer abc" {
+		t.Errorf("Proxy.Auth.Headers[Authorization] = %q", got)
 	}
 }
 
