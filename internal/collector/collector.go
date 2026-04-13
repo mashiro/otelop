@@ -188,12 +188,12 @@ func New(exporterFactory exporter.Factory, cfg Config) (*otelcol.Collector, erro
 
 func newStaticProviderFactory(cfg obj) confmap.ProviderFactory {
 	return confmap.NewProviderFactory(func(confmap.ProviderSettings) confmap.Provider {
-		return &staticProvider{cfg: cfg}
+		return &staticProvider{cfg: normalizeValue(cfg).(map[string]any)}
 	})
 }
 
 type staticProvider struct {
-	cfg obj
+	cfg map[string]any
 }
 
 func (p *staticProvider) Retrieve(_ context.Context, _ string, _ confmap.WatcherFunc) (*confmap.Retrieved, error) {
@@ -206,4 +206,29 @@ func (p *staticProvider) Scheme() string {
 
 func (p *staticProvider) Shutdown(context.Context) error {
 	return nil
+}
+
+func normalizeValue(v any) any {
+	switch x := v.(type) {
+	case obj:
+		out := make(map[string]any, len(x))
+		for k, vv := range x {
+			out[k] = normalizeValue(vv)
+		}
+		return out
+	case map[string]any:
+		out := make(map[string]any, len(x))
+		for k, vv := range x {
+			out[k] = normalizeValue(vv)
+		}
+		return out
+	case []any:
+		out := make([]any, len(x))
+		for i, vv := range x {
+			out[i] = normalizeValue(vv)
+		}
+		return out
+	default:
+		return v
+	}
 }

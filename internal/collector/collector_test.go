@@ -1,8 +1,11 @@
 package collector
 
 import (
+	"context"
 	"reflect"
 	"testing"
+
+	"go.opentelemetry.io/collector/confmap"
 )
 
 func TestBuildConfigMap_WithoutProxy(t *testing.T) {
@@ -91,5 +94,32 @@ func TestBuildConfigMap_WithHTTPProxy(t *testing.T) {
 		if !reflect.DeepEqual(got, []any{"otelop", "otlphttp/proxy"}) {
 			t.Fatalf("%s exporters = %#v", name, got)
 		}
+	}
+}
+
+func TestStaticProviderNormalizesLocalObjTypes(t *testing.T) {
+	factory := newStaticProviderFactory(buildConfigMap(Config{
+		GRPCEndpoint: "0.0.0.0:4317",
+		HTTPEndpoint: "0.0.0.0:4318",
+		LogLevel:     "info",
+	}))
+	provider := factory.Create(confmap.ProviderSettings{})
+
+	retrieved, err := provider.Retrieve(context.Background(), "otelop:config", nil)
+	if err != nil {
+		t.Fatalf("Retrieve: %v", err)
+	}
+	defer func() {
+		if err := retrieved.Close(context.Background()); err != nil {
+			t.Fatalf("Close: %v", err)
+		}
+	}()
+
+	conf, err := retrieved.AsConf()
+	if err != nil {
+		t.Fatalf("AsConf: %v", err)
+	}
+	if got, ok := conf.ToStringMap()["exporters"].(map[string]any); !ok || got["otelop"] == nil {
+		t.Fatalf("exporters.otelop missing in conf: %#v", conf.ToStringMap())
 	}
 }
