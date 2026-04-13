@@ -20,8 +20,8 @@ curl -sS -X POST http://localhost:4319/graphql \
 ```
 
 A connection error (or anything other than a `{"data":{...}}` envelope) means
-otelop is not up — ask the user to start it (`mise run dev` or the `otelop`
-binary) before retrying.
+otelop is not up — ask the user to start it (`mise run dev` or `otelop start`)
+before retrying.
 
 ## Picking the right query for the question
 

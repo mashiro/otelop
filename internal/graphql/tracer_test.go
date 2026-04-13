@@ -32,7 +32,7 @@ func TestTracer_LogsQueryAtDebug(t *testing.T) {
 	var buf bytes.Buffer
 	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
 
-	schema := otelopgraphql.MustNewSchema(store.NewStore(1, 1, 1, 1, nil))
+	schema := otelopgraphql.MustNewSchema(store.NewStore(1, 1, 1, 1, nil), otelopgraphql.RuntimeInfo{})
 	schema.Exec(context.Background(), `query Probe { config { traceCap } }`, "", nil)
 
 	out := buf.String()
@@ -54,7 +54,7 @@ func TestTracer_SilentBelowDebug(t *testing.T) {
 	var buf bytes.Buffer
 	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo})))
 
-	schema := otelopgraphql.MustNewSchema(store.NewStore(1, 1, 1, 1, nil))
+	schema := otelopgraphql.MustNewSchema(store.NewStore(1, 1, 1, 1, nil), otelopgraphql.RuntimeInfo{})
 	schema.Exec(context.Background(), `{ config { traceCap } }`, "", nil)
 
 	if buf.Len() != 0 {
@@ -65,7 +65,7 @@ func TestTracer_SilentBelowDebug(t *testing.T) {
 func TestTracer_EmitsOtelSpans(t *testing.T) {
 	rec := installSpanRecorder(t)
 
-	schema := otelopgraphql.MustNewSchema(store.NewStore(1, 1, 1, 1, nil))
+	schema := otelopgraphql.MustNewSchema(store.NewStore(1, 1, 1, 1, nil), otelopgraphql.RuntimeInfo{})
 	// `traces` takes args, so graph-gophers marks it async and TraceField is
 	// invoked with trivial=false — which is where our field-level span fires.
 	schema.Exec(context.Background(), `query Probe { traces(limit: 1) { total } }`, "", nil)
@@ -100,7 +100,7 @@ func TestTracer_LogsValidationFailure(t *testing.T) {
 	var buf bytes.Buffer
 	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
 
-	schema := otelopgraphql.MustNewSchema(store.NewStore(1, 1, 1, 1, nil))
+	schema := otelopgraphql.MustNewSchema(store.NewStore(1, 1, 1, 1, nil), otelopgraphql.RuntimeInfo{})
 	schema.Exec(context.Background(), `{ nonexistentField }`, "", nil)
 
 	out := buf.String()

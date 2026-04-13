@@ -19,7 +19,7 @@ const testVersion = "test"
 func newTestSession(t *testing.T, s *store.Store) *sdkmcp.ClientSession {
 	t.Helper()
 	ctx := context.Background()
-	server := NewServer(otelopgraphql.MustNewSchema(s), testVersion)
+	server := NewServer(otelopgraphql.MustNewSchema(s, otelopgraphql.RuntimeInfo{}), testVersion)
 
 	serverTransport, clientTransport := sdkmcp.NewInMemoryTransports()
 	if _, err := server.Connect(ctx, serverTransport, nil); err != nil {

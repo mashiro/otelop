@@ -48,8 +48,10 @@ mise use -g github:mashiro/otelop
 ## Quick start
 
 ```bash
-otelop
+otelop start
 ```
+
+This detaches into the background so your terminal stays free. Use `otelop status` to see what it is listening on and `otelop stop` to shut it down. Pass `--foreground` (or `-f`) if you want logs in the current terminal.
 
 Then point your app at it:
 
@@ -74,11 +76,19 @@ Any AI coding agent that supports OpenTelemetry can export to `otelop`, so you c
 | `4317` | OTLP gRPC receiver |
 | `4318` | OTLP HTTP receiver |
 
-## Flags
+## Commands
 
 ```
-otelop [flags]
+otelop start [flags]   # launch in the background (default), or foreground with -f
+otelop stop            # stop the background server
+otelop status          # show PID, listen addresses, and buffered counts
+otelop version
+```
 
+`start` flags:
+
+```
+  --foreground, -f   run in the foreground instead of detaching
   --http             Web UI listen address           (default :4319)
   --otlp-grpc        OTLP gRPC receiver endpoint     (default 0.0.0.0:4317)
   --otlp-http        OTLP HTTP receiver endpoint     (default 0.0.0.0:4318)
@@ -88,6 +98,8 @@ otelop [flags]
   --max-data-points  max data points per series      (default 1000)
   --log-level        debug|info|warn|error           (default warn)
 ```
+
+PID, log, and metadata files live in `$XDG_STATE_HOME/otelop/` (defaults to `~/.local/state/otelop/`).
 
 ## License
 

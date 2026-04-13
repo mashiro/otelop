@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"io/fs"
+	"net"
 	"net/http"
 
 	"github.com/CAFxX/httpcompression"
@@ -23,16 +24,17 @@ type Server struct {
 	hub        *ws.Hub
 	schema     *gqlgo.Schema
 	httpServer *http.Server
+	listener   net.Listener
 }
 
-// New creates a new Server. When debug is true, HTTP requests are
-// instrumented with OpenTelemetry spans via otelhttp. The version string is
+// New creates a new Server. When runtime.Debug is true, HTTP requests are
+// instrumented with OpenTelemetry spans via otelhttp. runtime.Version is
 // advertised via the MCP Implementation metadata at /mcp.
-func New(addr string, s *store.Store, hub *ws.Hub, frontendFS fs.FS, version string, debug bool) *Server {
+func New(s *store.Store, hub *ws.Hub, frontendFS fs.FS, runtime otelopgraphql.RuntimeInfo) *Server {
 	srv := &Server{
 		store:  s,
 		hub:    hub,
-		schema: otelopgraphql.MustNewSchema(s),
+		schema: otelopgraphql.MustNewSchema(s, runtime),
 	}
 
 	mux := http.NewServeMux()
@@ -43,7 +45,7 @@ func New(addr string, s *store.Store, hub *ws.Hub, frontendFS fs.FS, version str
 	// MCP — optional wrapper exposing the GraphQL schema as a single `query`
 	// tool. Shares the parsed schema with /graphql to avoid a second parse at
 	// startup.
-	mux.Handle("/mcp", mcp.NewHandler(srv.schema, version))
+	mux.Handle("/mcp", mcp.NewHandler(srv.schema, runtime.Version))
 
 	// WebSocket (no compression — it has its own framing)
 	mux.HandleFunc("GET /ws", srv.handleWebSocket)
@@ -66,7 +68,7 @@ func New(addr string, s *store.Store, hub *ws.Hub, frontendFS fs.FS, version str
 		})
 	}
 
-	if debug {
+	if runtime.Debug {
 		base := handler
 		instrumented := otelhttp.NewHandler(base, "",
 			otelhttp.WithSpanNameFormatter(func(_ string, r *http.Request) string {
@@ -85,16 +87,36 @@ func New(addr string, s *store.Store, hub *ws.Hub, frontendFS fs.FS, version str
 		})
 	}
 	srv.httpServer = &http.Server{
-		Addr:    addr,
+		Addr:    runtime.HTTPAddr,
 		Handler: handler,
 	}
 
 	return srv
 }
 
-// Start starts the HTTP server. It blocks until the server is shut down.
-func (s *Server) Start(_ context.Context) error {
-	return s.httpServer.ListenAndServe()
+// Listen binds the configured HTTP listener without serving. Splitting listen
+// from Serve lets the daemon entry point report bind errors back to the
+// parent before signaling "ready". Safe to call more than once.
+func (s *Server) Listen(ctx context.Context) error {
+	if s.listener != nil {
+		return nil
+	}
+	var lc net.ListenConfig
+	ln, err := lc.Listen(ctx, "tcp", s.httpServer.Addr)
+	if err != nil {
+		return err
+	}
+	s.listener = ln
+	return nil
+}
+
+// Start starts the HTTP server. It blocks until the server is shut down. If
+// Listen has not been called yet, Start binds the listener itself.
+func (s *Server) Start(ctx context.Context) error {
+	if err := s.Listen(ctx); err != nil {
+		return err
+	}
+	return s.httpServer.Serve(s.listener)
 }
 
 // Shutdown gracefully shuts down the HTTP server.

@@ -13,6 +13,7 @@ package graphql
 
 import (
 	_ "embed"
+	"time"
 
 	gql "github.com/graph-gophers/graphql-go"
 
@@ -22,11 +23,23 @@ import (
 //go:embed schema.graphql
 var schemaSource string
 
+// RuntimeInfo is captured once at startup and passed to the resolver so the
+// `status` query can report process-level state without reaching into
+// package globals.
+type RuntimeInfo struct {
+	Version      string
+	StartedAt    time.Time
+	HTTPAddr     string
+	OTLPGRPCAddr string
+	OTLPHTTPAddr string
+	Debug        bool
+}
+
 // MustNewSchema parses the embedded schema and binds it to a resolver backed
 // by the given store. It panics on schema errors so misconfigurations fail at
 // startup, not at query time.
-func MustNewSchema(s *store.Store) *gql.Schema {
-	return gql.MustParseSchema(schemaSource, &Resolver{store: s}, gql.Tracer(slogTracer{}))
+func MustNewSchema(s *store.Store, runtime RuntimeInfo) *gql.Schema {
+	return gql.MustParseSchema(schemaSource, &Resolver{store: s, runtime: runtime}, gql.Tracer(slogTracer{}))
 }
 
 // Source returns the raw GraphQL schema document. Useful for tests and for
