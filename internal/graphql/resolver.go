@@ -42,6 +42,8 @@ func (s *StatusResolver) UptimeMs() float64 {
 func (s *StatusResolver) HTTPAddr() string        { return s.parent.runtime.HTTPAddr }
 func (s *StatusResolver) OTLPGrpcAddr() string    { return s.parent.runtime.OTLPGRPCAddr }
 func (s *StatusResolver) OTLPHTTPAddr() string    { return s.parent.runtime.OTLPHTTPAddr }
+func (s *StatusResolver) ProxyURL() string        { return s.parent.runtime.ProxyURL }
+func (s *StatusResolver) ProxyProtocol() string   { return s.parent.runtime.ProxyProtocol }
 func (s *StatusResolver) Debug() bool             { return s.parent.runtime.Debug }
 func (s *StatusResolver) Config() *ConfigResolver { return s.parent.Config() }
 

@@ -57,8 +57,35 @@ debug = true
 	if cfg.OTLPGRPCAddr != DefaultOTLPGRPCAddr {
 		t.Errorf("OTLPGRPCAddr = %q, want default %q", cfg.OTLPGRPCAddr, DefaultOTLPGRPCAddr)
 	}
+	if cfg.ProxyURL != DefaultProxyURL {
+		t.Errorf("ProxyURL = %q, want default %q", cfg.ProxyURL, DefaultProxyURL)
+	}
 	if cfg.LogLevel != DefaultLogLevel {
 		t.Errorf("LogLevel = %q, want default %q", cfg.LogLevel, DefaultLogLevel)
+	}
+}
+
+func TestLoad_ProxySettings(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	body := `
+proxy_url = "https://upstream.example.com:4317"
+proxy_protocol = "grpc"
+`
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	t.Setenv(EnvConfigFile, path)
+
+	cfg, _, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.ProxyURL != "https://upstream.example.com:4317" {
+		t.Errorf("ProxyURL = %q", cfg.ProxyURL)
+	}
+	if cfg.ProxyProtocol != "grpc" {
+		t.Errorf("ProxyProtocol = %q", cfg.ProxyProtocol)
 	}
 }
 

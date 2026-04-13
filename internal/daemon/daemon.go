@@ -86,12 +86,14 @@ func MetadataFile() (string, error) {
 // intentionally kept out of this file — they come from the GraphQL status
 // query so we have a single source of truth.
 type Metadata struct {
-	PID          int       `json:"pid"`
-	StartedAt    time.Time `json:"startedAt"`
-	HTTPAddr     string    `json:"httpAddr"`
-	OTLPGRPCAddr string    `json:"otlpGrpcAddr"`
-	OTLPHTTPAddr string    `json:"otlpHttpAddr"`
-	Version      string    `json:"version"`
+	PID           int       `json:"pid"`
+	StartedAt     time.Time `json:"startedAt"`
+	HTTPAddr      string    `json:"httpAddr"`
+	OTLPGRPCAddr  string    `json:"otlpGrpcAddr"`
+	OTLPHTTPAddr  string    `json:"otlpHttpAddr"`
+	ProxyURL      string    `json:"proxyUrl"`
+	ProxyProtocol string    `json:"proxyProtocol"`
+	Version       string    `json:"version"`
 }
 
 // WriteMetadata atomically writes the metadata file via temp + rename so

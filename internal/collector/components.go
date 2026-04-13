@@ -3,6 +3,8 @@ package collector
 import (
 	"go.opentelemetry.io/collector/connector"
 	"go.opentelemetry.io/collector/exporter"
+	"go.opentelemetry.io/collector/exporter/otlpexporter"
+	"go.opentelemetry.io/collector/exporter/otlphttpexporter"
 	"go.opentelemetry.io/collector/extension"
 	"go.opentelemetry.io/collector/otelcol"
 	"go.opentelemetry.io/collector/processor"
@@ -21,6 +23,8 @@ func components(exporterFactory exporter.Factory) (otelcol.Factories, error) {
 
 	exporters, err := otelcol.MakeFactoryMap[exporter.Factory](
 		exporterFactory,
+		otlpexporter.NewFactory(),
+		otlphttpexporter.NewFactory(),
 	)
 	if err != nil {
 		return otelcol.Factories{}, err

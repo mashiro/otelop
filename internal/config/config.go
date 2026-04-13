@@ -30,6 +30,8 @@ const (
 	DefaultHTTPAddr      = ":4319"
 	DefaultOTLPGRPCAddr  = "0.0.0.0:4317"
 	DefaultOTLPHTTPAddr  = "0.0.0.0:4318"
+	DefaultProxyURL      = ""
+	DefaultProxyProtocol = ""
 	DefaultTraceCap      = 1000
 	DefaultMetricCap     = 3000
 	DefaultLogCap        = 1000
@@ -44,6 +46,8 @@ type Config struct {
 	HTTPAddr      string `toml:"http"`
 	OTLPGRPCAddr  string `toml:"otlp_grpc"`
 	OTLPHTTPAddr  string `toml:"otlp_http"`
+	ProxyURL      string `toml:"proxy_url"`
+	ProxyProtocol string `toml:"proxy_protocol"`
 	TraceCap      int    `toml:"trace_cap"`
 	MetricCap     int    `toml:"metric_cap"`
 	LogCap        int    `toml:"log_cap"`
@@ -60,6 +64,8 @@ func Defaults() Config {
 		HTTPAddr:      DefaultHTTPAddr,
 		OTLPGRPCAddr:  DefaultOTLPGRPCAddr,
 		OTLPHTTPAddr:  DefaultOTLPHTTPAddr,
+		ProxyURL:      DefaultProxyURL,
+		ProxyProtocol: DefaultProxyProtocol,
 		TraceCap:      DefaultTraceCap,
 		MetricCap:     DefaultMetricCap,
 		LogCap:        DefaultLogCap,

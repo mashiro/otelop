@@ -56,6 +56,10 @@ type Status {
   otlpGrpcAddr: String!
   "OTLP HTTP receiver listen address."
   otlpHttpAddr: String!
+  "Upstream OTLP forwarding target, or empty when forwarding is disabled."
+  proxyUrl: String!
+  "Upstream OTLP forwarding protocol (`grpc` or `http`), or empty when disabled."
+  proxyProtocol: String!
   "True when self-telemetry is enabled via --debug."
   debug: Boolean!
   "Ring buffer capacity and current counts."
