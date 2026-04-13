@@ -56,14 +56,14 @@ service:
   pipelines:
     traces:
       receivers: [otlp]
-      exporters: [%s]
+      exporters: [%[5]s]
     metrics:
       receivers: [otlp]
-      exporters: [%s]
+      exporters: [%[5]s]
     logs:
       receivers: [otlp]
-      exporters: [%s]
-`, cfg.GRPCEndpoint, cfg.HTTPEndpoint, exporterConfig, cfg.LogLevel, pipelineExporters, pipelineExporters, pipelineExporters)
+      exporters: [%[5]s]
+`, cfg.GRPCEndpoint, cfg.HTTPEndpoint, exporterConfig, cfg.LogLevel, pipelineExporters)
 }
 
 func buildProxyExporterConfig(cfg Config) (string, string) {

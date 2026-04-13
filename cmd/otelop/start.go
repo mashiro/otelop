@@ -391,7 +391,7 @@ func normalizeProxyAuthType(v string) string {
 
 func validateProxyOptions(opts startOptions) error {
 	if opts.ProxyURL == "" && opts.ProxyProtocol == "" {
-		if hasProxyAuth(opts.ProxyAuth) {
+		if opts.ProxyAuth.Type != "" || hasProxyAuthFields(opts.ProxyAuth) {
 			return errors.New("proxy auth requires --proxy-url and --proxy-protocol")
 		}
 		return nil
@@ -402,44 +402,33 @@ func validateProxyOptions(opts startOptions) error {
 	if opts.ProxyProtocol == "" {
 		return errors.New("proxy-url requires --proxy-protocol (grpc|http)")
 	}
-	if err := validateProxyURLSecrets(opts.ProxyURL); err != nil {
-		return err
-	}
-	if err := validateProxyAuth(opts.ProxyAuth); err != nil {
-		return err
-	}
-	switch opts.ProxyProtocol {
-	case "grpc":
-		if err := validateGRPCProxyURL(opts.ProxyURL); err != nil {
-			return err
-		}
-		return validateNoSelfProxy(opts.ProxyURL, opts.OTLPGRPCAddr, "grpc")
-	case "http":
-		if err := validateHTTPProxyURL(opts.ProxyURL); err != nil {
-			return err
-		}
-		return validateNoSelfProxy(opts.ProxyURL, opts.OTLPHTTPAddr, "http")
-	default:
-		return fmt.Errorf("invalid proxy-protocol %q: want grpc or http", opts.ProxyProtocol)
-	}
-}
-
-func validateProxyURLSecrets(raw string) error {
-	u, err := url.Parse(raw)
+	u, err := url.Parse(opts.ProxyURL)
 	if err != nil {
 		return fmt.Errorf("invalid proxy-url: %w", err)
 	}
 	if u.User != nil {
 		return errors.New("proxy-url must not contain embedded credentials; use --proxy-auth-* instead")
 	}
-	return nil
+	if err := validateProxyAuth(opts.ProxyAuth); err != nil {
+		return err
+	}
+	switch opts.ProxyProtocol {
+	case "grpc":
+		if err := validateGRPCProxyURL(u, opts.ProxyURL); err != nil {
+			return err
+		}
+		return validateNoSelfProxy(u, opts.ProxyURL, opts.OTLPGRPCAddr, "grpc")
+	case "http":
+		if err := validateHTTPProxyURL(u, opts.ProxyURL); err != nil {
+			return err
+		}
+		return validateNoSelfProxy(u, opts.ProxyURL, opts.OTLPHTTPAddr, "http")
+	default:
+		return fmt.Errorf("invalid proxy-protocol %q: want grpc or http", opts.ProxyProtocol)
+	}
 }
 
-func validateGRPCProxyURL(raw string) error {
-	u, err := url.Parse(raw)
-	if err != nil {
-		return fmt.Errorf("invalid proxy-url: %w", err)
-	}
+func validateGRPCProxyURL(u *url.URL, raw string) error {
 	if u.Scheme == "" {
 		if raw == "" || strings.Contains(raw, "/") {
 			return fmt.Errorf("invalid proxy-url %q for grpc: want host:port or http(s)://host:port", raw)
@@ -457,11 +446,7 @@ func validateGRPCProxyURL(raw string) error {
 	}
 }
 
-func validateHTTPProxyURL(raw string) error {
-	u, err := url.Parse(raw)
-	if err != nil {
-		return fmt.Errorf("invalid proxy-url: %w", err)
-	}
+func validateHTTPProxyURL(u *url.URL, raw string) error {
 	if u.Scheme == "" || u.Host == "" {
 		return fmt.Errorf("invalid proxy-url %q for http: want http://host:port or https://host:port", raw)
 	}
@@ -507,12 +492,12 @@ func validateProxyAuth(auth proxyAuthOptions) error {
 	return nil
 }
 
-func validateNoSelfProxy(proxyURL, listenAddr, protocol string) error {
-	target, err := comparableProxyHostPort(proxyURL, protocol)
+func validateNoSelfProxy(u *url.URL, proxyURL, listenAddr, protocol string) error {
+	target, err := comparableProxyHostPort(u, proxyURL, protocol)
 	if err != nil {
 		return err
 	}
-	local, err := comparableListenHostPort(listenAddr)
+	local, err := normalizeHostPort(listenAddr)
 	if err != nil {
 		return err
 	}
@@ -522,30 +507,11 @@ func validateNoSelfProxy(proxyURL, listenAddr, protocol string) error {
 	return nil
 }
 
-func comparableProxyHostPort(proxyURL, protocol string) (string, error) {
-	if protocol == "grpc" {
-		u, err := url.Parse(proxyURL)
-		if err != nil {
-			return "", fmt.Errorf("invalid proxy-url: %w", err)
-		}
-		if u.Scheme == "" {
-			return normalizeHostPort(proxyURL)
-		}
-		return normalizeHostPort(u.Host)
-	}
-	u, err := url.Parse(proxyURL)
-	if err != nil {
-		return "", fmt.Errorf("invalid proxy-url: %w", err)
+func comparableProxyHostPort(u *url.URL, proxyURL, protocol string) (string, error) {
+	if protocol == "grpc" && u.Scheme == "" {
+		return normalizeHostPort(proxyURL)
 	}
 	return normalizeHostPort(u.Host)
-}
-
-func comparableListenHostPort(listenAddr string) (string, error) {
-	loopback, err := resolveLoopback(listenAddr)
-	if err != nil {
-		return "", err
-	}
-	return normalizeHostPort(loopback)
 }
 
 func normalizeHostPort(addr string) (string, error) {
@@ -559,10 +525,6 @@ func normalizeHostPort(addr string) (string, error) {
 		host = "localhost"
 	}
 	return net.JoinHostPort(host, port), nil
-}
-
-func hasProxyAuth(auth proxyAuthOptions) bool {
-	return auth.Type != "" || hasProxyAuthFields(auth)
 }
 
 func hasProxyAuthFields(auth proxyAuthOptions) bool {

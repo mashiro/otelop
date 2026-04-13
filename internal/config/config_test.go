@@ -57,8 +57,8 @@ debug = true
 	if cfg.OTLPGRPCAddr != DefaultOTLPGRPCAddr {
 		t.Errorf("OTLPGRPCAddr = %q, want default %q", cfg.OTLPGRPCAddr, DefaultOTLPGRPCAddr)
 	}
-	if cfg.Proxy.URL != DefaultProxyURL {
-		t.Errorf("Proxy.URL = %q, want default %q", cfg.Proxy.URL, DefaultProxyURL)
+	if cfg.Proxy.URL != "" {
+		t.Errorf("Proxy.URL = %q, want empty default", cfg.Proxy.URL)
 	}
 	if cfg.LogLevel != DefaultLogLevel {
 		t.Errorf("LogLevel = %q, want default %q", cfg.LogLevel, DefaultLogLevel)

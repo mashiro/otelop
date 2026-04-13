@@ -30,9 +30,6 @@ const (
 	DefaultHTTPAddr      = ":4319"
 	DefaultOTLPGRPCAddr  = "0.0.0.0:4317"
 	DefaultOTLPHTTPAddr  = "0.0.0.0:4318"
-	DefaultProxyURL      = ""
-	DefaultProxyProtocol = ""
-	DefaultProxyAuthType = ""
 	DefaultTraceCap      = 1000
 	DefaultMetricCap     = 3000
 	DefaultLogCap        = 1000
@@ -75,16 +72,9 @@ type Config struct {
 // values.
 func Defaults() Config {
 	return Config{
-		HTTPAddr:     DefaultHTTPAddr,
-		OTLPGRPCAddr: DefaultOTLPGRPCAddr,
-		OTLPHTTPAddr: DefaultOTLPHTTPAddr,
-		Proxy: ProxyConfig{
-			URL:      DefaultProxyURL,
-			Protocol: DefaultProxyProtocol,
-			Auth: ProxyAuthConfig{
-				Type: DefaultProxyAuthType,
-			},
-		},
+		HTTPAddr:      DefaultHTTPAddr,
+		OTLPGRPCAddr:  DefaultOTLPGRPCAddr,
+		OTLPHTTPAddr:  DefaultOTLPHTTPAddr,
 		TraceCap:      DefaultTraceCap,
 		MetricCap:     DefaultMetricCap,
 		LogCap:        DefaultLogCap,
