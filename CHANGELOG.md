@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.4.0](https://github.com/mashiro/otelop/compare/v0.3.0...v0.4.0) (2026-04-13)
+
+
+### Features
+
+* **cli:** add background daemon mode with start/stop/status ([#27](https://github.com/mashiro/otelop/issues/27)) ([245fdc1](https://github.com/mashiro/otelop/commit/245fdc1ea17975e2668049e7fab9522faea12b22))
+* **cli:** add logs/restart commands and tighten config validation ([#29](https://github.com/mashiro/otelop/issues/29)) ([db06a88](https://github.com/mashiro/otelop/commit/db06a88f6eaaa3e629e8366d1e1475cb6800ab98))
+* **cli:** load start defaults from TOML config and env vars ([#28](https://github.com/mashiro/otelop/issues/28)) ([cc15f73](https://github.com/mashiro/otelop/commit/cc15f733c1513f6c6eb7ddf4fd57e10d1b3d11be))
+
+
+### Bug Fixes
+
+* **deps:** update all non-major dependencies to v19.2.5 ([#23](https://github.com/mashiro/otelop/issues/23)) ([9d92bd8](https://github.com/mashiro/otelop/commit/9d92bd8ba030cbcdaeb170c350f018630eaa6b01))
+* **deps:** update dependency lucide-react to v1.8.0 ([#25](https://github.com/mashiro/otelop/issues/25)) ([e43b3ea](https://github.com/mashiro/otelop/commit/e43b3eaf1c3a48ec0e55f2e67d5ccceaf4f58ebc))
+
 ## [0.3.0](https://github.com/mashiro/otelop/compare/v0.2.0...v0.3.0) (2026-04-11)
 
 
