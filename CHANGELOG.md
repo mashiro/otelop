@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.5.0](https://github.com/mashiro/otelop/compare/v0.4.0...v0.5.0) (2026-04-13)
+
+
+### Features
+
+* **proxy:** add OTLP proxy forwarding ([#34](https://github.com/mashiro/otelop/issues/34)) ([8dc025f](https://github.com/mashiro/otelop/commit/8dc025fc8fc21602d9d2e17db216a0e664dec65c))
+* **server:** enable WebSocket per-message compression ([#38](https://github.com/mashiro/otelop/issues/38)) ([ec6605e](https://github.com/mashiro/otelop/commit/ec6605ed8a4ae2696d6c7f4cbd4ca9b05c9c9097))
+
+
+### Bug Fixes
+
+* **collector:** normalize confmap values for static provider ([#36](https://github.com/mashiro/otelop/issues/36)) ([ace8394](https://github.com/mashiro/otelop/commit/ace8394ba7853a1c8f3c12f9a893b792370e861d))
+* **store:** skip empty metrics to avoid null dataPoints over WebSocket ([#37](https://github.com/mashiro/otelop/issues/37)) ([4d2ba94](https://github.com/mashiro/otelop/commit/4d2ba94a83e75f91f83d60c2457b64440e68364b))
+
 ## [0.4.0](https://github.com/mashiro/otelop/compare/v0.3.0...v0.4.0) (2026-04-13)
 
 
