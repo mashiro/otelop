@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 
 	"github.com/BurntSushi/toml"
 )
@@ -107,8 +109,19 @@ func loadFile(path string) (Config, error) {
 	}
 	// Decode into the already-defaulted struct so omitted keys keep their
 	// fallback values without explicit handling per field.
-	if _, err := toml.Decode(string(data), &cfg); err != nil {
+	md, err := toml.Decode(string(data), &cfg)
+	if err != nil {
 		return Defaults(), fmt.Errorf("parse %s: %w", path, err)
+	}
+	// Refuse unknown keys so a typo (e.g. `htttp = ":4319"`) fails loudly
+	// at startup instead of silently falling back to the default.
+	if undecoded := md.Undecoded(); len(undecoded) > 0 {
+		keys := make([]string, len(undecoded))
+		for i, k := range undecoded {
+			keys[i] = k.String()
+		}
+		sort.Strings(keys)
+		return Defaults(), fmt.Errorf("%s: unknown keys: %s", path, strings.Join(keys, ", "))
 	}
 	return cfg, nil
 }

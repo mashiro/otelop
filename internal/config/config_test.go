@@ -62,6 +62,32 @@ debug = true
 	}
 }
 
+func TestLoad_UnknownKeyRejected(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	body := `
+http = ":4319"
+htttp = ":9999"  # typo
+some_other = 42
+`
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	t.Setenv(EnvConfigFile, path)
+
+	_, _, err := Load()
+	if err == nil {
+		t.Fatal("Load returned nil for config with unknown keys")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "unknown keys") {
+		t.Errorf("error message = %q, want it to mention 'unknown keys'", msg)
+	}
+	if !strings.Contains(msg, "htttp") || !strings.Contains(msg, "some_other") {
+		t.Errorf("error message = %q, want both unknown keys listed", msg)
+	}
+}
+
 func TestLoad_ParseError(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")

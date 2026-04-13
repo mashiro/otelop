@@ -120,6 +120,8 @@ export type Query = {
   logs: LogConnection;
   /** List metrics newest-first. */
   metrics: MetricConnection;
+  /** Runtime info for the running otelop instance. Consumed by `otelop status`. */
+  status: Status;
   /** Fetch a single trace by its hex-encoded trace ID. */
   trace?: Maybe<Trace>;
   /** List traces newest-first. */
@@ -178,6 +180,25 @@ export type SpanEvent = {
   attributes: Scalars['JSON']['output'];
   name: Scalars['String']['output'];
   timestamp: Scalars['Time']['output'];
+};
+
+export type Status = {
+  __typename?: 'Status';
+  /** Ring buffer capacity and current counts. */
+  config: Config;
+  /** True when self-telemetry is enabled via --debug. */
+  debug: Scalars['Boolean']['output'];
+  /** HTTP / Web UI listen address as passed on the command line. */
+  httpAddr: Scalars['String']['output'];
+  /** OTLP gRPC receiver listen address. */
+  otlpGrpcAddr: Scalars['String']['output'];
+  /** OTLP HTTP receiver listen address. */
+  otlpHttpAddr: Scalars['String']['output'];
+  /** Server start time (RFC3339). */
+  startedAt: Scalars['Time']['output'];
+  /** Milliseconds since the server started. */
+  uptimeMs: Scalars['Float']['output'];
+  version: Scalars['String']['output'];
 };
 
 export type Trace = {
