@@ -1,26 +1,34 @@
 package collector
 
 import (
-	"strings"
+	"reflect"
 	"testing"
 )
 
-func TestBuildConfig_WithoutProxy(t *testing.T) {
-	cfg := buildConfig(Config{
+func TestBuildConfigMap_WithoutProxy(t *testing.T) {
+	cfg := buildConfigMap(Config{
 		GRPCEndpoint: "0.0.0.0:4317",
 		HTTPEndpoint: "0.0.0.0:4318",
 		LogLevel:     "warn",
 	})
-	if strings.Contains(cfg, "otlp_grpc/proxy") || strings.Contains(cfg, "otlphttp/proxy") {
-		t.Fatalf("buildConfig unexpectedly included proxy exporter:\n%s", cfg)
+	exporters := cfg["exporters"].(map[string]any)
+	if _, ok := exporters["otlp_grpc/proxy"]; ok {
+		t.Fatalf("buildConfigMap unexpectedly included grpc proxy exporter")
 	}
-	if strings.Count(cfg, "exporters: [otelop]") != 3 {
-		t.Fatalf("buildConfig should keep otelop-only pipelines:\n%s", cfg)
+	if _, ok := exporters["otlphttp/proxy"]; ok {
+		t.Fatalf("buildConfigMap unexpectedly included http proxy exporter")
+	}
+	pipelines := cfg["service"].(map[string]any)["pipelines"].(map[string]any)
+	for _, name := range []string{"traces", "metrics", "logs"} {
+		got := pipelines[name].(map[string]any)["exporters"].([]any)
+		if !reflect.DeepEqual(got, []any{"otelop"}) {
+			t.Fatalf("%s exporters = %#v", name, got)
+		}
 	}
 }
 
-func TestBuildConfig_WithGRPCProxy(t *testing.T) {
-	cfg := buildConfig(Config{
+func TestBuildConfigMap_WithGRPCProxy(t *testing.T) {
+	cfg := buildConfigMap(Config{
 		GRPCEndpoint:  "0.0.0.0:4317",
 		HTTPEndpoint:  "0.0.0.0:4318",
 		ProxyURL:      "http://upstream.example.com:4317",
@@ -30,25 +38,32 @@ func TestBuildConfig_WithGRPCProxy(t *testing.T) {
 		},
 		LogLevel: "info",
 	})
-	if !strings.Contains(cfg, `otlp_grpc/proxy:`) {
-		t.Fatalf("buildConfig missing grpc proxy exporter:\n%s", cfg)
+	exporters := cfg["exporters"].(map[string]any)
+	exp, ok := exporters["otlp_grpc/proxy"].(map[string]any)
+	if !ok {
+		t.Fatalf("buildConfigMap missing grpc proxy exporter")
 	}
-	if !strings.Contains(cfg, `endpoint: "upstream.example.com:4317"`) {
-		t.Fatalf("buildConfig missing normalized grpc endpoint:\n%s", cfg)
+	if exp["endpoint"] != "upstream.example.com:4317" {
+		t.Fatalf("grpc endpoint = %#v", exp["endpoint"])
 	}
-	if !strings.Contains(cfg, "insecure: true") {
-		t.Fatalf("buildConfig missing insecure grpc tls config:\n%s", cfg)
+	if !reflect.DeepEqual(exp["tls"], map[string]any{"insecure": true}) {
+		t.Fatalf("grpc tls = %#v", exp["tls"])
 	}
-	if !strings.Contains(cfg, `"Authorization": "Bearer token"`) {
-		t.Fatalf("buildConfig missing grpc proxy headers:\n%s", cfg)
+	headers := exp["headers"].(map[string]any)
+	if headers["Authorization"] != "Bearer token" {
+		t.Fatalf("grpc headers = %#v", headers)
 	}
-	if strings.Count(cfg, "exporters: [otelop, otlp_grpc/proxy]") != 3 {
-		t.Fatalf("buildConfig should fan out all pipelines to grpc proxy:\n%s", cfg)
+	pipelines := cfg["service"].(map[string]any)["pipelines"].(map[string]any)
+	for _, name := range []string{"traces", "metrics", "logs"} {
+		got := pipelines[name].(map[string]any)["exporters"].([]any)
+		if !reflect.DeepEqual(got, []any{"otelop", "otlp_grpc/proxy"}) {
+			t.Fatalf("%s exporters = %#v", name, got)
+		}
 	}
 }
 
-func TestBuildConfig_WithHTTPProxy(t *testing.T) {
-	cfg := buildConfig(Config{
+func TestBuildConfigMap_WithHTTPProxy(t *testing.T) {
+	cfg := buildConfigMap(Config{
 		GRPCEndpoint:  "0.0.0.0:4317",
 		HTTPEndpoint:  "0.0.0.0:4318",
 		ProxyURL:      "http://upstream.example.com:4318",
@@ -58,16 +73,23 @@ func TestBuildConfig_WithHTTPProxy(t *testing.T) {
 		},
 		LogLevel: "debug",
 	})
-	if !strings.Contains(cfg, `otlphttp/proxy:`) {
-		t.Fatalf("buildConfig missing http proxy exporter:\n%s", cfg)
+	exporters := cfg["exporters"].(map[string]any)
+	exp, ok := exporters["otlphttp/proxy"].(map[string]any)
+	if !ok {
+		t.Fatalf("buildConfigMap missing http proxy exporter")
 	}
-	if !strings.Contains(cfg, `endpoint: "http://upstream.example.com:4318"`) {
-		t.Fatalf("buildConfig missing http proxy endpoint:\n%s", cfg)
+	if exp["endpoint"] != "http://upstream.example.com:4318" {
+		t.Fatalf("http endpoint = %#v", exp["endpoint"])
 	}
-	if !strings.Contains(cfg, `"x-api-key": "secret"`) {
-		t.Fatalf("buildConfig missing http proxy headers:\n%s", cfg)
+	headers := exp["headers"].(map[string]any)
+	if headers["x-api-key"] != "secret" {
+		t.Fatalf("http headers = %#v", headers)
 	}
-	if strings.Count(cfg, "exporters: [otelop, otlphttp/proxy]") != 3 {
-		t.Fatalf("buildConfig should fan out all pipelines to http proxy:\n%s", cfg)
+	pipelines := cfg["service"].(map[string]any)["pipelines"].(map[string]any)
+	for _, name := range []string{"traces", "metrics", "logs"} {
+		got := pipelines[name].(map[string]any)["exporters"].([]any)
+		if !reflect.DeepEqual(got, []any{"otelop", "otlphttp/proxy"}) {
+			t.Fatalf("%s exporters = %#v", name, got)
+		}
 	}
 }
