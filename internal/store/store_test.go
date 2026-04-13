@@ -338,6 +338,73 @@ func TestAttributesToMap_NonFiniteDoubles(t *testing.T) {
 	}
 }
 
+func TestStore_AddMetrics_SkipsEmptyMetrics(t *testing.T) {
+	var notified []*MetricData
+	s := NewStore(10, 10, 10, 100, func(sig SignalType, data any) {
+		if sig == SignalMetrics {
+			notified = append(notified, data.(*MetricData))
+		}
+	})
+
+	// First scrape of a cumulative monotonic Sum: delta baseline, no points emitted.
+	md1 := pmetric.NewMetrics()
+	rm1 := md1.ResourceMetrics().AppendEmpty()
+	rm1.Resource().Attributes().PutStr("service.name", "svc")
+	sm1 := rm1.ScopeMetrics().AppendEmpty()
+	m1 := sm1.Metrics().AppendEmpty()
+	m1.SetName("requests.total")
+	sum1 := m1.SetEmptySum()
+	sum1.SetIsMonotonic(true)
+	sum1.SetAggregationTemporality(pmetric.AggregationTemporalityCumulative)
+	sum1.DataPoints().AppendEmpty().SetIntValue(100)
+
+	s.AddMetrics(md1)
+
+	if got := s.GetMetrics(); len(got) != 0 {
+		t.Fatalf("baseline scrape should not be stored, got %d metrics", len(got))
+	}
+	if len(notified) != 0 {
+		t.Fatalf("baseline scrape should not notify subscribers, got %d", len(notified))
+	}
+
+	// Second scrape produces a real delta — metric should now appear.
+	md2 := pmetric.NewMetrics()
+	rm2 := md2.ResourceMetrics().AppendEmpty()
+	rm2.Resource().Attributes().PutStr("service.name", "svc")
+	sm2 := rm2.ScopeMetrics().AppendEmpty()
+	m2 := sm2.Metrics().AppendEmpty()
+	m2.SetName("requests.total")
+	sum2 := m2.SetEmptySum()
+	sum2.SetIsMonotonic(true)
+	sum2.SetAggregationTemporality(pmetric.AggregationTemporalityCumulative)
+	sum2.DataPoints().AppendEmpty().SetIntValue(150)
+
+	s.AddMetrics(md2)
+
+	metrics := s.GetMetrics()
+	if len(metrics) != 1 || len(metrics[0].DataPoints) != 1 {
+		t.Fatalf("expected 1 metric with 1 delta point, got %+v", metrics)
+	}
+	if len(notified) != 1 {
+		t.Fatalf("expected 1 notification, got %d", len(notified))
+	}
+
+	// The broadcast payload must serialize dataPoints as a real array, never null.
+	payload, err := json.Marshal(notified[0])
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var decoded struct {
+		DataPoints []map[string]any `json:"dataPoints"`
+	}
+	if err := json.Unmarshal(payload, &decoded); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if decoded.DataPoints == nil {
+		t.Fatalf("dataPoints must not serialize as null: %s", payload)
+	}
+}
+
 func TestStore_AddMetrics_DifferentNames(t *testing.T) {
 	s := NewStore(10, 10, 10, 100, nil)
 
