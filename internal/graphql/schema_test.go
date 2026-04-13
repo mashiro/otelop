@@ -97,7 +97,7 @@ func seedStore(t *testing.T) *store.Store {
 
 func exec(t *testing.T, s *store.Store, query string, vars map[string]any) map[string]any {
 	t.Helper()
-	schema := otelopgraphql.MustNewSchema(s)
+	schema := otelopgraphql.MustNewSchema(s, otelopgraphql.RuntimeInfo{})
 	resp := schema.Exec(context.Background(), query, "", vars)
 	if len(resp.Errors) > 0 {
 		t.Fatalf("graphql errors: %+v", resp.Errors)
@@ -111,7 +111,59 @@ func exec(t *testing.T, s *store.Store, query string, vars map[string]any) map[s
 
 func TestSchemaParses(t *testing.T) {
 	// Panic here would mean the schema.graphql and resolver surface are out of sync.
-	otelopgraphql.MustNewSchema(store.NewStore(1, 1, 1, 1, nil))
+	otelopgraphql.MustNewSchema(store.NewStore(1, 1, 1, 1, nil), otelopgraphql.RuntimeInfo{})
+}
+
+func TestStatusQuery(t *testing.T) {
+	s := seedStore(t)
+	started := time.Date(2026, 4, 13, 10, 0, 0, 0, time.UTC)
+	runtime := otelopgraphql.RuntimeInfo{
+		Version:      "v1.2.3",
+		StartedAt:    started,
+		HTTPAddr:     ":4319",
+		OTLPGRPCAddr: "0.0.0.0:4317",
+		OTLPHTTPAddr: "0.0.0.0:4318",
+		Debug:        true,
+	}
+	schema := otelopgraphql.MustNewSchema(s, runtime)
+	resp := schema.Exec(context.Background(), `{
+		status {
+			version
+			startedAt
+			httpAddr
+			otlpGrpcAddr
+			otlpHttpAddr
+			debug
+			config { traceCount metricCount logCount traceCap }
+		}
+	}`, "", nil)
+	if len(resp.Errors) > 0 {
+		t.Fatalf("graphql errors: %+v", resp.Errors)
+	}
+	var data map[string]any
+	if err := json.Unmarshal(resp.Data, &data); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	st := data["status"].(map[string]any)
+	if st["version"] != "v1.2.3" {
+		t.Errorf("version = %v, want v1.2.3", st["version"])
+	}
+	if st["httpAddr"] != ":4319" {
+		t.Errorf("httpAddr = %v", st["httpAddr"])
+	}
+	if st["otlpGrpcAddr"] != "0.0.0.0:4317" {
+		t.Errorf("otlpGrpcAddr = %v", st["otlpGrpcAddr"])
+	}
+	if st["debug"] != true {
+		t.Errorf("debug = %v", st["debug"])
+	}
+	cfg := st["config"].(map[string]any)
+	if cfg["traceCount"].(float64) != 2 {
+		t.Errorf("config.traceCount = %v, want 2", cfg["traceCount"])
+	}
+	if cfg["traceCap"].(float64) != 10 {
+		t.Errorf("config.traceCap = %v, want 10", cfg["traceCap"])
+	}
 }
 
 func TestConfig(t *testing.T) {

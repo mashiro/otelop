@@ -2,4 +2,4 @@
 #MISE description="Build and run otelop"
 #MISE depends=["build"]
 set -euo pipefail
-./otelop
+./otelop start --foreground

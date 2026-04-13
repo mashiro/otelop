@@ -10,6 +10,9 @@ type Query {
   "Ring buffer capacity and current counts."
   config: Config!
 
+  "Runtime info for the running otelop instance. Consumed by `otelop status`."
+  status: Status!
+
   "List traces newest-first."
   traces(limit: Int = 50, offset: Int = 0): TraceConnection!
 
@@ -39,6 +42,24 @@ type Config {
   traceCount: Int!
   metricCount: Int!
   logCount: Int!
+}
+
+type Status {
+  version: String!
+  "Server start time (RFC3339)."
+  startedAt: Time!
+  "Milliseconds since the server started."
+  uptimeMs: Float!
+  "HTTP / Web UI listen address as passed on the command line."
+  httpAddr: String!
+  "OTLP gRPC receiver listen address."
+  otlpGrpcAddr: String!
+  "OTLP HTTP receiver listen address."
+  otlpHttpAddr: String!
+  "True when self-telemetry is enabled via --debug."
+  debug: Boolean!
+  "Ring buffer capacity and current counts."
+  config: Config!
 }
 
 type TraceConnection {

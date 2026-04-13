@@ -1,6 +1,8 @@
 package graphql
 
 import (
+	"time"
+
 	gql "github.com/graph-gophers/graphql-go"
 
 	"github.com/mashiro/otelop/internal/store"
@@ -10,7 +12,8 @@ import (
 // reference shared with every sub-resolver so nested fields (e.g. Trace.logs)
 // can reach back for correlated data without threading extra state through.
 type Resolver struct {
-	store *store.Store
+	store   *store.Store
+	runtime RuntimeInfo
 }
 
 func (r *Resolver) Config() *ConfigResolver {
@@ -22,6 +25,25 @@ func (r *Resolver) Config() *ConfigResolver {
 		traceCount:    int32(tn), metricCount: int32(mn), logCount: int32(ln),
 	}
 }
+
+func (r *Resolver) Status() *StatusResolver {
+	return &StatusResolver{parent: r}
+}
+
+type StatusResolver struct {
+	parent *Resolver
+}
+
+func (s *StatusResolver) Version() string     { return s.parent.runtime.Version }
+func (s *StatusResolver) StartedAt() gql.Time { return gql.Time{Time: s.parent.runtime.StartedAt} }
+func (s *StatusResolver) UptimeMs() float64 {
+	return float64(time.Since(s.parent.runtime.StartedAt).Milliseconds())
+}
+func (s *StatusResolver) HTTPAddr() string        { return s.parent.runtime.HTTPAddr }
+func (s *StatusResolver) OTLPGrpcAddr() string    { return s.parent.runtime.OTLPGRPCAddr }
+func (s *StatusResolver) OTLPHTTPAddr() string    { return s.parent.runtime.OTLPHTTPAddr }
+func (s *StatusResolver) Debug() bool             { return s.parent.runtime.Debug }
+func (s *StatusResolver) Config() *ConfigResolver { return s.parent.Config() }
 
 type TracesArgs struct {
 	Limit  int32

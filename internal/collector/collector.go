@@ -39,6 +39,11 @@ service:
   telemetry:
     logs:
       level: %s
+    # Disable the Collector's own Prometheus self-metrics listener on :8888.
+    # otelop doesn't consume it anywhere and the listener would conflict with
+    # a second otelop instance on the same host.
+    metrics:
+      level: none
   pipelines:
     traces:
       receivers: [otlp]
