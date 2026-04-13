@@ -14,6 +14,8 @@ import (
 
 var version = "dev"
 
+type obj map[string]any
+
 // Config holds runtime-configurable collector settings.
 type Config struct {
 	GRPCEndpoint  string
@@ -27,54 +29,66 @@ type Config struct {
 func buildConfigMap(cfg Config) map[string]any {
 	exporters, pipelineExporters := buildProxyExporterConfig(cfg)
 
-	return map[string]any{
-		"receivers": map[string]any{
-			"otlp": map[string]any{
-				"protocols": map[string]any{
-					"grpc": map[string]any{
-						"endpoint": cfg.GRPCEndpoint,
-					},
-					"http": map[string]any{
-						"endpoint": cfg.HTTPEndpoint,
-						"cors": map[string]any{
-							"allowed_origins": []any{"*"},
-						},
-					},
-				},
-			},
-		},
+	return obj{
+		"receivers": buildReceiversConfig(cfg),
 		"exporters": exporters,
-		"service": map[string]any{
-			"telemetry": map[string]any{
-				"logs": map[string]any{
-					"level": cfg.LogLevel,
+		"service":   buildServiceConfig(cfg, pipelineExporters),
+	}
+}
+
+func buildReceiversConfig(cfg Config) obj {
+	return obj{
+		"otlp": obj{
+			"protocols": obj{
+				"grpc": obj{
+					"endpoint": cfg.GRPCEndpoint,
 				},
-				// Disable the Collector's own Prometheus self-metrics listener on :8888.
-				// otelop doesn't consume it anywhere and the listener would conflict with
-				// a second otelop instance on the same host.
-				"metrics": map[string]any{
-					"level": "none",
+				"http": obj{
+					"endpoint": cfg.HTTPEndpoint,
+					"cors": obj{
+						"allowed_origins": []any{"*"},
+					},
 				},
-			},
-			"pipelines": map[string]any{
-				"traces":  buildPipelineConfig(pipelineExporters),
-				"metrics": buildPipelineConfig(pipelineExporters),
-				"logs":    buildPipelineConfig(pipelineExporters),
 			},
 		},
 	}
 }
 
-func buildPipelineConfig(exporters []any) map[string]any {
-	return map[string]any{
+func buildServiceConfig(cfg Config, pipelineExporters []any) obj {
+	return obj{
+		"telemetry": buildTelemetryConfig(cfg),
+		"pipelines": obj{
+			"traces":  buildPipelineConfig(pipelineExporters),
+			"metrics": buildPipelineConfig(pipelineExporters),
+			"logs":    buildPipelineConfig(pipelineExporters),
+		},
+	}
+}
+
+func buildTelemetryConfig(cfg Config) obj {
+	return obj{
+		"logs": obj{
+			"level": cfg.LogLevel,
+		},
+		// Disable the Collector's own Prometheus self-metrics listener on :8888.
+		// otelop doesn't consume it anywhere and the listener would conflict with
+		// a second otelop instance on the same host.
+		"metrics": obj{
+			"level": "none",
+		},
+	}
+}
+
+func buildPipelineConfig(exporters []any) obj {
+	return obj{
 		"receivers": []any{"otlp"},
 		"exporters": exporters,
 	}
 }
 
-func buildProxyExporterConfig(cfg Config) (map[string]any, []any) {
-	exporters := map[string]any{
-		"otelop": map[string]any{},
+func buildProxyExporterConfig(cfg Config) (obj, []any) {
+	exporters := obj{
+		"otelop": obj{},
 	}
 	pipelineExporters := []any{"otelop"}
 	if cfg.ProxyURL == "" || cfg.ProxyProtocol == "" {
@@ -84,11 +98,11 @@ func buildProxyExporterConfig(cfg Config) (map[string]any, []any) {
 	switch cfg.ProxyProtocol {
 	case "grpc":
 		endpoint, insecure := normalizeGRPCProxyURL(cfg.ProxyURL)
-		exp := map[string]any{
+		exp := obj{
 			"endpoint": endpoint,
 		}
 		if insecure {
-			exp["tls"] = map[string]any{"insecure": true}
+			exp["tls"] = obj{"insecure": true}
 		}
 		if headers := renderHeaders(cfg.ProxyHeaders); len(headers) > 0 {
 			exp["headers"] = headers
@@ -96,7 +110,7 @@ func buildProxyExporterConfig(cfg Config) (map[string]any, []any) {
 		exporters["otlp_grpc/proxy"] = exp
 		pipelineExporters = append(pipelineExporters, "otlp_grpc/proxy")
 	case "http":
-		exp := map[string]any{
+		exp := obj{
 			"endpoint": cfg.ProxyURL,
 		}
 		if headers := renderHeaders(cfg.ProxyHeaders); len(headers) > 0 {
@@ -108,7 +122,7 @@ func buildProxyExporterConfig(cfg Config) (map[string]any, []any) {
 	return exporters, pipelineExporters
 }
 
-func renderHeaders(headers map[string]string) map[string]any {
+func renderHeaders(headers map[string]string) obj {
 	if len(headers) == 0 {
 		return nil
 	}
@@ -117,7 +131,7 @@ func renderHeaders(headers map[string]string) map[string]any {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
-	out := make(map[string]any, len(headers))
+	out := make(obj, len(headers))
 	for _, k := range keys {
 		out[k] = headers[k]
 	}
@@ -172,14 +186,14 @@ func New(exporterFactory exporter.Factory, cfg Config) (*otelcol.Collector, erro
 	return otelcol.NewCollector(set)
 }
 
-func newStaticProviderFactory(cfg map[string]any) confmap.ProviderFactory {
+func newStaticProviderFactory(cfg obj) confmap.ProviderFactory {
 	return confmap.NewProviderFactory(func(confmap.ProviderSettings) confmap.Provider {
 		return &staticProvider{cfg: cfg}
 	})
 }
 
 type staticProvider struct {
-	cfg map[string]any
+	cfg obj
 }
 
 func (p *staticProvider) Retrieve(_ context.Context, _ string, _ confmap.WatcherFunc) (*confmap.Retrieved, error) {
