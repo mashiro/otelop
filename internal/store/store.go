@@ -105,6 +105,14 @@ func (s *Store) AddMetrics(md pmetric.Metrics) {
 	notify := make([]*MetricData, 0, len(converted))
 	s.mu.Lock()
 	for _, m := range converted {
+		// Cumulative baselines (and scrapes where every point was filtered as
+		// non-finite) leave DataPoints as a nil slice. Go marshals that as
+		// JSON null, which crashes the WebSocket consumer reading
+		// `dataPoints.length`. The series store already captured the baseline,
+		// so the next scrape will emit a real delta — drop the empty metric.
+		if len(m.DataPoints) == 0 {
+			continue
+		}
 		key := metricKey(m.ServiceName, m.Name)
 		if idx, ok := s.metricIndex[key]; ok {
 			if existing := s.metrics.Get(idx); existing != nil && existing.Name == m.Name && existing.ServiceName == m.ServiceName {
