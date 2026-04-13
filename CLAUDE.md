@@ -1,56 +1,66 @@
-# otelop 開発ガイドライン
+# otelop Development Guidelines
 
-## プロジェクト概要
+## Project Overview
 
-OpenTelemetry シグナル（Traces / Metrics / Logs）をブラウザでリアルタイム可視化するローカル開発向けツール。
+A local-development tool for visualizing OpenTelemetry signals (Traces / Metrics / Logs) in the browser in real time.
 
-## 開発コマンド
+## Development Commands
 
 ```bash
-mise run dev      # 開発サーバー起動
-mise run check    # フォーマット・lint・型チェック
-mise run test     # Go + フロントエンドテスト実行
-mise run build    # ビルド
+mise run dev      # Start the dev server
+mise run check    # Format, lint, type-check
+mise run test     # Run Go + frontend tests
+mise run build    # Build
 ```
 
-## バックエンド
+## Backend
 
-- Go + OpenTelemetry Collector（内蔵）
+- Go + OpenTelemetry Collector (embedded)
 - lint: `golangci-lint run ./...`
-- フォーマット修正: `golangci-lint fmt ./...`
-- テスト: `go test ./...`
-- テストは `internal/store/` と `internal/websocket/` に存在
+- Auto-format: `golangci-lint fmt ./...`
+- Tests: `go test ./...`
+- Tests live in `internal/store/` and `internal/websocket/`
 
-## フロントエンド
+## Frontend
 
-- vite-plus（vp）を使用。コマンドは package.json の scripts 経由で実行する
-- フォーマット自動修正: `pnpm --filter otelop-frontend fix`
-- テスト: `pnpm --filter otelop-frontend test`
-- テストヘルパーは `frontend/src/test/factories.ts` に集約
+- Uses vite-plus (vp). Run commands via package.json scripts
+- Auto-format: `pnpm --filter otelop-frontend fix`
+- Tests: `pnpm --filter otelop-frontend test`
+- Test helpers are consolidated in `frontend/src/test/factories.ts`
 
-## コーディング規約
+## Coding Conventions
 
-### CSS・スタイリング
+### CSS / Styling
 
-- shadcn のセマンティックカラー（`bg-muted`, `text-foreground` 等）を使う。`bg-foreground/[0.03]` のような arbitrary opacity は避ける
-- ライト/ダークモード両方で確認する。ライトモードは見落としやすい
-- `glass-card` はカード背景。ライトモードでは白方向（メインコンテンツが周囲より明るい）
-- shadcn コンポーネントのデフォルトスタイルが `dark:` プレフィックスでカスタムを上書きすることがある。必要に応じて `dark:` オーバーライドを追加
+- Use shadcn semantic colors (`bg-muted`, `text-foreground`, etc.). Avoid arbitrary opacity like `bg-foreground/[0.03]`
+- Verify both light and dark mode. Light mode is easy to overlook
+- `glass-card` is the card background. In light mode it shifts toward white (the main content is brighter than its surroundings)
+- shadcn component default styles can override custom styles via the `dark:` prefix. Add `dark:` overrides as needed
 
-### React・状態管理
+### React / State Management
 
-- `useEffect` 内で `setState` しない。イベントハンドラで直接処理する
-- `useRef` のタイマーはアンマウント時に `useEffect` cleanup で `clearTimeout` する
-- 重複パターンはファクトリ関数やコンポーネントに抽出する（例: `createSearchAtom`, `CopyJsonButton`）
-- 新しい UI コンポーネントを作る前に shadcn に既存のものがないか確認する
+- Don't call `setState` inside `useEffect`. Handle it directly in event handlers
+- For `useRef` timers, `clearTimeout` in the `useEffect` cleanup on unmount
+- Extract duplicated patterns into factory functions or components (e.g. `createSearchAtom`, `CopyJsonButton`)
+- Before creating a new UI component, check whether shadcn already provides one
 
-### コメント
+### Comments
 
-- WHAT コメント（`{/* Bar */}`, `{/* Operation name */}`）は不要。コードで自明
-- WHY コメント（なぜこの実装なのか）だけ残す
+- WHAT comments (`{/* Bar */}`, `{/* Operation name */}`) are unnecessary — the code is self-evident
+- Keep only WHY comments (why this implementation)
 
-## ワークフロー
+## Workflow
 
-- コミットはユーザーの許可があるまでしない
-- `mise run check` と `mise run test` を変更後に必ず実行
-- agent-browser でライト/ダークモード両方の表示を確認する
+- Don't commit until the user gives permission
+- Always run `mise run check` and `mise run test` after making changes
+- Use agent-browser to verify both light and dark mode
+
+### Commit messages and PR titles
+
+Releases are cut by [release-please](https://github.com/googleapis/release-please), so commit messages and PR titles must follow [Conventional Commits](https://www.conventionalcommits.org/). release-please parses these to derive the next version and generate the changelog.
+
+- Format: `type(scope): subject` (e.g. `fix(collector): normalize confmap values for static provider`)
+- Common types: `feat` (minor bump), `fix` (patch bump), `chore`, `docs`, `refactor`, `test`, `ci`, `build`, `perf`
+- Use `!` or a `BREAKING CHANGE:` footer for breaking changes (major bump)
+- Scope is optional but encouraged — match existing scopes in `git log` (e.g. `collector`, `cli`, `proxy`, `frontend`, `store`, `deps`)
+- Squash-merge PRs inherit the PR title as the commit, so the PR title must follow the same rules

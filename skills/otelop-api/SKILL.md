@@ -38,7 +38,7 @@ asked for state. Match the query to the question:
 | "what logs go with this trace?"             | Same `trace(traceId: T) { logs { ... } }` join             |
 
 `pointCount` is a **cardinality probe**, not a state read. If the user said
-"状態" / "state" / "values" / "what are they doing", fetch `dataPoints`.
+"state" / "values" / "what are they doing", fetch `dataPoints`.
 
 ## Schema overview
 
