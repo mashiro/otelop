@@ -12,7 +12,8 @@ import (
 
 func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
-		OriginPatterns: []string{"*"},
+		OriginPatterns:  []string{"*"},
+		CompressionMode: websocket.CompressionNoContextTakeover,
 	})
 	if err != nil {
 		slog.Error("websocket: accept error", "error", err)

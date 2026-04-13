@@ -47,7 +47,6 @@ func New(s *store.Store, hub *ws.Hub, frontendFS fs.FS, runtime otelopgraphql.Ru
 	// startup.
 	mux.Handle("/mcp", mcp.NewHandler(srv.schema, runtime.Version))
 
-	// WebSocket (no compression — it has its own framing)
 	mux.HandleFunc("GET /ws", srv.handleWebSocket)
 
 	// Static files with SPA fallback
