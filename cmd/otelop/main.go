@@ -18,8 +18,10 @@ func main() {
 		Version: version,
 		Commands: []*cli.Command{
 			startCommand(),
+			restartCommand(),
 			stopCommand(),
 			statusCommand(),
+			logsCommand(),
 			{
 				Name:  "version",
 				Usage: "Print version",

@@ -35,6 +35,11 @@ const (
 // classical daemon dance is skipped — otelop never opens /dev/tty, so the
 // "don't acquire a controlling terminal" guarantee is not needed.
 func Spawn(ctx context.Context, logPath string) error {
+	// Append rather than truncate: an `otelop logs --follow` running across
+	// a `restart` keeps its fd parked at the previous EOF, so a truncate
+	// would leave the follower stuck reading EOF until the new run grew
+	// past the old size. Unbounded growth is a theoretical concern for a
+	// dev tool — handle it externally if it ever bites.
 	logFile, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
 		return fmt.Errorf("open daemon log: %w", err)
