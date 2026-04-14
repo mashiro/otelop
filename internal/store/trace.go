@@ -8,14 +8,20 @@ import (
 
 // TraceData represents a group of spans sharing the same trace ID.
 type TraceData struct {
-	TraceID     string        `json:"traceId"`
-	RootSpan    *SpanData     `json:"rootSpan,omitempty"`
-	Spans       []*SpanData   `json:"spans"`
-	ServiceName string        `json:"serviceName"`
-	SpanCount   int           `json:"spanCount"`
-	StartTime   time.Time     `json:"startTime"`
-	Duration    time.Duration `json:"duration"`
+	TraceID     string      `json:"traceId"`
+	RootSpan    *SpanData   `json:"rootSpan,omitempty"`
+	Spans       []*SpanData `json:"spans"`
+	ServiceName string      `json:"serviceName"`
+	SpanCount   int         `json:"spanCount"`
+	StartTime   time.Time   `json:"startTime"`
+	// Duration is the full trace range (max end - min start) across every span,
+	// never just the root span's duration. Codex-style traces can contain
+	// multiple parentless spans or disconnected parent/child relationships;
+	// anchoring Duration to a single root misreports the real trace length.
+	Duration time.Duration `json:"duration"`
 
+	// Cached so Merge can extend Duration incrementally without rescanning spans.
+	endTime time.Time
 	// spanIDs tracks known spanIDs for O(1) deduplication on merge. Not serialized.
 	spanIDs map[string]struct{} `json:"-"`
 }
@@ -26,6 +32,9 @@ func (t *TraceData) Merge(other *TraceData) {
 		t.spanIDs = make(map[string]struct{}, len(t.Spans)+len(other.Spans))
 		for _, s := range t.Spans {
 			t.spanIDs[s.SpanID] = struct{}{}
+			if s.EndTime.After(t.endTime) {
+				t.endTime = s.EndTime
+			}
 		}
 	}
 	for _, s := range other.Spans {
@@ -34,16 +43,30 @@ func (t *TraceData) Merge(other *TraceData) {
 		}
 		t.spanIDs[s.SpanID] = struct{}{}
 		t.Spans = append(t.Spans, s)
+		if s.StartTime.Before(t.StartTime) || t.StartTime.IsZero() {
+			t.StartTime = s.StartTime
+		}
+		if s.EndTime.After(t.endTime) {
+			t.endTime = s.EndTime
+		}
 	}
 	t.SpanCount = len(t.Spans)
-	if other.RootSpan != nil {
+	if other.RootSpan != nil && isBetterRoot(t.RootSpan, other.RootSpan) {
 		t.RootSpan = other.RootSpan
 		t.ServiceName = other.ServiceName
-		t.Duration = other.Duration
 	}
-	if !other.StartTime.IsZero() && other.StartTime.Before(t.StartTime) {
-		t.StartTime = other.StartTime
+	if t.endTime.After(t.StartTime) {
+		t.Duration = t.endTime.Sub(t.StartTime)
 	}
+}
+
+// When a trace has multiple parentless spans we pick the longest one so the
+// displayed span name/status roughly reflects the dominant operation.
+func isBetterRoot(current, candidate *SpanData) bool {
+	if current == nil {
+		return true
+	}
+	return candidate.Duration > current.Duration
 }
 
 // SpanData represents a single span.
@@ -118,6 +141,7 @@ func ConvertTraces(td ptrace.Traces) []*TraceData {
 					trace = &TraceData{
 						TraceID:   traceID,
 						StartTime: sd.StartTime,
+						endTime:   sd.EndTime,
 					}
 					index[traceID] = trace
 					result = append(result, trace)
@@ -129,34 +153,37 @@ func ConvertTraces(td ptrace.Traces) []*TraceData {
 				if sd.StartTime.Before(trace.StartTime) {
 					trace.StartTime = sd.StartTime
 				}
+				if sd.EndTime.After(trace.endTime) {
+					trace.endTime = sd.EndTime
+				}
 
-				if span.ParentSpanID().IsEmpty() {
+				if span.ParentSpanID().IsEmpty() && isBetterRoot(trace.RootSpan, sd) {
 					trace.RootSpan = sd
 					trace.ServiceName = svcName
-					trace.Duration = sd.Duration
 				}
 			}
 		}
 	}
 
-	// For traces without an explicit root span, derive service name and duration
-	// from the earliest/latest span in a single pass.
 	for _, trace := range result {
-		if trace.RootSpan != nil || len(trace.Spans) == 0 {
+		if len(trace.Spans) == 0 {
 			continue
 		}
-		earliest := trace.Spans[0]
-		latestEnd := earliest.EndTime
-		for _, s := range trace.Spans[1:] {
-			if s.StartTime.Before(earliest.StartTime) {
-				earliest = s
-			}
-			if s.EndTime.After(latestEnd) {
-				latestEnd = s.EndTime
-			}
+		if trace.endTime.After(trace.StartTime) {
+			trace.Duration = trace.endTime.Sub(trace.StartTime)
 		}
-		trace.ServiceName = earliest.ServiceName
-		trace.Duration = latestEnd.Sub(earliest.StartTime)
+		if trace.ServiceName == "" {
+			// For rootless traces, derive the label from the earliest-started
+			// span rather than ingestion order so out-of-order resource batches
+			// don't mislabel the trace.
+			earliest := trace.Spans[0]
+			for _, s := range trace.Spans[1:] {
+				if s.StartTime.Before(earliest.StartTime) {
+					earliest = s
+				}
+			}
+			trace.ServiceName = earliest.ServiceName
+		}
 	}
 
 	return result

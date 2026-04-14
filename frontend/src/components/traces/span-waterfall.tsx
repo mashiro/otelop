@@ -165,16 +165,10 @@ function WaterfallInner({
   }, [flatSpans]);
 
   const { baseNs, totalNs } = useMemo(() => {
-    if (trace.rootSpan) {
-      try {
-        const start = Temporal.Instant.from(trace.rootSpan.startTime).epochNanoseconds;
-        const end = Temporal.Instant.from(trace.rootSpan.endTime).epochNanoseconds;
-        const dur = Number(end - start);
-        if (dur > 0) return { baseNs: start, totalNs: dur };
-      } catch {
-        /* fall through */
-      }
-    }
+    // Prefer trace.startTime + trace.duration: the server reports these as the
+    // full trace range (min start → max end) even for multi-root Codex traces.
+    // Anchoring the waterfall to trace.rootSpan would truncate long-running
+    // sibling branches when the representative root is short.
     try {
       const start = Temporal.Instant.from(trace.startTime).epochNanoseconds;
       if (trace.duration > 0) return { baseNs: start, totalNs: trace.duration };
@@ -197,7 +191,7 @@ function WaterfallInner({
       return { baseNs: minNs, totalNs: Number(maxNs - minNs) };
     }
     return { baseNs: 0n, totalNs: 1 };
-  }, [trace.rootSpan, trace.startTime, trace.duration, flatSpans]);
+  }, [trace.startTime, trace.duration, flatSpans]);
 
   const barWidth = width - LABEL_WIDTH;
   const xScale = useMemo(
