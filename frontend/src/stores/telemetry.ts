@@ -13,7 +13,7 @@ export interface ServerConfig {
 const DEFAULT_CONFIG: ServerConfig = {
   traceCap: 1000,
   metricCap: 3000,
-  logCap: 1000,
+  logCap: 5000,
   maxDataPoints: 1000,
 };
 

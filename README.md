@@ -102,7 +102,7 @@ otelop version
   --proxy-header     upstream header                 (repeatable key=value)
   --trace-cap        max traces in memory            (default 1000)
   --metric-cap       max metric series in memory     (default 3000)
-  --log-cap          max log entries in memory       (default 1000)
+  --log-cap          max log entries in memory       (default 5000)
   --max-data-points  max data points per series      (default 1000)
   --log-level        debug|info|warn|error           (default warn)
 ```
@@ -134,7 +134,7 @@ token = "replace-me"
 
 trace_cap = 1000
 metric_cap = 3000
-log_cap = 1000
+log_cap = 5000
 max_data_points = 1000
 log_level = "warn"
 debug = false
