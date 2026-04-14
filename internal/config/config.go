@@ -32,7 +32,7 @@ const (
 	DefaultOTLPHTTPAddr  = "0.0.0.0:4318"
 	DefaultTraceCap      = 1000
 	DefaultMetricCap     = 3000
-	DefaultLogCap        = 1000
+	DefaultLogCap        = 5000
 	DefaultMaxDataPoints = 1000
 	DefaultLogLevel      = "warn"
 )
