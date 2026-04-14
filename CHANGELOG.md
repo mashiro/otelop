@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.1](https://github.com/mashiro/otelop/compare/v0.5.0...v0.5.1) (2026-04-14)
+
+
+### Bug Fixes
+
+* **store:** derive trace duration from full span range ([#40](https://github.com/mashiro/otelop/issues/40)) ([e44d54d](https://github.com/mashiro/otelop/commit/e44d54d9278182a3d0d68b8f76f233cccee09cc7))
+
 ## [0.5.0](https://github.com/mashiro/otelop/compare/v0.4.0...v0.5.0) (2026-04-13)
 
 
