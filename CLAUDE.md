@@ -44,6 +44,10 @@ mise run build    # Build
 - Extract duplicated patterns into factory functions or components (e.g. `createSearchAtom`, `CopyJsonButton`)
 - Before creating a new UI component, check whether shadcn already provides one
 
+### Timestamps
+
+- Use `Temporal.Instant.from(...)` (from `temporal-polyfill`) for parsing/comparing OTel timestamps. `Date.parse` truncates to milliseconds and loses the nanosecond precision that OTel emits
+
 ### Comments
 
 - WHAT comments (`{/* Bar */}`, `{/* Operation name */}`) are unnecessary — the code is self-evident

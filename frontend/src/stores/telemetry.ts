@@ -1,5 +1,6 @@
 import { atom } from "jotai";
-import type { TraceData, MetricData, LogData } from "@/types/telemetry";
+import { Temporal } from "temporal-polyfill";
+import type { TraceData, MetricData, LogData, SpanData } from "@/types/telemetry";
 
 // Server-side capacity config, fetched at startup.
 export interface ServerConfig {
@@ -36,16 +37,32 @@ export const addTraceAtom = atom(null, (get, set, newTrace: TraceData) => {
     const existing = current[idx];
     const seen = new Set(existing.spans.map((s) => s.spanId));
     const deduped = newTrace.spans.filter((s) => !seen.has(s.spanId));
-    if (deduped.length === 0 && !newTrace.rootSpan) return;
+    const rootChanged = isBetterRoot(existing.rootSpan, newTrace.rootSpan);
+    // OTel timestamps are nanosecond-precision ISO strings; compare via
+    // Temporal.Instant to avoid Date's millisecond truncation.
+    const newStart = Temporal.Instant.from(newTrace.startTime).epochNanoseconds;
+    const existingStart = Temporal.Instant.from(existing.startTime).epochNanoseconds;
+    if (
+      deduped.length === 0 &&
+      !rootChanged &&
+      newTrace.duration <= existing.duration &&
+      newStart >= existingStart
+    ) {
+      return;
+    }
     const mergedSpans = [...existing.spans, ...deduped];
     const updated = [...current];
     updated[idx] = {
       ...existing,
       spans: mergedSpans,
       spanCount: mergedSpans.length,
-      rootSpan: newTrace.rootSpan ?? existing.rootSpan,
-      serviceName: newTrace.rootSpan ? newTrace.serviceName : existing.serviceName,
-      duration: newTrace.rootSpan ? newTrace.duration : existing.duration,
+      rootSpan: rootChanged ? newTrace.rootSpan : existing.rootSpan,
+      serviceName: rootChanged ? newTrace.serviceName : existing.serviceName,
+      // Multi-root Codex traces can grow past the originally-reported root
+      // span duration. Always take the larger range so the list/detail
+      // header reflect the full trace length.
+      startTime: newStart < existingStart ? newTrace.startTime : existing.startTime,
+      duration: Math.max(existing.duration, newTrace.duration),
     };
     set(tracesAtom, updated);
   } else {
@@ -53,6 +70,13 @@ export const addTraceAtom = atom(null, (get, set, newTrace: TraceData) => {
     set(tracesAtom, next.length > maxTraces ? next.slice(0, maxTraces) : next);
   }
 });
+
+// Picks the longest parentless span as the representative root for display.
+function isBetterRoot(current: SpanData | undefined, candidate: SpanData | undefined): boolean {
+  if (!candidate) return false;
+  if (!current) return true;
+  return candidate.duration > current.duration;
+}
 
 export const addMetricAtom = atom(null, (get, set, newMetric: MetricData) => {
   const current = get(metricsAtom);

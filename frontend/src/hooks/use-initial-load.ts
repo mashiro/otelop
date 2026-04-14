@@ -117,9 +117,15 @@ export function useInitialLoad() {
             return {
               ...rest,
               duration: durationMs * MS_TO_NS,
-              // Mirror the Go resolver: rootSpan is the first span with no parent.
-              // The query omits rootSpan to avoid shipping the same span twice.
-              rootSpan: spans.find((s) => s.parentSpanId === ""),
+              // Mirror the Go resolver: pick the longest parentless span as the
+              // representative root so multi-root Codex traces don't surface the
+              // short turn/start span. The query omits rootSpan to avoid shipping
+              // the same span twice.
+              rootSpan: spans.reduce<SpanData | undefined>(
+                (best, s) =>
+                  s.parentSpanId === "" && (!best || s.duration > best.duration) ? s : best,
+                undefined,
+              ),
               spans,
             };
           },
