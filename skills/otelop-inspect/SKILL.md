@@ -1,5 +1,5 @@
 ---
-name: otelop-api
+name: otelop-inspect
 description: Investigate OpenTelemetry signals (traces, metrics, logs) buffered by a locally running otelop instance via its GraphQL API. Use this when the user is debugging an app that sends telemetry to otelop and you need to inspect spans, correlate logs with traces, or read metric values.
 ---
 
@@ -11,7 +11,20 @@ is configurable, but 4319 is the default). When the user is debugging an app
 that points its OTLP exporter at otelop, this skill lets you pull exactly the
 signals you need without bothering them for screenshots or log dumps.
 
+Treat this skill as guidance for using the running tool. Prefer public
+surfaces (`otelop status`, `/graphql`, `/mcp`, the browser UI) and avoid
+implementation details unless the user explicitly asks for them.
+
 Before querying, verify otelop is actually running:
+
+```bash
+otelop status
+```
+
+If `otelop status` shows the daemon is not running, ask the user to start it
+(`otelop start`) before retrying.
+
+When you specifically need to verify the GraphQL endpoint itself, use:
 
 ```bash
 curl -sS -X POST http://localhost:4319/graphql \
@@ -20,8 +33,7 @@ curl -sS -X POST http://localhost:4319/graphql \
 ```
 
 A connection error (or anything other than a `{"data":{...}}` envelope) means
-otelop is not up — ask the user to start it (`mise run dev` or `otelop start`)
-before retrying.
+otelop is not up — ask the user to start it and retry.
 
 ## Picking the right query for the question
 
@@ -122,9 +134,9 @@ curl -sS -X POST http://localhost:4319/graphql \
   -d '{"query":"query($id: ID!){ trace(traceId:$id){ spanCount } }","variables":{"id":"02000000000000000000000000000000"}}'
 ```
 
-### 2. MCP (when registered)
+### 2. MCP (when available)
 
-otelop also mounts its MCP server at `http://localhost:4319/mcp` and exposes
+otelop also exposes an MCP server at `http://localhost:4319/mcp` and exposes
 a single tool `query` that takes `{query, variables?, operationName?}`.
 otelop is **not** always running, so the MCP server is only reachable while
 the process is up.
