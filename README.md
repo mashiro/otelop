@@ -21,6 +21,12 @@ Single binary, in-memory, browser UI.
 
 It's meant for the loop where you're writing instrumentation and just want to see what came through.
 
+<div align="center">
+
+![otelop trace view](docs/images/trace.png)
+
+</div>
+
 ## Features
 
 - Single binary with the frontend embedded
