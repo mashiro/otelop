@@ -29,7 +29,7 @@ type TraceData struct {
 	// spanIDs tracks known spanIDs for O(1) deduplication on merge. Not serialized.
 	spanIDs map[string]struct{} `json:"-"`
 	// spanByID supports O(1) parent lookup from SpanResolver.Parent. Built lazily
-	// on first access and invalidated whenever Merge appends new spans.
+	// on first access; Merge keeps it fresh by inserting each newly-appended span.
 	spanByID map[string]*SpanData `json:"-"`
 }
 
@@ -53,6 +53,9 @@ func (t *TraceData) Merge(other *TraceData) {
 		}
 		t.spanIDs[s.SpanID] = struct{}{}
 		t.Spans = append(t.Spans, s)
+		if t.spanByID != nil {
+			t.spanByID[s.SpanID] = s
+		}
 		if s.StartTime.Before(t.StartTime) || t.StartTime.IsZero() {
 			t.StartTime = s.StartTime
 		}
@@ -63,9 +66,6 @@ func (t *TraceData) Merge(other *TraceData) {
 			t.HasError = true
 		}
 	}
-	// Parent map is invalidated because new spans may have arrived. It will be
-	// rebuilt lazily on the next SpanByID call.
-	t.spanByID = nil
 	t.SpanCount = len(t.Spans)
 	if other.RootSpan != nil && isBetterRoot(t.RootSpan, other.RootSpan) {
 		t.RootSpan = other.RootSpan
@@ -90,8 +90,8 @@ func isBetterRoot(current, candidate *SpanData) bool {
 const spanStatusErrorLiteral = "Error"
 
 // SpanByID returns the span with the given SpanID within this trace, or nil
-// when no such span has been buffered. The lookup map is built lazily on the
-// first call and reused until Merge appends new spans.
+// when no such span has been buffered. The lookup map is built lazily on
+// first access and kept in sync by Merge as new spans are appended.
 func (t *TraceData) SpanByID(id string) *SpanData {
 	if id == "" {
 		return nil
