@@ -17,6 +17,22 @@ func attributesToMap(attrs pcommon.Map) map[string]any {
 	return result
 }
 
+// resourceInfo returns the flattened resource map plus service.name. Both
+// are computed in a single Range pass so the service.name lookup doesn't
+// need a second O(n) scan over the same attributes.
+func resourceInfo(attrs pcommon.Map) (map[string]any, string) {
+	result := make(map[string]any, attrs.Len())
+	var svcName string
+	attrs.Range(func(k string, v pcommon.Value) bool {
+		if k == "service.name" {
+			svcName = v.AsString()
+		}
+		result[k] = valueToAny(v)
+		return true
+	})
+	return result, svcName
+}
+
 func valueToAny(v pcommon.Value) any {
 	switch v.Type() {
 	case pcommon.ValueTypeStr:

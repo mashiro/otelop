@@ -47,11 +47,7 @@ func convertMetrics(md pmetric.Metrics, series *seriesStore) []*MetricData {
 
 	for i := 0; i < md.ResourceMetrics().Len(); i++ {
 		rm := md.ResourceMetrics().At(i)
-		resource := attributesToMap(rm.Resource().Attributes())
-		var svcName string
-		if serviceName, ok := rm.Resource().Attributes().Get("service.name"); ok {
-			svcName = serviceName.AsString()
-		}
+		resource, svcName := resourceInfo(rm.Resource().Attributes())
 
 		for j := 0; j < rm.ScopeMetrics().Len(); j++ {
 			sm := rm.ScopeMetrics().At(j)

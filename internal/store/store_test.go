@@ -404,6 +404,47 @@ func TestAttributesToMap_NonFiniteDoubles(t *testing.T) {
 	}
 }
 
+func TestResourceInfo(t *testing.T) {
+	t.Run("extracts service.name and flattens attributes", func(t *testing.T) {
+		attrs := pcommon.NewMap()
+		attrs.PutStr("service.name", "svc-a")
+		attrs.PutStr("deployment.env", "prod")
+		attrs.PutInt("pid", 42)
+
+		got, svc := resourceInfo(attrs)
+
+		if svc != "svc-a" {
+			t.Errorf("svc = %q, want svc-a", svc)
+		}
+		if got["service.name"] != "svc-a" {
+			t.Errorf("attrs[service.name] = %v, want svc-a", got["service.name"])
+		}
+		if got["deployment.env"] != "prod" {
+			t.Errorf("attrs[deployment.env] = %v, want prod", got["deployment.env"])
+		}
+		if got["pid"] != int64(42) {
+			t.Errorf("attrs[pid] = %v, want 42", got["pid"])
+		}
+	})
+
+	t.Run("returns empty service.name when missing", func(t *testing.T) {
+		attrs := pcommon.NewMap()
+		attrs.PutStr("deployment.env", "prod")
+
+		got, svc := resourceInfo(attrs)
+
+		if svc != "" {
+			t.Errorf("svc = %q, want empty", svc)
+		}
+		if _, ok := got["service.name"]; ok {
+			t.Errorf("attrs should not contain service.name, got %v", got)
+		}
+		if got["deployment.env"] != "prod" {
+			t.Errorf("attrs[deployment.env] = %v, want prod", got["deployment.env"])
+		}
+	})
+}
+
 func TestStore_AddMetrics_SkipsEmptyMetrics(t *testing.T) {
 	var notified []*MetricData
 	s := NewStore(10, 10, 10, 100, func(sig SignalType, data any) {
