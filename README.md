@@ -129,6 +129,12 @@ Example `~/.config/otelop/config.toml`:
 http = ":4319"
 otlp_grpc = "0.0.0.0:4317"
 otlp_http = "0.0.0.0:4318"
+trace_cap = 1000
+metric_cap = 3000
+log_cap = 5000
+max_data_points = 1000
+log_level = "warn"
+debug = false
 
 [proxy]
 url = "https://collector.internal:4318"
@@ -137,13 +143,6 @@ protocol = "http"
 [proxy.auth]
 type = "bearer"
 token = "replace-me"
-
-trace_cap = 1000
-metric_cap = 3000
-log_cap = 5000
-max_data_points = 1000
-log_level = "warn"
-debug = false
 ```
 
 The matching environment variables are `OTELOP_HTTP`, `OTELOP_OTLP_GRPC`, `OTELOP_OTLP_HTTP`, `OTELOP_PROXY_URL`, `OTELOP_PROXY_PROTOCOL`, `OTELOP_PROXY_AUTH_TYPE`, `OTELOP_PROXY_AUTH_TOKEN`, `OTELOP_PROXY_AUTH_USERNAME`, `OTELOP_PROXY_AUTH_PASSWORD`, `OTELOP_PROXY_HEADERS`, `OTELOP_TRACE_CAP`, `OTELOP_METRIC_CAP`, `OTELOP_LOG_CAP`, `OTELOP_MAX_DATA_POINTS`, `OTELOP_LOG_LEVEL`, and `OTELOP_DEBUG`.
