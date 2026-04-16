@@ -319,6 +319,95 @@ func TestConvertTraces_OrphanSpansOnly(t *testing.T) {
 	}
 }
 
+// TestConvertTraces_HasError_SetWhenAnySpanErrors verifies HasError is
+// computed during conversion so GraphQL resolvers don't need to rescan spans.
+func TestConvertTraces_HasError_SetWhenAnySpanErrors(t *testing.T) {
+	td := ptrace.NewTraces()
+	rs := td.ResourceSpans().AppendEmpty()
+	rs.Resource().Attributes().PutStr("service.name", "svc")
+	ss := rs.ScopeSpans().AppendEmpty()
+
+	traceID := pcommon.TraceID([16]byte{0xE1})
+	base := time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC)
+
+	ok := ss.Spans().AppendEmpty()
+	ok.SetTraceID(traceID)
+	ok.SetSpanID(pcommon.SpanID([8]byte{0x01}))
+	ok.SetStartTimestamp(pcommon.NewTimestampFromTime(base))
+	ok.SetEndTimestamp(pcommon.NewTimestampFromTime(base.Add(time.Millisecond)))
+
+	bad := ss.Spans().AppendEmpty()
+	bad.SetTraceID(traceID)
+	bad.SetSpanID(pcommon.SpanID([8]byte{0x02}))
+	bad.Status().SetCode(ptrace.StatusCodeError)
+	bad.SetStartTimestamp(pcommon.NewTimestampFromTime(base))
+	bad.SetEndTimestamp(pcommon.NewTimestampFromTime(base.Add(time.Millisecond)))
+
+	traces := ConvertTraces(td)
+	if len(traces) != 1 {
+		t.Fatalf("ConvertTraces returned %d traces, want 1", len(traces))
+	}
+	if !traces[0].HasError {
+		t.Error("HasError = false, want true when any span has StatusCode=Error")
+	}
+}
+
+func TestTraceData_Merge_PropagatesHasError(t *testing.T) {
+	t0 := time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC)
+	base := &TraceData{
+		TraceID:   "abc",
+		Spans:     []*SpanData{{SpanID: "a", StartTime: t0, StatusCode: "Unset"}},
+		SpanCount: 1,
+		StartTime: t0,
+	}
+	incoming := &TraceData{
+		TraceID:   "abc",
+		Spans:     []*SpanData{{SpanID: "b", StartTime: t0, StatusCode: "Error"}},
+		StartTime: t0,
+	}
+
+	base.Merge(incoming)
+
+	if !base.HasError {
+		t.Error("HasError should flip to true when a merged span has StatusCode=Error")
+	}
+}
+
+func TestTraceData_SpanByID_LookupAndInvalidation(t *testing.T) {
+	t0 := time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC)
+	spanA := &SpanData{SpanID: "a", StartTime: t0}
+	trace := &TraceData{
+		TraceID:   "abc",
+		Spans:     []*SpanData{spanA},
+		SpanCount: 1,
+		StartTime: t0,
+	}
+
+	if got := trace.SpanByID("a"); got != spanA {
+		t.Errorf("SpanByID(a) = %v, want spanA", got)
+	}
+	if got := trace.SpanByID("missing"); got != nil {
+		t.Errorf("SpanByID(missing) = %v, want nil", got)
+	}
+	if got := trace.SpanByID(""); got != nil {
+		t.Errorf("SpanByID(empty) = %v, want nil", got)
+	}
+
+	spanB := &SpanData{SpanID: "b", StartTime: t0}
+	trace.Merge(&TraceData{
+		TraceID:   "abc",
+		Spans:     []*SpanData{spanB},
+		StartTime: t0,
+	})
+
+	if got := trace.SpanByID("b"); got != spanB {
+		t.Errorf("SpanByID(b) after Merge = %v, want spanB (lookup must rebuild)", got)
+	}
+	if got := trace.SpanByID("a"); got != spanA {
+		t.Errorf("SpanByID(a) after Merge = %v, want spanA", got)
+	}
+}
+
 // TestConvertTraces_RootlessMultiServiceUsesEarliestStart ensures that when a
 // rootless trace spans multiple services, ConvertTraces labels it by the
 // earliest-started span's service rather than by resource iteration order.
