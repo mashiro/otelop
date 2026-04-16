@@ -11,7 +11,7 @@ func TestSeriesKey_StableAcrossAttrOrder(t *testing.T) {
 	a := seriesKey("svc", "m", map[string]any{"http.route": "/a", "http.method": "GET"})
 	b := seriesKey("svc", "m", map[string]any{"http.method": "GET", "http.route": "/a"})
 	if a != b {
-		t.Fatalf("seriesKey should be order-independent, got %q vs %q", a, b)
+		t.Fatalf("seriesKey should be order-independent, got %d vs %d", a, b)
 	}
 }
 
@@ -23,23 +23,38 @@ func TestSeriesKey_DifferentAttrsCollideNot(t *testing.T) {
 	}
 }
 
+func BenchmarkSeriesKey(b *testing.B) {
+	attrs := map[string]any{
+		"http.method":      "GET",
+		"http.route":       "/api/v1/widgets/:id",
+		"http.status_code": int64(200),
+		"net.peer.name":    "backend.internal",
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = seriesKey("svc", "http.server.request.duration", attrs)
+	}
+}
+
 func TestNumberDelta_BaselineThenDelta(t *testing.T) {
 	s := newSeriesStore()
 	now := time.Unix(0, 0)
+	const k uint64 = 1
 
 	// First observation → baseline, emit nothing.
-	if _, ok := s.numberDelta("k", 10, now); ok {
+	if _, ok := s.numberDelta(k, 10, now); ok {
 		t.Fatalf("first observation should be a baseline (ok=false)")
 	}
 
 	// Second observation → delta = 5.
-	delta, ok := s.numberDelta("k", 15, now.Add(time.Second))
+	delta, ok := s.numberDelta(k, 15, now.Add(time.Second))
 	if !ok || delta != 5 {
 		t.Fatalf("expected delta=5, got delta=%v ok=%v", delta, ok)
 	}
 
 	// Third observation → delta = 3.
-	delta, ok = s.numberDelta("k", 18, now.Add(2*time.Second))
+	delta, ok = s.numberDelta(k, 18, now.Add(2*time.Second))
 	if !ok || delta != 3 {
 		t.Fatalf("expected delta=3, got delta=%v ok=%v", delta, ok)
 	}
@@ -48,14 +63,15 @@ func TestNumberDelta_BaselineThenDelta(t *testing.T) {
 func TestNumberDelta_ResetReestablishesBaseline(t *testing.T) {
 	s := newSeriesStore()
 	now := time.Unix(0, 0)
-	s.numberDelta("k", 100, now)
-	s.numberDelta("k", 120, now.Add(time.Second))
+	const k uint64 = 1
+	s.numberDelta(k, 100, now)
+	s.numberDelta(k, 120, now.Add(time.Second))
 	// Process restart / counter reset — raw value goes down.
-	if _, ok := s.numberDelta("k", 5, now.Add(2*time.Second)); ok {
+	if _, ok := s.numberDelta(k, 5, now.Add(2*time.Second)); ok {
 		t.Fatalf("reset should emit no delta")
 	}
 	// Next point is a delta against the new baseline.
-	delta, ok := s.numberDelta("k", 8, now.Add(3*time.Second))
+	delta, ok := s.numberDelta(k, 8, now.Add(3*time.Second))
 	if !ok || delta != 3 {
 		t.Fatalf("expected delta=3 after reset, got delta=%v ok=%v", delta, ok)
 	}
@@ -64,11 +80,12 @@ func TestNumberDelta_ResetReestablishesBaseline(t *testing.T) {
 func TestHistogramDelta_CountAndSum(t *testing.T) {
 	s := newSeriesStore()
 	now := time.Unix(0, 0)
+	const k uint64 = 1
 
-	if _, _, ok := s.histogramDelta("k", 10, 100, now); ok {
+	if _, _, ok := s.histogramDelta(k, 10, 100, now); ok {
 		t.Fatalf("first observation should be baseline")
 	}
-	c, sm, ok := s.histogramDelta("k", 13, 130, now.Add(time.Second))
+	c, sm, ok := s.histogramDelta(k, 13, 130, now.Add(time.Second))
 	if !ok || c != 3 || sm != 30 {
 		t.Fatalf("expected count=3 sum=30, got count=%d sum=%v ok=%v", c, sm, ok)
 	}
@@ -78,10 +95,10 @@ func TestSeriesStore_TTLPrune(t *testing.T) {
 	s := newSeriesStore()
 	s.ttl = time.Second
 	now := time.Unix(0, 0)
-	s.numberDelta("stale", 1, now)
-	s.numberDelta("fresh", 1, now.Add(10*time.Second))
-	// The "fresh" write prunes anything older than 10s - 1s = 9s, which
-	// includes "stale" (lastSeen=0s).
+	s.numberDelta(1, 1, now)
+	s.numberDelta(2, 1, now.Add(10*time.Second))
+	// The second write prunes anything older than 10s - 1s = 9s, which
+	// includes the first entry (lastSeen=0s).
 	if s.len() != 1 {
 		t.Fatalf("expected stale entry to be pruned, got len=%d", s.len())
 	}
