@@ -54,16 +54,9 @@ type TracesArgs struct {
 
 func (r *Resolver) Traces(args TracesArgs) *ConnectionResolver[*TraceResolver] {
 	items, total := r.store.GetTracesPage(int(args.Offset), int(args.Limit))
-	out := make([]*TraceResolver, len(items))
-	for i, t := range items {
-		out[i] = &TraceResolver{store: r.store, t: t}
-	}
-	return &ConnectionResolver[*TraceResolver]{
-		items:  out,
-		total:  int32(total),
-		limit:  args.Limit,
-		offset: args.Offset,
-	}
+	return newConnection(items, total, args.Limit, args.Offset, func(t *store.TraceData) *TraceResolver {
+		return &TraceResolver{store: r.store, t: t}
+	})
 }
 
 type TraceArgs struct {
@@ -85,16 +78,9 @@ type MetricsArgs struct {
 
 func (r *Resolver) Metrics(args MetricsArgs) *ConnectionResolver[*MetricResolver] {
 	items, total := r.store.GetMetricsPage(int(args.Offset), int(args.Limit))
-	out := make([]*MetricResolver, len(items))
-	for i, m := range items {
-		out[i] = &MetricResolver{m: m}
-	}
-	return &ConnectionResolver[*MetricResolver]{
-		items:  out,
-		total:  int32(total),
-		limit:  args.Limit,
-		offset: args.Offset,
-	}
+	return newConnection(items, total, args.Limit, args.Offset, func(m *store.MetricData) *MetricResolver {
+		return &MetricResolver{m: m}
+	})
 }
 
 type LogsArgs struct {
@@ -113,16 +99,9 @@ func (r *Resolver) Logs(args LogsArgs) *ConnectionResolver[*LogResolver] {
 	} else {
 		items, total = r.store.GetLogsPage(int(args.Offset), int(args.Limit))
 	}
-	out := make([]*LogResolver, len(items))
-	for i, l := range items {
-		out[i] = &LogResolver{store: r.store, l: l}
-	}
-	return &ConnectionResolver[*LogResolver]{
-		items:  out,
-		total:  int32(total),
-		limit:  args.Limit,
-		offset: args.Offset,
-	}
+	return newConnection(items, total, args.Limit, args.Offset, func(l *store.LogData) *LogResolver {
+		return &LogResolver{store: r.store, l: l}
+	})
 }
 
 func (r *Resolver) ClearSignals() bool {
@@ -146,9 +125,8 @@ func (c *ConfigResolver) TraceCount() int32    { return c.traceCount }
 func (c *ConfigResolver) MetricCount() int32   { return c.metricCount }
 func (c *ConfigResolver) LogCount() int32      { return c.logCount }
 
-// ConnectionResolver is the generic paginated-list response used for traces,
-// metrics, and logs. Instantiated once per resolver type so the identical
-// items/total/limit/offset surface isn't duplicated across three structs.
+// ConnectionResolver is the generic paginated-list response shared by
+// traces/metrics/logs. Instantiated per element type via newConnection.
 type ConnectionResolver[T any] struct {
 	items  []T
 	total  int32
@@ -160,3 +138,18 @@ func (c *ConnectionResolver[T]) Items() []T    { return c.items }
 func (c *ConnectionResolver[T]) Total() int32  { return c.total }
 func (c *ConnectionResolver[T]) Limit() int32  { return c.limit }
 func (c *ConnectionResolver[T]) Offset() int32 { return c.offset }
+
+// newConnection wraps a store page into a ConnectionResolver, mapping each
+// store record into its per-type resolver via convert.
+func newConnection[T, R any](items []T, total int, limit, offset int32, convert func(T) R) *ConnectionResolver[R] {
+	out := make([]R, len(items))
+	for i, v := range items {
+		out[i] = convert(v)
+	}
+	return &ConnectionResolver[R]{
+		items:  out,
+		total:  int32(total),
+		limit:  limit,
+		offset: offset,
+	}
+}
