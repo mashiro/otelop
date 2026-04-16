@@ -52,11 +52,14 @@ type TracesArgs struct {
 	Offset int32
 }
 
-func (r *Resolver) Traces(args TracesArgs) *TraceConnectionResolver {
+func (r *Resolver) Traces(args TracesArgs) *ConnectionResolver[*TraceResolver] {
 	items, total := r.store.GetTracesPage(int(args.Offset), int(args.Limit))
-	return &TraceConnectionResolver{
-		store:  r.store,
-		items:  items,
+	out := make([]*TraceResolver, len(items))
+	for i, t := range items {
+		out[i] = &TraceResolver{store: r.store, t: t}
+	}
+	return &ConnectionResolver[*TraceResolver]{
+		items:  out,
 		total:  int32(total),
 		limit:  args.Limit,
 		offset: args.Offset,
@@ -80,10 +83,14 @@ type MetricsArgs struct {
 	Offset int32
 }
 
-func (r *Resolver) Metrics(args MetricsArgs) *MetricConnectionResolver {
+func (r *Resolver) Metrics(args MetricsArgs) *ConnectionResolver[*MetricResolver] {
 	items, total := r.store.GetMetricsPage(int(args.Offset), int(args.Limit))
-	return &MetricConnectionResolver{
-		items:  items,
+	out := make([]*MetricResolver, len(items))
+	for i, m := range items {
+		out[i] = &MetricResolver{m: m}
+	}
+	return &ConnectionResolver[*MetricResolver]{
+		items:  out,
 		total:  int32(total),
 		limit:  args.Limit,
 		offset: args.Offset,
@@ -96,7 +103,7 @@ type LogsArgs struct {
 	TraceID *string
 }
 
-func (r *Resolver) Logs(args LogsArgs) *LogConnectionResolver {
+func (r *Resolver) Logs(args LogsArgs) *ConnectionResolver[*LogResolver] {
 	var (
 		items []*store.LogData
 		total int
@@ -106,9 +113,12 @@ func (r *Resolver) Logs(args LogsArgs) *LogConnectionResolver {
 	} else {
 		items, total = r.store.GetLogsPage(int(args.Offset), int(args.Limit))
 	}
-	return &LogConnectionResolver{
-		store:  r.store,
-		items:  items,
+	out := make([]*LogResolver, len(items))
+	for i, l := range items {
+		out[i] = &LogResolver{store: r.store, l: l}
+	}
+	return &ConnectionResolver[*LogResolver]{
+		items:  out,
 		total:  int32(total),
 		limit:  args.Limit,
 		offset: args.Offset,
@@ -136,61 +146,17 @@ func (c *ConfigResolver) TraceCount() int32    { return c.traceCount }
 func (c *ConfigResolver) MetricCount() int32   { return c.metricCount }
 func (c *ConfigResolver) LogCount() int32      { return c.logCount }
 
-type TraceConnectionResolver struct {
-	store  *store.Store
-	items  []*store.TraceData
+// ConnectionResolver is the generic paginated-list response used for traces,
+// metrics, and logs. Instantiated once per resolver type so the identical
+// items/total/limit/offset surface isn't duplicated across three structs.
+type ConnectionResolver[T any] struct {
+	items  []T
 	total  int32
 	limit  int32
 	offset int32
 }
 
-func (c *TraceConnectionResolver) Items() []*TraceResolver {
-	out := make([]*TraceResolver, len(c.items))
-	for i, t := range c.items {
-		out[i] = &TraceResolver{store: c.store, t: t}
-	}
-	return out
-}
-
-func (c *TraceConnectionResolver) Total() int32  { return c.total }
-func (c *TraceConnectionResolver) Limit() int32  { return c.limit }
-func (c *TraceConnectionResolver) Offset() int32 { return c.offset }
-
-type MetricConnectionResolver struct {
-	items  []*store.MetricData
-	total  int32
-	limit  int32
-	offset int32
-}
-
-func (c *MetricConnectionResolver) Items() []*MetricResolver {
-	out := make([]*MetricResolver, len(c.items))
-	for i, m := range c.items {
-		out[i] = &MetricResolver{m: m}
-	}
-	return out
-}
-
-func (c *MetricConnectionResolver) Total() int32  { return c.total }
-func (c *MetricConnectionResolver) Limit() int32  { return c.limit }
-func (c *MetricConnectionResolver) Offset() int32 { return c.offset }
-
-type LogConnectionResolver struct {
-	store  *store.Store
-	items  []*store.LogData
-	total  int32
-	limit  int32
-	offset int32
-}
-
-func (c *LogConnectionResolver) Items() []*LogResolver {
-	out := make([]*LogResolver, len(c.items))
-	for i, l := range c.items {
-		out[i] = &LogResolver{store: c.store, l: l}
-	}
-	return out
-}
-
-func (c *LogConnectionResolver) Total() int32  { return c.total }
-func (c *LogConnectionResolver) Limit() int32  { return c.limit }
-func (c *LogConnectionResolver) Offset() int32 { return c.offset }
+func (c *ConnectionResolver[T]) Items() []T    { return c.items }
+func (c *ConnectionResolver[T]) Total() int32  { return c.total }
+func (c *ConnectionResolver[T]) Limit() int32  { return c.limit }
+func (c *ConnectionResolver[T]) Offset() int32 { return c.offset }
