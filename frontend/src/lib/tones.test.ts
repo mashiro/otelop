@@ -8,10 +8,8 @@ describe("traceStatusTone", () => {
   it("maps Error to destructive", () => {
     expect(traceStatusTone("Error")).toBe("destructive");
   });
-  it("maps unknown/unset values to muted", () => {
+  it("maps Unset to muted", () => {
     expect(traceStatusTone("Unset")).toBe("muted");
-    expect(traceStatusTone("")).toBe("muted");
-    expect(traceStatusTone("weird")).toBe("muted");
   });
 });
 

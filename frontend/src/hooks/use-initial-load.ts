@@ -4,7 +4,7 @@ import { graphql } from "@/gql";
 import type { SpanFieldsFragment } from "@/gql/graphql";
 import { gqlClient } from "@/lib/graphql";
 import { setTracesAtom, setMetricsAtom, setLogsAtom, serverConfigAtom } from "@/stores/telemetry";
-import type { TraceData, SpanData } from "@/types/telemetry";
+import type { TraceData, SpanData, SpanStatus } from "@/types/telemetry";
 
 // GraphQL exposes durationMs (milliseconds, Float) while the frontend type
 // carries `duration` in nanoseconds — matching how Go's time.Duration is still
@@ -90,8 +90,8 @@ const InitialLoadQuery = graphql(`
   }
 `);
 
-function toSpan({ durationMs, ...rest }: SpanFieldsFragment): SpanData {
-  return { ...rest, duration: durationMs * MS_TO_NS };
+function toSpan({ durationMs, statusCode, ...rest }: SpanFieldsFragment): SpanData {
+  return { ...rest, statusCode: statusCode as SpanStatus, duration: durationMs * MS_TO_NS };
 }
 
 export function useInitialLoad() {
