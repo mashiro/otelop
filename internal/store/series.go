@@ -2,9 +2,9 @@ package store
 
 import (
 	"fmt"
+	"hash/maphash"
 	"sort"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 )
@@ -42,7 +42,7 @@ type seriesState struct {
 // (Store) already hold their own lock during ingest.
 type seriesStore struct {
 	mu         sync.Mutex
-	entries    map[string]*seriesState
+	entries    map[uint64]*seriesState
 	ttl        time.Duration
 	maxEntries int
 	lastPrune  time.Time
@@ -50,20 +50,27 @@ type seriesStore struct {
 
 func newSeriesStore() *seriesStore {
 	return &seriesStore{
-		entries:    make(map[string]*seriesState),
+		entries:    make(map[uint64]*seriesState),
 		ttl:        defaultSeriesTTL,
 		maxEntries: defaultSeriesMaxEntries,
 	}
 }
 
-// seriesKey builds a stable lookup key for a metric series. Attributes are
-// sorted so callers don't have to think about insertion order.
-func seriesKey(serviceName, metricName string, attrs map[string]any) string {
-	var b strings.Builder
-	b.WriteString(serviceName)
-	b.WriteByte(0)
-	b.WriteString(metricName)
-	b.WriteByte(0)
+// seriesKeySeed is chosen once per process — the series store never leaves
+// memory, so a process-local keyspace is all we need.
+var seriesKeySeed = maphash.MakeSeed()
+
+// seriesKey builds a stable 64-bit hash key for a metric series. Attributes
+// are sorted before hashing so callers don't have to think about insertion
+// order. Returning a uint64 instead of a string avoids allocating a fresh
+// key string on every ingested data point.
+func seriesKey(serviceName, metricName string, attrs map[string]any) uint64 {
+	var h maphash.Hash
+	h.SetSeed(seriesKeySeed)
+	h.WriteString(serviceName)
+	h.WriteByte(0)
+	h.WriteString(metricName)
+	h.WriteByte(0)
 	if len(attrs) > 0 {
 		keys := make([]string, 0, len(attrs))
 		for k := range attrs {
@@ -71,31 +78,40 @@ func seriesKey(serviceName, metricName string, attrs map[string]any) string {
 		}
 		sort.Strings(keys)
 		for _, k := range keys {
-			b.WriteString(k)
-			b.WriteByte('=')
-			b.WriteString(stringifyAttr(attrs[k]))
-			b.WriteByte(0)
+			h.WriteString(k)
+			h.WriteByte('=')
+			writeAttrValue(&h, attrs[k])
+			h.WriteByte(0)
 		}
 	}
-	return b.String()
+	return h.Sum64()
 }
 
-func stringifyAttr(v any) string {
+// writeAttrValue hashes the canonical bytes of an attribute value without
+// allocating an intermediate string for int/float/bool.
+func writeAttrValue(h *maphash.Hash, v any) {
 	switch x := v.(type) {
 	case string:
-		return x
+		h.WriteString(x)
 	case bool:
-		return strconv.FormatBool(x)
+		if x {
+			h.WriteString("true")
+		} else {
+			h.WriteString("false")
+		}
 	case int64:
-		return strconv.FormatInt(x, 10)
+		var buf [20]byte
+		_, _ = h.Write(strconv.AppendInt(buf[:0], x, 10))
 	case int:
-		return strconv.Itoa(x)
+		var buf [20]byte
+		_, _ = h.Write(strconv.AppendInt(buf[:0], int64(x), 10))
 	case float64:
-		return strconv.FormatFloat(x, 'g', -1, 64)
+		var buf [32]byte
+		_, _ = h.Write(strconv.AppendFloat(buf[:0], x, 'g', -1, 64))
 	case nil:
-		return ""
+		// nothing to hash
 	default:
-		return fmt.Sprintf("%v", x)
+		_, _ = fmt.Fprintf(h, "%v", x)
 	}
 }
 
@@ -103,7 +119,7 @@ func stringifyAttr(v any) string {
 // updates the stored snapshot. If there is no prior snapshot, or the new
 // value is smaller (counter reset), it records the baseline and returns
 // ok=false so the caller can drop the point.
-func (s *seriesStore) numberDelta(key string, rawValue float64, now time.Time) (delta float64, ok bool) {
+func (s *seriesStore) numberDelta(key uint64, rawValue float64, now time.Time) (delta float64, ok bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.pruneLocked(now)
@@ -125,7 +141,7 @@ func (s *seriesStore) numberDelta(key string, rawValue float64, now time.Time) (
 
 // histogramDelta returns (countDelta, sumDelta) and updates the stored
 // snapshot. Same reset semantics as numberDelta.
-func (s *seriesStore) histogramDelta(key string, rawCount uint64, rawSum float64, now time.Time) (countDelta uint64, sumDelta float64, ok bool) {
+func (s *seriesStore) histogramDelta(key uint64, rawCount uint64, rawSum float64, now time.Time) (countDelta uint64, sumDelta float64, ok bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.pruneLocked(now)
@@ -158,14 +174,18 @@ func (s *seriesStore) histogramDelta(key string, rawCount uint64, rawSum float64
 // admitLocked inserts a new entry, evicting the oldest-lastSeen entry when
 // the cap is hit. O(N) on eviction but only fires when the map is full, so
 // steady-state cost is O(1).
-func (s *seriesStore) admitLocked(key string, state *seriesState) {
+func (s *seriesStore) admitLocked(key uint64, state *seriesState) {
 	if s.maxEntries > 0 && len(s.entries) >= s.maxEntries {
-		var oldestKey string
-		var oldestSeen time.Time
+		var (
+			oldestKey  uint64
+			oldestSeen time.Time
+			haveOldest bool
+		)
 		for k, v := range s.entries {
-			if oldestKey == "" || v.lastSeen.Before(oldestSeen) {
+			if !haveOldest || v.lastSeen.Before(oldestSeen) {
 				oldestKey = k
 				oldestSeen = v.lastSeen
+				haveOldest = true
 			}
 		}
 		delete(s.entries, oldestKey)
