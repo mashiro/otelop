@@ -26,11 +26,7 @@ func ConvertLogs(ld plog.Logs) []*LogData {
 
 	for i := 0; i < ld.ResourceLogs().Len(); i++ {
 		rl := ld.ResourceLogs().At(i)
-		resource := attributesToMap(rl.Resource().Attributes())
-		var svcName string
-		if serviceName, ok := rl.Resource().Attributes().Get("service.name"); ok {
-			svcName = serviceName.AsString()
-		}
+		resource, svcName := resourceInfo(rl.Resource().Attributes())
 
 		for j := 0; j < rl.ScopeLogs().Len(); j++ {
 			sl := rl.ScopeLogs().At(j)

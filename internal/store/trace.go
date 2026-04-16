@@ -140,11 +140,7 @@ func ConvertTraces(td ptrace.Traces) []*TraceData {
 	resourceSpans := td.ResourceSpans()
 	for i := 0; i < resourceSpans.Len(); i++ {
 		rs := resourceSpans.At(i)
-		resource := attributesToMap(rs.Resource().Attributes())
-		var svcName string
-		if serviceName, ok := rs.Resource().Attributes().Get("service.name"); ok {
-			svcName = serviceName.AsString()
-		}
+		resource, svcName := resourceInfo(rs.Resource().Attributes())
 
 		scopeSpans := rs.ScopeSpans()
 		for j := 0; j < scopeSpans.Len(); j++ {
