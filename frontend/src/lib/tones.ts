@@ -1,3 +1,5 @@
+import type { SpanStatus } from "@/types/telemetry";
+
 // Tone names used by the shared Pill component. Each tone maps to a fixed set
 // of Tailwind color classes defined in components/common/pill.tsx. Keep this
 // list small — reuse existing tones before adding new ones.
@@ -11,14 +13,16 @@ export type Tone =
   | "metric"
   | "log";
 
-// traceStatusTone maps a span/trace OTel status code to a Pill tone.
-export function traceStatusTone(status: string): Tone {
+// traceStatusTone maps a span/trace OTel status code to a Pill tone. The
+// switch is exhaustive over SpanStatus so adding a new value triggers a
+// type error here until the mapping is updated.
+export function traceStatusTone(status: SpanStatus): Tone {
   switch (status) {
     case "Ok":
       return "success";
     case "Error":
       return "destructive";
-    default:
+    case "Unset":
       return "muted";
   }
 }

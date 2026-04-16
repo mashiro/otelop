@@ -4,6 +4,10 @@ export interface SpanEvent {
   attributes: Record<string, unknown>;
 }
 
+// OTel span status is a closed enum on the backend (ptrace.StatusCode). Model
+// it as a union so exhaustiveness checks in the UI catch missing cases.
+export type SpanStatus = "Unset" | "Ok" | "Error";
+
 export interface SpanData {
   traceId: string;
   spanId: string;
@@ -14,7 +18,7 @@ export interface SpanData {
   startTime: string;
   endTime: string;
   duration: number;
-  statusCode: string;
+  statusCode: SpanStatus;
   statusMessage: string;
   attributes: Record<string, unknown>;
   events: SpanEvent[];
