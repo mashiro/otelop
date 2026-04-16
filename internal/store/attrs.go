@@ -17,10 +17,9 @@ func attributesToMap(attrs pcommon.Map) map[string]any {
 	return result
 }
 
-// resourceInfo flattens OTLP resource attributes into a plain map and
-// surfaces service.name alongside it. The three signal converters (trace,
-// metric, log) always want these two values in lockstep; pulling them in a
-// single Range pass avoids a second O(n) scan for the service.name lookup.
+// resourceInfo returns the flattened resource map plus service.name. Both
+// are computed in a single Range pass so the service.name lookup doesn't
+// need a second O(n) scan over the same attributes.
 func resourceInfo(attrs pcommon.Map) (map[string]any, string) {
 	result := make(map[string]any, attrs.Len())
 	var svcName string
