@@ -20,7 +20,7 @@ func (r *TraceResolver) ServiceName() string { return r.t.ServiceName }
 func (r *TraceResolver) SpanCount() int32    { return int32(r.t.SpanCount) }
 func (r *TraceResolver) StartTime() gql.Time { return gql.Time{Time: r.t.StartTime} }
 func (r *TraceResolver) DurationMs() float64 { return durationMs(r.t.Duration) }
-func (r *TraceResolver) HasError() bool      { return traceHasError(r.t) }
+func (r *TraceResolver) HasError() bool      { return r.t.HasError }
 
 func (r *TraceResolver) RootSpan() *SpanResolver {
 	if r.t.RootSpan == nil {
@@ -86,15 +86,11 @@ func (r *SpanResolver) Trace() *TraceResolver {
 // for root spans (ParentSpanID empty) or when the parent has not been
 // buffered under the same trace.
 func (r *SpanResolver) Parent() *SpanResolver {
-	if r.s.ParentSpanID == "" {
+	parent := r.trace.SpanByID(r.s.ParentSpanID)
+	if parent == nil {
 		return nil
 	}
-	for _, sibling := range r.trace.Spans {
-		if sibling.SpanID == r.s.ParentSpanID {
-			return &SpanResolver{store: r.store, trace: r.trace, s: sibling}
-		}
-	}
-	return nil
+	return &SpanResolver{store: r.store, trace: r.trace, s: parent}
 }
 
 type SpanEventResolver struct {
@@ -104,19 +100,6 @@ type SpanEventResolver struct {
 func (r *SpanEventResolver) Name() string        { return r.ev.Name }
 func (r *SpanEventResolver) Timestamp() gql.Time { return gql.Time{Time: r.ev.Timestamp} }
 func (r *SpanEventResolver) Attributes() JSONMap { return attrsToJSON(r.ev.Attributes) }
-
-// spanStatusError mirrors ptrace.StatusCodeError.String(). It is duplicated
-// here to avoid pulling pdata into the resolver package.
-const spanStatusError = "Error"
-
-func traceHasError(t *store.TraceData) bool {
-	for _, s := range t.Spans {
-		if s.StatusCode == spanStatusError {
-			return true
-		}
-	}
-	return false
-}
 
 func durationMs(d time.Duration) float64 {
 	return float64(d) / float64(time.Millisecond)

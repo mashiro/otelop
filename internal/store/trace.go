@@ -19,11 +19,18 @@ type TraceData struct {
 	// multiple parentless spans or disconnected parent/child relationships;
 	// anchoring Duration to a single root misreports the real trace length.
 	Duration time.Duration `json:"duration"`
+	// HasError is true when any span under this trace has StatusCode=="Error".
+	// Maintained incrementally in ConvertTraces/Merge so HasError GraphQL
+	// resolutions don't rescan Spans on every query.
+	HasError bool `json:"hasError"`
 
 	// Cached so Merge can extend Duration incrementally without rescanning spans.
 	endTime time.Time
 	// spanIDs tracks known spanIDs for O(1) deduplication on merge. Not serialized.
 	spanIDs map[string]struct{} `json:"-"`
+	// spanByID supports O(1) parent lookup from SpanResolver.Parent. Built lazily
+	// on first access; Merge keeps it fresh by inserting each newly-appended span.
+	spanByID map[string]*SpanData `json:"-"`
 }
 
 // Merge incorporates another TraceData sharing the same TraceID, deduplicating spans.
@@ -35,6 +42,9 @@ func (t *TraceData) Merge(other *TraceData) {
 			if s.EndTime.After(t.endTime) {
 				t.endTime = s.EndTime
 			}
+			if s.StatusCode == spanStatusErrorLiteral {
+				t.HasError = true
+			}
 		}
 	}
 	for _, s := range other.Spans {
@@ -43,11 +53,17 @@ func (t *TraceData) Merge(other *TraceData) {
 		}
 		t.spanIDs[s.SpanID] = struct{}{}
 		t.Spans = append(t.Spans, s)
+		if t.spanByID != nil {
+			t.spanByID[s.SpanID] = s
+		}
 		if s.StartTime.Before(t.StartTime) || t.StartTime.IsZero() {
 			t.StartTime = s.StartTime
 		}
 		if s.EndTime.After(t.endTime) {
 			t.endTime = s.EndTime
+		}
+		if s.StatusCode == spanStatusErrorLiteral {
+			t.HasError = true
 		}
 	}
 	t.SpanCount = len(t.Spans)
@@ -67,6 +83,26 @@ func isBetterRoot(current, candidate *SpanData) bool {
 		return true
 	}
 	return candidate.Duration > current.Duration
+}
+
+// spanStatusErrorLiteral mirrors ptrace.StatusCodeError.String() so HasError
+// bookkeeping inside the store package doesn't need to import pdata.
+const spanStatusErrorLiteral = "Error"
+
+// SpanByID returns the span with the given SpanID within this trace, or nil
+// when no such span has been buffered. The lookup map is built lazily on
+// first access and kept in sync by Merge as new spans are appended.
+func (t *TraceData) SpanByID(id string) *SpanData {
+	if id == "" {
+		return nil
+	}
+	if t.spanByID == nil {
+		t.spanByID = make(map[string]*SpanData, len(t.Spans))
+		for _, s := range t.Spans {
+			t.spanByID[s.SpanID] = s
+		}
+	}
+	return t.spanByID[id]
 }
 
 // SpanData represents a single span.
@@ -155,6 +191,9 @@ func ConvertTraces(td ptrace.Traces) []*TraceData {
 				}
 				if sd.EndTime.After(trace.endTime) {
 					trace.endTime = sd.EndTime
+				}
+				if sd.StatusCode == spanStatusErrorLiteral {
+					trace.HasError = true
 				}
 
 				if span.ParentSpanID().IsEmpty() && isBetterRoot(trace.RootSpan, sd) {

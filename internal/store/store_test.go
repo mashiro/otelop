@@ -215,6 +215,72 @@ func TestStore_AddAndGetLogs(t *testing.T) {
 	}
 }
 
+func TestStore_GetLogsPageByTraceID(t *testing.T) {
+	s := NewStore(10, 10, 10, 100, nil)
+
+	addLog := func(traceIDByte byte, body string) {
+		ld := plog.NewLogs()
+		rl := ld.ResourceLogs().AppendEmpty()
+		rl.Resource().Attributes().PutStr("service.name", "svc")
+		sl := rl.ScopeLogs().AppendEmpty()
+		lr := sl.LogRecords().AppendEmpty()
+		lr.SetTraceID(pcommon.TraceID([16]byte{traceIDByte}))
+		lr.Body().SetStr(body)
+		lr.SetTimestamp(pcommon.NewTimestampFromTime(time.Now()))
+		s.AddLogs(ld)
+	}
+
+	addLog(1, "t1-first")
+	addLog(2, "t2-only")
+	addLog(1, "t1-second")
+	addLog(0, "no-trace") // TraceID zero: must not be indexed
+
+	targetID := pcommon.TraceID([16]byte{1}).String()
+	items, total := s.GetLogsPageByTraceID(targetID, 0, 0)
+	if total != 2 {
+		t.Fatalf("total = %d, want 2", total)
+	}
+	if items[0].Body != "t1-second" || items[1].Body != "t1-first" {
+		t.Errorf("newest-first order broken: got [%q, %q]", items[0].Body, items[1].Body)
+	}
+
+	// Unrelated traceID must not leak results from other buckets.
+	other := pcommon.TraceID([16]byte{9}).String()
+	if _, total := s.GetLogsPageByTraceID(other, 0, 0); total != 0 {
+		t.Errorf("unknown trace total = %d, want 0", total)
+	}
+}
+
+func TestStore_AddLogs_EvictionPrunesTraceIndex(t *testing.T) {
+	// logCap=2 so the 3rd log evicts the 1st.
+	s := NewStore(10, 10, 2, 100, nil)
+
+	addLog := func(traceIDByte byte) {
+		ld := plog.NewLogs()
+		rl := ld.ResourceLogs().AppendEmpty()
+		sl := rl.ScopeLogs().AppendEmpty()
+		lr := sl.LogRecords().AppendEmpty()
+		lr.SetTraceID(pcommon.TraceID([16]byte{traceIDByte}))
+		lr.Body().SetStr("x")
+		s.AddLogs(ld)
+	}
+
+	addLog(1)
+	addLog(1)
+	addLog(2) // evicts the first log with traceID=1
+
+	id1 := pcommon.TraceID([16]byte{1}).String()
+	items, total := s.GetLogsPageByTraceID(id1, 0, 0)
+	if total != 1 || len(items) != 1 {
+		t.Fatalf("traceID=1 after eviction: total=%d items=%d, want 1/1", total, len(items))
+	}
+
+	addLog(2) // evicts the remaining log with traceID=1
+	if _, total := s.GetLogsPageByTraceID(id1, 0, 0); total != 0 {
+		t.Errorf("traceID=1 after second eviction: total=%d, want 0", total)
+	}
+}
+
 func TestStore_AddMetrics_Merge(t *testing.T) {
 	s := NewStore(10, 10, 10, 100, nil)
 

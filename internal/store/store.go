@@ -24,12 +24,17 @@ type OnAddFunc func(signalType SignalType, data any)
 
 // Store holds telemetry data in bounded ring buffers keyed for O(1) upsert.
 type Store struct {
-	mu            sync.RWMutex
-	traces        *RingBuffer[*TraceData]
-	metrics       *RingBuffer[*MetricData]
-	logs          *RingBuffer[*LogData]
-	traceIndex    map[string]int
-	metricIndex   map[string]int
+	mu          sync.RWMutex
+	traces      *RingBuffer[*TraceData]
+	metrics     *RingBuffer[*MetricData]
+	logs        *RingBuffer[*LogData]
+	traceIndex  map[string]int
+	metricIndex map[string]int
+	// logsByTraceID is a secondary index keyed by TraceID so the trace↔log
+	// correlation join in GetLogsPageByTraceID doesn't scan the full log
+	// buffer on every trace-detail query. Entries are appended on AddLogs
+	// (oldest first within each bucket) and pruned on eviction.
+	logsByTraceID map[string][]*LogData
 	series        *seriesStore
 	maxDataPoints int
 	onAdd         OnAddFunc
@@ -46,6 +51,7 @@ func NewStore(traceCap, metricCap, logCap, maxDataPoints int, onAdd OnAddFunc) *
 		logs:          NewRingBuffer[*LogData](logCap),
 		traceIndex:    make(map[string]int, traceCap),
 		metricIndex:   make(map[string]int, metricCap),
+		logsByTraceID: make(map[string][]*LogData),
 		series:        newSeriesStore(),
 		maxDataPoints: maxDataPoints,
 		onAdd:         onAdd,
@@ -151,7 +157,13 @@ func (s *Store) AddLogs(ld plog.Logs) {
 
 	s.mu.Lock()
 	for _, l := range converted {
-		s.logs.Add(l)
+		_, evicted, wasEvicted := s.logs.Add(l)
+		if wasEvicted && evicted != nil && evicted.TraceID != "" {
+			s.removeFromLogsByTraceID(evicted)
+		}
+		if l.TraceID != "" {
+			s.logsByTraceID[l.TraceID] = append(s.logsByTraceID[l.TraceID], l)
+		}
 	}
 	s.mu.Unlock()
 
@@ -159,6 +171,27 @@ func (s *Store) AddLogs(ld plog.Logs) {
 		for _, l := range converted {
 			s.onAdd(SignalLogs, l)
 		}
+	}
+}
+
+// removeFromLogsByTraceID drops the evicted log from its bucket. The bucket
+// is tiny relative to the whole buffer (all logs sharing one traceID), so the
+// linear scan to locate the pointer is acceptable.
+func (s *Store) removeFromLogsByTraceID(evicted *LogData) {
+	bucket, ok := s.logsByTraceID[evicted.TraceID]
+	if !ok {
+		return
+	}
+	for i, l := range bucket {
+		if l == evicted {
+			bucket = append(bucket[:i], bucket[i+1:]...)
+			break
+		}
+	}
+	if len(bucket) == 0 {
+		delete(s.logsByTraceID, evicted.TraceID)
+	} else {
+		s.logsByTraceID[evicted.TraceID] = bucket
 	}
 }
 
@@ -184,20 +217,14 @@ func (s *Store) GetLogsPage(offset, limit int) (items []*LogData, total int) {
 }
 
 // GetLogsPageByTraceID returns a newest-first page of logs whose TraceID
-// matches traceID, with offset/limit applied to the filtered set. There is no
-// traceID index on logs, so this scans the whole buffer under the read lock.
-// Callers rely on this for the trace↔log correlation join.
+// matches traceID, with offset/limit applied to the filtered set. Backed by
+// the logsByTraceID secondary index so lookups are O(matched) rather than
+// O(total) — important because trace-detail opens hit this on every resolve.
 func (s *Store) GetLogsPageByTraceID(traceID string, offset, limit int) (items []*LogData, total int) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	all, _ := s.logs.Page(0, 0)
-	filtered := make([]*LogData, 0, len(all))
-	for _, l := range all {
-		if l.TraceID == traceID {
-			filtered = append(filtered, l)
-		}
-	}
-	total = len(filtered)
+	bucket := s.logsByTraceID[traceID]
+	total = len(bucket)
 	if offset < 0 {
 		offset = 0
 	}
@@ -208,7 +235,13 @@ func (s *Store) GetLogsPageByTraceID(traceID string, offset, limit int) (items [
 	if limit > 0 && offset+limit < end {
 		end = offset + limit
 	}
-	return filtered[offset:end], total
+	// Bucket is append-ordered (oldest first); walk backwards for newest first.
+	n := end - offset
+	items = make([]*LogData, n)
+	for i := 0; i < n; i++ {
+		items[i] = bucket[total-1-offset-i]
+	}
+	return items, total
 }
 
 // GetTraces returns all stored traces, newest first.
@@ -266,6 +299,7 @@ func (s *Store) Clear() {
 	s.logs.Clear()
 	clear(s.traceIndex)
 	clear(s.metricIndex)
+	clear(s.logsByTraceID)
 	s.series.clear()
 }
 
