@@ -25,3 +25,6 @@ frontend/node_modules/
 # Build
 /dist/
 /tmp/
+
+# Claude Code local state
+/.claude/scheduled_tasks.lock
