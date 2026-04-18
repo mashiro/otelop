@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 
@@ -76,20 +77,38 @@ func TestTracer_EmitsOtelSpans(t *testing.T) {
 		names[i] = s.Name()
 	}
 
-	var seenQuery, seenTracesField bool
-	for _, n := range names {
+	var seenQuery bool
+	var tracesSpan sdktrace.ReadOnlySpan
+	for i, n := range names {
 		if n == "graphql.query" {
 			seenQuery = true
 		}
 		if n == "Query.traces" {
-			seenTracesField = true
+			tracesSpan = spans[i]
 		}
 	}
 	if !seenQuery {
 		t.Errorf("expected graphql.query span, got %v", names)
 	}
-	if !seenTracesField {
-		t.Errorf("expected Query.traces span, got %v", names)
+	if tracesSpan == nil {
+		t.Fatalf("expected Query.traces span, got %v", names)
+	}
+
+	var limitAttr attribute.KeyValue
+	for _, attr := range tracesSpan.Attributes() {
+		if string(attr.Key) == "graphql.args.limit" {
+			limitAttr = attr
+			break
+		}
+	}
+	if limitAttr.Key == "" {
+		t.Fatalf("expected graphql.args.limit on Query.traces span, got attrs %v", tracesSpan.Attributes())
+	}
+	if limitAttr.Value.Type() != attribute.INT64 {
+		t.Errorf("graphql.args.limit type = %v, want INT64", limitAttr.Value.Type())
+	}
+	if got := limitAttr.Value.AsInt64(); got != 1 {
+		t.Errorf("graphql.args.limit = %d, want 1", got)
 	}
 }
 
