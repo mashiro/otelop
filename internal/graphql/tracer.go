@@ -93,13 +93,38 @@ func (slogTracer) TraceField(
 	}
 	spanCtx, span := otelTracer().Start(ctx, typeName+"."+fieldName)
 	for name, value := range args {
-		span.SetAttributes(attribute.String("graphql.args."+name, fmt.Sprintf("%v", value)))
+		span.SetAttributes(argAttribute("graphql.args."+name, value))
 	}
 	return spanCtx, func(err *errors.QueryError) {
 		if err != nil {
 			span.SetStatus(codes.Error, err.Error())
 		}
 		span.End()
+	}
+}
+
+// argAttribute preserves the argument's underlying type on the span so
+// integer / boolean arguments aren't flattened into strings in the trace
+// viewer. Compound values fall back to Sprintf because OTel attributes are
+// scalar-only.
+func argAttribute(key string, v any) attribute.KeyValue {
+	switch x := v.(type) {
+	case nil:
+		return attribute.String(key, "")
+	case bool:
+		return attribute.Bool(key, x)
+	case int32:
+		return attribute.Int64(key, int64(x))
+	case int64:
+		return attribute.Int64(key, x)
+	case int:
+		return attribute.Int(key, x)
+	case float64:
+		return attribute.Float64(key, x)
+	case string:
+		return attribute.String(key, x)
+	default:
+		return attribute.String(key, fmt.Sprintf("%v", v))
 	}
 }
 
