@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.6.0](https://github.com/mashiro/otelop/compare/v0.5.1...v0.6.0) (2026-04-18)
+
+
+### Features
+
+* **server:** emit spa.stat and spa.serve spans ([#59](https://github.com/mashiro/otelop/issues/59)) ([fe46f65](https://github.com/mashiro/otelop/commit/fe46f65c18c2dae450e5dd1d0770677dcf70812f))
+* **store:** emit ingest spans with batch counts ([#60](https://github.com/mashiro/otelop/issues/60)) ([91c575b](https://github.com/mashiro/otelop/commit/91c575b45ab3eb6d05a7c98707ff7236d9e6aead))
+
+
+### Bug Fixes
+
+* **cli:** show wall-clock uptime across system sleep ([#57](https://github.com/mashiro/otelop/issues/57)) ([414ab04](https://github.com/mashiro/otelop/commit/414ab04a07165550fc620a91903787ceb73695ba))
+* **deps:** update all non-major dependencies ([#54](https://github.com/mashiro/otelop/issues/54)) ([5b51eeb](https://github.com/mashiro/otelop/commit/5b51eebf5e73853a91c2ed5ab50e543104f0cd3f))
+* **deps:** update all non-major dependencies to v0.150.0 ([#55](https://github.com/mashiro/otelop/issues/55)) ([16ffc66](https://github.com/mashiro/otelop/commit/16ffc66722c297cc65c8b7561b0e81446f5c1246))
+
+
+### Performance Improvements
+
+* **frontend:** stable key for DataPointsTable rows ([#53](https://github.com/mashiro/otelop/issues/53)) ([566ac53](https://github.com/mashiro/otelop/commit/566ac53e00c2d28a8f119284c49138cbd2387500))
+* **store:** cache HasError and add parent/log lookup indexes ([#47](https://github.com/mashiro/otelop/issues/47)) ([cfa5a85](https://github.com/mashiro/otelop/commit/cfa5a85ff54c2cd3bffcb78767cebd1865ab0575))
+* **store:** hash series keys with maphash instead of allocating strings ([#52](https://github.com/mashiro/otelop/issues/52)) ([85cad94](https://github.com/mashiro/otelop/commit/85cad943ab5bdaa0c57a060877c8997a8b409dae))
+
 ## [0.5.1](https://github.com/mashiro/otelop/compare/v0.5.0...v0.5.1) (2026-04-14)
 
 
