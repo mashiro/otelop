@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"encoding/json"
 	"math"
 	"testing"
@@ -10,7 +11,59 @@ import (
 	"go.opentelemetry.io/collector/pdata/plog"
 	"go.opentelemetry.io/collector/pdata/pmetric"
 	"go.opentelemetry.io/collector/pdata/ptrace"
+	"go.opentelemetry.io/otel"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 )
+
+func TestStore_AddTraces_EmitsSpan(t *testing.T) {
+	orig := otel.GetTracerProvider()
+	t.Cleanup(func() { otel.SetTracerProvider(orig) })
+
+	rec := tracetest.NewSpanRecorder()
+	otel.SetTracerProvider(sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(rec)))
+
+	s := NewStore(10, 10, 10, 100, nil)
+
+	td := ptrace.NewTraces()
+	rs := td.ResourceSpans().AppendEmpty()
+	rs.Resource().Attributes().PutStr("service.name", "svc")
+	ss := rs.ScopeSpans().AppendEmpty()
+	sp := ss.Spans().AppendEmpty()
+	sp.SetTraceID(pcommon.TraceID([16]byte{1}))
+	sp.SetSpanID(pcommon.SpanID([8]byte{1}))
+	sp.SetStartTimestamp(pcommon.NewTimestampFromTime(time.Now()))
+	sp.SetEndTimestamp(pcommon.NewTimestampFromTime(time.Now()))
+	s.AddTraces(context.Background(), td)
+
+	var seen bool
+	for _, span := range rec.Ended() {
+		if span.Name() != "store.add_traces" {
+			continue
+		}
+		seen = true
+		var converted, notified *int64
+		for _, a := range span.Attributes() {
+			switch string(a.Key) {
+			case "store.traces.converted":
+				v := a.Value.AsInt64()
+				converted = &v
+			case "store.traces.notified":
+				v := a.Value.AsInt64()
+				notified = &v
+			}
+		}
+		if converted == nil || *converted != 1 {
+			t.Errorf("store.traces.converted = %v, want 1", converted)
+		}
+		if notified == nil || *notified != 1 {
+			t.Errorf("store.traces.notified = %v, want 1", notified)
+		}
+	}
+	if !seen {
+		t.Errorf("expected store.add_traces span in %v", rec.Ended())
+	}
+}
 
 func TestRingBuffer_Add(t *testing.T) {
 	rb := NewRingBuffer[int](3)
@@ -70,7 +123,7 @@ func TestRingBuffer_Clear(t *testing.T) {
 
 func TestStore_AddAndGetTraces(t *testing.T) {
 	var called int
-	s := NewStore(10, 10, 10, 100, func(sig SignalType, data any) {
+	s := NewStore(10, 10, 10, 100, func(_ context.Context, sig SignalType, data any) {
 		called++
 		if sig != SignalTraces {
 			t.Errorf("expected SignalTraces, got %s", sig)
@@ -89,7 +142,7 @@ func TestStore_AddAndGetTraces(t *testing.T) {
 	span.SetStartTimestamp(pcommon.NewTimestampFromTime(time.Now()))
 	span.SetEndTimestamp(pcommon.NewTimestampFromTime(time.Now().Add(100 * time.Millisecond)))
 
-	s.AddTraces(td)
+	s.AddTraces(context.Background(), td)
 
 	traces := s.GetTraces()
 	if len(traces) != 1 {
@@ -125,7 +178,7 @@ func TestStore_AddTraces_DeduplicateSpans(t *testing.T) {
 	span1.SetStartTimestamp(pcommon.NewTimestampFromTime(now))
 	span1.SetEndTimestamp(pcommon.NewTimestampFromTime(now.Add(100 * time.Millisecond)))
 
-	s.AddTraces(td1)
+	s.AddTraces(context.Background(), td1)
 
 	// Second batch: same traceID and same spanID (duplicate).
 	td2 := ptrace.NewTraces()
@@ -146,7 +199,7 @@ func TestStore_AddTraces_DeduplicateSpans(t *testing.T) {
 	span3.SetStartTimestamp(pcommon.NewTimestampFromTime(now))
 	span3.SetEndTimestamp(pcommon.NewTimestampFromTime(now.Add(50 * time.Millisecond)))
 
-	s.AddTraces(td2)
+	s.AddTraces(context.Background(), td2)
 
 	traces := s.GetTraces()
 	if len(traces) != 1 {
@@ -173,7 +226,7 @@ func TestStore_GetTraceByID(t *testing.T) {
 	span.SetStartTimestamp(pcommon.NewTimestampFromTime(time.Now()))
 	span.SetEndTimestamp(pcommon.NewTimestampFromTime(time.Now().Add(50 * time.Millisecond)))
 
-	s.AddTraces(td)
+	s.AddTraces(context.Background(), td)
 
 	trace, ok := s.GetTraceByID(traceID.String())
 	if !ok {
@@ -201,7 +254,7 @@ func TestStore_AddAndGetLogs(t *testing.T) {
 	lr.Body().SetStr("test log message")
 	lr.SetTimestamp(pcommon.NewTimestampFromTime(time.Now()))
 
-	s.AddLogs(ld)
+	s.AddLogs(context.Background(), ld)
 
 	logs := s.GetLogs()
 	if len(logs) != 1 {
@@ -227,7 +280,7 @@ func TestStore_GetLogsPageByTraceID(t *testing.T) {
 		lr.SetTraceID(pcommon.TraceID([16]byte{traceIDByte}))
 		lr.Body().SetStr(body)
 		lr.SetTimestamp(pcommon.NewTimestampFromTime(time.Now()))
-		s.AddLogs(ld)
+		s.AddLogs(context.Background(), ld)
 	}
 
 	addLog(1, "t1-first")
@@ -262,7 +315,7 @@ func TestStore_AddLogs_EvictionPrunesTraceIndex(t *testing.T) {
 		lr := sl.LogRecords().AppendEmpty()
 		lr.SetTraceID(pcommon.TraceID([16]byte{traceIDByte}))
 		lr.Body().SetStr("x")
-		s.AddLogs(ld)
+		s.AddLogs(context.Background(), ld)
 	}
 
 	addLog(1)
@@ -297,7 +350,7 @@ func TestStore_AddMetrics_Merge(t *testing.T) {
 	dp1.SetTimestamp(pcommon.NewTimestampFromTime(time.Now()))
 	dp1.SetDoubleValue(42.0)
 
-	s.AddMetrics(md1)
+	s.AddMetrics(context.Background(), md1)
 
 	metrics := s.GetMetrics()
 	if len(metrics) != 1 {
@@ -320,7 +373,7 @@ func TestStore_AddMetrics_Merge(t *testing.T) {
 	dp2.SetTimestamp(pcommon.NewTimestampFromTime(time.Now().Add(time.Second)))
 	dp2.SetDoubleValue(55.0)
 
-	s.AddMetrics(md2)
+	s.AddMetrics(context.Background(), md2)
 
 	metrics = s.GetMetrics()
 	if len(metrics) != 1 {
@@ -447,7 +500,7 @@ func TestResourceInfo(t *testing.T) {
 
 func TestStore_AddMetrics_SkipsEmptyMetrics(t *testing.T) {
 	var notified []*MetricData
-	s := NewStore(10, 10, 10, 100, func(sig SignalType, data any) {
+	s := NewStore(10, 10, 10, 100, func(_ context.Context, sig SignalType, data any) {
 		if sig == SignalMetrics {
 			notified = append(notified, data.(*MetricData))
 		}
@@ -465,7 +518,7 @@ func TestStore_AddMetrics_SkipsEmptyMetrics(t *testing.T) {
 	sum1.SetAggregationTemporality(pmetric.AggregationTemporalityCumulative)
 	sum1.DataPoints().AppendEmpty().SetIntValue(100)
 
-	s.AddMetrics(md1)
+	s.AddMetrics(context.Background(), md1)
 
 	if got := s.GetMetrics(); len(got) != 0 {
 		t.Fatalf("baseline scrape should not be stored, got %d metrics", len(got))
@@ -486,7 +539,7 @@ func TestStore_AddMetrics_SkipsEmptyMetrics(t *testing.T) {
 	sum2.SetAggregationTemporality(pmetric.AggregationTemporalityCumulative)
 	sum2.DataPoints().AppendEmpty().SetIntValue(150)
 
-	s.AddMetrics(md2)
+	s.AddMetrics(context.Background(), md2)
 
 	metrics := s.GetMetrics()
 	if len(metrics) != 1 || len(metrics[0].DataPoints) != 1 {
@@ -530,7 +583,7 @@ func TestStore_AddMetrics_DifferentNames(t *testing.T) {
 	m2.SetEmptyGauge()
 	m2.Gauge().DataPoints().AppendEmpty().SetDoubleValue(2.0)
 
-	s.AddMetrics(md)
+	s.AddMetrics(context.Background(), md)
 
 	metrics := s.GetMetrics()
 	if len(metrics) != 2 {
@@ -550,7 +603,7 @@ func TestStore_Clear(t *testing.T) {
 	span.SetStartTimestamp(pcommon.NewTimestampFromTime(time.Now()))
 	span.SetEndTimestamp(pcommon.NewTimestampFromTime(time.Now()))
 
-	s.AddTraces(td)
+	s.AddTraces(context.Background(), td)
 	s.Clear()
 
 	if len(s.GetTraces()) != 0 {
@@ -572,7 +625,7 @@ func TestStore_AddTraces_EvictionClearsIndex(t *testing.T) {
 		sp.SetSpanID(pcommon.SpanID([8]byte{traceByte}))
 		sp.SetStartTimestamp(pcommon.NewTimestampFromTime(time.Now()))
 		sp.SetEndTimestamp(pcommon.NewTimestampFromTime(time.Now()))
-		s.AddTraces(td)
+		s.AddTraces(context.Background(), td)
 	}
 
 	add(1)
@@ -612,7 +665,7 @@ func TestStore_GetTracesPage(t *testing.T) {
 		sp.SetSpanID(pcommon.SpanID([8]byte{byte(i)}))
 		sp.SetStartTimestamp(pcommon.NewTimestampFromTime(time.Now().Add(time.Duration(i) * time.Millisecond)))
 		sp.SetEndTimestamp(pcommon.NewTimestampFromTime(time.Now().Add(time.Duration(i) * time.Millisecond)))
-		s.AddTraces(td)
+		s.AddTraces(context.Background(), td)
 	}
 
 	page, total := s.GetTracesPage(1, 2)
@@ -646,7 +699,7 @@ func TestStore_NewestFirst(t *testing.T) {
 		now := time.Now().Add(time.Duration(i) * time.Second)
 		span.SetStartTimestamp(pcommon.NewTimestampFromTime(now))
 		span.SetEndTimestamp(pcommon.NewTimestampFromTime(now.Add(time.Millisecond)))
-		s.AddTraces(td)
+		s.AddTraces(context.Background(), td)
 	}
 
 	traces := s.GetTraces()

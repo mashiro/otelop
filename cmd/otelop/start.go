@@ -254,7 +254,7 @@ func bootstrap(ctx context.Context, opts startOptions) (*runtime, error) {
 	rt.hub = ws.NewHub()
 	go rt.hub.Run(ctx)
 
-	rt.store = store.NewStore(opts.TraceCap, opts.MetricCap, opts.LogCap, opts.MaxDataPoints, func(sig store.SignalType, data any) {
+	rt.store = store.NewStore(opts.TraceCap, opts.MetricCap, opts.LogCap, opts.MaxDataPoints, func(_ context.Context, sig store.SignalType, data any) {
 		rt.hub.Broadcast(ws.Message{Type: sig, Data: data})
 	})
 

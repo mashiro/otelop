@@ -1,12 +1,20 @@
 package store
 
 import (
+	"context"
 	"sync"
 
 	"go.opentelemetry.io/collector/pdata/plog"
 	"go.opentelemetry.io/collector/pdata/pmetric"
 	"go.opentelemetry.io/collector/pdata/ptrace"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	oteltrace "go.opentelemetry.io/otel/trace"
 )
+
+// tracer resolves lazily so tests that swap the global provider still see
+// their own span recorder.
+func tracer() oteltrace.Tracer { return otel.Tracer("otelop/store") }
 
 // SignalType identifies the type of telemetry signal.
 type SignalType string
@@ -19,8 +27,9 @@ const (
 
 // OnAddFunc is called when new data is added to the store. It runs outside the
 // store's write lock so implementations may take their time (e.g. serialize
-// and broadcast over a WebSocket).
-type OnAddFunc func(signalType SignalType, data any)
+// and broadcast over a WebSocket). The ctx carries the ingest span so
+// broadcast work shows up as a child in the trace.
+type OnAddFunc func(ctx context.Context, signalType SignalType, data any)
 
 // Store holds telemetry data in bounded ring buffers keyed for O(1) upsert.
 type Store struct {
@@ -67,8 +76,13 @@ func metricKey(serviceName, name string) string {
 }
 
 // AddTraces converts and stores trace data. Broadcasts fire outside the lock.
-func (s *Store) AddTraces(td ptrace.Traces) {
+func (s *Store) AddTraces(ctx context.Context, td ptrace.Traces) {
+	ctx, span := tracer().Start(ctx, "store.add_traces")
+	defer span.End()
+	span.SetAttributes(attribute.Int("store.resource_spans", td.ResourceSpans().Len()))
+
 	converted := ConvertTraces(td)
+	span.SetAttributes(attribute.Int("store.traces.converted", len(converted)))
 	if len(converted) == 0 {
 		return
 	}
@@ -94,16 +108,22 @@ func (s *Store) AddTraces(td ptrace.Traces) {
 	}
 	s.mu.Unlock()
 
+	span.SetAttributes(attribute.Int("store.traces.notified", len(notify)))
 	if s.onAdd != nil {
 		for _, trace := range notify {
-			s.onAdd(SignalTraces, trace)
+			s.onAdd(ctx, SignalTraces, trace)
 		}
 	}
 }
 
 // AddMetrics converts and stores metric data, merging data points for the same metric.
-func (s *Store) AddMetrics(md pmetric.Metrics) {
+func (s *Store) AddMetrics(ctx context.Context, md pmetric.Metrics) {
+	ctx, span := tracer().Start(ctx, "store.add_metrics")
+	defer span.End()
+	span.SetAttributes(attribute.Int("store.resource_metrics", md.ResourceMetrics().Len()))
+
 	converted := convertMetrics(md, s.series)
+	span.SetAttributes(attribute.Int("store.metrics.converted", len(converted)))
 	if len(converted) == 0 {
 		return
 	}
@@ -141,16 +161,22 @@ func (s *Store) AddMetrics(md pmetric.Metrics) {
 	}
 	s.mu.Unlock()
 
+	span.SetAttributes(attribute.Int("store.metrics.notified", len(notify)))
 	if s.onAdd != nil {
 		for _, m := range notify {
-			s.onAdd(SignalMetrics, m)
+			s.onAdd(ctx, SignalMetrics, m)
 		}
 	}
 }
 
 // AddLogs converts and stores log data.
-func (s *Store) AddLogs(ld plog.Logs) {
+func (s *Store) AddLogs(ctx context.Context, ld plog.Logs) {
+	ctx, span := tracer().Start(ctx, "store.add_logs")
+	defer span.End()
+	span.SetAttributes(attribute.Int("store.resource_logs", ld.ResourceLogs().Len()))
+
 	converted := ConvertLogs(ld)
+	span.SetAttributes(attribute.Int("store.logs.converted", len(converted)))
 	if len(converted) == 0 {
 		return
 	}
@@ -169,7 +195,7 @@ func (s *Store) AddLogs(ld plog.Logs) {
 
 	if s.onAdd != nil {
 		for _, l := range converted {
-			s.onAdd(SignalLogs, l)
+			s.onAdd(ctx, SignalLogs, l)
 		}
 	}
 }

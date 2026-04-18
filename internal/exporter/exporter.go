@@ -19,17 +19,17 @@ func newExporter(s *store.Store) *otelopExporter {
 	return &otelopExporter{store: s}
 }
 
-func (e *otelopExporter) pushTraces(_ context.Context, td ptrace.Traces) error {
-	e.store.AddTraces(td)
+func (e *otelopExporter) pushTraces(ctx context.Context, td ptrace.Traces) error {
+	e.store.AddTraces(ctx, td)
 	return nil
 }
 
-func (e *otelopExporter) pushMetrics(_ context.Context, md pmetric.Metrics) error {
-	e.store.AddMetrics(md)
+func (e *otelopExporter) pushMetrics(ctx context.Context, md pmetric.Metrics) error {
+	e.store.AddMetrics(ctx, md)
 	return nil
 }
 
-func (e *otelopExporter) pushLogs(_ context.Context, ld plog.Logs) error {
-	e.store.AddLogs(ld)
+func (e *otelopExporter) pushLogs(ctx context.Context, ld plog.Logs) error {
+	e.store.AddLogs(ctx, ld)
 	return nil
 }
