@@ -10,12 +10,19 @@ import (
 	gqlgo "github.com/graph-gophers/graphql-go"
 	"github.com/graph-gophers/graphql-go/relay"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	oteltrace "go.opentelemetry.io/otel/trace"
 
 	otelopgraphql "github.com/mashiro/otelop/internal/graphql"
 	"github.com/mashiro/otelop/internal/mcp"
 	"github.com/mashiro/otelop/internal/store"
 	ws "github.com/mashiro/otelop/internal/websocket"
 )
+
+// tracer resolves the server tracer lazily so tests that swap the global
+// provider still see their own span recorder.
+func tracer() oteltrace.Tracer { return otel.Tracer("otelop/server") }
 
 // Server serves the GraphQL endpoint, MCP endpoint, WebSocket stream, and
 // embedded frontend.
@@ -123,8 +130,10 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	return s.httpServer.Shutdown(ctx)
 }
 
-// spaHandler serves static files from the given filesystem, falling back to index.html
-// for paths that don't match a real file (SPA routing).
+// spaHandler serves static files from the given filesystem, falling back to
+// index.html for paths that don't match a real file (SPA routing). Emits
+// child spans (spa.stat, spa.serve) so the otelhttp root span's duration can
+// be split into existence-check vs file-serving vs wrapping middleware.
 func spaHandler(fsys fs.FS) http.Handler {
 	fileServer := http.FileServerFS(fsys)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -135,10 +144,19 @@ func spaHandler(fsys fs.FS) http.Handler {
 			path = path[1:]
 		}
 
+		ctx := r.Context()
+		statCtx, statSpan := tracer().Start(ctx, "spa.stat")
+		statSpan.SetAttributes(attribute.String("spa.path", path))
 		_, err := fs.Stat(fsys, path)
+		statSpan.SetAttributes(attribute.Bool("spa.found", err == nil))
+		statSpan.End()
+		_ = statCtx
+
 		if err != nil {
 			r.URL.Path = "/"
 		}
-		fileServer.ServeHTTP(w, r)
+		serveCtx, serveSpan := tracer().Start(ctx, "spa.serve")
+		defer serveSpan.End()
+		fileServer.ServeHTTP(w, r.WithContext(serveCtx))
 	})
 }
