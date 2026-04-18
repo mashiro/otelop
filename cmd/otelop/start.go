@@ -246,8 +246,9 @@ func bootstrap(ctx context.Context, opts startOptions) (*runtime, error) {
 	ctx, cancel := context.WithCancel(ctx)
 
 	rt := &runtime{
-		cancel:    cancel,
-		startedAt: time.Now(),
+		cancel: cancel,
+		// Round(0) drops the monotonic reading so uptime spans system sleep.
+		startedAt: time.Now().Round(0),
 	}
 
 	rt.hub = ws.NewHub()
