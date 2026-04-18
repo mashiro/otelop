@@ -54,7 +54,7 @@ func seedStore(t *testing.T) *store.Store {
 	sp2child.Status().SetCode(ptrace.StatusCodeError)
 	sp2child.Status().SetMessage("db down")
 
-	s.AddTraces(td)
+	s.AddTraces(context.Background(), td)
 
 	// A metric
 	md := pmetric.NewMetrics()
@@ -71,7 +71,7 @@ func seedStore(t *testing.T) *store.Store {
 		dp.SetDoubleValue(float64(i) + 0.5)
 		dp.SetTimestamp(pcommon.NewTimestampFromTime(now))
 	}
-	s.AddMetrics(md)
+	s.AddMetrics(context.Background(), md)
 
 	// Logs: 1 correlated with trace 2, 1 orphan
 	ld := plog.NewLogs()
@@ -90,7 +90,7 @@ func seedStore(t *testing.T) *store.Store {
 	lr2.Body().SetStr("unrelated")
 	lr2.SetTimestamp(pcommon.NewTimestampFromTime(now))
 
-	s.AddLogs(ld)
+	s.AddLogs(context.Background(), ld)
 
 	return s
 }
@@ -311,7 +311,7 @@ func TestLogEdge_TraceNullWhenEvicted(t *testing.T) {
 	lr := sl.LogRecords().AppendEmpty()
 	lr.SetTraceID(pcommon.TraceID([16]byte{9}))
 	lr.Body().SetStr("orphan")
-	s.AddLogs(ld)
+	s.AddLogs(context.Background(), ld)
 
 	data := exec(t, s, `{ logs { items { body trace { traceId } } } }`, nil)
 	items := data["logs"].(map[string]any)["items"].([]any)
