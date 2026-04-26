@@ -30,7 +30,7 @@
     "clsx": "2.1.1",
     "graphql-request": "7.4.0",
     "jotai": "2.19.1",
-    "lucide-react": "1.8.0",
+    "lucide-react": "1.9.0",
     "react": "19.2.5",
     "react-dom": "19.2.5",
     "shadcn": "4.4.0",
@@ -57,5 +57,5 @@
     "vite-plus": "catalog:",
     "vitest": "catalog:"
   },
-  "packageManager": "pnpm@10.33.1"
+  "packageManager": "pnpm@10.33.2"
 }
