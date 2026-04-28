@@ -97,6 +97,66 @@ func TestBuildConfigMap_WithHTTPProxy(t *testing.T) {
 	}
 }
 
+func TestBuildConfigMap_SelfTelemetryDisabled(t *testing.T) {
+	cfg := buildConfigMap(Config{
+		GRPCEndpoint: "0.0.0.0:4317",
+		HTTPEndpoint: "0.0.0.0:4318",
+		LogLevel:     "info",
+	})
+	metrics := cfg["service"].(obj)["telemetry"].(obj)["metrics"].(obj)
+	if metrics["level"] != "none" {
+		t.Fatalf("metrics level = %#v, want none", metrics["level"])
+	}
+	if _, ok := metrics["readers"]; ok {
+		t.Fatalf("metrics readers must be absent when endpoint is empty, got %#v", metrics["readers"])
+	}
+}
+
+func TestBuildConfigMap_SelfTelemetryEnabled(t *testing.T) {
+	cfg := buildConfigMap(Config{
+		GRPCEndpoint:          "0.0.0.0:4317",
+		HTTPEndpoint:          "0.0.0.0:4318",
+		LogLevel:              "info",
+		SelfTelemetryEndpoint: "localhost:4317",
+	})
+	metrics := cfg["service"].(obj)["telemetry"].(obj)["metrics"].(obj)
+	if metrics["level"] != "normal" {
+		t.Fatalf("metrics level = %#v, want normal", metrics["level"])
+	}
+	readers, ok := metrics["readers"].([]any)
+	if !ok || len(readers) != 1 {
+		t.Fatalf("metrics readers = %#v, want one entry", metrics["readers"])
+	}
+	periodic := readers[0].(obj)["periodic"].(obj)
+	if periodic["interval"] != selfTelemetryIntervalMs {
+		t.Fatalf("interval = %#v, want %d", periodic["interval"], selfTelemetryIntervalMs)
+	}
+	otlp := periodic["exporter"].(obj)["otlp"].(obj)
+	if otlp["endpoint"] != "http://localhost:4317" {
+		t.Fatalf("otlp endpoint = %#v", otlp["endpoint"])
+	}
+	if otlp["protocol"] != "grpc" {
+		t.Fatalf("otlp protocol = %#v", otlp["protocol"])
+	}
+	if otlp["insecure"] != true {
+		t.Fatalf("otlp insecure = %#v", otlp["insecure"])
+	}
+}
+
+func TestBuildConfigMap_SelfTelemetryEndpointURLEncoded(t *testing.T) {
+	cfg := buildConfigMap(Config{
+		GRPCEndpoint:          "0.0.0.0:4317",
+		HTTPEndpoint:          "0.0.0.0:4318",
+		LogLevel:              "info",
+		SelfTelemetryEndpoint: "[::1]:4317",
+	})
+	metrics := cfg["service"].(obj)["telemetry"].(obj)["metrics"].(obj)
+	otlp := metrics["readers"].([]any)[0].(obj)["periodic"].(obj)["exporter"].(obj)["otlp"].(obj)
+	if otlp["endpoint"] != "http://[::1]:4317" {
+		t.Fatalf("otlp endpoint = %#v, want http://[::1]:4317", otlp["endpoint"])
+	}
+}
+
 func TestStaticProviderNormalizesLocalObjTypes(t *testing.T) {
 	factory := newStaticProviderFactory(buildConfigMap(Config{
 		GRPCEndpoint: "0.0.0.0:4317",

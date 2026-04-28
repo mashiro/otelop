@@ -282,14 +282,25 @@ func bootstrap(ctx context.Context, opts startOptions) (*runtime, error) {
 		}
 	}()
 
+	selfTelemetryEndpoint := ""
+	if opts.Debug {
+		ep, err := resolveLoopback(opts.OTLPGRPCAddr)
+		if err != nil {
+			rt.shutdown()
+			return nil, fmt.Errorf("invalid otlp-grpc address: %w", err)
+		}
+		selfTelemetryEndpoint = ep
+	}
+
 	slog.Debug("starting collector", "grpc", opts.OTLPGRPCAddr, "http", opts.OTLPHTTPAddr)
 	col, err := collector.New(otelopexporter.NewFactory(rt.store), collector.Config{
-		GRPCEndpoint:  opts.OTLPGRPCAddr,
-		HTTPEndpoint:  opts.OTLPHTTPAddr,
-		ProxyURL:      opts.ProxyURL,
-		ProxyProtocol: opts.ProxyProtocol,
-		ProxyHeaders:  buildProxyHeaders(opts.ProxyAuth),
-		LogLevel:      opts.LogLevel,
+		GRPCEndpoint:          opts.OTLPGRPCAddr,
+		HTTPEndpoint:          opts.OTLPHTTPAddr,
+		ProxyURL:              opts.ProxyURL,
+		ProxyProtocol:         opts.ProxyProtocol,
+		ProxyHeaders:          buildProxyHeaders(opts.ProxyAuth),
+		LogLevel:              opts.LogLevel,
+		SelfTelemetryEndpoint: selfTelemetryEndpoint,
 	})
 	if err != nil {
 		rt.shutdown()
@@ -311,13 +322,8 @@ func bootstrap(ctx context.Context, opts startOptions) (*runtime, error) {
 	}
 
 	if opts.Debug {
-		endpoint, err := resolveLoopback(opts.OTLPGRPCAddr)
-		if err != nil {
-			rt.shutdown()
-			return nil, fmt.Errorf("invalid otlp-grpc address: %w", err)
-		}
-		slog.Debug("starting self-telemetry", "endpoint", endpoint)
-		result, err := selftelemetry.Setup(ctx, endpoint)
+		slog.Debug("starting self-telemetry", "endpoint", selfTelemetryEndpoint)
+		result, err := selftelemetry.Setup(ctx, selfTelemetryEndpoint)
 		if err != nil {
 			rt.shutdown()
 			return nil, fmt.Errorf("failed to setup self-telemetry: %w", err)

@@ -16,6 +16,11 @@ var version = "dev"
 
 type obj map[string]any
 
+// selfTelemetryIntervalMs is the periodic OTLP reader interval for the
+// Collector's own component metrics. Mirrors the SDK-side cadence in
+// internal/selftelemetry so both data sources tick together.
+const selfTelemetryIntervalMs = 10_000
+
 // Config holds runtime-configurable collector settings.
 type Config struct {
 	GRPCEndpoint  string
@@ -24,6 +29,12 @@ type Config struct {
 	ProxyProtocol string
 	ProxyHeaders  map[string]string
 	LogLevel      string
+	// SelfTelemetryEndpoint, when non-empty (host:port), makes the
+	// Collector export its own component metrics
+	// (otelcol_receiver_accepted_*, otelcol_exporter_sent_*, ...) via OTLP
+	// gRPC to that endpoint. Empty disables self-telemetry and the default
+	// Prometheus :8888 listener too.
+	SelfTelemetryEndpoint string
 }
 
 func buildConfigMap(cfg Config) map[string]any {
@@ -67,14 +78,38 @@ func buildServiceConfig(cfg Config, pipelineExporters []any) obj {
 
 func buildTelemetryConfig(cfg Config) obj {
 	return obj{
-		"logs": obj{
-			"level": cfg.LogLevel,
-		},
-		// Disable the Collector's own Prometheus self-metrics listener on :8888.
-		// otelop doesn't consume it anywhere and the listener would conflict with
-		// a second otelop instance on the same host.
-		"metrics": obj{
-			"level": "none",
+		"logs":    obj{"level": cfg.LogLevel},
+		"metrics": buildTelemetryMetricsConfig(cfg),
+	}
+}
+
+// buildTelemetryMetricsConfig configures the Collector's self-telemetry. In
+// both branches the Prometheus :8888 listener stays off — otelop never reads
+// it and a second instance on the same host would collide. When an endpoint
+// is provided, a periodic OTLP reader ships component metrics straight to
+// otelop's own receiver instead.
+func buildTelemetryMetricsConfig(cfg Config) obj {
+	if cfg.SelfTelemetryEndpoint == "" {
+		return obj{"level": "none"}
+	}
+	endpoint := (&url.URL{Scheme: "http", Host: cfg.SelfTelemetryEndpoint}).String()
+	return obj{
+		// "normal" omits per-RPC histograms that "detailed" enables; those
+		// would dominate the bounded in-memory store at default capacity.
+		"level": "normal",
+		"readers": []any{
+			obj{
+				"periodic": obj{
+					"interval": selfTelemetryIntervalMs,
+					"exporter": obj{
+						"otlp": obj{
+							"protocol": "grpc",
+							"endpoint": endpoint,
+							"insecure": true,
+						},
+					},
+				},
+			},
 		},
 	}
 }
