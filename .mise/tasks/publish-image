@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+#MISE description="Build and push the container image to ghcr.io for the given (or latest) tag"
+set -euo pipefail
+
+tag="${1:-$(git describe --tags --abbrev=0)}"
+
+: "${GITHUB_TOKEN:=$(gh auth token 2>/dev/null || true)}"
+if [ -z "${GITHUB_TOKEN:-}" ]; then
+  echo "GITHUB_TOKEN unset and 'gh auth token' returned nothing — run 'gh auth login' or set GITHUB_TOKEN" >&2
+  exit 1
+fi
+
+if ! gh auth status 2>&1 | grep -q 'write:packages'; then
+  echo "gh token missing 'write:packages' scope." >&2
+  echo "Run: gh auth refresh -h github.com -s write:packages" >&2
+  exit 1
+fi
+
+gh_user="$(gh api user --jq .login)"
+echo "$GITHUB_TOKEN" | docker login ghcr.io -u "$gh_user" --password-stdin >/dev/null
+
+export GITHUB_TOKEN
+export GORELEASER_CURRENT_TAG="$tag"
+
+goreleaser release --clean --skip=archive,announce,sbom,sign,validate
