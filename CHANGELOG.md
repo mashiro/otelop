@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.6.1](https://github.com/mashiro/otelop/compare/v0.6.0...v0.6.1) (2026-04-28)
+
+
+### Bug Fixes
+
+* **deps:** update all non-major dependencies ([#61](https://github.com/mashiro/otelop/issues/61)) ([1da3a81](https://github.com/mashiro/otelop/commit/1da3a81a6b54b631ea8db563ebcd0b693055e651))
+* **deps:** update all non-major dependencies ([#65](https://github.com/mashiro/otelop/issues/65)) ([a7265d3](https://github.com/mashiro/otelop/commit/a7265d3692a3cc5ce9486a1cd6b102edc58b6048))
+
 ## [0.6.0](https://github.com/mashiro/otelop/compare/v0.5.1...v0.6.0) (2026-04-18)
 
 
