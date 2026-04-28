@@ -27,6 +27,25 @@ archives:
         formats:
           - zip
 
+dockers_v2:
+  - id: otelop
+    dockerfile: Dockerfile
+    images:
+      - ghcr.io/mashiro/otelop
+    tags:
+      - "{{.Version}}"
+      - "{{ if not .Prerelease }}latest{{ end }}"
+    platforms:
+      - linux/amd64
+      - linux/arm64
+    labels:
+      org.opencontainers.image.source: https://github.com/mashiro/otelop
+      org.opencontainers.image.description: Local OpenTelemetry viewer for traces, metrics, and logs
+      org.opencontainers.image.licenses: MIT
+      org.opencontainers.image.version: "{{.Version}}"
+      org.opencontainers.image.revision: "{{.FullCommit}}"
+      org.opencontainers.image.created: "{{.Date}}"
+
 changelog:
   disable: true
 

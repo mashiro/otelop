@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+#MISE description="Build the container image via goreleaser snapshot and tag it as otelop:local"
+#MISE depends=["release-snapshot"]
+set -euo pipefail
+
+case "$(uname -m)" in
+  arm64|aarch64) arch=arm64 ;;
+  x86_64|amd64)  arch=amd64 ;;
+  *) echo "unsupported arch: $(uname -m)" >&2; exit 1 ;;
+esac
+
+docker tag "ghcr.io/mashiro/otelop:latest-${arch}" otelop:local
