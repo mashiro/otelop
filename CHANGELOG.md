@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.2](https://github.com/mashiro/otelop/compare/v0.6.1...v0.6.2) (2026-04-28)
+
+
+### Bug Fixes
+
+* **ci:** grant packages:write to release-please workflow ([#68](https://github.com/mashiro/otelop/issues/68)) ([346d59d](https://github.com/mashiro/otelop/commit/346d59d96eda49412f521a91769636cfbdeae9f7))
+
 ## [0.6.1](https://github.com/mashiro/otelop/compare/v0.6.0...v0.6.1) (2026-04-28)
 
 
