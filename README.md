@@ -52,6 +52,12 @@ With mise:
 mise use -g github:mashiro/otelop
 ```
 
+With Docker:
+
+```bash
+docker run --rm -p 4317:4317 -p 4318:4318 -p 4319:4319 ghcr.io/mashiro/otelop:latest
+```
+
 ## Quick start
 
 ```bash
