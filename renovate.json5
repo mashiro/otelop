@@ -9,13 +9,16 @@
     ":disableRateLimiting",
   ],
   "timezone": "Asia/Tokyo",
-  "schedule": ["every weekend"],
   "minimumReleaseAge": "3 days",
   "labels": ["renovate"],
   "packageRules": [
     {
-      "matchUpdateTypes": ["minor", "patch", "digest"],
+      "matchUpdateTypes": ["minor", "patch"],
       "automerge": true,
+    },
+    {
+      "matchUpdateTypes": ["pinDigest", "digest"],
+      "minimumReleaseAge": "0 days",
     },
   ],
 }
