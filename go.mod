@@ -6,7 +6,7 @@ require (
 	github.com/BurntSushi/toml v1.6.0
 	github.com/CAFxX/httpcompression v0.0.9
 	github.com/coder/websocket v1.8.14
-	github.com/graph-gophers/graphql-go v1.9.0
+	github.com/graph-gophers/graphql-go v1.10.0
 	github.com/modelcontextprotocol/go-sdk v1.6.0
 	github.com/urfave/cli/v3 v3.9.0
 	go.opentelemetry.io/collector/component v1.57.0
