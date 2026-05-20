@@ -14,7 +14,7 @@
   },
   "dependencies": {
     "@base-ui/react": "1.4.1",
-    "@fontsource-variable/geist": "5.2.8",
+    "@fontsource-variable/geist": "5.2.9",
     "@fontsource-variable/jetbrains-mono": "5.2.8",
     "@fontsource-variable/outfit": "5.2.8",
     "@visx/axis": "3.12.0",
