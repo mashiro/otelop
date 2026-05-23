@@ -13,7 +13,7 @@
     "codegen": "graphql-codegen --config codegen.ts"
   },
   "dependencies": {
-    "@base-ui/react": "1.4.1",
+    "@base-ui/react": "1.5.0",
     "@fontsource-variable/geist": "5.2.9",
     "@fontsource-variable/jetbrains-mono": "5.2.8",
     "@fontsource-variable/outfit": "5.2.8",
@@ -45,7 +45,7 @@
     "@tailwindcss/vite": "4.3.0",
     "@tsconfig/vite-react": "7.0.2",
     "@types/node": "24.12.4",
-    "@types/react": "19.2.14",
+    "@types/react": "19.2.15",
     "@types/react-dom": "19.2.3",
     "@vitejs/plugin-react": "6.0.2",
     "babel-plugin-react-compiler": "1.0.0",
