@@ -7,7 +7,7 @@ require (
 	github.com/CAFxX/httpcompression v0.0.9
 	github.com/coder/websocket v1.8.14
 	github.com/graph-gophers/graphql-go v1.10.2
-	github.com/modelcontextprotocol/go-sdk v1.6.0
+	github.com/modelcontextprotocol/go-sdk v1.6.1
 	github.com/urfave/cli/v3 v3.9.0
 	go.opentelemetry.io/collector/component v1.58.0
 	go.opentelemetry.io/collector/confmap v1.58.0
