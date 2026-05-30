@@ -33,7 +33,7 @@
     "lucide-react": "1.16.0",
     "react": "19.2.6",
     "react-dom": "19.2.6",
-    "shadcn": "4.8.1",
+    "shadcn": "4.8.2",
     "tailwind-merge": "3.6.0",
     "temporal-polyfill": "0.3.2"
   },
@@ -57,5 +57,5 @@
     "vite-plus": "catalog:",
     "vitest": "catalog:"
   },
-  "packageManager": "pnpm@10.33.4"
+  "packageManager": "pnpm@10.34.0"
 }
