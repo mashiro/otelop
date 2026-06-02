@@ -33,7 +33,7 @@
     "lucide-react": "1.17.0",
     "react": "19.2.6",
     "react-dom": "19.2.6",
-    "shadcn": "4.8.2",
+    "shadcn": "4.8.3",
     "tailwind-merge": "3.6.0",
     "temporal-polyfill": "0.3.2"
   },
