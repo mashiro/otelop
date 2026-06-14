@@ -29,7 +29,7 @@
     "class-variance-authority": "0.7.1",
     "clsx": "2.1.1",
     "graphql-request": "7.4.0",
-    "jotai": "2.20.0",
+    "jotai": "2.20.1",
     "lucide-react": "1.17.0",
     "react": "19.2.7",
     "react-dom": "19.2.7",
