@@ -1,5 +1,46 @@
 # Changelog
 
+## [0.6.2](https://github.com/mashiro/otelop/compare/v0.6.1...v0.6.2) (2026-06-21)
+
+
+### Bug Fixes
+
+* **ci:** grant packages:write to release-please workflow ([#68](https://github.com/mashiro/otelop/issues/68)) ([346d59d](https://github.com/mashiro/otelop/commit/346d59d96eda49412f521a91769636cfbdeae9f7))
+* **deps:** update all non-major dependencies ([#100](https://github.com/mashiro/otelop/issues/100)) ([25931f5](https://github.com/mashiro/otelop/commit/25931f5b6e25c05b5ae486c9e3c75712ded22efc))
+* **deps:** update all non-major dependencies ([#101](https://github.com/mashiro/otelop/issues/101)) ([7b9fe0d](https://github.com/mashiro/otelop/commit/7b9fe0d6d9e64904e013549226688c9214fb34cc))
+* **deps:** update all non-major dependencies ([#103](https://github.com/mashiro/otelop/issues/103)) ([8b5ea2d](https://github.com/mashiro/otelop/commit/8b5ea2dde52ff785cb7cde9d6d1fc76604fdb8d8))
+* **deps:** update all non-major dependencies ([#105](https://github.com/mashiro/otelop/issues/105)) ([feb4567](https://github.com/mashiro/otelop/commit/feb4567cb28b54fbfd2e8592d2220d8b6301b4a1))
+* **deps:** update all non-major dependencies ([#106](https://github.com/mashiro/otelop/issues/106)) ([35e41e7](https://github.com/mashiro/otelop/commit/35e41e7b987e75d4fbed60d6afe8f6fce1b14ccc))
+* **deps:** update all non-major dependencies ([#112](https://github.com/mashiro/otelop/issues/112)) ([08f0b40](https://github.com/mashiro/otelop/commit/08f0b404c920530356cd5d28bfd5266c419e096c))
+* **deps:** update all non-major dependencies ([#117](https://github.com/mashiro/otelop/issues/117)) ([8b76ca9](https://github.com/mashiro/otelop/commit/8b76ca9bb756a4ffb05ee4eb781bc71269c43a38))
+* **deps:** update all non-major dependencies ([#71](https://github.com/mashiro/otelop/issues/71)) ([19d7cf2](https://github.com/mashiro/otelop/commit/19d7cf23c96cbbd214e1a180ee5c78f7afc2cd27))
+* **deps:** update all non-major dependencies ([#72](https://github.com/mashiro/otelop/issues/72)) ([6454744](https://github.com/mashiro/otelop/commit/64547445942cbaef0a1c40e4dd18b086a76be7a4))
+* **deps:** update all non-major dependencies ([#79](https://github.com/mashiro/otelop/issues/79)) ([5a1420e](https://github.com/mashiro/otelop/commit/5a1420e1154627be25b67d532710da708a3900a1))
+* **deps:** update all non-major dependencies ([#84](https://github.com/mashiro/otelop/issues/84)) ([5dd579c](https://github.com/mashiro/otelop/commit/5dd579cffba507fed2455865c245fa69c28b6117))
+* **deps:** update all non-major dependencies ([#85](https://github.com/mashiro/otelop/issues/85)) ([0cc3201](https://github.com/mashiro/otelop/commit/0cc32017dd441185e4736175d680132ee117052f))
+* **deps:** update all non-major dependencies ([#87](https://github.com/mashiro/otelop/issues/87)) ([8900160](https://github.com/mashiro/otelop/commit/8900160ddf1030d1d8ea510a6eebeceec1f27c8e))
+* **deps:** update all non-major dependencies ([#94](https://github.com/mashiro/otelop/issues/94)) ([2cef4a2](https://github.com/mashiro/otelop/commit/2cef4a2e45bf8d97fd4af4dce0ae0ad1365bb70e))
+* **deps:** update all non-major dependencies ([#96](https://github.com/mashiro/otelop/issues/96)) ([222c0dd](https://github.com/mashiro/otelop/commit/222c0dda546440da7b56b9356d6ed6ab30186681))
+* **deps:** update all non-major dependencies ([#98](https://github.com/mashiro/otelop/issues/98)) ([1ffff8d](https://github.com/mashiro/otelop/commit/1ffff8d68b5d0ee1ddf4dc983a037fe67ecba7b0))
+* **deps:** update all non-major dependencies to v1.20.0 ([#121](https://github.com/mashiro/otelop/issues/121)) ([e49b648](https://github.com/mashiro/otelop/commit/e49b64888f57333bc8fac9409235635b4c406c15))
+* **deps:** update all non-major dependencies to v1.8.15 ([#119](https://github.com/mashiro/otelop/issues/119)) ([03f5f48](https://github.com/mashiro/otelop/commit/03f5f48c81847a23aaf6d6c8f4a101910d0bbda9))
+* **deps:** update all non-major dependencies to v2.20.1 ([#114](https://github.com/mashiro/otelop/issues/114)) ([7f7296e](https://github.com/mashiro/otelop/commit/7f7296e64d6e3e023993f3653d603dc6b47d8b33))
+* **deps:** update all non-major dependencies to v3.10.0 ([#118](https://github.com/mashiro/otelop/issues/118)) ([1251dd3](https://github.com/mashiro/otelop/commit/1251dd3dc0320cd2d2e1c478256065001f55b6a8))
+* **deps:** update all non-major dependencies to v4.9.0 ([#104](https://github.com/mashiro/otelop/issues/104)) ([2bcc613](https://github.com/mashiro/otelop/commit/2bcc6136614fc544ca68579d0df2c6f800037e58))
+* **deps:** update dependency @fontsource-variable/geist to v5.2.9 ([#92](https://github.com/mashiro/otelop/issues/92)) ([2e8298e](https://github.com/mashiro/otelop/commit/2e8298e69a210a61a4c65711cf93383ce60a157a))
+* **deps:** update dependency lucide-react to v1.16.0 ([#88](https://github.com/mashiro/otelop/issues/88)) ([f58544a](https://github.com/mashiro/otelop/commit/f58544a034157e1fb148343e382942531da5cef3))
+* **deps:** update dependency lucide-react to v1.17.0 ([#102](https://github.com/mashiro/otelop/issues/102)) ([f48fef8](https://github.com/mashiro/otelop/commit/f48fef87e5a4d5323904f741c4a78d2cf0d913da))
+* **deps:** update dependency shadcn to v4.8.0 ([#95](https://github.com/mashiro/otelop/issues/95)) ([57d7e3b](https://github.com/mashiro/otelop/commit/57d7e3b2b2a5fa0686896571d2d6ba68e163628e))
+* **deps:** update dependency shadcn to v4.8.1 ([#99](https://github.com/mashiro/otelop/issues/99)) ([d81c356](https://github.com/mashiro/otelop/commit/d81c3563224363833696bdf5263eca1ba543fdde))
+* **deps:** update module github.com/modelcontextprotocol/go-sdk to v1.6.0 ([#73](https://github.com/mashiro/otelop/issues/73)) ([5874460](https://github.com/mashiro/otelop/commit/5874460e95bb5337ddbb379216fcb226552890c4))
+* **deps:** update module github.com/urfave/cli/v3 to v3.9.0 ([#83](https://github.com/mashiro/otelop/issues/83)) ([92c88af](https://github.com/mashiro/otelop/commit/92c88afddbb206a11aee6aea04304177d9bf8a45))
+* **deps:** update visx monorepo to v4 ([740c624](https://github.com/mashiro/otelop/commit/740c624274ad4085320dfc9f0e20c46c0da5bb44))
+* **deps:** update visx monorepo to v4 ([#116](https://github.com/mashiro/otelop/issues/116)) ([af790ae](https://github.com/mashiro/otelop/commit/af790aebe0b3af7cd8410339afc0e50eb37e2d07))
+* **logs:** assign stable UUIDv7 ids to log records ([d6487b8](https://github.com/mashiro/otelop/commit/d6487b81fbd407d67faa9528c68c3d7cb9ef62c9))
+* **logs:** assign stable UUIDv7 ids to log records ([#129](https://github.com/mashiro/otelop/issues/129)) ([8561e55](https://github.com/mashiro/otelop/commit/8561e558bb204cf2f65da42334fce74b76eb1e11))
+* **metrics:** assign stable UUIDv7 ids to data points and merge idempotently ([56f51d0](https://github.com/mashiro/otelop/commit/56f51d05500a219bf0bf2a4f21a122fec98b321a))
+* **metrics:** assign stable UUIDv7 ids to data points and merge idempotently ([#126](https://github.com/mashiro/otelop/issues/126)) ([c55bf2b](https://github.com/mashiro/otelop/commit/c55bf2b35a70c17d410e67db613a8e9354033168))
+
 ## [0.6.1](https://github.com/mashiro/otelop/compare/v0.6.0...v0.6.1) (2026-04-28)
 
 
