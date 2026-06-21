@@ -14,14 +14,26 @@
   // Run `go mod tidy` after Go module updates so superseded versions don't pile
   // up in go.sum (every collector bump otherwise leaves the old checksums behind).
   "postUpdateOptions": ["gomodTidy"],
+  // Lock file maintenance refreshes already-published transitive deps and has no
+  // releaseTimestamp of its own, so the inherited 3-day gate leaves its PR
+  // perpetually pending under the default timestamp-required behaviour. null
+  // exempts it from the release-age gate.
+  "lockFileMaintenance": {
+    "enabled": true,
+    "minimumReleaseAge": null,
+  },
   "packageRules": [
     {
       "matchUpdateTypes": ["minor", "patch"],
       "automerge": true,
     },
+    // Digest updates carry no releaseTimestamp, so under the default
+    // timestamp-required behaviour any minimumReleaseAge would hold them
+    // indefinitely. null exempts them from the release-age gate outright,
+    // rather than relying on "0 days" being treated as "skip the check".
     {
       "matchUpdateTypes": ["pinDigest", "digest"],
-      "minimumReleaseAge": "0 days",
+      "minimumReleaseAge": null,
     },
     // Split GitHub Actions out of the catch-all group so workflow bumps land
     // independently and aren't blocked by an unrelated failing dependency.
