@@ -21,6 +21,13 @@ jobs:
   release:
     needs: release-please
     if: needs.release-please.outputs.release_created == 'true'
+    # A called workflow inherits the GITHUB_TOKEN scopes from the calling job,
+    # not from this workflow's top-level permissions. Without this block the job
+    # falls back to the repository default (read-only), so release.yml can't push
+    # the container image to ghcr.io (permission_denied: write_package).
+    permissions:
+      contents: write
+      packages: write
     uses: ./.github/workflows/release.yml
     with:
       tag: ${{ needs.release-please.outputs.tag_name }}
