@@ -11,6 +11,7 @@ type LogResolver struct {
 	l     *store.LogData
 }
 
+func (r *LogResolver) ID() gql.ID                  { return gql.ID(r.l.ID) }
 func (r *LogResolver) Timestamp() gql.Time         { return gql.Time{Time: r.l.Timestamp} }
 func (r *LogResolver) ObservedTimestamp() gql.Time { return gql.Time{Time: r.l.ObservedTimestamp} }
 func (r *LogResolver) TraceID() string             { return r.l.TraceID }

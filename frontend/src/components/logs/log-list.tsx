@@ -29,7 +29,7 @@ export function LogList() {
   const traceFilter = useAtomValue(logTraceFilterAtom);
   const setTraceFilter = useSetAtom(logTraceFilterAtom);
   const navigateToTrace = useSetAtom(navigateToTraceAtom);
-  const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   if (allLogs.length === 0) {
     return <EmptyState signal={SIGNALS.logs} />;
@@ -73,11 +73,11 @@ export function LogList() {
               {logs.map((log, i) => {
                 const hasTrace = !isZeroId(log.traceId);
                 return (
-                  <Fragment key={i}>
+                  <Fragment key={log.id}>
                     <TableRow
                       className="stagger-row cursor-pointer border-b border-border/30 transition-colors hover:bg-log/5"
                       style={{ animationDelay: `${Math.min(i * 20, 200)}ms` }}
-                      onClick={() => setExpandedIdx(expandedIdx === i ? null : i)}
+                      onClick={() => setExpandedId(expandedId === log.id ? null : log.id)}
                     >
                       <TableCell className="font-mono text-xs text-muted-foreground">
                         {formatTimestamp(log.timestamp)}
@@ -106,8 +106,8 @@ export function LogList() {
                         ) : null}
                       </TableCell>
                     </TableRow>
-                    {expandedIdx === i && (
-                      <TableRow key={`detail-${i}`}>
+                    {expandedId === log.id && (
+                      <TableRow key={`detail-${log.id}`}>
                         <TableCell
                           colSpan={5}
                           className="whitespace-normal border-b border-border/20 bg-card/30 p-0"

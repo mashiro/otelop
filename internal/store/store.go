@@ -13,10 +13,11 @@ import (
 	oteltrace "go.opentelemetry.io/otel/trace"
 )
 
-// newDataPointID mints a stable, globally unique identity for a metric data
-// point. UUIDv7 is time-ordered, so ids sort by ingestion time and never
-// collide across points, services, or restarts.
-func newDataPointID() string { return uuid.Must(uuid.NewV7()).String() }
+// newID mints a stable, globally unique identity for a buffered record (a
+// metric data point or a log) that has no natural id of its own. UUIDv7 is
+// time-ordered, so ids sort by ingestion time and never collide across
+// records, services, or restarts.
+func newID() string { return uuid.Must(uuid.NewV7()).String() }
 
 // tracer resolves lazily so tests that swap the global provider still see
 // their own span recorder.
@@ -139,7 +140,7 @@ func (s *Store) AddMetrics(ctx context.Context, md pmetric.Metrics) {
 	// starts a new metric or is appended onto an existing one below.
 	for _, m := range converted {
 		for i := range m.DataPoints {
-			m.DataPoints[i].ID = newDataPointID()
+			m.DataPoints[i].ID = newID()
 		}
 	}
 
@@ -194,6 +195,13 @@ func (s *Store) AddLogs(ctx context.Context, ld plog.Logs) {
 	span.SetAttributes(attribute.Int("store.logs.converted", len(converted)))
 	if len(converted) == 0 {
 		return
+	}
+
+	// Stamp identities before locking. Log records carry no natural id (two can
+	// be byte-for-byte identical), so a UUIDv7 gives clients a stable key that
+	// survives ring-buffer eviction and reconnects.
+	for _, l := range converted {
+		l.ID = newID()
 	}
 
 	s.mu.Lock()

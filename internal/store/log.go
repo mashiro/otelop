@@ -8,6 +8,11 @@ import (
 
 // LogData represents a single log record.
 type LogData struct {
+	// ID is a stable, globally unique identity (a UUIDv7) assigned by the Store
+	// at ingestion. Log records have no natural id and can be byte-for-byte
+	// identical, so this is the only durable key — it survives ring-buffer
+	// eviction, WebSocket replay, and any future persistence.
+	ID                string         `json:"id"`
 	Timestamp         time.Time      `json:"timestamp"`
 	ObservedTimestamp time.Time      `json:"observedTimestamp"`
 	TraceID           string         `json:"traceId"`

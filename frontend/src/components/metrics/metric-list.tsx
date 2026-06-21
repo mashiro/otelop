@@ -66,7 +66,7 @@ export function MetricList() {
                 const lastPoint = metric.dataPoints[metric.dataPoints.length - 1];
                 return (
                   <TableRow
-                    key={`${metric.name}-${i}`}
+                    key={`${metric.serviceName}-${metric.name}`}
                     className="stagger-row cursor-pointer border-b border-border/30 transition-colors hover:bg-metric/5"
                     style={{ animationDelay: `${Math.min(i * 20, 200)}ms` }}
                     onClick={() => setSelectedMetric(metric)}
