@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+#MISE description="Fail if committed GraphQL types drift from the schema"
+set -euo pipefail
+
+# Regenerate the GraphQL client types. This also fails the job outright when a
+# dependency bump breaks codegen itself (e.g. a graphql major the toolchain
+# doesn't support yet), which a plain type-check against the committed output
+# would miss.
+(cd frontend && pnpm codegen)
+
+# The generated sources are committed verbatim (they're in the formatter/linter
+# ignore list), so regenerating must leave the tree clean.
+if ! git diff --exit-code --quiet frontend/src/gql; then
+  echo "::error::GraphQL generated types are out of date. Run 'pnpm --filter otelop-frontend codegen' and commit frontend/src/gql." >&2
+  git diff --stat frontend/src/gql >&2
+  exit 1
+fi
