@@ -6,6 +6,7 @@ require (
 	github.com/BurntSushi/toml v1.6.0
 	github.com/CAFxX/httpcompression v0.0.9
 	github.com/coder/websocket v1.8.15
+	github.com/google/uuid v1.6.0
 	github.com/graph-gophers/graphql-go v1.10.2
 	github.com/modelcontextprotocol/go-sdk v1.6.1
 	github.com/urfave/cli/v3 v3.10.0
@@ -58,7 +59,6 @@ require (
 	github.com/golang/snappy v1.0.0 // indirect
 	github.com/google/go-tpm v0.9.8 // indirect
 	github.com/google/jsonschema-go v0.4.3 // indirect
-	github.com/google/uuid v1.6.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.29.0 // indirect
 	github.com/hashicorp/go-version v1.9.0 // indirect
 	github.com/hashicorp/golang-lru/v2 v2.0.7 // indirect

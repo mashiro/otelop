@@ -42,6 +42,7 @@ const InitialLoadQuery = graphql(`
         resource
         receivedAt
         dataPoints {
+          id
           timestamp
           value
           count

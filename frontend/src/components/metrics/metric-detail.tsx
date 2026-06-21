@@ -164,7 +164,7 @@ function DataPointsTable({ metric }: { metric: MetricData }) {
           <tbody>
             {[...metric.dataPoints].reverse().map((dp) => (
               <tr
-                key={`${dp.timestamp}|${attrKey(dp.attributes)}`}
+                key={dp.id}
                 className="border-b border-border/20 last:border-0 transition-colors hover:bg-metric/5"
               >
                 <td className="px-3 py-1.5 font-mono text-muted-foreground">

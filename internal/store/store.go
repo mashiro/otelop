@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync"
 
+	"github.com/google/uuid"
 	"go.opentelemetry.io/collector/pdata/plog"
 	"go.opentelemetry.io/collector/pdata/pmetric"
 	"go.opentelemetry.io/collector/pdata/ptrace"
@@ -11,6 +12,11 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	oteltrace "go.opentelemetry.io/otel/trace"
 )
+
+// newDataPointID mints a stable, globally unique identity for a metric data
+// point. UUIDv7 is time-ordered, so ids sort by ingestion time and never
+// collide across points, services, or restarts.
+func newDataPointID() string { return uuid.Must(uuid.NewV7()).String() }
 
 // tracer resolves lazily so tests that swap the global provider still see
 // their own span recorder.
@@ -126,6 +132,15 @@ func (s *Store) AddMetrics(ctx context.Context, md pmetric.Metrics) {
 	span.SetAttributes(attribute.Int("store.metrics.converted", len(converted)))
 	if len(converted) == 0 {
 		return
+	}
+
+	// Stamp identities before taking the lock: id generation needs no shared
+	// state, and assigning here means a point keeps the same id whether it
+	// starts a new metric or is appended onto an existing one below.
+	for _, m := range converted {
+		for i := range m.DataPoints {
+			m.DataPoints[i].ID = newDataPointID()
+		}
 	}
 
 	notify := make([]*MetricData, 0, len(converted))

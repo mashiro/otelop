@@ -151,6 +151,8 @@ previous observation before returning, so the fields below describe
 per-interval activity, not running totals.
 """
 type DataPoint {
+  "Stable, globally unique identity (UUIDv7) assigned at ingestion. Survives ring-buffer eviction and reconnects, so clients can use it as a durable key."
+  id: ID!
   timestamp: Time!
   """
   The primary scalar for this point. Gauge: instantaneous value. Sum: per-window

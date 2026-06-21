@@ -29,6 +29,14 @@ type MetricData struct {
 // for Sum, per-window mean (sum/count) for Histogram/Summary/ExponentialHistogram.
 // Count/Sum/Min/Max are only set for distribution types.
 type DataPoint struct {
+	// ID is a stable, globally unique identity assigned by the Store when the
+	// point is ingested (a UUIDv7). Two observations can share the same
+	// timestamp and attributes, so neither — nor the point's slice position,
+	// which shifts as the ring buffer evicts from the front — is a usable
+	// identity. The UUIDv7 travels with the point through eviction, WebSocket
+	// replay, and any future persistence, giving consumers (e.g. React keys) a
+	// key that never collides and never changes.
+	ID         string         `json:"id"`
 	Timestamp  time.Time      `json:"timestamp"`
 	Value      float64        `json:"value"`
 	Count      *float64       `json:"count,omitempty"`

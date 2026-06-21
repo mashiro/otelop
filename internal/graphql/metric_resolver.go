@@ -31,6 +31,7 @@ type DataPointResolver struct {
 	dp *store.DataPoint
 }
 
+func (r *DataPointResolver) ID() gql.ID          { return gql.ID(r.dp.ID) }
 func (r *DataPointResolver) Timestamp() gql.Time { return gql.Time{Time: r.dp.Timestamp} }
 func (r *DataPointResolver) Value() float64      { return r.dp.Value }
 func (r *DataPointResolver) Count() *float64     { return r.dp.Count }

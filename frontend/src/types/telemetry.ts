@@ -38,6 +38,10 @@ export interface TraceData {
 // Distribution-only fields are null for Gauge/Sum. See schema.graphql for
 // semantics of value/count/sum/min/max across metric types.
 export interface DataPoint {
+  // Stable, globally unique identity (UUIDv7) assigned by the backend at
+  // ingestion. Use it as the React key: it survives ring-buffer eviction and
+  // reconnects, unlike timestamp/attributes (which can collide) or array index.
+  id: string;
   timestamp: string;
   value: number;
   count?: number | null;

@@ -1,4 +1,4 @@
-import type { SpanData, TraceData, LogData, MetricData } from "@/types/telemetry";
+import type { SpanData, TraceData, LogData, MetricData, DataPoint } from "@/types/telemetry";
 
 export function makeSpan(overrides: Partial<SpanData> = {}): SpanData {
   return {
@@ -44,6 +44,16 @@ export function makeLog(overrides: Partial<LogData> = {}): LogData {
     serviceName: "frontend",
     attributes: {},
     resource: {},
+    ...overrides,
+  };
+}
+
+export function makeDataPoint(overrides: Partial<DataPoint> = {}): DataPoint {
+  return {
+    id: "dp-1",
+    timestamp: "2024-01-01T00:00:00Z",
+    value: 0,
+    attributes: {},
     ...overrides,
   };
 }
