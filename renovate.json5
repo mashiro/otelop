@@ -20,5 +20,22 @@
       "matchUpdateTypes": ["pinDigest", "digest"],
       "minimumReleaseAge": "0 days",
     },
+    // Split GitHub Actions out of the catch-all group so workflow bumps land
+    // independently and aren't blocked by an unrelated failing dependency.
+    {
+      "matchManagers": ["github-actions"],
+      "groupName": "github-actions",
+    },
+    // The @voidzero-dev/vite-plus suite must move in lockstep: vite-plus-test
+    // pins vite-plus-core to an exact version. Group them so a partial bump is
+    // isolated in its own PR instead of breaking the whole non-major group.
+    {
+      "matchPackageNames": [
+        "vite-plus",
+        "@voidzero-dev/vite-plus-core",
+        "@voidzero-dev/vite-plus-test",
+      ],
+      "groupName": "vite-plus",
+    },
   ],
 }
