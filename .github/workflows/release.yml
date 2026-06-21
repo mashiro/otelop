@@ -6,6 +6,15 @@ on:
         description: Tag to release (e.g. v0.1.0)
         required: true
         type: string
+  # Manual escape hatch to (re-)publish a release's artifacts for an existing
+  # tag, e.g. when an earlier run failed after the tag was created. Triggered
+  # directly (not via workflow_call), so this workflow's own permissions apply.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag to release (e.g. v0.1.0)
+        required: true
+        type: string
 permissions:
   contents: write
   packages: write
