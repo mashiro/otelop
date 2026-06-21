@@ -11,6 +11,9 @@
   "timezone": "Asia/Tokyo",
   "minimumReleaseAge": "3 days",
   "labels": ["renovate"],
+  // Run `go mod tidy` after Go module updates so superseded versions don't pile
+  // up in go.sum (every collector bump otherwise leaves the old checksums behind).
+  "postUpdateOptions": ["gomodTidy"],
   "packageRules": [
     {
       "matchUpdateTypes": ["minor", "patch"],
