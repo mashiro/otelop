@@ -55,6 +55,7 @@ const InitialLoadQuery = graphql(`
     }
     logs(limit: 0) {
       items {
+        id
         timestamp
         observedTimestamp
         traceId

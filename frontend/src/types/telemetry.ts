@@ -63,6 +63,10 @@ export interface MetricData {
 }
 
 export interface LogData {
+  // Stable, globally unique identity (UUIDv7) assigned by the backend at
+  // ingestion. Log records have no natural id, so use this as the React key:
+  // it stays put as new logs are prepended, unlike an array index.
+  id: string;
   timestamp: string;
   observedTimestamp: string;
   traceId: string;

@@ -34,6 +34,7 @@ export function makeTrace(overrides: Partial<TraceData> = {}): TraceData {
 
 export function makeLog(overrides: Partial<LogData> = {}): LogData {
   return {
+    id: "log-1",
     timestamp: "2024-01-01T00:00:00Z",
     observedTimestamp: "2024-01-01T00:00:00Z",
     severityNumber: 9,

@@ -269,6 +269,66 @@ func TestStore_AddAndGetLogs(t *testing.T) {
 	}
 }
 
+func addLogRecord(s *Store, svc, body string, ts time.Time) {
+	ld := plog.NewLogs()
+	rl := ld.ResourceLogs().AppendEmpty()
+	rl.Resource().Attributes().PutStr("service.name", svc)
+	lr := rl.ScopeLogs().AppendEmpty().LogRecords().AppendEmpty()
+	lr.Body().SetStr(body)
+	lr.SetTimestamp(pcommon.NewTimestampFromTime(ts))
+	s.AddLogs(context.Background(), ld)
+}
+
+func findLogByBody(logs []*LogData, body string) *LogData {
+	for _, l := range logs {
+		if l.Body == body {
+			return l
+		}
+	}
+	return nil
+}
+
+func TestStore_AddLogs_AssignsStableUniqueIDs(t *testing.T) {
+	ts := time.Now()
+
+	// Two byte-for-byte identical logs must still get distinct, well-formed
+	// UUIDv7 ids.
+	dup := NewStore(10, 10, 10, 100, nil)
+	addLogRecord(dup, "svc", "same", ts)
+	addLogRecord(dup, "svc", "same", ts)
+	logs := dup.GetLogs()
+	if len(logs) != 2 {
+		t.Fatalf("expected 2 logs, got %d", len(logs))
+	}
+	if logs[0].ID == logs[1].ID {
+		t.Errorf("identical logs share id %q", logs[0].ID)
+	}
+	for _, l := range logs {
+		u, err := uuid.Parse(l.ID)
+		if err != nil || u.Version() != 7 {
+			t.Errorf("log id %q is not a UUIDv7 (err=%v)", l.ID, err)
+		}
+	}
+
+	// Identity survives front-eviction: with logCap=2, adding a third log evicts
+	// the oldest, and the survivor keeps the id it was assigned.
+	evict := NewStore(10, 10, 2, 100, nil)
+	addLogRecord(evict, "svc", "a", ts)
+	addLogRecord(evict, "svc", "b", ts)
+	keep := findLogByBody(evict.GetLogs(), "b").ID
+	addLogRecord(evict, "svc", "c", ts)
+	after := evict.GetLogs()
+	if len(after) != 2 {
+		t.Fatalf("expected 2 logs after eviction, got %d", len(after))
+	}
+	if findLogByBody(after, "a") != nil {
+		t.Error("oldest log should have been evicted")
+	}
+	if got := findLogByBody(after, "b"); got == nil || got.ID != keep {
+		t.Errorf("surviving log changed id: want %q, got %+v", keep, got)
+	}
+}
+
 func TestStore_GetLogsPageByTraceID(t *testing.T) {
 	s := NewStore(10, 10, 10, 100, nil)
 

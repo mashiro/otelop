@@ -172,6 +172,8 @@ type DataPoint {
 }
 
 type Log {
+  "Stable, globally unique identity (UUIDv7) assigned at ingestion. Survives ring-buffer eviction and reconnects, so clients can use it as a durable key."
+  id: ID!
   timestamp: Time!
   observedTimestamp: Time!
   traceId: String!
