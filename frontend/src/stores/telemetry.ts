@@ -1,6 +1,6 @@
 import { atom } from "jotai";
 import { Temporal } from "temporal-polyfill";
-import type { TraceData, MetricData, LogData, SpanData } from "@/types/telemetry";
+import type { TraceData, MetricData, LogData, SpanData, DataPoint } from "@/types/telemetry";
 
 // Server-side capacity config, fetched at startup.
 export interface ServerConfig {
@@ -78,6 +78,26 @@ function isBetterRoot(current: SpanData | undefined, candidate: SpanData | undef
   return candidate.duration > current.duration;
 }
 
+// mergeDataPoints unions two data-point lists by their stable id, keeping the
+// first occurrence. A metric update from the WebSocket carries the metric's
+// full accumulated points, which overlap the ones already loaded; merging by id
+// makes the update idempotent so re-delivered points aren't duplicated.
+function mergeDataPoints(existing: DataPoint[], incoming: DataPoint[]): DataPoint[] {
+  const seen = new Set<string>();
+  const merged: DataPoint[] = [];
+  for (const dp of existing) {
+    if (seen.has(dp.id)) continue;
+    seen.add(dp.id);
+    merged.push(dp);
+  }
+  for (const dp of incoming) {
+    if (seen.has(dp.id)) continue;
+    seen.add(dp.id);
+    merged.push(dp);
+  }
+  return merged;
+}
+
 export const addMetricAtom = atom(null, (get, set, newMetric: MetricData) => {
   const current = get(metricsAtom);
   const maxMetrics = get(serverConfigAtom).metricCap;
@@ -89,7 +109,7 @@ export const addMetricAtom = atom(null, (get, set, newMetric: MetricData) => {
     const updated = [...current];
     updated[idx] = {
       ...existing,
-      dataPoints: [...existing.dataPoints, ...newMetric.dataPoints].slice(
+      dataPoints: mergeDataPoints(existing.dataPoints, newMetric.dataPoints).slice(
         -get(serverConfigAtom).maxDataPoints,
       ),
       receivedAt: newMetric.receivedAt,

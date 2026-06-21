@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/plog"
 	"go.opentelemetry.io/collector/pdata/pmetric"
@@ -387,6 +388,69 @@ func TestStore_AddMetrics_Merge(t *testing.T) {
 	}
 	if metrics[0].DataPoints[1].Value != 55.0 {
 		t.Errorf("expected second data point value 55.0, got %f", metrics[0].DataPoints[1].Value)
+	}
+}
+
+// gaugeDataPoints builds a single gauge metric whose points all share the same
+// timestamp and (empty) attributes — the case where neither timestamp nor
+// attributes can tell two points apart.
+func gaugeDataPoints(svc, name string, ts time.Time, values ...float64) pmetric.Metrics {
+	md := pmetric.NewMetrics()
+	rm := md.ResourceMetrics().AppendEmpty()
+	rm.Resource().Attributes().PutStr("service.name", svc)
+	m := rm.ScopeMetrics().AppendEmpty().Metrics().AppendEmpty()
+	m.SetName(name)
+	m.SetEmptyGauge()
+	for _, v := range values {
+		dp := m.Gauge().DataPoints().AppendEmpty()
+		dp.SetTimestamp(pcommon.NewTimestampFromTime(ts))
+		dp.SetDoubleValue(v)
+	}
+	return md
+}
+
+func TestStore_AddMetrics_AssignsStableUniqueDataPointIDs(t *testing.T) {
+	// maxDataPoints=3 forces the ring buffer to evict from the front below.
+	s := NewStore(10, 10, 10, 3, nil)
+	ts := time.Now()
+
+	// Two points sharing the same timestamp and attributes must still get
+	// distinct, well-formed UUIDv7 ids.
+	s.AddMetrics(context.Background(), gaugeDataPoints("svc", "m", ts, 1, 2))
+	first := s.GetMetrics()[0].DataPoints
+	if len(first) != 2 {
+		t.Fatalf("expected 2 data points, got %d", len(first))
+	}
+	seen := map[string]bool{}
+	for _, dp := range first {
+		u, err := uuid.Parse(dp.ID)
+		if err != nil || u.Version() != 7 {
+			t.Errorf("data point id %q is not a UUIDv7 (err=%v)", dp.ID, err)
+		}
+		if seen[dp.ID] {
+			t.Errorf("duplicate data point id %q", dp.ID)
+		}
+		seen[dp.ID] = true
+	}
+	survivorID := first[1].ID // first[0] is the oldest and gets evicted below
+
+	// A second batch pushes the total to 4 > cap 3, evicting the oldest point.
+	// Survivors must keep the exact id they were assigned — identity is not
+	// derived from slice position.
+	s.AddMetrics(context.Background(), gaugeDataPoints("svc", "m", ts.Add(time.Second), 3, 4))
+	after := s.GetMetrics()[0].DataPoints
+	if len(after) != 3 {
+		t.Fatalf("expected 3 data points after eviction, got %d", len(after))
+	}
+	if after[0].ID != survivorID {
+		t.Errorf("surviving point changed id: want %q, got %q", survivorID, after[0].ID)
+	}
+	ids := map[string]bool{}
+	for _, dp := range after {
+		if ids[dp.ID] {
+			t.Errorf("duplicate data point id after eviction: %q", dp.ID)
+		}
+		ids[dp.ID] = true
 	}
 }
 
