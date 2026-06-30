@@ -115,33 +115,35 @@ func writeAttrValue(h *maphash.Hash, v any) {
 	}
 }
 
-// numberDelta returns the delta from the previous raw value to rawValue and
-// updates the stored snapshot. If there is no prior snapshot, or the new
-// value is smaller (counter reset), it records the baseline and returns
-// ok=false so the caller can drop the point.
-func (s *seriesStore) numberDelta(key uint64, rawValue float64, now time.Time) (delta float64, ok bool) {
+// numberDelta returns the delta from the previous raw value to rawValue,
+// the current raw cumulative value, and updates the stored snapshot. If
+// there is no prior snapshot, or the new value is smaller (counter reset),
+// it records the baseline and returns ok=false so the caller can drop the
+// point.
+func (s *seriesStore) numberDelta(key uint64, rawValue float64, now time.Time) (delta, cumulative float64, ok bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.pruneLocked(now)
 	entry, exists := s.entries[key]
 	if !exists {
 		s.admitLocked(key, &seriesState{lastSeen: now, value: rawValue, hasValue: true})
-		return 0, false
+		return 0, 0, false
 	}
 	entry.lastSeen = now
 	if !entry.hasValue || rawValue < entry.value {
 		entry.value = rawValue
 		entry.hasValue = true
-		return 0, false
+		return 0, 0, false
 	}
 	delta = rawValue - entry.value
 	entry.value = rawValue
-	return delta, true
+	return delta, rawValue, true
 }
 
-// histogramDelta returns (countDelta, sumDelta) and updates the stored
-// snapshot. Same reset semantics as numberDelta.
-func (s *seriesStore) histogramDelta(key uint64, rawCount uint64, rawSum float64, now time.Time) (countDelta uint64, sumDelta float64, ok bool) {
+// histogramDelta returns (countDelta, sumDelta) plus the current raw
+// cumulative count/sum, and updates the stored snapshot. Same reset
+// semantics as numberDelta.
+func (s *seriesStore) histogramDelta(key uint64, rawCount uint64, rawSum float64, now time.Time) (countDelta uint64, sumDelta float64, countCumulative uint64, sumCumulative float64, ok bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.pruneLocked(now)
@@ -154,7 +156,7 @@ func (s *seriesStore) histogramDelta(key uint64, rawCount uint64, rawSum float64
 			sum:      rawSum,
 			hasSum:   true,
 		})
-		return 0, 0, false
+		return 0, 0, 0, 0, false
 	}
 	entry.lastSeen = now
 	if !entry.hasCount || rawCount < entry.count {
@@ -162,13 +164,13 @@ func (s *seriesStore) histogramDelta(key uint64, rawCount uint64, rawSum float64
 		entry.hasCount = true
 		entry.sum = rawSum
 		entry.hasSum = true
-		return 0, 0, false
+		return 0, 0, 0, 0, false
 	}
 	countDelta = rawCount - entry.count
 	sumDelta = rawSum - entry.sum
 	entry.count = rawCount
 	entry.sum = rawSum
-	return countDelta, sumDelta, true
+	return countDelta, sumDelta, rawCount, rawSum, true
 }
 
 // admitLocked inserts a new entry, evicting the oldest-lastSeen entry when

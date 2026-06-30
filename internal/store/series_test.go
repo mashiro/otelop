@@ -43,20 +43,20 @@ func TestNumberDelta_BaselineThenDelta(t *testing.T) {
 	const k uint64 = 1
 
 	// First observation → baseline, emit nothing.
-	if _, ok := s.numberDelta(k, 10, now); ok {
+	if _, _, ok := s.numberDelta(k, 10, now); ok {
 		t.Fatalf("first observation should be a baseline (ok=false)")
 	}
 
-	// Second observation → delta = 5.
-	delta, ok := s.numberDelta(k, 15, now.Add(time.Second))
-	if !ok || delta != 5 {
-		t.Fatalf("expected delta=5, got delta=%v ok=%v", delta, ok)
+	// Second observation → delta = 5, cumulative = 15.
+	delta, cum, ok := s.numberDelta(k, 15, now.Add(time.Second))
+	if !ok || delta != 5 || cum != 15 {
+		t.Fatalf("expected delta=5 cumulative=15, got delta=%v cumulative=%v ok=%v", delta, cum, ok)
 	}
 
-	// Third observation → delta = 3.
-	delta, ok = s.numberDelta(k, 18, now.Add(2*time.Second))
-	if !ok || delta != 3 {
-		t.Fatalf("expected delta=3, got delta=%v ok=%v", delta, ok)
+	// Third observation → delta = 3, cumulative = 18.
+	delta, cum, ok = s.numberDelta(k, 18, now.Add(2*time.Second))
+	if !ok || delta != 3 || cum != 18 {
+		t.Fatalf("expected delta=3 cumulative=18, got delta=%v cumulative=%v ok=%v", delta, cum, ok)
 	}
 }
 
@@ -67,13 +67,13 @@ func TestNumberDelta_ResetReestablishesBaseline(t *testing.T) {
 	s.numberDelta(k, 100, now)
 	s.numberDelta(k, 120, now.Add(time.Second))
 	// Process restart / counter reset — raw value goes down.
-	if _, ok := s.numberDelta(k, 5, now.Add(2*time.Second)); ok {
+	if _, _, ok := s.numberDelta(k, 5, now.Add(2*time.Second)); ok {
 		t.Fatalf("reset should emit no delta")
 	}
 	// Next point is a delta against the new baseline.
-	delta, ok := s.numberDelta(k, 8, now.Add(3*time.Second))
-	if !ok || delta != 3 {
-		t.Fatalf("expected delta=3 after reset, got delta=%v ok=%v", delta, ok)
+	delta, cum, ok := s.numberDelta(k, 8, now.Add(3*time.Second))
+	if !ok || delta != 3 || cum != 8 {
+		t.Fatalf("expected delta=3 cumulative=8 after reset, got delta=%v cumulative=%v ok=%v", delta, cum, ok)
 	}
 }
 
@@ -82,12 +82,12 @@ func TestHistogramDelta_CountAndSum(t *testing.T) {
 	now := time.Unix(0, 0)
 	const k uint64 = 1
 
-	if _, _, ok := s.histogramDelta(k, 10, 100, now); ok {
+	if _, _, _, _, ok := s.histogramDelta(k, 10, 100, now); ok {
 		t.Fatalf("first observation should be baseline")
 	}
-	c, sm, ok := s.histogramDelta(k, 13, 130, now.Add(time.Second))
-	if !ok || c != 3 || sm != 30 {
-		t.Fatalf("expected count=3 sum=30, got count=%d sum=%v ok=%v", c, sm, ok)
+	c, sm, cc, cs, ok := s.histogramDelta(k, 13, 130, now.Add(time.Second))
+	if !ok || c != 3 || sm != 30 || cc != 13 || cs != 130 {
+		t.Fatalf("expected count_delta=3 sum_delta=30 count_cum=13 sum_cum=130, got cd=%d sd=%v cc=%d cs=%v ok=%v", c, sm, cc, cs, ok)
 	}
 }
 
@@ -95,8 +95,8 @@ func TestSeriesStore_TTLPrune(t *testing.T) {
 	s := newSeriesStore()
 	s.ttl = time.Second
 	now := time.Unix(0, 0)
-	s.numberDelta(1, 1, now)
-	s.numberDelta(2, 1, now.Add(10*time.Second))
+	s.numberDelta(uint64(1), 1, now)
+	s.numberDelta(uint64(2), 1, now.Add(10*time.Second))
 	// The second write prunes anything older than 10s - 1s = 9s, which
 	// includes the first entry (lastSeen=0s).
 	if s.len() != 1 {
@@ -142,8 +142,12 @@ func TestConvertMetrics_CumulativeSumDeltaized(t *testing.T) {
 	if len(got[0].DataPoints) != 1 {
 		t.Fatalf("second scrape should produce 1 point, got %d", len(got[0].DataPoints))
 	}
-	if got[0].DataPoints[0].Value != 50 {
-		t.Fatalf("expected delta value=50, got %v", got[0].DataPoints[0].Value)
+	p := got[0].DataPoints[0]
+	if p.Value != 50 {
+		t.Fatalf("expected delta value=50, got %v", p.Value)
+	}
+	if p.Cumulative == nil || *p.Cumulative != 150 {
+		t.Fatalf("expected cumulative=150, got %v", p.Cumulative)
 	}
 }
 
@@ -163,6 +167,10 @@ func TestConvertMetrics_NonMonotonicSumPassthrough(t *testing.T) {
 	got := convertMetrics(md, s)
 	if len(got[0].DataPoints) != 1 || got[0].DataPoints[0].Value != 42 {
 		t.Fatalf("non-monotonic sum should pass through unchanged, got %+v", got[0].DataPoints)
+	}
+	// Non-monotonic Sum isn't delta-ized, so we don't synthesize a cumulative.
+	if got[0].DataPoints[0].Cumulative != nil {
+		t.Fatalf("non-monotonic sum should not carry cumulative, got %v", *got[0].DataPoints[0].Cumulative)
 	}
 }
 
@@ -214,6 +222,12 @@ func TestConvertMetrics_HistogramDeltaized(t *testing.T) {
 	if p.Max == nil || *p.Max != 0.9 {
 		t.Errorf("max = %v, want 0.9", p.Max)
 	}
+	if p.CountCumulative == nil || *p.CountCumulative != 15 {
+		t.Errorf("countCumulative = %v, want 15", p.CountCumulative)
+	}
+	if p.SumCumulative == nil || *p.SumCumulative != 4.0 {
+		t.Errorf("sumCumulative = %v, want 4.0", p.SumCumulative)
+	}
 }
 
 func TestConvertMetrics_GaugeUnaffected(t *testing.T) {
@@ -230,6 +244,9 @@ func TestConvertMetrics_GaugeUnaffected(t *testing.T) {
 	got := convertMetrics(md, s)
 	if got[0].DataPoints[0].Value != 0.7 {
 		t.Fatalf("gauge should pass through, got %v", got[0].DataPoints[0].Value)
+	}
+	if got[0].DataPoints[0].Cumulative != nil {
+		t.Fatalf("gauge should not carry cumulative, got %v", *got[0].DataPoints[0].Cumulative)
 	}
 	if s.len() != 0 {
 		t.Fatalf("gauge should not touch the series store, got len=%d", s.len())
