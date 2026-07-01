@@ -9,7 +9,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/graph-gophers/graphql-go v1.10.2
 	github.com/modelcontextprotocol/go-sdk v1.6.1
-	github.com/urfave/cli/v3 v3.10.0
+	github.com/urfave/cli/v3 v3.10.1
 	go.opentelemetry.io/collector/component v1.61.0
 	go.opentelemetry.io/collector/confmap v1.61.0
 	go.opentelemetry.io/collector/connector v0.155.0
