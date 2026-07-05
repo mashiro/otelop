@@ -31,11 +31,14 @@ type DataPointResolver struct {
 	dp *store.DataPoint
 }
 
-func (r *DataPointResolver) ID() gql.ID          { return gql.ID(r.dp.ID) }
-func (r *DataPointResolver) Timestamp() gql.Time { return gql.Time{Time: r.dp.Timestamp} }
-func (r *DataPointResolver) Value() float64      { return r.dp.Value }
-func (r *DataPointResolver) Count() *float64     { return r.dp.Count }
-func (r *DataPointResolver) Sum() *float64       { return r.dp.Sum }
-func (r *DataPointResolver) Min() *float64       { return r.dp.Min }
-func (r *DataPointResolver) Max() *float64       { return r.dp.Max }
-func (r *DataPointResolver) Attributes() JSONMap { return attrsToJSON(r.dp.Attributes) }
+func (r *DataPointResolver) ID() gql.ID                { return gql.ID(r.dp.ID) }
+func (r *DataPointResolver) Timestamp() gql.Time       { return gql.Time{Time: r.dp.Timestamp} }
+func (r *DataPointResolver) Value() float64            { return r.dp.Value }
+func (r *DataPointResolver) Cumulative() *float64      { return r.dp.Cumulative }
+func (r *DataPointResolver) Count() *float64           { return r.dp.Count }
+func (r *DataPointResolver) CountCumulative() *float64 { return r.dp.CountCumulative }
+func (r *DataPointResolver) Sum() *float64             { return r.dp.Sum }
+func (r *DataPointResolver) SumCumulative() *float64   { return r.dp.SumCumulative }
+func (r *DataPointResolver) Min() *float64             { return r.dp.Min }
+func (r *DataPointResolver) Max() *float64             { return r.dp.Max }
+func (r *DataPointResolver) Attributes() JSONMap       { return attrsToJSON(r.dp.Attributes) }

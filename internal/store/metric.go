@@ -28,6 +28,12 @@ type MetricData struct {
 // Value is the primary chart scalar per type: instantaneous for Gauge, delta
 // for Sum, per-window mean (sum/count) for Histogram/Summary/ExponentialHistogram.
 // Count/Sum/Min/Max are only set for distribution types.
+//
+// Cumulative / CountCumulative / SumCumulative carry the raw OTLP cumulative
+// counterpart of Value / Count / Sum. They're only populated for inputs we
+// delta-ize (cumulative monotonic Sum, cumulative Histogram / Summary /
+// ExponentialHistogram), so consumers can display running totals "since otelop
+// started observing" without re-summing the delta column.
 type DataPoint struct {
 	// ID is a stable, globally unique identity assigned by the Store when the
 	// point is ingested (a UUIDv7). Two observations can share the same
@@ -36,14 +42,17 @@ type DataPoint struct {
 	// identity. The UUIDv7 travels with the point through eviction, WebSocket
 	// replay, and any future persistence, giving consumers (e.g. React keys) a
 	// key that never collides and never changes.
-	ID         string         `json:"id"`
-	Timestamp  time.Time      `json:"timestamp"`
-	Value      float64        `json:"value"`
-	Count      *float64       `json:"count,omitempty"`
-	Sum        *float64       `json:"sum,omitempty"`
-	Min        *float64       `json:"min,omitempty"`
-	Max        *float64       `json:"max,omitempty"`
-	Attributes map[string]any `json:"attributes"`
+	ID              string         `json:"id"`
+	Timestamp       time.Time      `json:"timestamp"`
+	Value           float64        `json:"value"`
+	Cumulative      *float64       `json:"cumulative,omitempty"`
+	Count           *float64       `json:"count,omitempty"`
+	CountCumulative *float64       `json:"countCumulative,omitempty"`
+	Sum             *float64       `json:"sum,omitempty"`
+	SumCumulative   *float64       `json:"sumCumulative,omitempty"`
+	Min             *float64       `json:"min,omitempty"`
+	Max             *float64       `json:"max,omitempty"`
+	Attributes      map[string]any `json:"attributes"`
 }
 
 // convertMetrics converts pmetric.Metrics into a slice of MetricData,
@@ -132,17 +141,20 @@ func extractDataPoints(m pmetric.Metric, serviceName string, series *seriesStore
 				continue
 			}
 			attrs := attributesToMap(dp.Attributes())
+			var cum *float64
 			if cumulative && sum.IsMonotonic() && series != nil {
 				key := seriesKey(serviceName, m.Name(), attrs)
-				delta, ok := series.numberDelta(key, v, now)
+				delta, rawCum, ok := series.numberDelta(key, v, now)
 				if !ok {
 					continue
 				}
 				v = delta
+				cum = floatPtr(rawCum)
 			}
 			points = append(points, DataPoint{
 				Timestamp:  dp.Timestamp().AsTime(),
 				Value:      v,
+				Cumulative: cum,
 				Attributes: attrs,
 			})
 		}
@@ -228,23 +240,30 @@ func extractDataPoints(m pmetric.Metric, serviceName string, series *seriesStore
 // reset observations).
 func emitDistributionPoint(hp histogramPoint, metricName, serviceName string, series *seriesStore, now time.Time, cumulative bool) (DataPoint, bool) {
 	emitCount, emitSum := float64(hp.count), hp.sum
+	var cumCount, cumSum *float64
 	if cumulative && series != nil {
 		key := seriesKey(serviceName, metricName, hp.attributes)
-		countDelta, sumDelta, ok := series.histogramDelta(key, hp.count, hp.sum, now)
+		countDelta, sumDelta, countCum, sumCum, ok := series.histogramDelta(key, hp.count, hp.sum, now)
 		if !ok {
 			return DataPoint{}, false
 		}
 		emitCount = float64(countDelta)
 		emitSum = sumDelta
+		cumCount = floatPtr(float64(countCum))
+		if hp.hasSum {
+			cumSum = floatPtr(sumCum)
+		}
 	}
 	point := DataPoint{
-		Timestamp:  hp.timestamp,
-		Value:      histogramMean(emitCount, emitSum, hp.hasSum),
-		Count:      &emitCount,
-		Attributes: hp.attributes,
+		Timestamp:       hp.timestamp,
+		Value:           histogramMean(emitCount, emitSum, hp.hasSum),
+		Count:           &emitCount,
+		CountCumulative: cumCount,
+		Attributes:      hp.attributes,
 	}
 	if hp.hasSum {
 		point.Sum = floatPtr(emitSum)
+		point.SumCumulative = cumSum
 	}
 	// Min/Max are per-point extrema reported by the SDK; they can't be
 	// delta'd so they pass through untouched.
