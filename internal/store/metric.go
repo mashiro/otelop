@@ -29,11 +29,12 @@ type MetricData struct {
 // for Sum, per-window mean (sum/count) for Histogram/Summary/ExponentialHistogram.
 // Count/Sum/Min/Max are only set for distribution types.
 //
-// Cumulative / CountCumulative / SumCumulative carry the raw OTLP cumulative
-// counterpart of Value / Count / Sum. They're only populated for inputs we
-// delta-ize (cumulative monotonic Sum, cumulative Histogram / Summary /
-// ExponentialHistogram), so consumers can display running totals "since otelop
-// started observing" without re-summing the delta column.
+// Cumulative / CountCumulative / SumCumulative carry a running total "since
+// otelop started observing", so consumers can display session totals without
+// re-summing the delta column. For cumulative-temporality input it's the raw
+// OTLP cumulative; for delta-temporality input otelop accumulates the deltas
+// itself. Populated for monotonic Sum and for Histogram / Summary /
+// ExponentialHistogram; null for Gauge and non-monotonic Sum.
 type DataPoint struct {
 	// ID is a stable, globally unique identity assigned by the Store when the
 	// point is ingested (a UUIDv7). Two observations can share the same
@@ -142,14 +143,14 @@ func extractDataPoints(m pmetric.Metric, serviceName string, series *seriesStore
 			}
 			attrs := attributesToMap(dp.Attributes())
 			var cum *float64
-			if cumulative && sum.IsMonotonic() && series != nil {
+			if sum.IsMonotonic() && series != nil {
 				key := seriesKey(serviceName, m.Name(), attrs)
-				delta, rawCum, ok := series.numberDelta(key, v, now)
+				delta, total, ok := series.numberObserve(key, v, cumulative, now)
 				if !ok {
 					continue
 				}
 				v = delta
-				cum = floatPtr(rawCum)
+				cum = floatPtr(total)
 			}
 			points = append(points, DataPoint{
 				Timestamp:  dp.Timestamp().AsTime(),
@@ -241,17 +242,17 @@ func extractDataPoints(m pmetric.Metric, serviceName string, series *seriesStore
 func emitDistributionPoint(hp histogramPoint, metricName, serviceName string, series *seriesStore, now time.Time, cumulative bool) (DataPoint, bool) {
 	emitCount, emitSum := float64(hp.count), hp.sum
 	var cumCount, cumSum *float64
-	if cumulative && series != nil {
+	if series != nil {
 		key := seriesKey(serviceName, metricName, hp.attributes)
-		countDelta, sumDelta, countCum, sumCum, ok := series.histogramDelta(key, hp.count, hp.sum, now)
+		countDelta, sumDelta, countTotal, sumTotal, ok := series.histogramObserve(key, hp.count, hp.sum, cumulative, now)
 		if !ok {
 			return DataPoint{}, false
 		}
 		emitCount = float64(countDelta)
 		emitSum = sumDelta
-		cumCount = floatPtr(float64(countCum))
+		cumCount = floatPtr(countTotal)
 		if hp.hasSum {
-			cumSum = floatPtr(sumCum)
+			cumSum = floatPtr(sumTotal)
 		}
 	}
 	point := DataPoint{

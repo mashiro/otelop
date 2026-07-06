@@ -1,12 +1,12 @@
 import { useMemo } from "react";
-import { cumulativeTiles, type CumulativeTile } from "@/lib/metric-stats";
+import { statTiles, type StatTile } from "@/lib/metric-stats";
 import { isDistributionMetric, resolveMetricUnit, type MetricFacet } from "@/lib/metric-catalog";
 import { formatMetricValue } from "@/lib/format-metric";
 import { SERIES_COLORS } from "./metric-chart";
 import type { MetricData } from "@/types/telemetry";
 
 const RESET_NOTE =
-  "Raw cumulative reported by the exporter, since otelop started observing this series. Resets when otelop restarts.";
+  "Running total since otelop started observing this series. Resets when otelop restarts.";
 
 export function MetricSummary({
   metric,
@@ -15,7 +15,7 @@ export function MetricSummary({
   metric: MetricData;
   facet?: MetricFacet | null;
 }) {
-  const tiles = useMemo(() => cumulativeTiles(metric, facet), [metric, facet]);
+  const tiles = useMemo(() => statTiles(metric, facet), [metric, facet]);
   if (tiles.length === 0) return null;
 
   const unit = resolveMetricUnit(metric.name, metric.unit);
@@ -45,28 +45,31 @@ export function MetricSummary({
   );
 }
 
+function mainText(tile: StatTile, unit: string, isDistribution: boolean): string {
+  if (isDistribution) {
+    if (tile.totalSum != null) return formatMetricValue(tile.totalSum, unit);
+    if (tile.totalCount != null) return tile.totalCount.toLocaleString();
+    return "-";
+  }
+  return tile.total != null ? formatMetricValue(tile.total, unit) : "-";
+}
+
 function Tile({
   tile,
   unit,
   isDistribution,
   showLabel,
 }: {
-  tile: CumulativeTile;
+  tile: StatTile;
   unit: string;
   isDistribution: boolean;
   showLabel: boolean;
 }) {
   const color = SERIES_COLORS[tile.colorIndex % SERIES_COLORS.length];
-  const main = isDistribution
-    ? tile.sumCumulative != null
-      ? formatMetricValue(tile.sumCumulative, unit)
-      : (tile.countCumulative?.toLocaleString() ?? "-")
-    : tile.cumulative != null
-      ? formatMetricValue(tile.cumulative, unit)
-      : "-";
+  const main = mainText(tile, unit, isDistribution);
   const count =
-    isDistribution && tile.sumCumulative != null && tile.countCumulative != null
-      ? tile.countCumulative.toLocaleString()
+    isDistribution && tile.totalSum != null && tile.totalCount != null
+      ? tile.totalCount.toLocaleString()
       : null;
 
   return (

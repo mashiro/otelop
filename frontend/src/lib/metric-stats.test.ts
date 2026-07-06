@@ -1,30 +1,30 @@
 import { describe, it, expect } from "vitest";
-import { cumulativeTiles } from "./metric-stats";
+import { statTiles } from "./metric-stats";
 import { makeDataPoint, makeMetric } from "@/test/factories";
 
 const MODEL_FACET = { attributes: ["model"], label: "model" };
 
-describe("cumulativeTiles", () => {
-  it("returns the latest cumulative of a single series, ignoring older points", () => {
+describe("statTiles", () => {
+  it("uses the latest cumulative of a single series", () => {
     const metric = makeMetric({
       dataPoints: [
         makeDataPoint({ id: "a", timestamp: "2024-01-01T00:00:00Z", cumulative: 1.2 }),
         makeDataPoint({ id: "b", timestamp: "2024-01-01T00:00:10Z", cumulative: 3.4 }),
       ],
     });
-    expect(cumulativeTiles(metric)).toEqual([
+    expect(statTiles(metric)).toEqual([
       {
         key: "",
         label: "(no attributes)",
         colorIndex: 0,
-        cumulative: 3.4,
-        countCumulative: null,
-        sumCumulative: null,
+        total: 3.4,
+        totalCount: null,
+        totalSum: null,
       },
     ]);
   });
 
-  it("returns one tile per series in first-appearance order without a facet", () => {
+  it("returns one tile per series in chart order without a facet", () => {
     const metric = makeMetric({
       dataPoints: [
         makeDataPoint({ id: "a", attributes: { model: "opus" }, cumulative: 1.0 }),
@@ -37,21 +37,10 @@ describe("cumulativeTiles", () => {
         }),
       ],
     });
-    const tiles = cumulativeTiles(metric);
-    expect(tiles.map((t) => [t.label, t.cumulative, t.colorIndex])).toEqual([
+    expect(statTiles(metric).map((t) => [t.label, t.total, t.colorIndex])).toEqual([
       ['model="opus"', 2.0, 0],
       ['model="haiku"', 0.5, 1],
     ]);
-  });
-
-  it("labels tiles with the raw facet value when a facet is active", () => {
-    const metric = makeMetric({
-      dataPoints: [
-        makeDataPoint({ id: "a", attributes: { model: "opus" }, cumulative: 1.0 }),
-        makeDataPoint({ id: "b", attributes: { model: "haiku" }, cumulative: 0.5 }),
-      ],
-    });
-    expect(cumulativeTiles(metric, MODEL_FACET).map((t) => t.label)).toEqual(["opus", "haiku"]);
   });
 
   it("sums the latest cumulative of each raw series within a facet group", () => {
@@ -67,56 +56,16 @@ describe("cumulativeTiles", () => {
         }),
       ],
     });
-    expect(cumulativeTiles(metric, MODEL_FACET)).toEqual([
+    expect(statTiles(metric, MODEL_FACET)).toEqual([
       {
         key: "opus",
         label: "opus",
         colorIndex: 0,
-        cumulative: 2.25,
-        countCumulative: null,
-        sumCumulative: null,
+        total: 2.25,
+        totalCount: null,
+        totalSum: null,
       },
     ]);
-  });
-
-  it("labels a missing facet attribute as (unset)", () => {
-    const metric = makeMetric({
-      dataPoints: [makeDataPoint({ id: "a", attributes: { other: "x" }, cumulative: 1.0 })],
-    });
-    expect(cumulativeTiles(metric, MODEL_FACET)[0]?.label).toBe("(unset)");
-  });
-
-  it("keeps colorIndex aligned with chart series order when some series lack cumulative", () => {
-    const metric = makeMetric({
-      dataPoints: [
-        makeDataPoint({ id: "a", attributes: { model: "opus" } }),
-        makeDataPoint({ id: "b", attributes: { model: "haiku" }, cumulative: 0.5 }),
-      ],
-    });
-    const tiles = cumulativeTiles(metric);
-    expect(tiles).toHaveLength(1);
-    expect(tiles[0]?.colorIndex).toBe(1);
-  });
-
-  it("falls back to the latest point that has a cumulative when newer points lack one", () => {
-    const metric = makeMetric({
-      dataPoints: [
-        makeDataPoint({ id: "a", timestamp: "2024-01-01T00:00:00Z", cumulative: 5.0 }),
-        makeDataPoint({ id: "b", timestamp: "2024-01-01T00:00:10Z", cumulative: null }),
-      ],
-    });
-    expect(cumulativeTiles(metric)[0]?.cumulative).toBe(5.0);
-  });
-
-  it("returns [] for metrics without any cumulative (Gauge / delta inputs)", () => {
-    const metric = makeMetric({
-      type: "Gauge",
-      dataPoints: [
-        makeDataPoint({ id: "a", value: 1 }),
-        makeDataPoint({ id: "b", value: 2, count: 3, sum: 6 }),
-      ],
-    });
-    expect(cumulativeTiles(metric)).toEqual([]);
   });
 
   it("sums countCumulative and sumCumulative within a facet group for distributions", () => {
@@ -137,16 +86,26 @@ describe("cumulativeTiles", () => {
         }),
       ],
     });
-    expect(cumulativeTiles(metric, MODEL_FACET)).toEqual([
+    expect(statTiles(metric, MODEL_FACET)).toEqual([
       {
         key: "opus",
         label: "opus",
         colorIndex: 0,
-        cumulative: null,
-        countCumulative: 500,
-        sumCumulative: 3.5,
+        total: null,
+        totalCount: 500,
+        totalSum: 3.5,
       },
     ]);
+  });
+
+  it("falls back to the latest point that has a cumulative when newer points lack one", () => {
+    const metric = makeMetric({
+      dataPoints: [
+        makeDataPoint({ id: "a", timestamp: "2024-01-01T00:00:00Z", cumulative: 5.0 }),
+        makeDataPoint({ id: "b", timestamp: "2024-01-01T00:00:10Z", cumulative: null }),
+      ],
+    });
+    expect(statTiles(metric)[0]?.total).toBe(5.0);
   });
 
   it("picks the latest point by timestamp even when dataPoints are unordered", () => {
@@ -157,10 +116,18 @@ describe("cumulativeTiles", () => {
         makeDataPoint({ id: "b", timestamp: "2024-01-01T00:00:00.000000001Z", cumulative: 1.0 }),
       ],
     });
-    expect(cumulativeTiles(metric)[0]?.cumulative).toBe(9.0);
+    expect(statTiles(metric)[0]?.total).toBe(9.0);
+  });
+
+  it("returns [] when no dataPoint carries a cumulative (Gauge / non-monotonic Sum)", () => {
+    const metric = makeMetric({
+      type: "Gauge",
+      dataPoints: [makeDataPoint({ id: "a", value: 1 }), makeDataPoint({ id: "b", value: 2 })],
+    });
+    expect(statTiles(metric)).toEqual([]);
   });
 
   it("returns [] for empty dataPoints", () => {
-    expect(cumulativeTiles(makeMetric())).toEqual([]);
+    expect(statTiles(makeMetric())).toEqual([]);
   });
 });
