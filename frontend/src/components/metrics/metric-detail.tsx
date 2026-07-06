@@ -1,7 +1,9 @@
 import { useMemo, useState } from "react";
 import { useAtomValue, useSetAtom } from "jotai";
 import { selectedMetricAtom } from "@/stores/telemetry";
-import { MetricChart, attrKey } from "./metric-chart";
+import { MetricChart } from "./metric-chart";
+import { MetricSummary } from "./metric-summary";
+import { attrKey } from "@/lib/metric-stats";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { DetailPanel } from "@/components/common/detail-panel";
 import { Pill } from "@/components/common/pill";
@@ -38,22 +40,14 @@ export function MetricDetail() {
         </>
       }
     >
-      <ScrollArea className="min-h-0 flex-1">
-        <div className="p-4">
-          {metric.description && (
-            <p className="mb-4 text-sm text-muted-foreground">{metric.description}</p>
-          )}
-
-          <ChartSection metric={metric} />
-
-          {metric.dataPoints.length > 0 && <DataPointsTable metric={metric} />}
-        </div>
-      </ScrollArea>
+      <MetricDetailBody metric={metric} />
     </DetailPanel>
   );
 }
 
-function ChartSection({ metric }: { metric: MetricData }) {
+// Facet selection lives here (not in the chart) because the summary tiles and
+// the chart must break down by the same dimension.
+function MetricDetailBody({ metric }: { metric: MetricData }) {
   const attributeCardinality = useMemo(() => {
     // Count distinct values per attribute, capping at max+1 so high-cardinality
     // identifiers can still be excluded by resolveMetricFacets.
@@ -94,35 +88,48 @@ function ChartSection({ metric }: { metric: MetricData }) {
     pickedId === ALL_FACET ? ALL_FACET : effectiveFacet ? facetId(effectiveFacet) : ALL_FACET;
 
   return (
-    <div className="mb-4 rounded-lg border border-border/30 bg-muted/50 p-4">
-      <div className="mb-3 flex items-center gap-3">
-        <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-          Breakdown
-        </span>
-        <Tabs value={tabValue} onValueChange={setPickedId}>
-          <TabsList className="h-8 bg-background/60">
-            {facets.map((f) => (
+    <ScrollArea className="min-h-0 flex-1">
+      <div className="p-4">
+        {metric.description && (
+          <p className="mb-4 text-sm text-muted-foreground">{metric.description}</p>
+        )}
+
+        <div className="mb-3 flex items-center gap-3">
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Breakdown
+          </span>
+          <Tabs value={tabValue} onValueChange={setPickedId}>
+            <TabsList className="h-8 bg-muted/50">
+              {facets.map((f) => (
+                <TabsTrigger
+                  key={facetId(f)}
+                  value={facetId(f)}
+                  className="h-7 px-3 text-xs data-active:bg-metric/15 data-active:text-metric"
+                >
+                  {f.label}
+                </TabsTrigger>
+              ))}
               <TabsTrigger
-                key={facetId(f)}
-                value={facetId(f)}
+                value={ALL_FACET}
                 className="h-7 px-3 text-xs data-active:bg-metric/15 data-active:text-metric"
               >
-                {f.label}
+                All
               </TabsTrigger>
-            ))}
-            <TabsTrigger
-              value={ALL_FACET}
-              className="h-7 px-3 text-xs data-active:bg-metric/15 data-active:text-metric"
-            >
-              All
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
+            </TabsList>
+          </Tabs>
+        </div>
+
+        <MetricSummary metric={metric} facet={effectiveFacet} />
+
+        <div className="mb-4 rounded-lg border border-border/30 bg-muted/50 p-4">
+          <div className="h-[300px]">
+            <MetricChart metric={metric} facet={effectiveFacet} />
+          </div>
+        </div>
+
+        {metric.dataPoints.length > 0 && <DataPointsTable metric={metric} />}
       </div>
-      <div className="h-[300px]">
-        <MetricChart metric={metric} facet={effectiveFacet} />
-      </div>
-    </div>
+    </ScrollArea>
   );
 }
 

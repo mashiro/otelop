@@ -45,8 +45,11 @@ const InitialLoadQuery = graphql(`
           id
           timestamp
           value
+          cumulative
           count
+          countCumulative
           sum
+          sumCumulative
           min
           max
           attributes
