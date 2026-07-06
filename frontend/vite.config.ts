@@ -33,4 +33,7 @@ export default defineConfig({
     ignorePatterns: generatedSources,
     options: { typeAware: true, typeCheck: true },
   },
+  test: {
+    environment: "happy-dom",
+  },
 });

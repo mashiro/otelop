@@ -6,7 +6,10 @@ describe("copyJsonToClipboard", () => {
 
   beforeEach(() => {
     writeText.mockReset().mockResolvedValue(undefined);
-    Object.assign(navigator, { clipboard: { writeText } });
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
   });
 
   it("copies formatted JSON to clipboard", async () => {
