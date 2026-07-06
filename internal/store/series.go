@@ -19,21 +19,18 @@ const (
 	defaultSeriesMaxEntries = 50_000
 )
 
-// seriesState is the last raw (un-converted) OTLP observation of one metric
-// series. We keep it so cumulative -> delta conversion is a pure function
-// from (previous state, current raw point) to the delta to emit.
+// seriesState is the running per-series bookkeeping we keep across scrapes.
+// For cumulative-temporality input value/count/sum hold the last raw
+// observation; for delta-temporality input they hold the accumulated total
+// since otelop started observing. A series is only ever one temporality so
+// the two uses never mix within one entry.
 type seriesState struct {
 	lastSeen time.Time
-
-	// For Sum / Gauge / number types.
-	value    float64
-	hasValue bool
-
-	// For Histogram / ExponentialHistogram / Summary.
-	count    uint64
-	hasCount bool
-	sum      float64
-	hasSum   bool
+	// Sum / Gauge / number types.
+	value float64
+	// Histogram / ExponentialHistogram / Summary.
+	count uint64
+	sum   float64
 }
 
 // seriesStore tracks the last raw snapshot per metric series so
@@ -115,62 +112,70 @@ func writeAttrValue(h *maphash.Hash, v any) {
 	}
 }
 
-// numberDelta returns the delta from the previous raw value to rawValue,
-// the current raw cumulative value, and updates the stored snapshot. If
-// there is no prior snapshot, or the new value is smaller (counter reset),
-// it records the baseline and returns ok=false so the caller can drop the
-// point.
-func (s *seriesStore) numberDelta(key uint64, rawValue float64, now time.Time) (delta, cumulative float64, ok bool) {
+// numberObserve turns one Sum observation into (per-window delta, running
+// total). For cumulative temporality v is the exporter's raw cumulative and
+// the delta comes from subtracting the previous observation; the first point
+// (and any counter reset where v decreases) returns ok=false so the caller
+// can drop it. For delta temporality v is already the per-window delta and
+// gets accumulated into the running total; ok is always true.
+func (s *seriesStore) numberObserve(key uint64, v float64, cumulative bool, now time.Time) (delta, total float64, ok bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.pruneLocked(now)
 	entry, exists := s.entries[key]
 	if !exists {
-		s.admitLocked(key, &seriesState{lastSeen: now, value: rawValue, hasValue: true})
-		return 0, 0, false
+		s.admitLocked(key, &seriesState{lastSeen: now, value: v})
+		if cumulative {
+			return 0, 0, false
+		}
+		return v, v, true
 	}
 	entry.lastSeen = now
-	if !entry.hasValue || rawValue < entry.value {
-		entry.value = rawValue
-		entry.hasValue = true
-		return 0, 0, false
+	if cumulative {
+		if v < entry.value {
+			entry.value = v
+			return 0, 0, false
+		}
+		delta = v - entry.value
+		entry.value = v
+		return delta, v, true
 	}
-	delta = rawValue - entry.value
-	entry.value = rawValue
-	return delta, rawValue, true
+	entry.value += v
+	return v, entry.value, true
 }
 
-// histogramDelta returns (countDelta, sumDelta) plus the current raw
-// cumulative count/sum, and updates the stored snapshot. Same reset
-// semantics as numberDelta.
-func (s *seriesStore) histogramDelta(key uint64, rawCount uint64, rawSum float64, now time.Time) (countDelta uint64, sumDelta float64, countCumulative uint64, sumCumulative float64, ok bool) {
+// histogramObserve is the distribution counterpart of numberObserve: it
+// returns (countDelta, sumDelta, countTotal, sumTotal, ok) with the same
+// baseline/reset semantics for cumulative temporality and accumulate-only
+// behaviour for delta temporality.
+func (s *seriesStore) histogramObserve(key uint64, count uint64, sum float64, cumulative bool, now time.Time) (countDelta uint64, sumDelta, countTotal, sumTotal float64, ok bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.pruneLocked(now)
 	entry, exists := s.entries[key]
 	if !exists {
-		s.admitLocked(key, &seriesState{
-			lastSeen: now,
-			count:    rawCount,
-			hasCount: true,
-			sum:      rawSum,
-			hasSum:   true,
-		})
-		return 0, 0, 0, 0, false
+		s.admitLocked(key, &seriesState{lastSeen: now, count: count, sum: sum})
+		if cumulative {
+			return 0, 0, 0, 0, false
+		}
+		return count, sum, float64(count), sum, true
 	}
 	entry.lastSeen = now
-	if !entry.hasCount || rawCount < entry.count {
-		entry.count = rawCount
-		entry.hasCount = true
-		entry.sum = rawSum
-		entry.hasSum = true
-		return 0, 0, 0, 0, false
+	if cumulative {
+		if count < entry.count {
+			entry.count = count
+			entry.sum = sum
+			return 0, 0, 0, 0, false
+		}
+		countDelta = count - entry.count
+		sumDelta = sum - entry.sum
+		entry.count = count
+		entry.sum = sum
+		return countDelta, sumDelta, float64(count), sum, true
 	}
-	countDelta = rawCount - entry.count
-	sumDelta = rawSum - entry.sum
-	entry.count = rawCount
-	entry.sum = rawSum
-	return countDelta, sumDelta, rawCount, rawSum, true
+	entry.count += count
+	entry.sum += sum
+	return count, sum, float64(entry.count), entry.sum, true
 }
 
 // admitLocked inserts a new entry, evicting the oldest-lastSeen entry when

@@ -9,6 +9,7 @@ import { useTooltip, TooltipWithBounds } from "@visx/tooltip";
 import type { MetricData } from "@/types/telemetry";
 import { formatMetricValue } from "@/lib/format-metric";
 import { resolveMetricUnit, type MetricFacet } from "@/lib/metric-catalog";
+import { facetSeriesKey } from "@/lib/metric-stats";
 
 const MARGIN = { top: 10, right: 20, bottom: 40, left: 72 };
 
@@ -16,7 +17,7 @@ function formatTick(d: Date): string {
   return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 
-const SERIES_COLORS = [
+export const SERIES_COLORS = [
   "var(--chart-1)",
   "var(--chart-2)",
   "var(--chart-3)",
@@ -54,23 +55,6 @@ interface Props {
   facet?: MetricFacet | null;
 }
 
-/** Serialize attributes to a stable string key for grouping. */
-function attrKey(attrs: Record<string, unknown>): string {
-  const entries = Object.entries(attrs).sort(([a], [b]) => a.localeCompare(b));
-  if (entries.length === 0) return "";
-  return entries.map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(", ");
-}
-
-/** Render a single attribute value (already safely narrowed from unknown). */
-function formatAttrValue(v: unknown): string {
-  if (v === undefined || v === null) return "(unset)";
-  if (typeof v === "string") return v;
-  if (typeof v === "number" || typeof v === "boolean" || typeof v === "bigint") {
-    return String(v);
-  }
-  return JSON.stringify(v);
-}
-
 /** Find the point in a series closest to a given time. */
 function closestPoint(points: PointData[], targetMs: number): PointData | undefined {
   let best: PointData | undefined;
@@ -104,12 +88,7 @@ function ChartInner({ metric, facet, width, height }: Props & { width: number; h
   const series = useMemo(() => {
     const groups = new Map<string, PointData[]>();
     for (const dp of metric.dataPoints) {
-      let key: string;
-      if (facet) {
-        key = facet.attributes.map((a) => formatAttrValue(dp.attributes[a])).join(" ");
-      } else {
-        key = attrKey(dp.attributes);
-      }
+      const key = facetSeriesKey(dp.attributes, facet);
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key)!.push({ time: new Date(dp.timestamp), value: dp.value });
     }
@@ -396,5 +375,3 @@ function ChartInner({ metric, facet, width, height }: Props & { width: number; h
     </div>
   );
 }
-
-export { attrKey };

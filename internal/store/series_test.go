@@ -43,18 +43,18 @@ func TestNumberDelta_BaselineThenDelta(t *testing.T) {
 	const k uint64 = 1
 
 	// First observation → baseline, emit nothing.
-	if _, _, ok := s.numberDelta(k, 10, now); ok {
+	if _, _, ok := s.numberObserve(k, 10, true, now); ok {
 		t.Fatalf("first observation should be a baseline (ok=false)")
 	}
 
 	// Second observation → delta = 5, cumulative = 15.
-	delta, cum, ok := s.numberDelta(k, 15, now.Add(time.Second))
+	delta, cum, ok := s.numberObserve(k, 15, true, now.Add(time.Second))
 	if !ok || delta != 5 || cum != 15 {
 		t.Fatalf("expected delta=5 cumulative=15, got delta=%v cumulative=%v ok=%v", delta, cum, ok)
 	}
 
 	// Third observation → delta = 3, cumulative = 18.
-	delta, cum, ok = s.numberDelta(k, 18, now.Add(2*time.Second))
+	delta, cum, ok = s.numberObserve(k, 18, true, now.Add(2*time.Second))
 	if !ok || delta != 3 || cum != 18 {
 		t.Fatalf("expected delta=3 cumulative=18, got delta=%v cumulative=%v ok=%v", delta, cum, ok)
 	}
@@ -64,14 +64,14 @@ func TestNumberDelta_ResetReestablishesBaseline(t *testing.T) {
 	s := newSeriesStore()
 	now := time.Unix(0, 0)
 	const k uint64 = 1
-	s.numberDelta(k, 100, now)
-	s.numberDelta(k, 120, now.Add(time.Second))
+	s.numberObserve(k, 100, true, now)
+	s.numberObserve(k, 120, true, now.Add(time.Second))
 	// Process restart / counter reset — raw value goes down.
-	if _, _, ok := s.numberDelta(k, 5, now.Add(2*time.Second)); ok {
+	if _, _, ok := s.numberObserve(k, 5, true, now.Add(2*time.Second)); ok {
 		t.Fatalf("reset should emit no delta")
 	}
 	// Next point is a delta against the new baseline.
-	delta, cum, ok := s.numberDelta(k, 8, now.Add(3*time.Second))
+	delta, cum, ok := s.numberObserve(k, 8, true, now.Add(3*time.Second))
 	if !ok || delta != 3 || cum != 8 {
 		t.Fatalf("expected delta=3 cumulative=8 after reset, got delta=%v cumulative=%v ok=%v", delta, cum, ok)
 	}
@@ -82,12 +82,12 @@ func TestHistogramDelta_CountAndSum(t *testing.T) {
 	now := time.Unix(0, 0)
 	const k uint64 = 1
 
-	if _, _, _, _, ok := s.histogramDelta(k, 10, 100, now); ok {
+	if _, _, _, _, ok := s.histogramObserve(k, 10, 100, true, now); ok {
 		t.Fatalf("first observation should be baseline")
 	}
-	c, sm, cc, cs, ok := s.histogramDelta(k, 13, 130, now.Add(time.Second))
+	c, sm, cc, cs, ok := s.histogramObserve(k, 13, 130, true, now.Add(time.Second))
 	if !ok || c != 3 || sm != 30 || cc != 13 || cs != 130 {
-		t.Fatalf("expected count_delta=3 sum_delta=30 count_cum=13 sum_cum=130, got cd=%d sd=%v cc=%d cs=%v ok=%v", c, sm, cc, cs, ok)
+		t.Fatalf("expected count_delta=3 sum_delta=30 count_cum=13 sum_cum=130, got cd=%d sd=%v cc=%v cs=%v ok=%v", c, sm, cc, cs, ok)
 	}
 }
 
@@ -95,8 +95,8 @@ func TestSeriesStore_TTLPrune(t *testing.T) {
 	s := newSeriesStore()
 	s.ttl = time.Second
 	now := time.Unix(0, 0)
-	s.numberDelta(uint64(1), 1, now)
-	s.numberDelta(uint64(2), 1, now.Add(10*time.Second))
+	s.numberObserve(uint64(1), 1, true, now)
+	s.numberObserve(uint64(2), 1, true, now.Add(10*time.Second))
 	// The second write prunes anything older than 10s - 1s = 9s, which
 	// includes the first entry (lastSeen=0s).
 	if s.len() != 1 {
