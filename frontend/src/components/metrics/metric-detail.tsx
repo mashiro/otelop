@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { useAtomValue, useSetAtom } from "jotai";
 import { selectedMetricAtom } from "@/stores/telemetry";
 import { MetricChart } from "./metric-chart";
@@ -8,6 +8,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { DetailPanel } from "@/components/common/detail-panel";
 import { Pill } from "@/components/common/pill";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { KVSection } from "@/components/ui/kv-section";
 import {
   facetId,
   isDistributionMetric,
@@ -16,7 +17,7 @@ import {
   type MetricFacet,
 } from "@/lib/metric-catalog";
 import { formatMetricValue } from "@/lib/format-metric";
-import type { MetricData } from "@/types/telemetry";
+import type { DataPoint, MetricData } from "@/types/telemetry";
 
 const ALL_FACET = "__all__";
 
@@ -141,10 +142,12 @@ function formatDistributionCell(v: number | null | undefined, unit: string): str
   return v != null ? formatMetricValue(v, unit) : "-";
 }
 
-function DataPointsTable({ metric }: { metric: MetricData }) {
+export function DataPointsTable({ metric }: { metric: MetricData }) {
   const hasAttributes = metric.dataPoints.some((dp) => Object.keys(dp.attributes).length > 0);
   const isDistribution = isDistributionMetric(metric.type);
   const unit = resolveMetricUnit(metric.name, metric.unit);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const cols = 1 + (hasAttributes ? 1 : 0) + 1 + (isDistribution ? 4 : 0);
 
   return (
     <div>
@@ -169,37 +172,58 @@ function DataPointsTable({ metric }: { metric: MetricData }) {
             </tr>
           </thead>
           <tbody>
-            {[...metric.dataPoints].reverse().map((dp) => (
-              <tr
-                key={dp.id}
-                className="border-b border-border/20 last:border-0 transition-colors hover:bg-metric/5"
-              >
-                <td className="px-3 py-1.5 font-mono text-muted-foreground">
-                  {new Date(dp.timestamp).toLocaleTimeString()}
-                </td>
-                {hasAttributes && (
-                  <td className="max-w-[250px] truncate px-3 py-1.5 font-mono text-foreground/60">
-                    {attrKey(dp.attributes) || "-"}
-                  </td>
-                )}
-                <td className="px-3 py-1.5 text-right font-mono text-metric">
-                  {formatMetricValue(dp.value, unit)}
-                </td>
-                {isDistribution && (
-                  <>
-                    <td className={numCellCls}>
-                      {dp.count != null ? dp.count.toLocaleString() : "-"}
+            {[...metric.dataPoints].reverse().map((dp) => {
+              const isExpanded = expandedId === dp.id;
+              return (
+                <Fragment key={dp.id}>
+                  <tr
+                    className="cursor-pointer border-b border-border/20 last:border-0 transition-colors hover:bg-metric/5"
+                    onClick={() => setExpandedId(isExpanded ? null : dp.id)}
+                  >
+                    <td className="px-3 py-1.5 font-mono text-muted-foreground">
+                      {new Date(dp.timestamp).toLocaleTimeString()}
                     </td>
-                    <td className={numCellCls}>{formatDistributionCell(dp.sum, unit)}</td>
-                    <td className={numCellCls}>{formatDistributionCell(dp.min, unit)}</td>
-                    <td className={numCellCls}>{formatDistributionCell(dp.max, unit)}</td>
-                  </>
-                )}
-              </tr>
-            ))}
+                    {hasAttributes && (
+                      <td className="max-w-[250px] truncate px-3 py-1.5 font-mono text-foreground/60">
+                        {attrKey(dp.attributes) || "-"}
+                      </td>
+                    )}
+                    <td className="px-3 py-1.5 text-right font-mono text-metric">
+                      {formatMetricValue(dp.value, unit)}
+                    </td>
+                    {isDistribution && (
+                      <>
+                        <td className={numCellCls}>
+                          {dp.count != null ? dp.count.toLocaleString() : "-"}
+                        </td>
+                        <td className={numCellCls}>{formatDistributionCell(dp.sum, unit)}</td>
+                        <td className={numCellCls}>{formatDistributionCell(dp.min, unit)}</td>
+                        <td className={numCellCls}>{formatDistributionCell(dp.max, unit)}</td>
+                      </>
+                    )}
+                  </tr>
+                  {isExpanded && (
+                    <tr>
+                      <td colSpan={cols} className="whitespace-normal bg-card/30 p-0">
+                        <DataPointDetail dp={dp} resource={metric.resource} />
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              );
+            })}
           </tbody>
         </table>
       </div>
+    </div>
+  );
+}
+
+function DataPointDetail({ dp, resource }: { dp: DataPoint; resource: Record<string, unknown> }) {
+  return (
+    <div className="animate-slide-up-fade space-y-3 px-4 py-3">
+      <KVSection title="Attributes" data={dp.attributes} />
+      <KVSection title="Resource" data={resource} />
     </div>
   );
 }
