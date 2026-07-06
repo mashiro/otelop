@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.7.0](https://github.com/mashiro/otelop/compare/v0.6.2...v0.7.0) (2026-07-06)
+
+
+### Features
+
+* **metrics:** expand data point rows to reveal full attributes and resource ([#149](https://github.com/mashiro/otelop/issues/149)) ([c7c8de6](https://github.com/mashiro/otelop/commit/c7c8de67b6cf49f05fbfb104f369f1b0e74c6446))
+* **metrics:** expose raw cumulative alongside delta on DataPoint ([#142](https://github.com/mashiro/otelop/issues/142)) ([6900312](https://github.com/mashiro/otelop/commit/6900312a78f9deceecfc634ab2820d8c8b434b71))
+* **metrics:** show session-total stat tiles for delta and cumulative Counters ([#148](https://github.com/mashiro/otelop/issues/148)) ([dc55353](https://github.com/mashiro/otelop/commit/dc5535394f652a8c0f43891b9c7d123008a11247))
+
+
+### Bug Fixes
+
+* **deps:** update all non-major dependencies ([41b5dc4](https://github.com/mashiro/otelop/commit/41b5dc4200934516b3c708c58d939686513f4a0b))
+* **deps:** update all non-major dependencies ([7feecc5](https://github.com/mashiro/otelop/commit/7feecc5a3993dd14eda311e2c8695d38f8f6e8c9))
+* **deps:** update all non-major dependencies ([3a50443](https://github.com/mashiro/otelop/commit/3a50443ae180eac9b261277ce1660e1c6f5d8b8b))
+* **deps:** update all non-major dependencies ([#135](https://github.com/mashiro/otelop/issues/135)) ([d4c0382](https://github.com/mashiro/otelop/commit/d4c038288cb97a7775994e478564ae899ea76494))
+* **deps:** update all non-major dependencies ([#140](https://github.com/mashiro/otelop/issues/140)) ([5971c65](https://github.com/mashiro/otelop/commit/5971c654c86c7a6638bfa32aefbeafd25f727052))
+* **deps:** update all non-major dependencies ([#143](https://github.com/mashiro/otelop/issues/143)) ([1974f84](https://github.com/mashiro/otelop/commit/1974f84aa1382e4938815ea4ddb987e3bfa4ec6f))
+* **deps:** update all non-major dependencies to v1.21.0 ([1e3c570](https://github.com/mashiro/otelop/commit/1e3c570e74ebc83a4ee73391e646308bce41d2ed))
+* **deps:** update all non-major dependencies to v1.21.0 ([#122](https://github.com/mashiro/otelop/issues/122)) ([b239d44](https://github.com/mashiro/otelop/commit/b239d441ba908f8b65032ff3a8c20af3fafd4094))
+* **deps:** update dependency lucide-react to v1.23.0 ([ed3a1fb](https://github.com/mashiro/otelop/commit/ed3a1fb4c140f6457686f5b0c48929dad7762aa0))
+* **deps:** update dependency lucide-react to v1.23.0 ([#146](https://github.com/mashiro/otelop/issues/146)) ([b2a3143](https://github.com/mashiro/otelop/commit/b2a3143ab0e3f062f3cae7ee2786e68a01266b21))
+* **deps:** update dependency shadcn to v4.12.0 ([407762e](https://github.com/mashiro/otelop/commit/407762ec9a72b7c632aa8c953960b8e20d7033a1))
+* **deps:** update dependency shadcn to v4.12.0 ([#141](https://github.com/mashiro/otelop/issues/141)) ([1134f56](https://github.com/mashiro/otelop/commit/1134f56d8a954d00ebde123d6674c455e825d243))
+* **deps:** update dependency temporal-polyfill to v1 ([#138](https://github.com/mashiro/otelop/issues/138)) ([4678ac6](https://github.com/mashiro/otelop/commit/4678ac6c5b188cf60ffe37b33bda0f17fc1994a9))
+
 ## [0.6.2](https://github.com/mashiro/otelop/compare/v0.6.1...v0.6.2) (2026-06-21)
 
 
