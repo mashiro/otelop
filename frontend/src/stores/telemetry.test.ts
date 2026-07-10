@@ -5,11 +5,13 @@ import {
   addMetricAtom,
   serverConfigAtom,
   tracesAtom,
+  logsAtom,
   selectedTraceAtom,
   selectedMetricAtom,
+  selectedLogAtom,
 } from "./telemetry";
-import { selectedTraceIdAtom, selectedMetricKeyAtom } from "./navigation";
-import { makeMetric, makeDataPoint, makeTrace } from "@/test/factories";
+import { selectedTraceIdAtom, selectedMetricKeyAtom, selectedLogIdAtom } from "./navigation";
+import { makeMetric, makeDataPoint, makeTrace, makeLog } from "@/test/factories";
 
 describe("addMetricAtom", () => {
   it("merges data points by id, dropping re-delivered duplicates", () => {
@@ -89,5 +91,30 @@ describe("selectedMetricAtom", () => {
 
     store.set(selectedMetricAtom, null);
     expect(store.get(selectedMetricKeyAtom)).toBeNull();
+  });
+});
+
+describe("selectedLogAtom", () => {
+  it("resolves once the matching log loads, restoring selection after a reload", () => {
+    const store = createStore();
+    // Simulate a reload where the URL already names a logId before the
+    // WebSocket/REST load has populated logsAtom.
+    store.set(selectedLogIdAtom, "log-1");
+    expect(store.get(selectedLogAtom)).toBeNull();
+
+    store.set(logsAtom, [makeLog({ id: "log-1" })]);
+    expect(store.get(selectedLogAtom)?.id).toBe("log-1");
+  });
+
+  it("setting the atom updates the shared logId used for URL sync", () => {
+    const store = createStore();
+    const log = makeLog({ id: "log-2" });
+    store.set(logsAtom, [log]);
+
+    store.set(selectedLogAtom, log);
+    expect(store.get(selectedLogIdAtom)).toBe("log-2");
+
+    store.set(selectedLogAtom, null);
+    expect(store.get(selectedLogIdAtom)).toBeNull();
   });
 });

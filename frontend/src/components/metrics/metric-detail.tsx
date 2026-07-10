@@ -1,14 +1,17 @@
-import { Fragment, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useAtomValue, useSetAtom } from "jotai";
+import { X } from "lucide-react";
 import { selectedMetricAtom } from "@/stores/telemetry";
 import { MetricChart } from "./metric-chart";
 import { MetricSummary } from "./metric-summary";
 import { attrKey } from "@/lib/metric-stats";
+import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { DetailPanel } from "@/components/common/detail-panel";
 import { Pill } from "@/components/common/pill";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { KVSection } from "@/components/ui/kv-section";
+import { Field } from "@/components/common/detail-field";
 import {
   facetId,
   isDistributionMetric,
@@ -17,6 +20,7 @@ import {
   type MetricFacet,
 } from "@/lib/metric-catalog";
 import { formatMetricValue } from "@/lib/format-metric";
+import { formatTimestamp } from "@/lib/format";
 import type { DataPoint, MetricData } from "@/types/telemetry";
 
 const ALL_FACET = "__all__";
@@ -88,49 +92,82 @@ function MetricDetailBody({ metric }: { metric: MetricData }) {
   const tabValue =
     pickedId === ALL_FACET ? ALL_FACET : effectiveFacet ? facetId(effectiveFacet) : ALL_FACET;
 
-  return (
-    <ScrollArea className="min-h-0 flex-1">
-      <div className="p-4">
-        {metric.description && (
-          <p className="mb-4 text-sm text-muted-foreground">{metric.description}</p>
-        )}
+  // dataPoints is a ring buffer, so a previously selected id can be evicted;
+  // resolving against the live array (rather than storing the DataPoint
+  // itself) lets the sidebar disappear automatically once that happens.
+  const [selectedDpId, setSelectedDpId] = useState<string | null>(null);
+  const selectedDp = metric.dataPoints.find((dp) => dp.id === selectedDpId) ?? null;
 
-        <div className="mb-3 flex items-center gap-3">
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-            Breakdown
-          </span>
-          <Tabs value={tabValue} onValueChange={setPickedId}>
-            <TabsList className="h-8 bg-muted/50">
-              {facets.map((f) => (
+  return (
+    <div className="flex flex-1 overflow-hidden">
+      <ScrollArea className="min-h-0 flex-1">
+        <div className="p-4">
+          {metric.description && (
+            <p className="mb-4 text-sm text-muted-foreground">{metric.description}</p>
+          )}
+
+          <div className="mb-3 flex items-center gap-3">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Breakdown
+            </span>
+            <Tabs value={tabValue} onValueChange={setPickedId}>
+              <TabsList className="h-8 bg-muted/50">
+                {facets.map((f) => (
+                  <TabsTrigger
+                    key={facetId(f)}
+                    value={facetId(f)}
+                    className="h-7 px-3 text-xs data-active:bg-metric/15 data-active:text-metric"
+                  >
+                    {f.label}
+                  </TabsTrigger>
+                ))}
                 <TabsTrigger
-                  key={facetId(f)}
-                  value={facetId(f)}
+                  value={ALL_FACET}
                   className="h-7 px-3 text-xs data-active:bg-metric/15 data-active:text-metric"
                 >
-                  {f.label}
+                  All
                 </TabsTrigger>
-              ))}
-              <TabsTrigger
-                value={ALL_FACET}
-                className="h-7 px-3 text-xs data-active:bg-metric/15 data-active:text-metric"
-              >
-                All
-              </TabsTrigger>
-            </TabsList>
-          </Tabs>
+              </TabsList>
+            </Tabs>
+          </div>
+
+          <MetricSummary metric={metric} facet={effectiveFacet} />
+
+          <div className="mb-4 rounded-lg border border-border/30 bg-muted/50 p-4">
+            <div className="h-[300px]">
+              <MetricChart metric={metric} facet={effectiveFacet} />
+            </div>
+          </div>
+
+          {metric.dataPoints.length > 0 && (
+            <DataPointsTable metric={metric} selectedId={selectedDpId} onSelect={setSelectedDpId} />
+          )}
         </div>
-
-        <MetricSummary metric={metric} facet={effectiveFacet} />
-
-        <div className="mb-4 rounded-lg border border-border/30 bg-muted/50 p-4">
-          <div className="h-[300px]">
-            <MetricChart metric={metric} facet={effectiveFacet} />
+      </ScrollArea>
+      {selectedDp && (
+        <div className="w-[420px] border-l border-border/50">
+          <div className="flex h-full flex-col">
+            <div className="flex items-center justify-between border-b border-border/50 px-4 py-2">
+              <h3 className="text-sm font-semibold text-metric">Data Point Details</h3>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                onClick={() => setSelectedDpId(null)}
+                className="text-muted-foreground hover:text-foreground"
+              >
+                <X className="h-3 w-3" />
+              </Button>
+            </div>
+            <DataPointDetail
+              dp={selectedDp}
+              resource={metric.resource}
+              unit={resolveMetricUnit(metric.name, metric.unit)}
+              isDistribution={isDistributionMetric(metric.type)}
+            />
           </div>
         </div>
-
-        {metric.dataPoints.length > 0 && <DataPointsTable metric={metric} />}
-      </div>
-    </ScrollArea>
+      )}
+    </div>
   );
 }
 
@@ -142,12 +179,18 @@ function formatDistributionCell(v: number | null | undefined, unit: string): str
   return v != null ? formatMetricValue(v, unit) : "-";
 }
 
-export function DataPointsTable({ metric }: { metric: MetricData }) {
+export function DataPointsTable({
+  metric,
+  selectedId,
+  onSelect,
+}: {
+  metric: MetricData;
+  selectedId: string | null;
+  onSelect: (id: string | null) => void;
+}) {
   const hasAttributes = metric.dataPoints.some((dp) => Object.keys(dp.attributes).length > 0);
   const isDistribution = isDistributionMetric(metric.type);
   const unit = resolveMetricUnit(metric.name, metric.unit);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
-  const cols = 1 + (hasAttributes ? 1 : 0) + 1 + (isDistribution ? 4 : 0);
 
   return (
     <div>
@@ -173,43 +216,35 @@ export function DataPointsTable({ metric }: { metric: MetricData }) {
           </thead>
           <tbody>
             {[...metric.dataPoints].reverse().map((dp) => {
-              const isExpanded = expandedId === dp.id;
+              const isSelected = selectedId === dp.id;
               return (
-                <Fragment key={dp.id}>
-                  <tr
-                    className="cursor-pointer border-b border-border/20 last:border-0 transition-colors hover:bg-metric/5"
-                    onClick={() => setExpandedId(isExpanded ? null : dp.id)}
-                  >
-                    <td className="px-3 py-1.5 font-mono text-muted-foreground">
-                      {new Date(dp.timestamp).toLocaleTimeString()}
+                <tr
+                  key={dp.id}
+                  className={`cursor-pointer border-b border-border/20 last:border-0 transition-colors hover:bg-metric/5 ${isSelected ? "bg-metric/10" : ""}`}
+                  onClick={() => onSelect(isSelected ? null : dp.id)}
+                >
+                  <td className="px-3 py-1.5 font-mono text-muted-foreground">
+                    {new Date(dp.timestamp).toLocaleTimeString()}
+                  </td>
+                  {hasAttributes && (
+                    <td className="max-w-[250px] truncate px-3 py-1.5 font-mono text-foreground/60">
+                      {attrKey(dp.attributes) || "-"}
                     </td>
-                    {hasAttributes && (
-                      <td className="max-w-[250px] truncate px-3 py-1.5 font-mono text-foreground/60">
-                        {attrKey(dp.attributes) || "-"}
-                      </td>
-                    )}
-                    <td className="px-3 py-1.5 text-right font-mono text-metric">
-                      {formatMetricValue(dp.value, unit)}
-                    </td>
-                    {isDistribution && (
-                      <>
-                        <td className={numCellCls}>
-                          {dp.count != null ? dp.count.toLocaleString() : "-"}
-                        </td>
-                        <td className={numCellCls}>{formatDistributionCell(dp.sum, unit)}</td>
-                        <td className={numCellCls}>{formatDistributionCell(dp.min, unit)}</td>
-                        <td className={numCellCls}>{formatDistributionCell(dp.max, unit)}</td>
-                      </>
-                    )}
-                  </tr>
-                  {isExpanded && (
-                    <tr>
-                      <td colSpan={cols} className="whitespace-normal bg-card/30 p-0">
-                        <DataPointDetail dp={dp} resource={metric.resource} />
-                      </td>
-                    </tr>
                   )}
-                </Fragment>
+                  <td className="px-3 py-1.5 text-right font-mono text-metric">
+                    {formatMetricValue(dp.value, unit)}
+                  </td>
+                  {isDistribution && (
+                    <>
+                      <td className={numCellCls}>
+                        {dp.count != null ? dp.count.toLocaleString() : "-"}
+                      </td>
+                      <td className={numCellCls}>{formatDistributionCell(dp.sum, unit)}</td>
+                      <td className={numCellCls}>{formatDistributionCell(dp.min, unit)}</td>
+                      <td className={numCellCls}>{formatDistributionCell(dp.max, unit)}</td>
+                    </>
+                  )}
+                </tr>
               );
             })}
           </tbody>
@@ -219,11 +254,40 @@ export function DataPointsTable({ metric }: { metric: MetricData }) {
   );
 }
 
-function DataPointDetail({ dp, resource }: { dp: DataPoint; resource: Record<string, unknown> }) {
+export function DataPointDetail({
+  dp,
+  resource,
+  unit,
+  isDistribution,
+}: {
+  dp: DataPoint;
+  resource: Record<string, unknown>;
+  unit: string;
+  isDistribution: boolean;
+}) {
   return (
-    <div className="animate-slide-up-fade space-y-3 px-4 py-3">
-      <KVSection title="Attributes" data={dp.attributes} />
-      <KVSection title="Resource" data={resource} />
-    </div>
+    <ScrollArea className="min-h-0 flex-1">
+      <div className="animate-slide-up-fade space-y-5 p-4">
+        <div className="space-y-2.5">
+          <Field label="Timestamp" value={formatTimestamp(dp.timestamp)} mono />
+          <Field label="Value" mono value={formatMetricValue(dp.value, unit)} tone="metric" />
+          {isDistribution && dp.count != null && (
+            <Field label="Count" value={dp.count.toLocaleString()} mono />
+          )}
+          {isDistribution && dp.sum != null && (
+            <Field label="Sum" value={formatMetricValue(dp.sum, unit)} mono />
+          )}
+          {isDistribution && dp.min != null && (
+            <Field label="Min" value={formatMetricValue(dp.min, unit)} mono />
+          )}
+          {isDistribution && dp.max != null && (
+            <Field label="Max" value={formatMetricValue(dp.max, unit)} mono />
+          )}
+        </div>
+
+        <KVSection title="Attributes" data={dp.attributes} />
+        <KVSection title="Resource" data={resource} />
+      </div>
+    </ScrollArea>
   );
 }

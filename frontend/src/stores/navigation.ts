@@ -14,10 +14,11 @@ interface ParsedLocation {
   tab: TabValue;
   traceId: string | null;
   metricKey: MetricKey | null;
+  logId: string | null;
 }
 
 // Only the tab of the currently active screen is meaningful in the path; a
-// traceId/metricKey segment left over from another tab is ignored.
+// traceId/metricKey/logId segment left over from another tab is ignored.
 export function parsePath(pathname: string): ParsedLocation {
   const [first, second, third] = pathname.split("/").filter(Boolean);
   const tab: TabValue = first && first in SIGNALS ? (first as TabValue) : "traces";
@@ -29,18 +30,19 @@ export function parsePath(pathname: string): ParsedLocation {
       tab === "metrics" && second && third
         ? { serviceName: decodeURIComponent(second), name: decodeURIComponent(third) }
         : null,
+    logId: tab === "logs" && second ? decodeURIComponent(second) : null,
   };
 }
 
-export function buildPath(
-  tab: TabValue,
-  traceId: string | null,
-  metricKey: MetricKey | null,
-): string {
+// Takes a full ParsedLocation (rather than positional args) so it stays
+// symmetric with parsePath as more selection kinds are added.
+export function buildPath(location: ParsedLocation): string {
+  const { tab, traceId, metricKey, logId } = location;
   if (tab === "traces" && traceId) return `/traces/${encodeURIComponent(traceId)}`;
   if (tab === "metrics" && metricKey) {
     return `/metrics/${encodeURIComponent(metricKey.serviceName)}/${encodeURIComponent(metricKey.name)}`;
   }
+  if (tab === "logs" && logId) return `/logs/${encodeURIComponent(logId)}`;
   return `/${tab}`;
 }
 
@@ -56,22 +58,25 @@ const currentTabAtom = atom<TabValue>(initialLocation.tab);
 
 const selectedTraceIdBaseAtom = atom<string | null>(initialLocation.traceId);
 const selectedMetricKeyBaseAtom = atom<MetricKey | null>(initialLocation.metricKey);
+const selectedLogIdBaseAtom = atom<string | null>(initialLocation.logId);
 
 // Shared by every public writer so the URL always reflects the current
 // tab + selection as a single pushState, and unchanged state never pushes.
 function syncLocation(get: Getter): void {
-  const path = buildPath(
-    get(currentTabAtom),
-    get(selectedTraceIdBaseAtom),
-    get(selectedMetricKeyBaseAtom),
-  );
+  const path = buildPath({
+    tab: get(currentTabAtom),
+    traceId: get(selectedTraceIdBaseAtom),
+    metricKey: get(selectedMetricKeyBaseAtom),
+    logId: get(selectedLogIdBaseAtom),
+  });
   if (window.location.pathname !== path) {
     window.history.pushState(null, "", path);
   }
 }
 
 // Write-through atoms: writing the id/key also syncs the URL, so callers
-// (telemetry.ts's selectedTraceAtom/selectedMetricAtom) can't forget to.
+// (telemetry.ts's selectedTraceAtom/selectedMetricAtom/selectedLogAtom) can't
+// forget to.
 export const selectedTraceIdAtom = atom(
   (get) => get(selectedTraceIdBaseAtom),
   (get, set, traceId: string | null) => {
@@ -86,6 +91,15 @@ export const selectedMetricKeyAtom = atom(
   (get, set, metricKey: MetricKey | null) => {
     if (metricKeyEquals(get(selectedMetricKeyBaseAtom), metricKey)) return;
     set(selectedMetricKeyBaseAtom, metricKey);
+    syncLocation(get);
+  },
+);
+
+export const selectedLogIdAtom = atom(
+  (get) => get(selectedLogIdBaseAtom),
+  (get, set, logId: string | null) => {
+    if (get(selectedLogIdBaseAtom) === logId) return;
+    set(selectedLogIdBaseAtom, logId);
     syncLocation(get);
   },
 );
@@ -113,6 +127,9 @@ export const applyLocationAtom = atom(null, (_get, set, pathname: string) => {
   }
   if (parsed.tab === "metrics") {
     set(selectedMetricKeyBaseAtom, parsed.metricKey);
+  }
+  if (parsed.tab === "logs") {
+    set(selectedLogIdBaseAtom, parsed.logId);
   }
 });
 
