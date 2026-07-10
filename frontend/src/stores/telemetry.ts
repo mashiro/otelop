@@ -1,6 +1,13 @@
 import { atom } from "jotai";
+import type { Atom, WritableAtom } from "jotai";
 import { Temporal } from "temporal-polyfill";
 import type { TraceData, MetricData, LogData, SpanData, DataPoint } from "@/types/telemetry";
+import {
+  activeTabAtom,
+  metricKeyEquals,
+  selectedMetricKeyAtom,
+  selectedTraceIdAtom,
+} from "./navigation";
 
 // Server-side capacity config, fetched at startup.
 export interface ServerConfig {
@@ -101,9 +108,7 @@ function mergeDataPoints(existing: DataPoint[], incoming: DataPoint[]): DataPoin
 export const addMetricAtom = atom(null, (get, set, newMetric: MetricData) => {
   const current = get(metricsAtom);
   const maxMetrics = get(serverConfigAtom).metricCap;
-  const idx = current.findIndex(
-    (m) => m.serviceName === newMetric.serviceName && m.name === newMetric.name,
-  );
+  const idx = current.findIndex((m) => metricKeyEquals(m, newMetric));
   if (idx >= 0) {
     const existing = current[idx];
     const updated = [...current];
@@ -141,33 +146,43 @@ export const clearAllAtom = atom(null, (_get, set) => {
   set(logsAtom, []);
 });
 
-// Selection state
-export const selectedTraceAtom = atom<TraceData | null>(null);
+// Selection state. The id/key (not the object) is the source of truth so it
+// can be restored from the URL before the matching data has loaded — the
+// derived read resolves once tracesAtom/metricsAtom catch up. Equality
+// guarding and URL sync live on the key atom itself (navigation.ts).
+function createSelectionAtom<Item, Key>(
+  keyAtom: WritableAtom<Key | null, [Key | null], void>,
+  listAtom: Atom<Item[]>,
+  toKey: (item: Item) => Key,
+  matches: (item: Item, key: Key) => boolean,
+) {
+  return atom(
+    (get) => {
+      const key = get(keyAtom);
+      if (key === null) return null;
+      return get(listAtom).find((item) => matches(item, key)) ?? null;
+    },
+    (_get, set, item: Item | null) => {
+      set(keyAtom, item ? toKey(item) : null);
+    },
+  );
+}
 
-type MetricKey = Pick<MetricData, "serviceName" | "name">;
-const selectedMetricKeyAtom = atom<MetricKey | null>(null);
+export const selectedTraceAtom = createSelectionAtom(
+  selectedTraceIdAtom,
+  tracesAtom,
+  (t) => t.traceId,
+  (t, id) => t.traceId === id,
+);
 
-export const selectedMetricAtom = atom(
-  (get) => {
-    const key = get(selectedMetricKeyAtom);
-    if (!key) return null;
-    return (
-      get(metricsAtom).find((m) => m.serviceName === key.serviceName && m.name === key.name) ?? null
-    );
-  },
-  (_get, set, metric: MetricData | null) => {
-    set(
-      selectedMetricKeyAtom,
-      metric ? { serviceName: metric.serviceName, name: metric.name } : null,
-    );
-  },
+export const selectedMetricAtom = createSelectionAtom(
+  selectedMetricKeyAtom,
+  metricsAtom,
+  (m) => ({ serviceName: m.serviceName, name: m.name }),
+  metricKeyEquals,
 );
 
 export const selectedLogAtom = atom<LogData | null>(null);
-
-// Active tab
-export type TabValue = "traces" | "metrics" | "logs";
-export const activeTabAtom = atom<TabValue>("traces");
 
 // Log filter by traceId (set when jumping from trace → logs)
 export const logTraceFilterAtom = atom<string | null>(null);

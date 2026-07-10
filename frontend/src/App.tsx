@@ -7,8 +7,8 @@ import { Header } from "@/components/layout/header";
 import { TraceList } from "@/components/traces/trace-list";
 import { MetricList } from "@/components/metrics/metric-list";
 import { LogList } from "@/components/logs/log-list";
-import { activeTabAtom } from "@/stores/telemetry";
-import type { TabValue } from "@/stores/telemetry";
+import { activeTabAtom, useLocationSync } from "@/stores/navigation";
+import type { TabValue } from "@/stores/navigation";
 import { SIGNAL_LIST } from "@/lib/signals";
 
 const tabBody: Record<TabValue, () => React.ReactElement> = {
@@ -30,6 +30,7 @@ const tabTriggerClasses: Record<TabValue, string> = {
 
 function App() {
   useThemeSync();
+  useLocationSync();
   useWebSocket();
   useInitialLoad();
 
