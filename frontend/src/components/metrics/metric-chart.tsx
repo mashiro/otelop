@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { Group } from "@visx/group";
 import { scaleLinear, scaleTime } from "@visx/scale";
 import { LinePath } from "@visx/shape";
@@ -10,6 +10,13 @@ import type { MetricData } from "@/types/telemetry";
 import { formatMetricValue } from "@/lib/format-metric";
 import { resolveMetricUnit, type MetricFacet } from "@/lib/metric-catalog";
 import { facetSeriesKey } from "@/lib/metric-stats";
+import {
+  CHART_TIME_RANGES,
+  filterPointsInDomain,
+  timeRangeDomain,
+  type ChartTimeRange,
+} from "@/lib/chart-time-range";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 const MARGIN = { top: 10, right: 20, bottom: 40, left: 72 };
 
@@ -70,18 +77,51 @@ function closestPoint(points: PointData[], targetMs: number): PointData | undefi
 }
 
 export function MetricChart({ metric, facet }: Props) {
+  const [range, setRange] = useState<ChartTimeRange>("all");
+
   return (
-    <ParentSize>
-      {({ width, height }) =>
-        width > 0 && height > 0 ? (
-          <ChartInner metric={metric} facet={facet} width={width} height={height} />
-        ) : null
-      }
-    </ParentSize>
+    <div className="flex h-full flex-col">
+      <div className="flex justify-end pb-1.5">
+        <Tabs value={range} onValueChange={(v) => setRange(v as ChartTimeRange)}>
+          <TabsList className="h-7 bg-muted/50">
+            {CHART_TIME_RANGES.map((r) => (
+              <TabsTrigger
+                key={r.value}
+                value={r.value}
+                className="h-6 px-2.5 text-xs data-active:bg-metric/15 data-active:text-metric"
+              >
+                {r.label}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
+      </div>
+      <div className="min-h-0 flex-1">
+        <ParentSize>
+          {({ width, height }) =>
+            width > 0 && height > 0 ? (
+              <ChartInner
+                metric={metric}
+                facet={facet}
+                range={range}
+                width={width}
+                height={height}
+              />
+            ) : null
+          }
+        </ParentSize>
+      </div>
+    </div>
   );
 }
 
-function ChartInner({ metric, facet, width, height }: Props & { width: number; height: number }) {
+function ChartInner({
+  metric,
+  facet,
+  range,
+  width,
+  height,
+}: Props & { range: ChartTimeRange; width: number; height: number }) {
   const svgRef = useRef<SVGSVGElement>(null);
   const unit = resolveMetricUnit(metric.name, metric.unit);
 
@@ -107,29 +147,39 @@ function ChartInner({ metric, facet, width, height }: Props & { width: number; h
     return result;
   }, [metric.dataPoints, facet]);
 
+  // Kept unfiltered: the "No data points" branch reflects the raw metric,
+  // not the current time-range window.
   const allPoints = useMemo(() => series.flatMap((s) => s.points), [series]);
 
+  const domain = useMemo(() => timeRangeDomain(allPoints, range), [allPoints, range]);
+
+  const visibleSeries = useMemo(
+    () =>
+      domain
+        ? series.map((s) => ({ ...s, points: filterPointsInDomain(s.points, domain) }))
+        : series,
+    [series, domain],
+  );
+
+  const visiblePoints = useMemo(() => visibleSeries.flatMap((s) => s.points), [visibleSeries]);
+
+  // The legend row takes 28px out of the measured height; the axis must be
+  // laid out against the shrunken svg or its tick labels get clipped below it.
+  const showLegend = series.length > 1;
+  const svgHeight = showLegend ? height - 28 : height;
+
   const innerWidth = width - MARGIN.left - MARGIN.right;
-  const innerHeight = height - MARGIN.top - MARGIN.bottom;
+  const innerHeight = svgHeight - MARGIN.top - MARGIN.bottom;
 
   const xScale = useMemo(() => {
-    let minT = Infinity;
-    let maxT = -Infinity;
-    for (const p of allPoints) {
-      const t = p.time.getTime();
-      if (t < minT) minT = t;
-      if (t > maxT) maxT = t;
-    }
-    return scaleTime({
-      domain: Number.isFinite(minT) ? [new Date(minT), new Date(maxT)] : [new Date(), new Date()],
-      range: [0, innerWidth],
-    });
-  }, [allPoints, innerWidth]);
+    if (domain) return scaleTime({ domain, range: [0, innerWidth] });
+    return scaleTime({ domain: [new Date(), new Date()], range: [0, innerWidth] });
+  }, [domain, innerWidth]);
 
   const yScale = useMemo(() => {
     let min = 0;
     let max = 1;
-    for (const p of allPoints) {
+    for (const p of visiblePoints) {
       if (p.value < min) min = p.value;
       if (p.value > max) max = p.value;
     }
@@ -138,7 +188,7 @@ function ChartInner({ metric, facet, width, height }: Props & { width: number; h
       domain: [min - padding, max + padding],
       range: [innerHeight, 0],
     });
-  }, [allPoints, innerHeight]);
+  }, [visiblePoints, innerHeight]);
 
   const { showTooltip, hideTooltip, tooltipData, tooltipLeft, tooltipTop, tooltipOpen } =
     useTooltip<TooltipData>();
@@ -155,7 +205,7 @@ function ChartInner({ metric, facet, width, height }: Props & { width: number; h
       // Find the globally closest point, then collect all series at that timestamp.
       let nearestMs = 0;
       let nearestDist = Infinity;
-      for (const s of series) {
+      for (const s of visibleSeries) {
         const p = closestPoint(s.points, mouseTime);
         if (p) {
           const d = Math.abs(p.time.getTime() - mouseTime);
@@ -167,7 +217,7 @@ function ChartInner({ metric, facet, width, height }: Props & { width: number; h
       }
 
       const rows: TooltipRow[] = [];
-      for (const s of series) {
+      for (const s of visibleSeries) {
         const p = closestPoint(s.points, nearestMs);
         if (p) {
           rows.push({ label: s.label, color: s.color, value: p.value });
@@ -182,7 +232,7 @@ function ChartInner({ metric, facet, width, height }: Props & { width: number; h
         });
       }
     },
-    [series, xScale, showTooltip],
+    [visibleSeries, xScale, showTooltip],
   );
 
   if (allPoints.length === 0) {
@@ -193,8 +243,6 @@ function ChartInner({ metric, facet, width, height }: Props & { width: number; h
     );
   }
 
-  const showLegend = series.length > 1;
-  const svgHeight = showLegend ? height - 28 : height;
   const nearestMs = tooltipData?.time.getTime();
 
   return (
@@ -242,7 +290,7 @@ function ChartInner({ metric, facet, width, height }: Props & { width: number; h
           />
 
           {/* Lines and static points */}
-          {series.map((s) => (
+          {visibleSeries.map((s) => (
             <g key={s.key}>
               {s.points.length >= 2 && (
                 <LinePath
@@ -282,7 +330,7 @@ function ChartInner({ metric, facet, width, height }: Props & { width: number; h
                 opacity={0.4}
                 pointerEvents="none"
               />
-              {series.map((s) => {
+              {visibleSeries.map((s) => {
                 const p = closestPoint(s.points, nearestMs);
                 if (!p) return null;
                 return (
