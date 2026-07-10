@@ -134,7 +134,7 @@ function MetricDetailBody({ metric }: { metric: MetricData }) {
           <MetricSummary metric={metric} facet={effectiveFacet} />
 
           <div className="mb-4 rounded-lg border border-border/30 bg-muted/50 p-4">
-            <div className="h-[300px]">
+            <div className="h-[336px]">
               <MetricChart metric={metric} facet={effectiveFacet} />
             </div>
           </div>
