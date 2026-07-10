@@ -1,7 +1,15 @@
 import { describe, it, expect } from "vitest";
 import { createStore } from "jotai";
-import { metricsAtom, addMetricAtom, serverConfigAtom } from "./telemetry";
-import { makeMetric, makeDataPoint } from "@/test/factories";
+import {
+  metricsAtom,
+  addMetricAtom,
+  serverConfigAtom,
+  tracesAtom,
+  selectedTraceAtom,
+  selectedMetricAtom,
+} from "./telemetry";
+import { selectedTraceIdAtom, selectedMetricKeyAtom } from "./navigation";
+import { makeMetric, makeDataPoint, makeTrace } from "@/test/factories";
 
 describe("addMetricAtom", () => {
   it("merges data points by id, dropping re-delivered duplicates", () => {
@@ -42,5 +50,44 @@ describe("addMetricAtom", () => {
     );
 
     expect(store.get(metricsAtom)[0].dataPoints.map((p) => p.id)).toEqual(["b", "c"]);
+  });
+});
+
+describe("selectedTraceAtom", () => {
+  it("resolves once the matching trace loads, restoring selection after a reload", () => {
+    const store = createStore();
+    // Simulate a reload where the URL already names a traceId before the
+    // WebSocket/REST load has populated tracesAtom.
+    store.set(selectedTraceIdAtom, "t1");
+    expect(store.get(selectedTraceAtom)).toBeNull();
+
+    store.set(tracesAtom, [makeTrace({ traceId: "t1" })]);
+    expect(store.get(selectedTraceAtom)?.traceId).toBe("t1");
+  });
+
+  it("setting the atom updates the shared traceId used for URL sync", () => {
+    const store = createStore();
+    const trace = makeTrace({ traceId: "t2" });
+    store.set(tracesAtom, [trace]);
+
+    store.set(selectedTraceAtom, trace);
+    expect(store.get(selectedTraceIdAtom)).toBe("t2");
+
+    store.set(selectedTraceAtom, null);
+    expect(store.get(selectedTraceIdAtom)).toBeNull();
+  });
+});
+
+describe("selectedMetricAtom", () => {
+  it("setting the atom updates the shared metricKey used for URL sync", () => {
+    const store = createStore();
+    const metric = makeMetric({ serviceName: "svc", name: "cpu" });
+    store.set(metricsAtom, [metric]);
+
+    store.set(selectedMetricAtom, metric);
+    expect(store.get(selectedMetricKeyAtom)).toEqual({ serviceName: "svc", name: "cpu" });
+
+    store.set(selectedMetricAtom, null);
+    expect(store.get(selectedMetricKeyAtom)).toBeNull();
   });
 });
