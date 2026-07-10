@@ -10,6 +10,7 @@ import { SpanWaterfall } from "./span-waterfall";
 import { KVSection } from "@/components/ui/kv-section";
 import { DetailPanel } from "@/components/common/detail-panel";
 import { Pill } from "@/components/common/pill";
+import { Field, Section } from "@/components/common/detail-field";
 import type { SpanData } from "@/types/telemetry";
 import { useState } from "react";
 
@@ -97,7 +98,7 @@ function SpanDetail({ span, onClose }: { span: SpanData; onClose: () => void }) 
             <Field label="Kind" value={span.kind} />
             <Field label="Status" value={span.statusCode} />
             {span.statusMessage && <Field label="Message" value={span.statusMessage} />}
-            <Field label="Duration" value={formatDuration(span.duration)} mono highlight />
+            <Field label="Duration" value={formatDuration(span.duration)} mono tone="trace" />
           </div>
 
           <KVSection title="Attributes" data={span.attributes} />
@@ -115,40 +116,6 @@ function SpanDetail({ span, onClose }: { span: SpanData; onClose: () => void }) 
           <KVSection title="Resource" data={span.resource} />
         </div>
       </ScrollArea>
-    </div>
-  );
-}
-
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-        {title}
-      </h4>
-      <div className="space-y-1.5 rounded-md bg-muted/50 p-2.5">{children}</div>
-    </div>
-  );
-}
-
-function Field({
-  label,
-  value,
-  mono,
-  highlight,
-}: {
-  label: string;
-  value: string;
-  mono?: boolean;
-  highlight?: boolean;
-}) {
-  return (
-    <div className="flex gap-2 text-sm">
-      <dt className="w-20 shrink-0 text-muted-foreground">{label}</dt>
-      <dd
-        className={`break-all ${mono ? "font-mono text-xs leading-5" : ""} ${highlight ? "text-trace font-semibold" : ""}`}
-      >
-        {value}
-      </dd>
     </div>
   );
 }

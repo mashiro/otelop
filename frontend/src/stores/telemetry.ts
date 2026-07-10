@@ -5,6 +5,7 @@ import type { TraceData, MetricData, LogData, SpanData, DataPoint } from "@/type
 import {
   activeTabAtom,
   metricKeyEquals,
+  selectedLogIdAtom,
   selectedMetricKeyAtom,
   selectedTraceIdAtom,
 } from "./navigation";
@@ -182,7 +183,12 @@ export const selectedMetricAtom = createSelectionAtom(
   metricKeyEquals,
 );
 
-export const selectedLogAtom = atom<LogData | null>(null);
+export const selectedLogAtom = createSelectionAtom(
+  selectedLogIdAtom,
+  logsAtom,
+  (l) => l.id,
+  (l, id) => l.id === id,
+);
 
 // Log filter by traceId (set when jumping from trace → logs)
 export const logTraceFilterAtom = atom<string | null>(null);
