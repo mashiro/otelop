@@ -291,6 +291,7 @@ func bootstrap(ctx context.Context, opts startOptions) (*runtime, error) {
 		ProxyURL:         redactURL(opts.ProxyURL),
 		ProxyProtocol:    opts.ProxyProtocol,
 		Debug:            opts.Debug,
+		LogLevel:         opts.LogLevel,
 		Retention:        retention,
 		StoragePath:      storagePath,
 		RetentionDisplay: opts.Retention,

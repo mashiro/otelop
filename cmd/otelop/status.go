@@ -35,6 +35,7 @@ type statusPayload struct {
 	ProxyURL      string    `json:"proxyUrl"`
 	ProxyProtocol string    `json:"proxyProtocol"`
 	Debug         bool      `json:"debug"`
+	LogLevel      string    `json:"logLevel"`
 	DBSizeBytes   float64   `json:"dbSizeBytes"`
 	Config        struct {
 		TraceCount  int32  `json:"traceCount"`
@@ -57,6 +58,7 @@ const statusQuery = `{
     proxyUrl
     proxyProtocol
     debug
+    logLevel
     dbSizeBytes
     config {
       traceCount
@@ -149,14 +151,12 @@ func printFull(w io.Writer, meta *daemon.Metadata, s *statusPayload) {
 	logFile, _ := daemon.LogFile()
 	writeBanner(w, suffix, bannerRows{
 		{"PID", strconv.Itoa(meta.PID)},
+		{"Version", s.Version},
 		{"Started", s.StartedAt.Local().Format(time.RFC3339) + " (up " + uptime + ")"},
 		{"Web UI", "http://" + webUIDisplay(s.HTTPAddr)},
 		{"OTLP gRPC", s.OTLPGrpcAddr},
 		{"OTLP HTTP", s.OTLPHTTPAddr},
 		{"Proxy", formatProxyStatus(s.ProxyURL, s.ProxyProtocol)},
-		{"Buffered", fmt.Sprintf("traces=%d metrics=%d logs=%d", s.Config.TraceCount, s.Config.MetricCount, s.Config.LogCount)},
-		{"Storage", fmt.Sprintf("%s (retention=%s, max-size=%s, db-size=%s)",
-			s.Config.StoragePath, s.Config.Retention, s.Config.MaxSize, formatBytes(s.DBSizeBytes))},
 		{"Log", logFile},
 	})
 }
@@ -182,6 +182,7 @@ func printMetaOnly(w io.Writer, meta *daemon.Metadata) {
 	logFile, _ := daemon.LogFile()
 	writeBanner(w, " is running", bannerRows{
 		{"PID", strconv.Itoa(meta.PID)},
+		{"Version", meta.Version},
 		{"Started", meta.StartedAt.Local().Format(time.RFC3339)},
 		{"Web UI", "http://" + webUIDisplay(meta.HTTPAddr)},
 		{"OTLP gRPC", meta.OTLPGRPCAddr},

@@ -150,6 +150,7 @@ func TestStatusQuery(t *testing.T) {
 	runtime.ProxyURL = "https://upstream.example.com:4317"
 	runtime.ProxyProtocol = "grpc"
 	runtime.Debug = true
+	runtime.LogLevel = "debug"
 	runtime.StoragePath = "/tmp/otelop.duckdb"
 	runtime.RetentionDisplay = "7d"
 	runtime.MaxSizeDisplay = "4GB"
@@ -165,6 +166,7 @@ func TestStatusQuery(t *testing.T) {
 			proxyUrl
 			proxyProtocol
 			debug
+			logLevel
 			dbSizeBytes
 			config { traceCount metricCount logCount storagePath retention maxSize }
 		}
@@ -194,6 +196,9 @@ func TestStatusQuery(t *testing.T) {
 	}
 	if st["debug"] != true {
 		t.Errorf("debug = %v", st["debug"])
+	}
+	if st["logLevel"] != "debug" {
+		t.Errorf("logLevel = %v, want debug", st["logLevel"])
 	}
 	if _, ok := st["dbSizeBytes"].(float64); !ok {
 		t.Errorf("dbSizeBytes = %v, want a number (0 for in-memory)", st["dbSizeBytes"])

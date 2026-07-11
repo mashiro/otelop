@@ -87,6 +87,8 @@ type Status {
   proxyProtocol: String!
   "True when self-telemetry is enabled via --debug."
   debug: Boolean!
+  "Configured log level (e.g. \"warn\"), as given in the TOML/CLI/env config."
+  logLevel: String!
   "Storage configuration and current row counts."
   config: Config!
   "Current database file size in bytes (0 for an in-memory database)."

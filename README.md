@@ -94,7 +94,8 @@ Any AI coding agent that supports OpenTelemetry can export to `otelop`, so you c
 ```
 otelop start [flags]   # launch in the background (default), or foreground with -f
 otelop stop            # stop the background server
-otelop status          # show PID, listen addresses, and buffered counts
+otelop status          # show whether it's running: PID, version, uptime, listen addresses
+otelop info            # show effective configuration and storage: paths, retention, size, row counts
 otelop version
 ```
 

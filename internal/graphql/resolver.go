@@ -70,6 +70,7 @@ func (s *StatusResolver) OTLPHTTPAddr() string  { return s.parent.runtime.OTLPHT
 func (s *StatusResolver) ProxyURL() string      { return s.parent.runtime.ProxyURL }
 func (s *StatusResolver) ProxyProtocol() string { return s.parent.runtime.ProxyProtocol }
 func (s *StatusResolver) Debug() bool           { return s.parent.runtime.Debug }
+func (s *StatusResolver) LogLevel() string      { return s.parent.runtime.LogLevel }
 func (s *StatusResolver) Config(ctx context.Context) (*ConfigResolver, error) {
 	return s.parent.Config(ctx)
 }

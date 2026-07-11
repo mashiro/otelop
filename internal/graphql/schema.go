@@ -35,6 +35,10 @@ type RuntimeInfo struct {
 	ProxyURL      string
 	ProxyProtocol string
 	Debug         bool
+	// LogLevel is the raw configured log level (e.g. "warn"), surfaced as-is
+	// by the `status` query — consumed by `otelop info` when reporting an
+	// instance's effective configuration.
+	LogLevel string
 
 	// Retention is the parsed retention window, used to compute the default
 	// "full retention window" for traces/metrics/logs queries when no

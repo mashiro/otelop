@@ -21,6 +21,7 @@ func main() {
 			restartCommand(),
 			stopCommand(),
 			statusCommand(),
+			infoCommand(),
 			logsCommand(),
 			{
 				Name:  "version",
