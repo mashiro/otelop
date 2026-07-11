@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -39,8 +40,16 @@ type MetricSummary struct {
 // except every field that could be a baseline observation is a pointer so
 // SQL NULL round-trips instead of being silently coerced to zero.
 type DerivedPoint struct {
-	ID              uuid.UUID
-	TS              time.Time
+	ID uuid.UUID
+	TS time.Time
+	// Type is this point's series' metric_type (e.g. "Sum", "Histogram"),
+	// carried per-row rather than only at the MetricSummary/group level so a
+	// caller filtering baseline observations (see internal/graphql's
+	// filterDerivedPoints) can decide which of Value/Count is the
+	// meaningful field without a separate group-metadata lookup — the
+	// top-level metricPoints query (issue #162) has no MetricSummary in
+	// hand the way MetricResolver does.
+	Type            string
 	Value           *float64
 	Cumulative      *float64
 	Count           *float64
@@ -153,16 +162,17 @@ func decodeSeriesKeys(raw any) []uint64 {
 	return keys
 }
 
-// metricDerivedCTE is the shared per-series delta/cumulative derivation
-// (docs/design/duckdb-storage.md's "Reads" section): a `points` CTE joining
-// metric_points to metric_series for the (service, metric) pair within
-// [from, to), followed by a `derived` CTE applying window functions
-// partitioned by series_key so counter resets/cumulative baselines are
-// resolved per-attribute-series before any caller merges or sums across
-// series. Both MetricPoints (concatenates every series' points, unsummed)
-// and MetricAggregate (sums derived deltas across a facet group) build on
-// this exact CTE so the derivation itself can never diverge between the two
-// read paths — only what happens to `derived`'s rows afterward differs.
+// metricDerivedFormula is the shared per-series delta/cumulative derivation
+// (docs/design/duckdb-storage.md's "Reads" section): a `derived` CTE applying
+// window functions partitioned by series_key so counter resets/cumulative
+// baselines are resolved per-attribute-series before any caller merges or
+// sums across series. It expects a preceding `points` CTE already in scope
+// with columns id, series_key, ts, value, count, sum, min, max, metric_type,
+// temporality, is_monotonic, attrs_json — metricDerivedCTE below supplies the
+// group/window-wide `points` selection MetricPoints and MetricAggregate
+// share; metricLatestValueQuery supplies a narrower one (a single series'
+// last two rows) so the exact same CASE logic can derive "the latest value"
+// without re-deriving a group's entire retained history.
 //
 // Scalar (Gauge/Sum) and distribution (Histogram/ExponentialHistogram/
 // Summary) points are never mixed within one series (see convert.go), so
@@ -175,17 +185,7 @@ func decodeSeriesKeys(raw any) []uint64 {
 // dropping the row — see the DerivedPoint doc comment on why this differs
 // from the old store package's seriesStore, which drops both the baseline and any
 // reset observation entirely.
-//
-// Placeholder order: service_name, metric_name, from (p.ts >=), to (p.ts <).
-const metricDerivedCTE = `
-WITH points AS (
-	SELECT
-		p.id, p.series_key, p.ts, p.value, p.count, p.sum, p.min, p.max,
-		s.metric_type, s.temporality, s.is_monotonic, s.attributes::VARCHAR AS attrs_json
-	FROM metric_points p
-	JOIN metric_series s USING (series_key)
-	WHERE s.service_name = ? AND s.metric_name = ? AND p.ts >= ? AND p.ts < ?
-),
+const metricDerivedFormula = `
 derived AS (
 	SELECT
 		id, ts, attrs_json, metric_type,
@@ -231,13 +231,32 @@ derived AS (
 )
 `
 
+// metricDerivedCTE composes metricDerivedFormula onto the group/window-wide
+// points selection MetricPoints and MetricAggregate share: every point across
+// every attribute-series belonging to (service_name, metric_name) within
+// [from, to). Placeholder order: service_name, metric_name, from (p.ts >=),
+// to (p.ts <).
+const metricDerivedCTE = `
+WITH points AS (
+	SELECT
+		p.id, p.series_key, p.ts, p.value, p.count, p.sum, p.min, p.max,
+		s.metric_type, s.temporality, s.is_monotonic, s.attributes::VARCHAR AS attrs_json
+	FROM metric_points p
+	JOIN metric_series s USING (series_key)
+	WHERE s.service_name = ? AND s.metric_name = ? AND p.ts >= ? AND p.ts < ?
+),
+` + metricDerivedFormula
+
 // metricPointsQuery derives per-point delta/cumulative values (via
 // metricDerivedCTE) but merges every series belonging to the (service,
 // metric) pair into one ts-ordered result, matching the old store package's
-// "one MetricData, many attribute series" contract.
+// "one MetricData, many attribute series" contract. metric_type rides along
+// per row (not just fetched once at the group level) so a caller can filter
+// baseline observations without a separate MetricSummary lookup — see
+// DerivedPoint.Type and internal/graphql's filterDerivedPoints.
 const metricPointsQuery = metricDerivedCTE + `
 SELECT
-	id, ts, attrs_json,
+	id, ts, attrs_json, metric_type,
 	CASE
 		WHEN metric_type IN ('Histogram', 'ExponentialHistogram', 'Summary') THEN
 			CASE WHEN sum_delta IS NULL OR count_delta IS NULL OR count_delta <= 0 THEN 0
@@ -270,9 +289,10 @@ func (s *Storage) MetricPoints(ctx context.Context, serviceName, metricName stri
 			id                                                        duckdb.UUID
 			ts                                                        time.Time
 			attrsRaw                                                  *string
+			metricType                                                string
 			value, cumulative, count, countCum, sum, sumCum, min, max sql.NullFloat64
 		)
-		if err := rows.Scan(&id, &ts, &attrsRaw, &value, &cumulative, &count, &countCum, &sum, &sumCum, &min, &max); err != nil {
+		if err := rows.Scan(&id, &ts, &attrsRaw, &metricType, &value, &cumulative, &count, &countCum, &sum, &sumCum, &min, &max); err != nil {
 			return nil, fmt.Errorf("storage: scan metric point: %w", err)
 		}
 		attrs, err := decodeAttrs(attrsRaw)
@@ -282,6 +302,7 @@ func (s *Storage) MetricPoints(ctx context.Context, serviceName, metricName stri
 		points = append(points, DerivedPoint{
 			ID:              uuid.UUID(id),
 			TS:              ts,
+			Type:            metricType,
 			Value:           nullFloatPtr(value),
 			Cumulative:      nullFloatPtr(cumulative),
 			Count:           nullFloatPtr(count),
@@ -298,6 +319,69 @@ func (s *Storage) MetricPoints(ctx context.Context, serviceName, metricName stri
 	}
 
 	return points, nil
+}
+
+// metricLatestValueQuery reuses metricDerivedFormula's exact per-series delta
+// derivation (so this can never silently drift from what MetricPoints
+// returns for the same row) but restricts the `points` CTE to the group's
+// single most-recently-active series and only that series' last two raw
+// observations — enough rows for the derivation's lag() to resolve
+// correctly (a series' points are never interleaved with another's under
+// the same series_key) while staying O(1) per metric instead of re-deriving
+// the group's entire retained history — the cost issue #162 exists to avoid
+// paying at list-render time for every metric on the page.
+//
+// A baseline observation (nothing to derive a delta against yet) and a
+// distribution window with zero/unresolved count both collapse to the same
+// SQL NULL here — the metrics list only needs "is there a meaningful number
+// to show," not the more detailed distinction MetricPoints' separate
+// Value/Count nullability preserves for full history browsing.
+const metricLatestValueQuery = `
+WITH target AS (
+	SELECT series_key FROM metric_series
+	WHERE service_name = ? AND metric_name = ?
+	ORDER BY last_seen DESC
+	LIMIT 1
+),
+points AS (
+	SELECT
+		p.id, p.series_key, p.ts, p.value, p.count, p.sum, p.min, p.max,
+		s.metric_type, s.temporality, s.is_monotonic, s.attributes::VARCHAR AS attrs_json
+	FROM metric_points p
+	JOIN metric_series s USING (series_key)
+	WHERE p.series_key = (SELECT series_key FROM target)
+	ORDER BY p.ts DESC
+	LIMIT 2
+),
+` + metricDerivedFormula + `
+SELECT
+	CASE
+		WHEN metric_type IN ('Histogram', 'ExponentialHistogram', 'Summary') THEN
+			CASE WHEN sum_delta IS NULL OR count_delta IS NULL OR count_delta <= 0 THEN NULL
+			     ELSE sum_delta / count_delta END
+		ELSE scalar_value
+	END AS out_value
+FROM derived
+ORDER BY ts DESC
+LIMIT 1
+`
+
+// LatestValue returns the derived value of the most recent observation from
+// a (service, metric) group's most-recently-active series — the metrics
+// list's cheap glance column (see internal/graphql's Metric.latestValue).
+// Returns (nil, nil) when the group has no series/points at all, or its
+// latest observation has no meaningful value yet (see metricLatestValueQuery's
+// doc comment).
+func (s *Storage) LatestValue(ctx context.Context, serviceName, metricName string) (*float64, error) {
+	var value sql.NullFloat64
+	err := s.DB().QueryRowContext(ctx, metricLatestValueQuery, serviceName, metricName).Scan(&value)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("storage: query metric latest value: %w", err)
+	}
+	return nullFloatPtr(value), nil
 }
 
 func nullFloatPtr(v sql.NullFloat64) *float64 {

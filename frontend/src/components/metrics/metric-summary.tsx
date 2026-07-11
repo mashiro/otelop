@@ -35,7 +35,13 @@ export const MetricSummary = memo(function MetricSummary({
 }) {
   const isDistribution = isDistributionMetric(metric.type);
   const tiles = useMemo(() => {
-    const eligible = hasStatTileSignal(metric.dataPoints);
+    // hasStatTileSignal must read rangeDataPoints (the fetched-range +
+    // live-buffer merge — see use-metric-range-points.ts), not metric.
+    // dataPoints: the metrics list's initial load no longer populates
+    // dataPoints (issue #162), so a metric opened before its first WS
+    // delivery would otherwise look ineligible for stat tiles even though
+    // its fetched history already has cumulative/count/sum signal.
+    const eligible = hasStatTileSignal(rangeDataPoints);
     const input: StatTilesInput = facet
       ? {
           kind: "aggregate",
@@ -48,7 +54,7 @@ export const MetricSummary = memo(function MetricSummary({
         }
       : { kind: "raw", rangeDataPoints, facet: null, range, isDistribution, eligible };
     return computeStatTiles(input);
-  }, [metric.dataPoints, facet, aggregatedSeries, rangeDataPoints, range, isDistribution]);
+  }, [facet, aggregatedSeries, rangeDataPoints, range, isDistribution]);
 
   if (tiles.length === 0) return null;
 

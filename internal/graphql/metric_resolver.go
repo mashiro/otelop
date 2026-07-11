@@ -33,10 +33,6 @@ func (r *MetricResolver) ReceivedAt() gql.Time { return gql.Time{Time: r.m.LastS
 
 func (r *MetricResolver) Resource() JSONMap { return attrsToJSON(r.m.Resource) }
 
-func (r *MetricResolver) isDistribution() bool {
-	return r.m.Type == "Histogram" || r.m.Type == "ExponentialHistogram" || r.m.Type == "Summary"
-}
-
 // filteredPoints fetches every derived point in [from, to) and drops
 // baseline observations (see internal/broadcast's identical rule) so the
 // GraphQL surface matches what the WebSocket path ever broadcasts and what
@@ -48,20 +44,44 @@ func (r *MetricResolver) filteredPoints(ctx context.Context) ([]storage.DerivedP
 			r.err = err
 			return
 		}
-		isDist := r.isDistribution()
-		filtered := make([]storage.DerivedPoint, 0, len(points))
-		for _, p := range points {
-			if p.Value == nil {
-				continue
-			}
-			if isDist && p.Count == nil {
-				continue
-			}
-			filtered = append(filtered, p)
-		}
-		r.points = filtered
+		r.points = filterDerivedPoints(points)
 	})
 	return r.points, r.err
+}
+
+// LatestValue is a cheap, non-memoized alternative to DataPoints/PointCount:
+// it never fetches the group's full point history, so a caller wanting only
+// this field never pays filteredPoints' storage.MetricPoints cost (see issue
+// #162's list-render motivation).
+func (r *MetricResolver) LatestValue(ctx context.Context) (*float64, error) {
+	return r.storage.LatestValue(ctx, r.m.ServiceName, r.m.MetricName)
+}
+
+// isDistributionType reports whether metricType names one of the
+// distribution shapes (Histogram/ExponentialHistogram/Summary), which carry
+// Count/Sum instead of a plain Value — see DataPoint's schema doc comment.
+func isDistributionType(metricType string) bool {
+	return metricType == "Histogram" || metricType == "ExponentialHistogram" || metricType == "Summary"
+}
+
+// filterDerivedPoints drops baseline observations — a point with nothing to
+// derive a delta against yet, invisible to any caller (internal/broadcast's
+// WebSocket path has the identical rule) — using each row's own Type rather
+// than a separately-fetched MetricSummary, so both MetricResolver.DataPoints
+// (which already has one) and the top-level metricPoints query (which
+// doesn't) apply the exact same rule through one implementation.
+func filterDerivedPoints(points []storage.DerivedPoint) []storage.DerivedPoint {
+	filtered := make([]storage.DerivedPoint, 0, len(points))
+	for _, p := range points {
+		if p.Value == nil {
+			continue
+		}
+		if isDistributionType(p.Type) && p.Count == nil {
+			continue
+		}
+		filtered = append(filtered, p)
+	}
+	return filtered
 }
 
 func (r *MetricResolver) DataPoints(ctx context.Context) ([]*DataPointResolver, error) {

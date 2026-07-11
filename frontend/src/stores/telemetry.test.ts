@@ -3,9 +3,21 @@ import { createStore } from "jotai";
 import {
   metricsAtom,
   addMetricAtom,
+  addTraceAtom,
+  addLogAtom,
   serverConfigAtom,
   tracesAtom,
   logsAtom,
+  logCountAtom,
+  metricCountAtom,
+  traceCountAtom,
+  totalTraceCountAtom,
+  totalMetricCountAtom,
+  totalLogCountAtom,
+  newTraceCountAtom,
+  newMetricCountAtom,
+  newLogCountAtom,
+  setTotalCountsAtom,
   selectedTraceAtom,
   selectedMetricAtom,
   selectedLogAtom,
@@ -58,6 +70,160 @@ describe("addMetricAtom", () => {
     );
 
     expect(store.get(metricsAtom)[0].dataPoints.map((p) => p.id)).toEqual(["b", "c"]);
+  });
+
+  it("widens pointCount by exactly the genuinely-new-point delta, and updates latestValue only then", () => {
+    const store = createStore();
+    store.set(metricsAtom, [
+      makeMetric({
+        name: "m",
+        dataPoints: [makeDataPoint({ id: "a", value: 1 })],
+        pointCount: 10,
+        latestValue: 1,
+      }),
+    ]);
+
+    // Re-delivers "a" (already seen) plus one genuinely new point "b".
+    store.set(
+      addMetricAtom,
+      makeMetric({
+        name: "m",
+        dataPoints: [makeDataPoint({ id: "a", value: 1 }), makeDataPoint({ id: "b", value: 2 })],
+      }),
+    );
+
+    const metric = store.get(metricsAtom)[0];
+    expect(metric.pointCount).toBe(11);
+    expect(metric.latestValue).toBe(2);
+  });
+
+  it("leaves pointCount/latestValue untouched when a delivery merges no genuinely new points", () => {
+    const store = createStore();
+    const a = makeDataPoint({ id: "a", value: 1 });
+    store.set(metricsAtom, [
+      makeMetric({ name: "m", dataPoints: [a], pointCount: 10, latestValue: 1 }),
+    ]);
+
+    // Re-delivers only "a" — already seen, nothing new.
+    store.set(addMetricAtom, makeMetric({ name: "m", dataPoints: [a] }));
+
+    const metric = store.get(metricsAtom)[0];
+    expect(metric.pointCount).toBe(10);
+    expect(metric.latestValue).toBe(1);
+  });
+
+  it("initializes pointCount/latestValue from dataPoints for a brand-new group (never trusts the wire payload, which has neither field)", () => {
+    const store = createStore();
+
+    store.set(
+      addMetricAtom,
+      makeMetric({
+        name: "new.metric",
+        dataPoints: [makeDataPoint({ id: "a", value: 1 }), makeDataPoint({ id: "b", value: 2 })],
+      }),
+    );
+
+    const metric = store.get(metricsAtom)[0];
+    expect(metric.pointCount).toBe(2);
+    expect(metric.latestValue).toBe(2);
+  });
+});
+
+describe("header badge totals (traceCountAtom/metricCountAtom/logCountAtom)", () => {
+  it("start at 0 + 0 before any load", () => {
+    const store = createStore();
+    expect(store.get(traceCountAtom)).toBe(0);
+    expect(store.get(metricCountAtom)).toBe(0);
+    expect(store.get(logCountAtom)).toBe(0);
+  });
+
+  it("setTotalCountsAtom seeds the totals; badges reflect total + 0 with nothing new yet", () => {
+    const store = createStore();
+    store.set(setTotalCountsAtom, { traceCount: 300, metricCount: 5, logCount: 300 });
+
+    expect(store.get(totalTraceCountAtom)).toBe(300);
+    expect(store.get(totalMetricCountAtom)).toBe(5);
+    expect(store.get(totalLogCountAtom)).toBe(300);
+    expect(store.get(traceCountAtom)).toBe(300);
+    expect(store.get(metricCountAtom)).toBe(5);
+    expect(store.get(logCountAtom)).toBe(300);
+  });
+
+  it("a WS delivery that creates a brand-new trace increments the badge", () => {
+    const store = createStore();
+    store.set(setTotalCountsAtom, { traceCount: 300, metricCount: 0, logCount: 0 });
+
+    store.set(addTraceAtom, makeTrace({ traceId: "new-trace" }));
+
+    expect(store.get(newTraceCountAtom)).toBe(1);
+    expect(store.get(traceCountAtom)).toBe(301);
+  });
+
+  it("a WS delivery that merges into an existing trace does not increment the badge", () => {
+    const store = createStore();
+    store.set(setTotalCountsAtom, { traceCount: 300, metricCount: 0, logCount: 0 });
+    store.set(tracesAtom, [makeTrace({ traceId: "t1", spanCount: 1 })]);
+
+    // Same traceId, one more span — a merge, not a create.
+    store.set(
+      addTraceAtom,
+      makeTrace({ traceId: "t1", spanCount: 2, spans: [makeSpan({ spanId: "s2" })] }),
+    );
+
+    expect(store.get(newTraceCountAtom)).toBe(0);
+    expect(store.get(traceCountAtom)).toBe(300);
+  });
+
+  it("appendTracesAtom (Load more) does not increment the badge — those rows are already in the total", () => {
+    const store = createStore();
+    store.set(setTotalCountsAtom, { traceCount: 300, metricCount: 0, logCount: 0 });
+    store.set(tracesAtom, [makeTrace({ traceId: "a" })]);
+
+    store.set(appendTracesAtom, [makeTrace({ traceId: "b" }), makeTrace({ traceId: "c" })]);
+
+    expect(store.get(newTraceCountAtom)).toBe(0);
+    expect(store.get(traceCountAtom)).toBe(300);
+  });
+
+  it("setTracesAtom (page 1 replace) does not increment the badge", () => {
+    const store = createStore();
+    store.set(setTotalCountsAtom, { traceCount: 300, metricCount: 0, logCount: 0 });
+
+    store.set(setTracesAtom, [makeTrace({ traceId: "a" }), makeTrace({ traceId: "b" })]);
+
+    expect(store.get(newTraceCountAtom)).toBe(0);
+    expect(store.get(traceCountAtom)).toBe(300);
+  });
+
+  it("a WS delivery that creates a brand-new metric group increments the badge", () => {
+    const store = createStore();
+    store.set(setTotalCountsAtom, { traceCount: 0, metricCount: 5, logCount: 0 });
+
+    store.set(addMetricAtom, makeMetric({ name: "new.metric" }));
+
+    expect(store.get(newMetricCountAtom)).toBe(1);
+    expect(store.get(metricCountAtom)).toBe(6);
+  });
+
+  it("a WS delivery that merges into an existing metric group does not increment the badge", () => {
+    const store = createStore();
+    store.set(setTotalCountsAtom, { traceCount: 0, metricCount: 5, logCount: 0 });
+    store.set(metricsAtom, [makeMetric({ name: "m", dataPoints: [makeDataPoint({ id: "a" })] })]);
+
+    store.set(addMetricAtom, makeMetric({ name: "m", dataPoints: [makeDataPoint({ id: "b" })] }));
+
+    expect(store.get(newMetricCountAtom)).toBe(0);
+    expect(store.get(metricCountAtom)).toBe(5);
+  });
+
+  it("every log delivery increments the badge (logs have no merge concept)", () => {
+    const store = createStore();
+    store.set(setTotalCountsAtom, { traceCount: 0, metricCount: 0, logCount: 300 });
+
+    store.set(addLogAtom, makeLog({ id: "log-new" }));
+
+    expect(store.get(newLogCountAtom)).toBe(1);
+    expect(store.get(logCountAtom)).toBe(301);
   });
 });
 

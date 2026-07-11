@@ -87,7 +87,19 @@ export interface MetricData {
   type: string;
   serviceName: string;
   resource: Record<string, unknown>;
+  // Empty until a detail view fetches history (hooks/use-metric-range-points.ts)
+  // or a WS delivery merges points in (stores/telemetry.ts's addMetricAtom) —
+  // the initial metrics-list load only fetches pointCount/latestValue below
+  // (issue #162), never the full series, to avoid an N-metric fetch of every
+  // group's entire retained history just to render list rows.
   dataPoints: DataPoint[];
+  // Cheap server-computed summary fields the metrics LIST renders instead of
+  // dataPoints.length / dataPoints.at(-1)?.value (see MetricList) — kept
+  // current across a WS delivery by addMetricAtom's genuinely-new-points
+  // delta, the same "don't trust the wire payload, derive it" pattern the
+  // header badge totals use (see stores/telemetry.ts's totalMetricCountAtom).
+  pointCount: number;
+  latestValue: number | null;
   receivedAt: string;
 }
 

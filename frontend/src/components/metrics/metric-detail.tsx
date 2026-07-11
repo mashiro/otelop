@@ -64,18 +64,27 @@ export function MetricDetail() {
 // testing (see metric-detail.test.tsx), the same way DataPointsTable/
 // DataPointDetail below are, so tests don't need to thread selectedMetricAtom.
 export function MetricDetailBody({ metric }: { metric: MetricData }) {
-  // metric is a fresh object on every WS delivery for the selected metric
-  // (addMetricAtom spreads a new record in); stabilizing the points array
-  // itself lets everything derived from it below skip recompute when a
-  // delivery is a no-op for this metric (already-seen points re-merged) or
-  // this metric just wasn't the one that changed.
-  const stableDataPoints = useStableArray(metric.dataPoints, (dp) => dp.id);
+  // Time range is the scope for the whole detail view (tiles, chart, and
+  // table all read the same window), so it's lifted here rather than owned
+  // by MetricChart — see metric-stats.ts's computeStatTiles. Defaults to a
+  // recent window rather than "all": DuckDB history is fetched on demand, so
+  // opening a long-lived metric shouldn't eagerly pull its full retention.
+  // Synced to the URL (unlike pickedId below) so a shared/reloaded link
+  // reopens the same window — see selectedMetricRangeAtom in navigation.ts.
+  const [range, setRange] = useAtom(selectedMetricRangeAtom);
+  // rangeDataPoints (the fetched-range + live-buffer merge, already stable by
+  // id — see use-metric-range-points.ts) is the source of truth for
+  // everything below, not metric.dataPoints: the metrics list's initial load
+  // no longer populates dataPoints (issue #162), so a metric opened before
+  // its first WS delivery would otherwise show no facets/table/selectable
+  // rows despite its history already being fetched.
+  const rangeDataPoints = useMetricRangePoints(metric, range);
 
   const attributeCardinality = useMemo(() => {
     // Count distinct values per attribute, capping at max+1 so high-cardinality
     // identifiers can still be excluded by resolveMetricFacets.
     const values = new Map<string, Set<string>>();
-    for (const dp of stableDataPoints) {
+    for (const dp of rangeDataPoints) {
       for (const [k, v] of Object.entries(dp.attributes)) {
         if (v === undefined || v === null) continue;
         let set = values.get(k);
@@ -90,7 +99,7 @@ export function MetricDetailBody({ metric }: { metric: MetricData }) {
     const counts = new Map<string, number>();
     for (const [k, s] of values) counts.set(k, s.size);
     return counts;
-  }, [stableDataPoints]);
+  }, [rangeDataPoints]);
 
   const facets = useMemo(
     () => resolveMetricFacets(metric.name, attributeCardinality),
@@ -110,15 +119,6 @@ export function MetricDetailBody({ metric }: { metric: MetricData }) {
   const tabValue =
     pickedId === ALL_FACET ? ALL_FACET : effectiveFacet ? facetId(effectiveFacet) : ALL_FACET;
 
-  // Time range is the scope for the whole detail view (tiles, chart, and
-  // table all read the same window), so it's lifted here rather than owned
-  // by MetricChart — see metric-stats.ts's computeStatTiles. Defaults to a
-  // recent window rather than "all": DuckDB history is fetched on demand, so
-  // opening a long-lived metric shouldn't eagerly pull its full retention.
-  // Synced to the URL (unlike pickedId below) so a shared/reloaded link
-  // reopens the same window — see selectedMetricRangeAtom in navigation.ts.
-  const [range, setRange] = useAtom(selectedMetricRangeAtom);
-  const rangeDataPoints = useMetricRangePoints(metric, range);
   const aggregatedSeries = useMetricAggregateSeries(metric, effectiveFacet, range);
   const windowedDataPointsRaw = useMemo(
     () => filterDataPointsInRange(rangeDataPoints, range),
@@ -133,10 +133,13 @@ export function MetricDetailBody({ metric }: { metric: MetricData }) {
   // MetricChart/MetricSummary/DataPointsTable only read a metric's
   // identity/display fields (name/type/unit/description/resource), never
   // its raw dataPoints (they're driven by rangeDataPoints/aggregatedSeries
-  // instead, except MetricSummary's own hasStatTileSignal check below) — so
-  // rebuild the object they receive from primitives that stay referentially
-  // stable across a WS delivery, instead of the ever-new `metric` object,
-  // for the React.memo wrapping on those three to actually take effect.
+  // instead) — so rebuild the object they receive from primitives that stay
+  // referentially stable across a WS delivery, instead of the ever-new
+  // `metric` object, for the React.memo wrapping on those three to actually
+  // take effect. dataPoints is set to rangeDataPoints (already stable)
+  // purely to satisfy MetricData's shape; nothing downstream reads it off
+  // this object — MetricChart overrides it with rangeDataPoints itself
+  // before use, and MetricSummary takes rangeDataPoints as its own prop.
   const stableMetric = useMemo<MetricData>(
     () => ({
       serviceName: metric.serviceName,
@@ -145,7 +148,9 @@ export function MetricDetailBody({ metric }: { metric: MetricData }) {
       unit: metric.unit,
       description: metric.description,
       resource: metric.resource,
-      dataPoints: stableDataPoints,
+      dataPoints: rangeDataPoints,
+      pointCount: metric.pointCount,
+      latestValue: metric.latestValue,
       // Deliberately excluded from the deps below: none of the three memoized
       // consumers read it, and tracking it would re-churn stableMetric's
       // reference on every WS delivery, defeating this whole memoization.
@@ -159,15 +164,19 @@ export function MetricDetailBody({ metric }: { metric: MetricData }) {
       metric.unit,
       metric.description,
       metric.resource,
-      stableDataPoints,
+      metric.pointCount,
+      metric.latestValue,
+      rangeDataPoints,
     ],
   );
 
-  // dataPoints is a ring buffer, so a previously selected id can be evicted;
-  // resolving against the live array (rather than storing the DataPoint
-  // itself) lets the sidebar disappear automatically once that happens.
+  // Resolving against rangeDataPoints (not metric.dataPoints, which starts
+  // empty until a WS delivery — issue #162) rather than storing the
+  // DataPoint itself lets the sidebar both work for a point that only ever
+  // came from the range fetch AND disappear automatically once a ring-buffer
+  // eviction or range change drops the id.
   const [selectedDpId, setSelectedDpId] = useState<string | null>(null);
-  const selectedDp = metric.dataPoints.find((dp) => dp.id === selectedDpId) ?? null;
+  const selectedDp = rangeDataPoints.find((dp) => dp.id === selectedDpId) ?? null;
 
   return (
     <div className="flex flex-1 overflow-hidden">
@@ -238,7 +247,7 @@ export function MetricDetailBody({ metric }: { metric: MetricData }) {
             </div>
           </div>
 
-          {metric.dataPoints.length > 0 && (
+          {rangeDataPoints.length > 0 && (
             <DataPointsTable
               metric={stableMetric}
               dataPoints={windowedDataPoints}

@@ -207,6 +207,32 @@ func (r *Resolver) MetricAggregate(ctx context.Context, args MetricAggregateArgs
 	return out, nil
 }
 
+type MetricPointsArgs struct {
+	ServiceName string
+	Name        string
+	From        *gql.Time
+	To          *gql.Time
+}
+
+// MetricPoints is the single-metric counterpart to metrics { dataPoints }
+// (issue #162): it calls the same storage.MetricPoints + filterDerivedPoints
+// path MetricResolver.DataPoints does, so a metric detail view can fetch just
+// the group it's displaying instead of the whole metrics page to extract one
+// group client-side (see hooks/use-metric-range-points.ts).
+func (r *Resolver) MetricPoints(ctx context.Context, args MetricPointsArgs) ([]*DataPointResolver, error) {
+	from, to := r.resolveWindow(args.From, args.To)
+	points, err := r.storage.MetricPoints(ctx, args.ServiceName, args.Name, from, to)
+	if err != nil {
+		return nil, err
+	}
+	filtered := filterDerivedPoints(points)
+	out := make([]*DataPointResolver, len(filtered))
+	for i := range filtered {
+		out[i] = &DataPointResolver{dp: filtered[i]}
+	}
+	return out, nil
+}
+
 func (r *Resolver) ClearSignals(ctx context.Context) (bool, error) {
 	if err := r.storage.Clear(ctx); err != nil {
 		return false, err

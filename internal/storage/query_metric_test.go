@@ -253,6 +253,126 @@ func TestMetricPoints_HistogramCumulativeDeltaized(t *testing.T) {
 	}
 }
 
+// TestMetricPoints_TypeRidesAlongPerRow verifies DerivedPoint.Type is
+// populated from the series' metric_type so a caller (internal/graphql's
+// filterDerivedPoints) can filter baseline observations without a separate
+// MetricSummary lookup — see the metricPointsQuery doc comment.
+func TestMetricPoints_TypeRidesAlongPerRow(t *testing.T) {
+	s := openTestStorage(t, Options{})
+	ctx := context.Background()
+	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	s.AddMetrics(ctx, buildCumulativeSum("requests.total", "svc", 100, t0))
+	s.Sync()
+
+	points, err := s.MetricPoints(ctx, "svc", "requests.total", t0.Add(-time.Minute), t0.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("MetricPoints: %v", err)
+	}
+	if len(points) != 1 || points[0].Type != "Sum" {
+		t.Fatalf("Type = %q, want %q", points[0].Type, "Sum")
+	}
+}
+
+func TestLatestValue_CumulativeSumReturnsMostRecentDelta(t *testing.T) {
+	s := openTestStorage(t, Options{})
+	ctx := context.Background()
+	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	s.AddMetrics(ctx, buildCumulativeSum("requests.total", "svc", 100, t0))
+	s.AddMetrics(ctx, buildCumulativeSum("requests.total", "svc", 150, t0.Add(time.Second)))
+	s.AddMetrics(ctx, buildCumulativeSum("requests.total", "svc", 210, t0.Add(2*time.Second)))
+	s.Sync()
+
+	v, err := s.LatestValue(ctx, "svc", "requests.total")
+	if err != nil {
+		t.Fatalf("LatestValue: %v", err)
+	}
+	if v == nil || *v != 60 {
+		t.Fatalf("LatestValue = %v, want 60 (210 - 150)", v)
+	}
+}
+
+// TestLatestValue_BaselineOnlyReturnsNil documents that a series with just
+// one observation ever (a monotonic cumulative Sum's baseline, nothing to
+// derive a delta against yet) has no meaningful latest value — mirrors
+// MetricPoints/filterDerivedPoints dropping the same row.
+func TestLatestValue_BaselineOnlyReturnsNil(t *testing.T) {
+	s := openTestStorage(t, Options{})
+	ctx := context.Background()
+	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	s.AddMetrics(ctx, buildCumulativeSum("requests.total", "svc", 100, t0))
+	s.Sync()
+
+	v, err := s.LatestValue(ctx, "svc", "requests.total")
+	if err != nil {
+		t.Fatalf("LatestValue: %v", err)
+	}
+	if v != nil {
+		t.Errorf("LatestValue = %v, want nil for a baseline-only series", *v)
+	}
+}
+
+func TestLatestValue_GaugePassthrough(t *testing.T) {
+	s := openTestStorage(t, Options{})
+	ctx := context.Background()
+	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	md := pmetric.NewMetrics()
+	rm := md.ResourceMetrics().AppendEmpty()
+	rm.Resource().Attributes().PutStr("service.name", "svc")
+	sm := rm.ScopeMetrics().AppendEmpty()
+	m := sm.Metrics().AppendEmpty()
+	m.SetName("cpu.utilization")
+	dp := m.SetEmptyGauge().DataPoints().AppendEmpty()
+	dp.SetDoubleValue(0.42)
+	dp.SetTimestamp(pcommon.NewTimestampFromTime(t0))
+	s.AddMetrics(ctx, md)
+	s.Sync()
+
+	v, err := s.LatestValue(ctx, "svc", "cpu.utilization")
+	if err != nil {
+		t.Fatalf("LatestValue: %v", err)
+	}
+	if v == nil || *v != 0.42 {
+		t.Fatalf("LatestValue = %v, want 0.42 (gauge passthrough, no delta needed)", v)
+	}
+}
+
+func TestLatestValue_HistogramMeanOfMostRecentWindow(t *testing.T) {
+	s := openTestStorage(t, Options{})
+	ctx := context.Background()
+	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	s.AddMetrics(ctx, buildHistogram("http.server.request.duration", "svc", 10, 2.5, 0.01, 0.8, t0))
+	s.AddMetrics(ctx, buildHistogram("http.server.request.duration", "svc", 15, 4.0, 0.02, 0.9, t0.Add(time.Second)))
+	s.Sync()
+
+	v, err := s.LatestValue(ctx, "svc", "http.server.request.duration")
+	if err != nil {
+		t.Fatalf("LatestValue: %v", err)
+	}
+	// Same derivation as TestMetricPoints_HistogramCumulativeDeltaized's second
+	// point: count_delta=5, sum_delta=1.5, mean=0.3.
+	if v == nil || *v != 0.3 {
+		t.Fatalf("LatestValue = %v, want 0.3", v)
+	}
+}
+
+func TestLatestValue_UnknownMetricReturnsNil(t *testing.T) {
+	s := openTestStorage(t, Options{})
+	ctx := context.Background()
+
+	v, err := s.LatestValue(ctx, "svc", "does.not.exist")
+	if err != nil {
+		t.Fatalf("LatestValue: %v", err)
+	}
+	if v != nil {
+		t.Errorf("LatestValue = %v, want nil for a nonexistent metric", *v)
+	}
+}
+
 func TestMetricPoints_TimeRangeFiltering(t *testing.T) {
 	s := openTestStorage(t, Options{})
 	ctx := context.Background()

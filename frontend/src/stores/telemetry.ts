@@ -97,6 +97,9 @@ export const addTraceAtom = atom(null, (get, set, newTrace: TraceData) => {
     };
     set(tracesAtom, updated);
   } else {
+    // A brand-new trace, never merged into an existing one — the header
+    // badge's "genuinely new" signal (see totalTraceCountAtom).
+    set(newTraceCountAtom, (n) => n + 1);
     const next = [newTrace, ...current];
     set(tracesAtom, next.length > maxTraces ? next.slice(0, maxTraces) : next);
   }
@@ -173,39 +176,100 @@ export function mergeDataPoints(existing: DataPoint[], incoming: DataPoint[]): D
   return merged;
 }
 
+// addMetricAtom merges a WS delivery's dataPoints into the matching
+// (serviceName, name) group, or creates a new group entry. pointCount/
+// latestValue (the metrics list's summary columns — see MetricData's doc
+// comment) are never read off the wire payload, which never carries them
+// (internal/broadcast/wire.go's MetricData has no such fields, only
+// dataPoints) — they're derived here from the merge itself: pointCount
+// widens by exactly the genuinely-new-point delta (a re-delivered point
+// mergeDataPoints already dedupes must not double count), and latestValue
+// only moves when that delta is nonzero, to the newest point's value.
 export const addMetricAtom = atom(null, (get, set, newMetric: MetricData) => {
   const current = get(metricsAtom);
   const maxMetrics = get(serverConfigAtom).metricCap;
   const idx = current.findIndex((m) => metricKeyEquals(m, newMetric));
   if (idx >= 0) {
     const existing = current[idx];
+    const merged = mergeDataPoints(existing.dataPoints, newMetric.dataPoints);
+    const addedCount = merged.length - existing.dataPoints.length;
     const updated = [...current];
     updated[idx] = {
       ...existing,
-      dataPoints: mergeDataPoints(existing.dataPoints, newMetric.dataPoints).slice(
-        -get(serverConfigAtom).maxDataPoints,
-      ),
+      dataPoints: merged.slice(-get(serverConfigAtom).maxDataPoints),
+      pointCount: existing.pointCount + addedCount,
+      latestValue: addedCount > 0 ? merged[merged.length - 1].value : existing.latestValue,
       receivedAt: newMetric.receivedAt,
     };
     set(metricsAtom, updated);
   } else {
-    const next = [newMetric, ...current];
+    // A brand-new (serviceName, name) group — the header badge's
+    // "genuinely new" signal (see totalMetricCountAtom); config.metricCount
+    // counts groups the same way (storage.Counts), so this mirrors it.
+    set(newMetricCountAtom, (n) => n + 1);
+    const next = [
+      {
+        ...newMetric,
+        pointCount: newMetric.dataPoints.length,
+        latestValue: newMetric.dataPoints.at(-1)?.value ?? null,
+      },
+      ...current,
+    ];
     set(metricsAtom, next.length > maxMetrics ? next.slice(0, maxMetrics) : next);
   }
 });
 
 export const addLogAtom = atom(null, (get, set, newLog: LogData) => {
   const maxLogs = get(serverConfigAtom).logCap;
+  // Every log is a genuinely new row — there's no merge-into-existing
+  // concept for logs (unlike traces/metrics), so this always increments.
+  set(newLogCountAtom, (n) => n + 1);
   set(logsAtom, (prev) => {
     const next = [newLog, ...prev];
     return next.length > maxLogs ? next.slice(0, maxLogs) : next;
   });
 });
 
-// Counts for tab badges
-export const traceCountAtom = atom((get) => get(tracesAtom).length);
-export const metricCountAtom = atom((get) => get(metricsAtom).length);
-export const logCountAtom = atom((get) => get(logsAtom).length);
+// Server-reported totals as of the initial load (config.traceCount/
+// metricCount/logCount — see hooks/use-initial-load.ts), seeded once via
+// setTotalCountsAtom and never re-fetched afterward.
+export const totalTraceCountAtom = atom(0);
+export const totalMetricCountAtom = atom(0);
+export const totalLogCountAtom = atom(0);
+
+// Genuinely new items observed since the initial load: incremented only by
+// addTraceAtom's/addMetricAtom's create branch (never their merge branch) and
+// always by addLogAtom. A "Load more" page (appendTracesAtom/appendLogsAtom)
+// or a lazy detail fetch re-fetches rows the total above already counted, so
+// neither of those — nor setTracesAtom/setMetricsAtom/setLogsAtom's initial
+// page-1 replace — touches these.
+export const newTraceCountAtom = atom(0);
+export const newMetricCountAtom = atom(0);
+export const newLogCountAtom = atom(0);
+
+export interface SignalTotals {
+  traceCount: number;
+  metricCount: number;
+  logCount: number;
+}
+
+// Write-only: seeds the server-reported totals once at initial load (see
+// hooks/use-initial-load.ts).
+export const setTotalCountsAtom = atom(null, (_get, set, totals: SignalTotals) => {
+  set(totalTraceCountAtom, totals.traceCount);
+  set(totalMetricCountAtom, totals.metricCount);
+  set(totalLogCountAtom, totals.logCount);
+});
+
+// Header badge totals: server-reported total (as of load) plus every
+// genuinely new item observed since. A server-side retention sweep can
+// shrink the true total after load; since the total is never re-fetched,
+// that drift is accepted rather than reconciled — a live tab badge running
+// slightly high until the next full reload re-seeds it is preferable to
+// re-querying config on every tick just to catch a rare sweep.
+export const traceCountAtom = atom((get) => get(totalTraceCountAtom) + get(newTraceCountAtom));
+export const metricCountAtom = atom((get) => get(totalMetricCountAtom) + get(newMetricCountAtom));
+export const logCountAtom = atom((get) => get(totalLogCountAtom) + get(newLogCountAtom));
 
 // Selection state. The id/key (not the object) is the source of truth so it
 // can be restored from the URL before the matching data has loaded — the

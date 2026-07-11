@@ -60,6 +60,16 @@ type Query {
   wide/unbounded window collapsing into a handful of giant buckets.
   """
   metricAggregate(serviceName: String!, name: String!, groupBy: [String!]!, bucketSeconds: Int, from: Time, to: Time): [AggregateSeries!]!
+
+  """
+  Every derived data point for one (serviceName, name) metric group — the
+  single-metric counterpart to `metrics { dataPoints }`, added (issue #162)
+  so a metric detail view can fetch just the metric it's displaying instead
+  of the whole metrics page to extract one group client-side. Applies the
+  identical NULL-baseline filtering `metrics.dataPoints` does. from/to
+  default to the full retention window, matching the other list queries.
+  """
+  metricPoints(serviceName: String!, name: String!, from: Time, to: Time): [DataPoint!]!
 }
 
 type Mutation {
@@ -180,6 +190,14 @@ type Metric {
   dataPoints: [DataPoint!]!
   "Length of dataPoints without requesting the array."
   pointCount: Int!
+  """
+  Derived value of the most recently observed point, computed from just the
+  group's active series' last two raw rows instead of re-deriving its whole
+  retained history — the metrics list's cheap glance column (issue #162).
+  Null when the group has no points yet, or its latest observation has
+  nothing meaningful to derive (see storage.LatestValue's doc comment).
+  """
+  latestValue: Float
   receivedAt: Time!
 }
 

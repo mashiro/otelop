@@ -2,7 +2,8 @@ import { useEffect, useRef } from "react";
 import { useSetAtom } from "jotai";
 import { graphql } from "@/gql";
 import { gqlClient } from "@/lib/graphql";
-import { setMetricsAtom } from "@/stores/telemetry";
+import { setMetricsAtom, setTotalCountsAtom } from "@/stores/telemetry";
+import type { MetricData } from "@/types/telemetry";
 
 // Ring-buffer capacity config (traceCap/metricCap/logCap/maxDataPoints) was
 // removed from the backend's Config type when storage moved to DuckDB with
@@ -17,10 +18,25 @@ import { setMetricsAtom } from "@/stores/telemetry";
 // era design issue #160 replaced with server-side pagination scoped to the
 // tab's selected time range (see hooks/use-trace-list-page.ts,
 // hooks/use-log-list-page.ts, mounted from the traces/logs tabs
-// themselves). Metrics still bootstrap unbounded here; scoping the metrics
-// tab's initial load the same way is a separate follow-up (#162).
+// themselves). Metrics still bootstrap unbounded here (`limit: 0`, every
+// group), but no longer with dataPoints (issue #162): a metrics list of ~40
+// groups was paying ~39 Metric.dataPoints resolutions — each re-deriving a
+// whole retained series — just to render list rows the detail view (which
+// fetches its own points on demand, see hooks/use-metric-range-points.ts)
+// doesn't need populated. pointCount/latestValue are cheap, purpose-built
+// summary fields for exactly what the list renders (see MetricList).
+//
+// config { traceCount metricCount logCount } feeds the header badges (see
+// stores/telemetry.ts's totalTraceCountAtom/totalMetricCountAtom/
+// totalLogCountAtom) — the server-side row/group totals, since the
+// traces/logs tabs' own paginated fetch only ever loads a page at a time.
 const InitialLoadQuery = graphql(`
   query InitialLoad {
+    config {
+      traceCount
+      metricCount
+      logCount
+    }
     metrics(limit: 0) {
       items {
         name
@@ -30,19 +46,8 @@ const InitialLoadQuery = graphql(`
         serviceName
         resource
         receivedAt
-        dataPoints {
-          id
-          timestamp
-          value
-          cumulative
-          count
-          countCumulative
-          sum
-          sumCumulative
-          min
-          max
-          attributes
-        }
+        pointCount
+        latestValue
       }
     }
   }
@@ -50,6 +55,7 @@ const InitialLoadQuery = graphql(`
 
 export function useInitialLoad() {
   const setMetrics = useSetAtom(setMetricsAtom);
+  const setTotalCounts = useSetAtom(setTotalCountsAtom);
   // StrictMode double-invokes effects in dev; guard so the bootstrap fetch
   // (and its Jotai writes) only runs once per real mount.
   const loadedRef = useRef(false);
@@ -60,11 +66,17 @@ export function useInitialLoad() {
     const load = async () => {
       try {
         const data = await gqlClient.request(InitialLoadQuery);
-        setMetrics(data.metrics.items);
+        setTotalCounts(data.config);
+        // dataPoints wasn't selected above (see this file's doc comment);
+        // every metric enters the buffer empty and fills in lazily — via a
+        // detail view's use-metric-range-points fetch, or a WS delivery
+        // merging in through addMetricAtom.
+        const metrics: MetricData[] = data.metrics.items.map((m) => ({ ...m, dataPoints: [] }));
+        setMetrics(metrics);
       } catch {
         // WebSocket will deliver data later.
       }
     };
     void load();
-  }, [setMetrics]);
+  }, [setMetrics, setTotalCounts]);
 }

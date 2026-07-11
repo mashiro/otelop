@@ -7,26 +7,20 @@ import { rangeToMs, type ChartTimeRange } from "@/lib/chart-time-range";
 import { useStableArray } from "@/hooks/use-stable-array";
 import type { DataPoint, MetricData } from "@/types/telemetry";
 
-const MetricRangeQuery = graphql(`
-  query MetricRange($from: Time) {
-    metrics(limit: 0, from: $from) {
-      items {
-        serviceName
-        name
-        dataPoints {
-          id
-          timestamp
-          value
-          cumulative
-          count
-          countCumulative
-          sum
-          sumCumulative
-          min
-          max
-          attributes
-        }
-      }
+const MetricPointsQuery = graphql(`
+  query MetricPoints($serviceName: String!, $name: String!, $from: Time) {
+    metricPoints(serviceName: $serviceName, name: $name, from: $from) {
+      id
+      timestamp
+      value
+      cumulative
+      count
+      countCumulative
+      sum
+      sumCumulative
+      min
+      max
+      attributes
     }
   }
 `);
@@ -36,20 +30,18 @@ const MetricRangeQuery = graphql(`
 // live buffer (stores/telemetry.ts DEFAULT_CONFIG) evicts old points once
 // maxDataPoints is exceeded, to bound this tab's memory. Selecting a
 // time-range backfills whatever the live buffer no longer holds with one
-// server fetch; WebSocket deliveries (already flowing into `metric`'s
-// dataPoints via addMetricAtom) keep layering on top without triggering a
-// second fetch.
+// server fetch (the metricPoints query — issue #162 — scoped server-side to
+// just this (serviceName, name) group, unlike the metrics list's initial
+// load); WebSocket deliveries (already flowing into `metric`'s dataPoints via
+// addMetricAtom) keep layering on top without triggering a second fetch.
 //
-// There's no dedicated "one metric's points" query (see schema.graphql) —
-// `metrics` always returns every (service, name) group in the window — so
-// this fetches the whole page (limit: 0, mirroring useInitialLoad) and picks
-// out the matching group client-side. Deliberately no snapshot/live branch:
-// every CHART_TIME_RANGES option is defined relative to "now" (see
-// chart-time-range.ts), and the render-time domain already anchors on the
-// max *data* timestamp rather than the wall clock, so a metric that stopped
-// producing data naturally renders as a static snapshot (nothing new to
-// layer on top) while an actively live metric's domain keeps sliding forward
-// as WS points arrive — no extra branching needed here.
+// Deliberately no snapshot/live branch: every CHART_TIME_RANGES option is
+// defined relative to "now" (see chart-time-range.ts), and the render-time
+// domain already anchors on the max *data* timestamp rather than the wall
+// clock, so a metric that stopped producing data naturally renders as a
+// static snapshot (nothing new to layer on top) while an actively live
+// metric's domain keeps sliding forward as WS points arrive — no extra
+// branching needed here.
 export function useMetricRangePoints(metric: MetricData, range: ChartTimeRange): DataPoint[] {
   const [fetched, setFetched] = useState<DataPoint[]>([]);
   const { serviceName, name } = metric;
@@ -75,12 +67,9 @@ export function useMetricRangePoints(metric: MetricData, range: ChartTimeRange):
 
     const load = async () => {
       try {
-        const data = await gqlClient.request(MetricRangeQuery, { from });
-        const match = data.metrics.items.find(
-          (m) => m.serviceName === serviceName && m.name === name,
-        );
-        if (!cancelled && match) {
-          setFetched(match.dataPoints);
+        const data = await gqlClient.request(MetricPointsQuery, { serviceName, name, from });
+        if (!cancelled) {
+          setFetched(data.metricPoints);
         }
       } catch {
         // Fall back to whatever the live buffer already holds.

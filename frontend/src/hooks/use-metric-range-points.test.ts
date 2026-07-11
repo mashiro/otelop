@@ -3,10 +3,10 @@ import { renderHook, waitFor } from "@testing-library/react";
 import { Temporal } from "temporal-polyfill";
 import { useMetricRangePoints } from "./use-metric-range-points";
 import { makeMetric, makeDataPoint } from "@/test/factories";
-import type { MetricRangeQuery, MetricRangeQueryVariables } from "@/gql/graphql";
+import type { MetricPointsQuery, MetricPointsQueryVariables } from "@/gql/graphql";
 import type { DataPoint, MetricData } from "@/types/telemetry";
 
-// MetricRangeQuery's generated type requires the nullable distribution
+// MetricPointsQuery's generated type requires the nullable distribution
 // fields to be present (as `null`, not simply omitted) — unlike DataPoint,
 // where they're optional. Bridges a factory-made DataPoint into that shape.
 function toQueryPoint(dp: DataPoint) {
@@ -31,7 +31,7 @@ function toQueryPoint(dp: DataPoint) {
 // single-argument overload.
 const { requestMock } = vi.hoisted(() => ({
   requestMock:
-    vi.fn<(doc: unknown, vars: MetricRangeQueryVariables) => Promise<MetricRangeQuery>>(),
+    vi.fn<(doc: unknown, vars: MetricPointsQueryVariables) => Promise<MetricPointsQuery>>(),
 }));
 
 vi.mock("@/lib/graphql", () => ({
@@ -43,18 +43,26 @@ beforeEach(() => {
 });
 
 describe("useMetricRangePoints", () => {
-  it("omits `from` for the all range (fetches the full retention window)", async () => {
-    requestMock.mockResolvedValue({ metrics: { items: [] } });
-    const metric = makeMetric({ dataPoints: [makeDataPoint({ id: "a" })] });
+  it("passes serviceName/name and omits `from` for the all range (fetches the full retention window)", async () => {
+    requestMock.mockResolvedValue({ metricPoints: [] });
+    const metric = makeMetric({
+      serviceName: "frontend",
+      name: "http.requests",
+      dataPoints: [makeDataPoint({ id: "a" })],
+    });
 
     renderHook(() => useMetricRangePoints(metric, "all"));
 
     await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(1));
-    expect(requestMock.mock.calls[0]?.[1]).toEqual({ from: undefined });
+    expect(requestMock.mock.calls[0]?.[1]).toEqual({
+      serviceName: "frontend",
+      name: "http.requests",
+      from: undefined,
+    });
   });
 
   it("computes a wall-clock `from` bound for a fixed range", async () => {
-    requestMock.mockResolvedValue({ metrics: { items: [] } });
+    requestMock.mockResolvedValue({ metricPoints: [] });
     const metric = makeMetric({ dataPoints: [makeDataPoint({ id: "a" })] });
     const before = Temporal.Now.instant();
 
@@ -71,17 +79,7 @@ describe("useMetricRangePoints", () => {
 
   it("merges the server-fetched snapshot with the live metric.dataPoints by id", async () => {
     const serverOnly = makeDataPoint({ id: "server-only", timestamp: "2024-01-01T00:00:00Z" });
-    requestMock.mockResolvedValue({
-      metrics: {
-        items: [
-          {
-            serviceName: "frontend",
-            name: "http.requests",
-            dataPoints: [toQueryPoint(serverOnly)],
-          },
-        ],
-      },
-    });
+    requestMock.mockResolvedValue({ metricPoints: [toQueryPoint(serverOnly)] });
     const liveOnly = makeDataPoint({ id: "live-only", timestamp: "2024-01-01T00:01:00Z" });
     const metric = makeMetric({
       serviceName: "frontend",
@@ -96,25 +94,6 @@ describe("useMetricRangePoints", () => {
     );
   });
 
-  it("ignores a fetched page with no matching (serviceName, name) group", async () => {
-    requestMock.mockResolvedValue({
-      metrics: {
-        items: [{ serviceName: "other-service", name: "other.metric", dataPoints: [] }],
-      },
-    });
-    const live = makeDataPoint({ id: "live-1" });
-    const metric = makeMetric({
-      serviceName: "frontend",
-      name: "http.requests",
-      dataPoints: [live],
-    });
-
-    const { result } = renderHook(() => useMetricRangePoints(metric, "1h"));
-
-    await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(1));
-    expect(result.current.map((p) => p.id)).toEqual(["live-1"]);
-  });
-
   it("falls back to metric.dataPoints alone when the request rejects", async () => {
     requestMock.mockRejectedValue(new Error("network error"));
     const live = makeDataPoint({ id: "live-1" });
@@ -127,7 +106,7 @@ describe("useMetricRangePoints", () => {
   });
 
   it("does not refetch when only metric.dataPoints changes (same metric identity, same range)", async () => {
-    requestMock.mockResolvedValue({ metrics: { items: [] } });
+    requestMock.mockResolvedValue({ metricPoints: [] });
     const metric = makeMetric({ dataPoints: [makeDataPoint({ id: "a" })] });
 
     const { rerender } = renderHook(({ metric: m }) => useMetricRangePoints(m, "1h"), {
@@ -144,7 +123,7 @@ describe("useMetricRangePoints", () => {
   });
 
   it("refetches when the selected metric changes", async () => {
-    requestMock.mockResolvedValue({ metrics: { items: [] } });
+    requestMock.mockResolvedValue({ metricPoints: [] });
     const metric = makeMetric({ name: "metric.a", dataPoints: [makeDataPoint({ id: "a" })] });
 
     const { rerender } = renderHook(({ metric: m }) => useMetricRangePoints(m, "1h"), {
@@ -158,10 +137,11 @@ describe("useMetricRangePoints", () => {
     });
 
     await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(2));
+    expect(requestMock.mock.calls[1]?.[1]).toMatchObject({ name: "metric.b" });
   });
 
   it("refetches when the range changes", async () => {
-    requestMock.mockResolvedValue({ metrics: { items: [] } });
+    requestMock.mockResolvedValue({ metricPoints: [] });
     const metric = makeMetric({ dataPoints: [makeDataPoint({ id: "a" })] });
 
     const { rerender } = renderHook(
@@ -178,17 +158,7 @@ describe("useMetricRangePoints", () => {
 
   it("keeps rendering the previous merged snapshot during a range-change refetch (no intermediate empty emission)", async () => {
     const serverPoint = makeDataPoint({ id: "server-a", timestamp: "2024-01-01T00:00:00Z" });
-    requestMock.mockResolvedValueOnce({
-      metrics: {
-        items: [
-          {
-            serviceName: "frontend",
-            name: "http.requests",
-            dataPoints: [toQueryPoint(serverPoint)],
-          },
-        ],
-      },
-    });
+    requestMock.mockResolvedValueOnce({ metricPoints: [toQueryPoint(serverPoint)] });
     const metric = makeMetric({ serviceName: "frontend", name: "http.requests", dataPoints: [] });
 
     const { result, rerender } = renderHook(
@@ -198,8 +168,8 @@ describe("useMetricRangePoints", () => {
 
     await waitFor(() => expect(result.current.map((p) => p.id)).toEqual(["server-a"]));
 
-    let resolveSecond: (value: MetricRangeQuery) => void = () => {};
-    const pending = new Promise<MetricRangeQuery>((resolve) => {
+    let resolveSecond: (value: MetricPointsQuery) => void = () => {};
+    const pending = new Promise<MetricPointsQuery>((resolve) => {
       resolveSecond = resolve;
     });
     requestMock.mockImplementationOnce(() => pending);
@@ -210,15 +180,18 @@ describe("useMetricRangePoints", () => {
     // flight — not blanked to [] and flashed down to the live buffer.
     expect(result.current.map((p) => p.id)).toEqual(["server-a"]);
 
-    resolveSecond({ metrics: { items: [] } });
-    await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(2));
-    // The new page had no matching group, so the previous snapshot is kept
-    // (mirrors the existing "falls back on rejection" behavior).
-    expect(result.current.map((p) => p.id)).toEqual(["server-a"]);
+    resolveSecond({ metricPoints: [] });
+    // Once the range-change fetch actually resolves — even to a legitimately
+    // empty result (unlike the old whole-page query, metricPoints is already
+    // scoped server-side to this exact metric, so "no items" here means "no
+    // points in the new range", not "no matching group in the page") — the
+    // snapshot updates to match, merged with whatever the live buffer holds
+    // (empty in this test).
+    await waitFor(() => expect(result.current.map((p) => p.id)).toEqual([]));
   });
 
   it("clears the snapshot immediately when the selected metric identity changes", async () => {
-    requestMock.mockResolvedValue({ metrics: { items: [] } });
+    requestMock.mockResolvedValue({ metricPoints: [] });
     const metricA = makeMetric({ name: "metric.a", dataPoints: [makeDataPoint({ id: "a" })] });
 
     const { result, rerender } = renderHook(

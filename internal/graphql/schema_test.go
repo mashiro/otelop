@@ -355,6 +355,116 @@ func TestMetrics_PointCountWithoutFetchingPoints(t *testing.T) {
 	}
 }
 
+// buildCumulativeSumMetric mirrors internal/storage's test-only
+// buildCumulativeSum (unexported there, so duplicated here rather than
+// exported purely for a test) — a single monotonic cumulative Sum
+// observation for the given (service, metric name) at ts.
+func buildCumulativeSumMetric(name, service string, v float64, ts time.Time) pmetric.Metrics {
+	md := pmetric.NewMetrics()
+	rm := md.ResourceMetrics().AppendEmpty()
+	rm.Resource().Attributes().PutStr("service.name", service)
+	sm := rm.ScopeMetrics().AppendEmpty()
+	m := sm.Metrics().AppendEmpty()
+	m.SetName(name)
+	sum := m.SetEmptySum()
+	sum.SetIsMonotonic(true)
+	sum.SetAggregationTemporality(pmetric.AggregationTemporalityCumulative)
+	dp := sum.DataPoints().AppendEmpty()
+	dp.SetDoubleValue(v)
+	dp.SetTimestamp(pcommon.NewTimestampFromTime(ts))
+	return md
+}
+
+// TestMetric_LatestValueWithoutFetchingPoints is the GraphQL-level companion
+// to TestMetrics_PointCountWithoutFetchingPoints: latestValue must resolve
+// without the query selecting dataPoints (issue #162's whole point).
+func TestMetric_LatestValueWithoutFetchingPoints(t *testing.T) {
+	s := seedStorage(t)
+	data := exec(t, s, `{ metrics { items { name latestValue } } }`, nil)
+	items := data["metrics"].(map[string]any)["items"].([]any)
+	if len(items) != 1 {
+		t.Fatalf("metrics len = %d, want 1", len(items))
+	}
+	m := items[0].(map[string]any)
+	// seedStorage's cpu.usage is a Gauge (passthrough, no baseline to drop);
+	// its last written point is 2.5 (i=2 => float64(i)+0.5).
+	if v, ok := m["latestValue"].(float64); !ok || v != 2.5 {
+		t.Errorf("latestValue = %v, want 2.5", m["latestValue"])
+	}
+	if _, hasDP := m["dataPoints"]; hasDP {
+		t.Errorf("dataPoints should not be returned when not selected")
+	}
+}
+
+func TestMetricPoints_ReturnsDerivedPointsForOneGroup(t *testing.T) {
+	s := newTestStorage(t)
+	ctx := context.Background()
+	t0 := time.Date(2026, 4, 11, 12, 0, 0, 0, time.UTC)
+
+	s.AddMetrics(ctx, buildCumulativeSumMetric("requests.total", "svc-mp", 100, t0))
+	s.AddMetrics(ctx, buildCumulativeSumMetric("requests.total", "svc-mp", 150, t0.Add(time.Second)))
+	// A second, unrelated metric name in the same service — must not appear.
+	s.AddMetrics(ctx, buildCumulativeSumMetric("other.metric", "svc-mp", 1, t0))
+	s.Sync()
+
+	data := exec(t, s, `
+		query($from: Time!) {
+			metricPoints(serviceName: "svc-mp", name: "requests.total", from: $from) {
+				value
+				cumulative
+			}
+		}
+	`, map[string]any{"from": t0.Add(-time.Minute).Format(time.RFC3339)})
+
+	points := data["metricPoints"].([]any)
+	// The baseline observation (first point, no prior value to derive a
+	// delta against) is filtered out — same NULL-baseline rule
+	// metrics.dataPoints applies — so only the second, derived point remains.
+	if len(points) != 1 {
+		t.Fatalf("metricPoints len = %d, want 1 (baseline dropped)", len(points))
+	}
+	p := points[0].(map[string]any)
+	if p["value"].(float64) != 50 {
+		t.Errorf("value = %v, want 50 (150-100)", p["value"])
+	}
+	if p["cumulative"].(float64) != 150 {
+		t.Errorf("cumulative = %v, want 150", p["cumulative"])
+	}
+}
+
+// TestMetricPoints_RespectsFromTo verifies the query's time-range args are
+// plumbed through to storage.MetricPoints rather than always fetching the
+// full retention window.
+func TestMetricPoints_RespectsFromTo(t *testing.T) {
+	s := newTestStorage(t)
+	ctx := context.Background()
+	t0 := time.Date(2026, 4, 11, 12, 0, 0, 0, time.UTC)
+
+	s.AddMetrics(ctx, buildCumulativeSumMetric("m", "svc-mp2", 1, t0))
+	s.AddMetrics(ctx, buildCumulativeSumMetric("m", "svc-mp2", 2, t0.Add(time.Hour)))
+	s.Sync()
+
+	data := exec(t, s, `
+		query($from: Time!, $to: Time!) {
+			metricPoints(serviceName: "svc-mp2", name: "m", from: $from, to: $to) { value }
+		}
+	`, map[string]any{
+		"from": t0.Add(30 * time.Minute).Format(time.RFC3339),
+		"to":   t0.Add(90 * time.Minute).Format(time.RFC3339),
+	})
+
+	points := data["metricPoints"].([]any)
+	// from/to excludes the t0 observation entirely, so the t0+1h point is the
+	// only row the window ever sees — with no in-window predecessor to lag
+	// against, it's a fresh (filtered) baseline within this window, same as
+	// storage's TestMetricPoints_TimeRangeFiltering. This proves from/to
+	// actually reached storage.MetricPoints: an unbounded query would have
+	// included the t0 point and derived a non-baseline value=1 for this one.
+	if len(points) != 0 {
+		t.Fatalf("metricPoints len = %d, want 0 (windowed out the earlier point this delta needs)", len(points))
+	}
+}
+
 func TestLogEdges_TraceAndSpan(t *testing.T) {
 	s := seedStorage(t)
 	// The correlated log was attached to trace 02 but with no SpanID in

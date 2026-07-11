@@ -62,38 +62,35 @@ export function MetricList() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {metrics.map((metric, i) => {
-                const lastPoint = metric.dataPoints[metric.dataPoints.length - 1];
-                return (
-                  <TableRow
-                    key={`${metric.serviceName}-${metric.name}`}
-                    className="stagger-row cursor-pointer border-b border-border/30 transition-colors hover:bg-metric/5"
-                    style={{ animationDelay: `${Math.min(i * 20, 200)}ms` }}
-                    onClick={() => setSelectedMetric(metric)}
-                  >
-                    <TableCell className="font-medium">{metric.serviceName || "-"}</TableCell>
-                    <TableCell className="text-foreground/80">{metric.name}</TableCell>
-                    <TableCell className="max-w-xs truncate text-muted-foreground">
-                      {metric.description || "-"}
-                    </TableCell>
-                    <TableCell>
-                      <Pill tone="metric">{metric.type}</Pill>
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {resolveMetricUnit(metric.name, metric.unit) || "-"}
-                    </TableCell>
-                    <TableCell className="text-right font-mono text-xs">
-                      {metric.dataPoints.length}
-                    </TableCell>
-                    <TableCell className="text-right font-mono text-xs text-metric">
-                      {lastPoint ? lastPoint.value.toLocaleString() : "-"}
-                    </TableCell>
-                    <TableCell className="text-xs text-muted-foreground">
-                      {formatRelativeTime(metric.receivedAt)}
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
+              {metrics.map((metric, i) => (
+                <TableRow
+                  key={`${metric.serviceName}-${metric.name}`}
+                  className="stagger-row cursor-pointer border-b border-border/30 transition-colors hover:bg-metric/5"
+                  style={{ animationDelay: `${Math.min(i * 20, 200)}ms` }}
+                  onClick={() => setSelectedMetric(metric)}
+                >
+                  <TableCell className="font-medium">{metric.serviceName || "-"}</TableCell>
+                  <TableCell className="text-foreground/80">{metric.name}</TableCell>
+                  <TableCell className="max-w-xs truncate text-muted-foreground">
+                    {metric.description || "-"}
+                  </TableCell>
+                  <TableCell>
+                    <Pill tone="metric">{metric.type}</Pill>
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {resolveMetricUnit(metric.name, metric.unit) || "-"}
+                  </TableCell>
+                  <TableCell className="text-right font-mono text-xs">
+                    {metric.pointCount}
+                  </TableCell>
+                  <TableCell className="text-right font-mono text-xs text-metric">
+                    {metric.latestValue != null ? metric.latestValue.toLocaleString() : "-"}
+                  </TableCell>
+                  <TableCell className="text-xs text-muted-foreground">
+                    {formatRelativeTime(metric.receivedAt)}
+                  </TableCell>
+                </TableRow>
+              ))}
             </TableBody>
           </Table>
         </ScrollArea>

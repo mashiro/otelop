@@ -37,7 +37,7 @@ beforeEach(() => {
   requestMock.mockImplementation((doc: GqlDocument) => {
     const opName = doc.definitions[0]?.name?.value;
     if (opName === "MetricAggregate") return Promise.resolve({ metricAggregate: [] });
-    return Promise.resolve({ metrics: { items: [] } });
+    return Promise.resolve({ metricPoints: [] });
   });
   // selectedMetricRangeAtom (and the tab/key atoms the URL-persistence test
   // below drives) are real global atoms (see stores/navigation.ts), not
@@ -132,7 +132,7 @@ describe("MetricDetailBody control row", () => {
 
     // Once for the initial "1h" mount, once more after switching to "5m".
     const rangeCalls = requestMock.mock.calls.filter(
-      (c) => (c[0] as GqlDocument).definitions[0]?.name?.value === "MetricRange",
+      (c) => (c[0] as GqlDocument).definitions[0]?.name?.value === "MetricPoints",
     );
     expect(rangeCalls.length).toBe(2);
   });
