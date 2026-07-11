@@ -173,6 +173,10 @@ func TestConvertMetrics_Gauge(t *testing.T) {
 	rm := md.ResourceMetrics().AppendEmpty()
 	rm.Resource().Attributes().PutStr("service.name", "svc")
 	sm := rm.ScopeMetrics().AppendEmpty()
+	sm.SetSchemaUrl("https://opentelemetry.io/schemas/1.30.0")
+	sm.Scope().SetName("example.metrics")
+	sm.Scope().SetVersion("1.2.3")
+	sm.Scope().Attributes().PutStr("library.language", "go")
 	m := sm.Metrics().AppendEmpty()
 	m.SetName("cpu.usage")
 	m.SetUnit("1")
@@ -205,6 +209,15 @@ func TestConvertMetrics_Gauge(t *testing.T) {
 	}
 	if series.Unit != "1" || series.Description != "cpu" {
 		t.Errorf("Unit/Description = %q/%q, want 1/cpu", series.Unit, series.Description)
+	}
+	if series.ScopeName != "example.metrics" || series.ScopeVersion != "1.2.3" {
+		t.Errorf("ScopeName/ScopeVersion = %q/%q, want example.metrics/1.2.3", series.ScopeName, series.ScopeVersion)
+	}
+	if series.ScopeSchemaURL != "https://opentelemetry.io/schemas/1.30.0" {
+		t.Errorf("ScopeSchemaURL = %q", series.ScopeSchemaURL)
+	}
+	if series.ScopeAttributes["library.language"] != "go" {
+		t.Errorf("ScopeAttributes = %v, want library.language=go", series.ScopeAttributes)
 	}
 
 	if len(batch.Points) != 1 {
@@ -354,5 +367,31 @@ func TestConvertMetrics_DedupsSeriesWithinBatch(t *testing.T) {
 	}
 	if len(batch.Points) != 2 {
 		t.Fatalf("expected 2 points, got %d", len(batch.Points))
+	}
+}
+
+func TestConvertMetrics_SeparatesResourcesAndInstrumentationScopes(t *testing.T) {
+	md := pmetric.NewMetrics()
+	versions := []string{"1", "2"}
+	for i, instanceID := range []string{"a", "b"} {
+		rm := md.ResourceMetrics().AppendEmpty()
+		rm.Resource().Attributes().PutStr("service.name", "svc")
+		rm.Resource().Attributes().PutStr("service.instance.id", instanceID)
+		sm := rm.ScopeMetrics().AppendEmpty()
+		sm.Scope().SetName("scope")
+		sm.Scope().SetVersion(versions[i])
+		m := sm.Metrics().AppendEmpty()
+		m.SetName("cpu.usage")
+		dp := m.SetEmptyGauge().DataPoints().AppendEmpty()
+		dp.SetDoubleValue(float64(i))
+		dp.SetTimestamp(pcommon.NewTimestampFromTime(time.Now()))
+	}
+
+	batch := ConvertMetrics(md)
+	if len(batch.Series) != 2 {
+		t.Fatalf("expected independent resources/scopes to produce 2 series, got %d", len(batch.Series))
+	}
+	if batch.Series[0].SeriesKey == batch.Series[1].SeriesKey {
+		t.Fatal("independent resources/scopes produced the same series key")
 	}
 }

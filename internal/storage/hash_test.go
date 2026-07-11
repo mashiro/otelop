@@ -39,21 +39,42 @@ func TestHashSeries_InsertionOrderIndependent(t *testing.T) {
 	a := map[string]any{"http.method": "GET", "http.status_code": int64(200)}
 	b := map[string]any{"http.status_code": int64(200), "http.method": "GET"}
 
-	ka := hashSeries("svc", "http.server.duration", a)
-	kb := hashSeries("svc", "http.server.duration", b)
+	identity := metricSeriesIdentity{
+		ResourceHash: 1,
+		Scope:        metricScopeIdentity{Name: "scope", Version: "1.0"},
+		MetricName:   "http.server.duration",
+		Attributes:   a,
+	}
+	ka := hashSeries(identity)
+	identity.Attributes = b
+	kb := hashSeries(identity)
 	if ka != kb {
 		t.Fatalf("hashSeries depends on map iteration order: %d != %d", ka, kb)
 	}
 }
 
-func TestHashSeries_DifferentServiceOrMetricNameDiffer(t *testing.T) {
+func TestHashSeries_DifferentResourceScopeOrMetricNameDiffer(t *testing.T) {
 	attrs := map[string]any{"http.method": "GET"}
-	base := hashSeries("svc-a", "metric", attrs)
-
-	if hashSeries("svc-b", "metric", attrs) == base {
-		t.Fatal("expected different service name to change the series key")
+	identity := metricSeriesIdentity{
+		ResourceHash: 1,
+		Scope:        metricScopeIdentity{SchemaURL: "schema", Name: "scope", Version: "1.0"},
+		MetricName:   "metric",
+		Attributes:   attrs,
 	}
-	if hashSeries("svc-a", "other-metric", attrs) == base {
+	base := hashSeries(identity)
+
+	identity.ResourceHash = 2
+	if hashSeries(identity) == base {
+		t.Fatal("expected different resource to change the series key")
+	}
+	identity.ResourceHash = 1
+	identity.Scope.Name = "other-scope"
+	if hashSeries(identity) == base {
+		t.Fatal("expected different scope name to change the series key")
+	}
+	identity.Scope.Name = "scope"
+	identity.MetricName = "other-metric"
+	if hashSeries(identity) == base {
 		t.Fatal("expected different metric name to change the series key")
 	}
 }

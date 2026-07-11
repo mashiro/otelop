@@ -1,4 +1,4 @@
-// Package graphql exposes otelop's in-memory telemetry store to callers via a
+// Package graphql exposes otelop's DuckDB-backed telemetry store to callers via a
 // GraphQL schema. It is the integration surface for AI-driven investigation —
 // field selection lets callers take exactly the data they want (and nothing
 // more), and the Trace.logs field implements the standard trace↔log

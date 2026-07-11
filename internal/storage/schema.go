@@ -32,6 +32,10 @@ CREATE TABLE metric_series (
   temporality   VARCHAR,
   is_monotonic  BOOLEAN,
   attributes    JSON NOT NULL,
+  scope_name       VARCHAR NOT NULL,
+  scope_version    VARCHAR NOT NULL,
+  scope_schema_url VARCHAR NOT NULL,
+  scope_attributes JSON NOT NULL,
   resource_hash UBIGINT NOT NULL,
   first_seen    TIMESTAMP_NS NOT NULL,
   last_seen     TIMESTAMP_NS NOT NULL

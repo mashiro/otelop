@@ -22,6 +22,7 @@ const (
 	tagBytes
 	tagSlice
 	tagMap
+	tagUint64
 )
 
 // hashResource returns a stable 64-bit key for a resource's attribute set.
@@ -38,15 +39,40 @@ func hashResource(attrs map[string]any) uint64 {
 	return h.Sum64()
 }
 
-// hashSeries returns a stable 64-bit key for one metric series (service +
-// metric name + attribute set). See hashResource for why FNV-1a over a
-// canonical encoding, not maphash.
-func hashSeries(serviceName, metricName string, attrs map[string]any) uint64 {
+type metricScopeIdentity struct {
+	SchemaURL  string
+	Name       string
+	Version    string
+	Attributes map[string]any
+}
+
+type metricSeriesIdentity struct {
+	ResourceHash uint64
+	Scope        metricScopeIdentity
+	MetricName   string
+	Attributes   map[string]any
+}
+
+// hashSeries returns a stable 64-bit key for one metric series. Resource and
+// instrumentation-scope identity are included because equal metric names and
+// point attributes from different producers are independent OTLP series.
+func hashSeries(identity metricSeriesIdentity) uint64 {
 	h := fnv.New64a()
-	writeString(h, serviceName)
-	writeString(h, metricName)
-	writeAttrs(h, attrs)
+	writeUint64(h, identity.ResourceHash)
+	writeString(h, identity.Scope.SchemaURL)
+	writeString(h, identity.Scope.Name)
+	writeString(h, identity.Scope.Version)
+	writeValue(h, identity.Scope.Attributes)
+	writeString(h, identity.MetricName)
+	writeValue(h, identity.Attributes)
 	return h.Sum64()
+}
+
+func writeUint64(h hash.Hash, v uint64) {
+	_, _ = h.Write([]byte{tagUint64})
+	var buf [8]byte
+	binary.LittleEndian.PutUint64(buf[:], v)
+	_, _ = h.Write(buf[:])
 }
 
 // writeAttrs hashes attrs in sorted-key order so callers never have to think

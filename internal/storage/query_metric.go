@@ -308,7 +308,7 @@ WITH points AS (
 // per row (not just fetched once at the group level) so a caller can filter
 // baseline observations without a separate MetricSummary lookup — see
 // DerivedPoint.Type and internal/storage's FilterDerivedPoints.
-const metricPointsQuery = metricDerivedCTE + `
+const metricPointsSelect = `
 SELECT
 	id, ts, attrs_json, metric_type,
 	CASE
@@ -327,11 +327,62 @@ FROM derived
 ORDER BY ts
 `
 
+const metricPointsQuery = metricDerivedCTE + metricPointsSelect
+
+// metricPointsWithPredecessorsQuery adds the immediately preceding point for
+// each series represented in the requested window. Broadcast derivation needs
+// those rows for lag() but must not assume any maximum collection interval.
+const metricPointsWithPredecessorsQuery = `
+WITH target_series AS (
+	SELECT series_key, metric_type, temporality, is_monotonic, attributes::VARCHAR AS attrs_json
+	FROM metric_series
+	WHERE service_name = ? AND metric_name = ?
+),
+window_points AS (
+	SELECT
+		p.id, p.series_key, p.ts, p.value, p.count, p.sum, p.min, p.max,
+		s.metric_type, s.temporality, s.is_monotonic, s.attrs_json
+	FROM metric_points p
+	JOIN target_series s USING (series_key)
+	WHERE p.ts >= ? AND p.ts < ?
+),
+represented_series AS (
+	SELECT DISTINCT series_key FROM window_points
+),
+points AS (
+	SELECT * FROM window_points
+	UNION ALL
+	SELECT id, series_key, ts, value, count, sum, min, max,
+		metric_type, temporality, is_monotonic, attrs_json
+	FROM (
+		SELECT
+			p.id, p.series_key, p.ts, p.value, p.count, p.sum, p.min, p.max,
+			s.metric_type, s.temporality, s.is_monotonic, s.attrs_json,
+			row_number() OVER (PARTITION BY p.series_key ORDER BY p.ts DESC, p.id DESC) AS predecessor_rank
+		FROM metric_points p
+		JOIN target_series s USING (series_key)
+		JOIN represented_series r USING (series_key)
+		WHERE p.ts < ?
+	)
+	WHERE predecessor_rank = 1
+),
+` + metricDerivedFormula + metricPointsSelect
+
 // MetricPoints returns every data point across every attribute-series of the
 // (serviceName, metricName) pair within [from, to), ordered by timestamp,
 // with cumulative/delta values derived at query time.
 func (s *Storage) MetricPoints(ctx context.Context, serviceName, metricName string, from, to time.Time) ([]DerivedPoint, error) {
-	rows, err := s.DB().QueryContext(ctx, metricPointsQuery, serviceName, metricName, from, to)
+	return s.queryMetricPoints(ctx, metricPointsQuery, serviceName, metricName, from, to)
+}
+
+// MetricPointsWithPredecessors returns the requested points plus at most one
+// older point per series so cumulative values in the window can be derived.
+func (s *Storage) MetricPointsWithPredecessors(ctx context.Context, serviceName, metricName string, from, to time.Time) ([]DerivedPoint, error) {
+	return s.queryMetricPoints(ctx, metricPointsWithPredecessorsQuery, serviceName, metricName, from, to, from)
+}
+
+func (s *Storage) queryMetricPoints(ctx context.Context, query string, args ...any) ([]DerivedPoint, error) {
+	rows, err := s.DB().QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("storage: query metric points: %w", err)
 	}

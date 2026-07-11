@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-A local-development tool for visualizing OpenTelemetry signals (Traces / Metrics / Logs) in the browser in real time.
+A local-development tool for persistently storing and visualizing OpenTelemetry signals (Traces / Metrics / Logs) in the browser in real time.
 
 ## Development Commands
 
@@ -19,7 +19,7 @@ mise run build    # Build
 - lint: `golangci-lint run ./...`
 - Auto-format: `golangci-lint fmt ./...`
 - Tests: `go test ./...`
-- Tests live in `internal/store/` and `internal/websocket/`
+- Tests live alongside their packages; DuckDB storage coverage is in `internal/storage/`
 
 ## Frontend
 

@@ -5,7 +5,7 @@
 # otelop
 
 A local OpenTelemetry viewer for traces, metrics, and logs.
-Single binary, in-memory, browser UI.
+Single binary, persistent local storage, browser UI.
 
 [![Go](https://img.shields.io/badge/go-1.26-00ADD8?logo=go&logoColor=white)](go.mod)
 [![React](https://img.shields.io/badge/react-19-61DAFB?logo=react&logoColor=white)](frontend/package.json)
@@ -17,7 +17,7 @@ Single binary, in-memory, browser UI.
 
 ## What it is
 
-`otelop` runs a local OTLP receiver and shows whatever it gets in a browser. No Docker, no database, no Jaeger/Prometheus/Loki to wire up. Start the binary, point your app at it, open the page.
+`otelop` runs a local OTLP receiver and shows whatever it gets in a browser. No Docker, external database, or Jaeger/Prometheus/Loki stack to wire up. Start the binary, point your app at it, open the page.
 
 It's meant for the loop where you're writing instrumentation and just want to see what came through.
 
@@ -33,10 +33,11 @@ It's meant for the loop where you're writing instrumentation and just want to se
 - OTLP gRPC and HTTP receivers (built-in OpenTelemetry Collector)
 - Optional OTLP forwarding to one upstream endpoint
 - Traces, metrics, and logs in one UI
+- Embedded DuckDB storage with time-based retention
 - Live updates over WebSocket
 - GraphQL API at `/graphql`
 - MCP server, so agents can query the same data
-- In-memory ring buffers — no persistence, no setup
+- Persistent history across restarts with no external setup
 
 ## Install
 
@@ -113,10 +114,9 @@ otelop version
   --proxy-auth-username upstream basic auth username
   --proxy-auth-password upstream basic auth password
   --proxy-header     upstream header                 (repeatable key=value)
-  --trace-cap        max traces in memory            (default 1000)
-  --metric-cap       max metric series in memory     (default 3000)
-  --log-cap          max log entries in memory       (default 5000)
-  --max-data-points  max data points per series      (default 1000)
+  --storage-path     DuckDB database path             (default: XDG data directory)
+  --retention        telemetry retention period       (default 7d)
+  --max-size         database size ceiling            (default 4GB)
   --log-level        debug|info|warn|error           (default warn)
 ```
 
@@ -136,12 +136,13 @@ Example `~/.config/otelop/config.toml`:
 http = ":4319"
 otlp_grpc = "0.0.0.0:4317"
 otlp_http = "0.0.0.0:4318"
-trace_cap = 1000
-metric_cap = 3000
-log_cap = 5000
-max_data_points = 1000
 log_level = "warn"
 debug = false
+
+[storage]
+path = "" # empty uses $XDG_DATA_HOME/otelop/otelop.duckdb
+retention = "7d"
+max_size = "4GB"
 
 [proxy]
 url = "https://collector.internal:4318"
@@ -152,9 +153,9 @@ type = "bearer"
 token = "replace-me"
 ```
 
-The matching environment variables are `OTELOP_HTTP`, `OTELOP_OTLP_GRPC`, `OTELOP_OTLP_HTTP`, `OTELOP_PROXY_URL`, `OTELOP_PROXY_PROTOCOL`, `OTELOP_PROXY_AUTH_TYPE`, `OTELOP_PROXY_AUTH_TOKEN`, `OTELOP_PROXY_AUTH_USERNAME`, `OTELOP_PROXY_AUTH_PASSWORD`, `OTELOP_PROXY_HEADERS`, `OTELOP_TRACE_CAP`, `OTELOP_METRIC_CAP`, `OTELOP_LOG_CAP`, `OTELOP_MAX_DATA_POINTS`, `OTELOP_LOG_LEVEL`, and `OTELOP_DEBUG`.
+The matching environment variables are `OTELOP_HTTP`, `OTELOP_OTLP_GRPC`, `OTELOP_OTLP_HTTP`, `OTELOP_PROXY_URL`, `OTELOP_PROXY_PROTOCOL`, `OTELOP_PROXY_AUTH_TYPE`, `OTELOP_PROXY_AUTH_TOKEN`, `OTELOP_PROXY_AUTH_USERNAME`, `OTELOP_PROXY_AUTH_PASSWORD`, `OTELOP_PROXY_HEADERS`, `OTELOP_STORAGE_PATH`, `OTELOP_RETENTION`, `OTELOP_MAX_SIZE`, `OTELOP_LOG_LEVEL`, and `OTELOP_DEBUG`.
 
-When proxying is enabled, `otelop` still buffers incoming telemetry locally for the UI and also forwards the same traces, metrics, and logs to the configured upstream OTLP endpoint.
+When proxying is enabled, `otelop` still stores incoming telemetry locally for the UI and also forwards the same traces, metrics, and logs to the configured upstream OTLP endpoint.
 
 `proxy.auth.type` supports:
 

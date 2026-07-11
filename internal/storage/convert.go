@@ -66,6 +66,12 @@ type MetricSeriesRow struct {
 	Temporality string
 	IsMonotonic bool
 	Attributes  map[string]any
+	// Scope fields preserve the instrumentation-scope identity included in
+	// SeriesKey so otherwise identical dimension rows remain inspectable.
+	ScopeName       string
+	ScopeVersion    string
+	ScopeSchemaURL  string
+	ScopeAttributes map[string]any
 	// ResourceHash references the resources dimension row this series was
 	// observed under, mirroring SpanRow/LogRow — full resource attributes
 	// for metrics resolve through the same join.
@@ -259,8 +265,15 @@ func ConvertMetrics(md pmetric.Metrics) MetricBatch {
 		sms := rm.ScopeMetrics()
 		for j := 0; j < sms.Len(); j++ {
 			sm := sms.At(j)
+			scope := sm.Scope()
+			scopeIdentity := metricScopeIdentity{
+				SchemaURL:  sm.SchemaUrl(),
+				Name:       scope.Name(),
+				Version:    scope.Version(),
+				Attributes: attributesToMap(scope.Attributes()),
+			}
 			for k := 0; k < sm.Metrics().Len(); k++ {
-				convertMetric(sm.Metrics().At(k), svcName, resourceHash, &batch, seenSeries)
+				convertMetric(sm.Metrics().At(k), svcName, resourceHash, scopeIdentity, &batch, seenSeries)
 			}
 		}
 	}
@@ -269,11 +282,19 @@ func ConvertMetrics(md pmetric.Metrics) MetricBatch {
 }
 
 // convertMetric appends one metric's series metadata (deduped by seenSeries,
-// which spans the whole batch so a metric repeated across scopes in one
-// OTLP payload doesn't produce duplicate dimension rows) and data points to
-// batch.
-func convertMetric(m pmetric.Metric, serviceName string, resourceHash uint64, batch *MetricBatch, seenSeries map[uint64]struct{}) {
+// which spans the whole batch so an identical resource/scope series repeated
+// in one OTLP payload doesn't produce duplicate dimension rows) and data
+// points to batch.
+func convertMetric(m pmetric.Metric, serviceName string, resourceHash uint64, scope metricScopeIdentity, batch *MetricBatch, seenSeries map[uint64]struct{}) {
 	var skipped int
+	seriesKeyFor := func(attrs map[string]any) uint64 {
+		return hashSeries(metricSeriesIdentity{
+			ResourceHash: resourceHash,
+			Scope:        scope,
+			MetricName:   m.Name(),
+			Attributes:   attrs,
+		})
+	}
 
 	addSeries := func(seriesKey uint64, attrs map[string]any, temporality string, isMonotonic bool) {
 		if _, ok := seenSeries[seriesKey]; ok {
@@ -281,16 +302,20 @@ func convertMetric(m pmetric.Metric, serviceName string, resourceHash uint64, ba
 		}
 		seenSeries[seriesKey] = struct{}{}
 		batch.Series = append(batch.Series, MetricSeriesRow{
-			SeriesKey:    seriesKey,
-			ServiceName:  serviceName,
-			MetricName:   m.Name(),
-			MetricType:   m.Type().String(),
-			Unit:         m.Unit(),
-			Description:  m.Description(),
-			Temporality:  temporality,
-			IsMonotonic:  isMonotonic,
-			Attributes:   attrs,
-			ResourceHash: resourceHash,
+			SeriesKey:       seriesKey,
+			ServiceName:     serviceName,
+			MetricName:      m.Name(),
+			MetricType:      m.Type().String(),
+			Unit:            m.Unit(),
+			Description:     m.Description(),
+			Temporality:     temporality,
+			IsMonotonic:     isMonotonic,
+			Attributes:      attrs,
+			ScopeName:       scope.Name,
+			ScopeVersion:    scope.Version,
+			ScopeSchemaURL:  scope.SchemaURL,
+			ScopeAttributes: scope.Attributes,
+			ResourceHash:    resourceHash,
 		})
 	}
 
@@ -305,7 +330,7 @@ func convertMetric(m pmetric.Metric, serviceName string, resourceHash uint64, ba
 				continue
 			}
 			attrs := attributesToMap(dp.Attributes())
-			seriesKey := hashSeries(serviceName, m.Name(), attrs)
+			seriesKey := seriesKeyFor(attrs)
 			addSeries(seriesKey, attrs, "", false)
 			appendScalarPoint(batch, seriesKey, dp.Timestamp().AsTime(), optionalTimestamp(dp.StartTimestamp()), v)
 		}
@@ -321,7 +346,7 @@ func convertMetric(m pmetric.Metric, serviceName string, resourceHash uint64, ba
 				continue
 			}
 			attrs := attributesToMap(dp.Attributes())
-			seriesKey := hashSeries(serviceName, m.Name(), attrs)
+			seriesKey := seriesKeyFor(attrs)
 			addSeries(seriesKey, attrs, temporality, sum.IsMonotonic())
 			appendScalarPoint(batch, seriesKey, dp.Timestamp().AsTime(), optionalTimestamp(dp.StartTimestamp()), v)
 		}
@@ -332,7 +357,7 @@ func convertMetric(m pmetric.Metric, serviceName string, resourceHash uint64, ba
 		for i := 0; i < dps.Len(); i++ {
 			dp := dps.At(i)
 			attrs := attributesToMap(dp.Attributes())
-			seriesKey := hashSeries(serviceName, m.Name(), attrs)
+			seriesKey := seriesKeyFor(attrs)
 			addSeries(seriesKey, attrs, temporality, false)
 			appendDistributionPoint(batch, seriesKey, dp.Timestamp().AsTime(), optionalTimestamp(dp.StartTimestamp()),
 				float64(dp.Count()), optionalHasFloat(dp.HasSum(), dp.Sum()), optionalHasFloat(dp.HasMin(), dp.Min()), optionalHasFloat(dp.HasMax(), dp.Max()))
@@ -344,7 +369,7 @@ func convertMetric(m pmetric.Metric, serviceName string, resourceHash uint64, ba
 		for i := 0; i < dps.Len(); i++ {
 			dp := dps.At(i)
 			attrs := attributesToMap(dp.Attributes())
-			seriesKey := hashSeries(serviceName, m.Name(), attrs)
+			seriesKey := seriesKeyFor(attrs)
 			addSeries(seriesKey, attrs, temporality, false)
 			appendDistributionPoint(batch, seriesKey, dp.Timestamp().AsTime(), optionalTimestamp(dp.StartTimestamp()),
 				float64(dp.Count()), optionalHasFloat(dp.HasSum(), dp.Sum()), optionalHasFloat(dp.HasMin(), dp.Min()), optionalHasFloat(dp.HasMax(), dp.Max()))
@@ -354,7 +379,7 @@ func convertMetric(m pmetric.Metric, serviceName string, resourceHash uint64, ba
 		for i := 0; i < dps.Len(); i++ {
 			dp := dps.At(i)
 			attrs := attributesToMap(dp.Attributes())
-			seriesKey := hashSeries(serviceName, m.Name(), attrs)
+			seriesKey := seriesKeyFor(attrs)
 			// Summary has no temporality field in OTLP; treat as cumulative
 			// so query-time derivation matches Histogram semantics.
 			addSeries(seriesKey, attrs, "cumulative", false)

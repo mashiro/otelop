@@ -97,6 +97,10 @@ func TestStorage_AddMetrics_IngestIsQueryable(t *testing.T) {
 	rm := md.ResourceMetrics().AppendEmpty()
 	rm.Resource().Attributes().PutStr("service.name", "svc")
 	sm := rm.ScopeMetrics().AppendEmpty()
+	sm.SetSchemaUrl("https://opentelemetry.io/schemas/1.30.0")
+	sm.Scope().SetName("example.metrics")
+	sm.Scope().SetVersion("1.2.3")
+	sm.Scope().Attributes().PutStr("library.language", "go")
 	m := sm.Metrics().AppendEmpty()
 	m.SetName("cpu.usage")
 	dp := m.SetEmptyGauge().DataPoints().AppendEmpty()
@@ -117,6 +121,20 @@ func TestStorage_AddMetrics_IngestIsQueryable(t *testing.T) {
 	}
 	if value != 0.75 {
 		t.Errorf("value = %v, want 0.75", value)
+	}
+
+	var scopeName, scopeVersion, scopeSchemaURL, scopeLanguage string
+	err = s.DB().QueryRowContext(context.Background(), `
+		SELECT scope_name, scope_version, scope_schema_url,
+		       scope_attributes->>'library.language'
+		FROM metric_series WHERE metric_name = ?
+	`, "cpu.usage").Scan(&scopeName, &scopeVersion, &scopeSchemaURL, &scopeLanguage)
+	if err != nil {
+		t.Fatalf("query metric scope: %v", err)
+	}
+	if scopeName != "example.metrics" || scopeVersion != "1.2.3" ||
+		scopeSchemaURL != "https://opentelemetry.io/schemas/1.30.0" || scopeLanguage != "go" {
+		t.Errorf("scope = %q/%q/%q/%q", scopeName, scopeVersion, scopeSchemaURL, scopeLanguage)
 	}
 }
 

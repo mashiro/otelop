@@ -15,15 +15,6 @@ import (
 	"github.com/mashiro/otelop/internal/storage"
 )
 
-// metricLagMargin bounds how far before a batch's earliest new point
-// MetricPoints looks back so the window-function lag() in the query has the
-// one immediately-preceding observation per series available. It only needs
-// to reach the previous scrape, so this is deliberately "small" relative to
-// the multi-day retention window it is bounded within — see
-// docs/design/duckdb-storage.md's Reads section and the task spec ("small ts
-// margin").
-const metricLagMargin = 1 * time.Hour
-
 // metricLeadMargin nudges the query's exclusive upper bound past the
 // batch's latest point timestamp so that exact-timestamp point is included.
 const metricLeadMargin = 1 * time.Second
@@ -184,9 +175,9 @@ func broadcastMetrics(ctx context.Context, s *storage.Storage, batch storage.Met
 	now := time.Now()
 	for _, k := range order {
 		sr := seriesRowFor(seriesInfo, k)
-		from := minTS[k].Add(-metricLagMargin)
+		from := minTS[k]
 		to := maxTS[k].Add(metricLeadMargin)
-		points, err := s.MetricPoints(ctx, k.service, k.name, from, to)
+		points, err := s.MetricPointsWithPredecessors(ctx, k.service, k.name, from, to)
 		if err != nil {
 			slog.Error("broadcast: metric points lookup failed", "service", k.service, "metric", k.name, "error", err)
 			continue

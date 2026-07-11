@@ -164,6 +164,7 @@ func TestBroadcast_Metrics_WireShapeAndBaselineOmission(t *testing.T) {
 	md1 := pmetric.NewMetrics()
 	rm1 := md1.ResourceMetrics().AppendEmpty()
 	rm1.Resource().Attributes().PutStr("service.name", "svc-a")
+	rm1.Resource().Attributes().PutStr("deployment.environment", "dev")
 	sm1 := rm1.ScopeMetrics().AppendEmpty()
 	m1 := sm1.Metrics().AppendEmpty()
 	m1.SetName("requests.total")
@@ -198,7 +199,9 @@ func TestBroadcast_Metrics_WireShapeAndBaselineOmission(t *testing.T) {
 	sum2.SetAggregationTemporality(pmetric.AggregationTemporalityCumulative)
 	dp2 := sum2.DataPoints().AppendEmpty()
 	dp2.SetDoubleValue(140)
-	dp2.SetTimestamp(pcommon.NewTimestampFromTime(start.Add(time.Second)))
+	// The predecessor is deliberately more than an hour old. Broadcast must
+	// fetch the actual previous observation instead of using a fixed lookback.
+	dp2.SetTimestamp(pcommon.NewTimestampFromTime(start.Add(2 * time.Hour)))
 	s.AddMetrics(context.Background(), md2)
 	s.Sync()
 

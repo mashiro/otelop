@@ -706,13 +706,19 @@ func (s *Storage) upsertSeries(ctx context.Context, rows []MetricSeriesRow) erro
 		if err != nil {
 			return fmt.Errorf("storage: marshal series attributes: %w", err)
 		}
+		scopeAttrs, err := json.Marshal(r.ScopeAttributes)
+		if err != nil {
+			return fmt.Errorf("storage: marshal scope attributes: %w", err)
+		}
 		_, err = s.writer.ExecContext(ctx,
 			`INSERT INTO metric_series
-			   (series_key, service_name, metric_name, metric_type, unit, description, temporality, is_monotonic, attributes, resource_hash, first_seen, last_seen)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			   (series_key, service_name, metric_name, metric_type, unit, description, temporality, is_monotonic, attributes,
+			    scope_name, scope_version, scope_schema_url, scope_attributes, resource_hash, first_seen, last_seen)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			 ON CONFLICT (series_key) DO UPDATE SET last_seen = excluded.last_seen`,
 			duckdb.Typed(r.SeriesKey, duckdb.TYPE_UBIGINT), r.ServiceName, r.MetricName, r.MetricType,
 			r.Unit, r.Description, r.Temporality, r.IsMonotonic, attrs,
+			r.ScopeName, r.ScopeVersion, r.ScopeSchemaURL, scopeAttrs,
 			duckdb.Typed(r.ResourceHash, duckdb.TYPE_UBIGINT), now, now,
 		)
 		if err != nil {

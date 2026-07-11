@@ -11,10 +11,12 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates libstdc++6 \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid 65532 nonroot \
-    && useradd --uid 65532 --gid nonroot --no-create-home --shell /usr/sbin/nologin nonroot
+    && useradd --uid 65532 --gid nonroot --create-home --shell /usr/sbin/nologin nonroot
 
 ARG TARGETPLATFORM
 COPY $TARGETPLATFORM/otelop /usr/local/bin/otelop
+
+ENV HOME=/home/nonroot
 
 USER nonroot:nonroot
 

@@ -41,6 +41,12 @@ func buildDeltaSum(name string, service string, v float64, ts time.Time) pmetric
 	return md
 }
 
+func buildInstanceCumulativeSum(name, service, instance string, v float64, ts time.Time) pmetric.Metrics {
+	md := buildCumulativeSum(name, service, v, ts)
+	md.ResourceMetrics().At(0).Resource().Attributes().PutStr("service.instance.id", instance)
+	return md
+}
+
 // TestMetricPoints_CumulativeSumBaselineThenDelta mirrors
 // the old store package's TestConvertMetrics_CumulativeSumDeltaized, but the
 // baseline observation is NOT dropped here — it's a real row with a NULL
@@ -70,6 +76,35 @@ func TestMetricPoints_CumulativeSumBaselineThenDelta(t *testing.T) {
 	}
 	if points[1].Cumulative == nil || *points[1].Cumulative != 150 {
 		t.Fatalf("second point Cumulative = %v, want 150", points[1].Cumulative)
+	}
+}
+
+func TestMetricPoints_DerivesIndependentResourceSeriesSeparately(t *testing.T) {
+	s := openTestStorage(t, Options{})
+	ctx := context.Background()
+	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	s.AddMetrics(ctx, buildInstanceCumulativeSum("requests.total", "svc", "a", 100, t0))
+	s.AddMetrics(ctx, buildInstanceCumulativeSum("requests.total", "svc", "b", 1000, t0.Add(time.Second)))
+	s.AddMetrics(ctx, buildInstanceCumulativeSum("requests.total", "svc", "a", 150, t0.Add(2*time.Second)))
+	s.AddMetrics(ctx, buildInstanceCumulativeSum("requests.total", "svc", "b", 1100, t0.Add(3*time.Second)))
+	s.Sync()
+
+	points, err := s.MetricPoints(ctx, "svc", "requests.total", t0.Add(-time.Minute), t0.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("MetricPoints: %v", err)
+	}
+	if len(points) != 4 {
+		t.Fatalf("expected 4 points, got %d", len(points))
+	}
+	if points[0].Value != nil || points[1].Value != nil {
+		t.Fatalf("first observation of each resource must be a baseline: %v, %v", points[0].Value, points[1].Value)
+	}
+	if points[2].Value == nil || *points[2].Value != 50 {
+		t.Fatalf("instance a delta = %v, want 50", points[2].Value)
+	}
+	if points[3].Value == nil || *points[3].Value != 100 {
+		t.Fatalf("instance b delta = %v, want 100", points[3].Value)
 	}
 }
 

@@ -29,8 +29,8 @@ explicitly out of scope — that is what LGTM-stack deployments are for.
 ```
 OTLP receiver → exporter → convert (pure functions) → writer goroutine (single)
                                                         ├─ Appender: spans / metric_points / logs
-                                                        ├─ INSERT OR IGNORE: resources / metric_series
-                                                        └─ flush per OTLP batch → onAdd → WebSocket broadcast
+                                                        ├─ upsert: resources / metric_series
+                                                        └─ flush per OTLP batch → commit event → WebSocket broadcast
 GraphQL resolvers ──────────────────────────────────────→ read-only SQL (separate connection)
 ```
 
@@ -38,9 +38,9 @@ Key decisions:
 
 1. **DuckDB is the primary store.** There is no in-memory buffer layer. Every
    read is SQL; the "latest N" view is a tail query. In-memory state is
-   limited to pure caches (known dimension hashes, last raw value per series
-   for WebSocket deltas) — a cache miss falls back to a DB lookup, so eviction
-   can never corrupt results.
+   limited to pure caches such as known dimension hashes and recent span IDs.
+   A cache miss only repeats an idempotent write or leaves read-time dedup to
+   SQL, so eviction can never corrupt results.
 2. **Ingest is stateless.** Metric points are stored with their *raw* OTLP
    values plus temporality/monotonicity metadata. Delta-ization of cumulative
    inputs and accumulation of delta inputs both move to query time
@@ -72,7 +72,7 @@ CREATE TABLE resources (
 );
 
 CREATE TABLE metric_series (
-  series_key    UBIGINT PRIMARY KEY,   -- hash(service, metric name, sorted attrs)
+  series_key    UBIGINT PRIMARY KEY,   -- hash(resource, scope, metric name, sorted attrs)
   service_name  VARCHAR NOT NULL,
   metric_name   VARCHAR NOT NULL,
   metric_type   VARCHAR NOT NULL,      -- Gauge | Sum | Histogram | ExponentialHistogram | Summary
@@ -81,6 +81,10 @@ CREATE TABLE metric_series (
   temporality   VARCHAR,               -- cumulative | delta
   is_monotonic  BOOLEAN,
   attributes    JSON NOT NULL,
+  scope_name       VARCHAR NOT NULL,
+  scope_version    VARCHAR NOT NULL,
+  scope_schema_url VARCHAR NOT NULL,
+  scope_attributes JSON NOT NULL,
   resource_hash UBIGINT NOT NULL,      -- references resources, like spans/logs
   first_seen    TIMESTAMP_NS NOT NULL,
   last_seen     TIMESTAMP_NS NOT NULL
@@ -148,19 +152,19 @@ Notes:
 A single writer goroutine owns the write connection. Per OTLP batch:
 
 1. Convert pdata to row values (pure functions; no shared state).
-2. Insert unseen `resources` / `metric_series` rows via
-   `INSERT ... ON CONFLICT DO NOTHING` (an LRU of known hashes skips the
-   round trip; the LRU is only a cache).
+2. Insert unseen `resources` and upsert `metric_series` metadata (including
+   `last_seen`). An LRU of known resource hashes skips redundant writes; the
+   LRU is only a cache.
 3. Append fact rows through DuckDB Appenders, then flush.
 4. After flush, invoke `onAdd` (outside any lock) to feed the WebSocket hub,
    mirroring the previous store's contract.
 
-WebSocket payloads still carry per-point deltas for live charts. The writer
-computes them from a "last raw value per series" LRU; on miss it reads the
-previous value from DuckDB. Duplicate spans from OTLP re-sends are filtered
-by a bounded LRU of recent `(trace_id, span_id)`; read queries additionally
-guard with `QUALIFY row_number() OVER (PARTITION BY span_id ...) = 1` where
-span identity matters.
+WebSocket payloads still carry per-point deltas for live charts. After a
+metric batch commits, the broadcast adapter queries the committed points plus
+the immediately preceding observation for each represented series and applies
+the same SQL derivation used by GraphQL. Duplicate spans from OTLP re-sends are
+filtered by a bounded LRU of recent `(trace_id, span_id)`; read queries also
+deduplicate by span identity with `QUALIFY row_number() OVER (...) = 1`.
 
 Backpressure: the channel into the writer is bounded; when full, batches are
 dropped with a `slog.Warn`, the same policy the WebSocket hub applies. Crash
@@ -227,7 +231,8 @@ while keeping the raw row.
 - `clearSignals` deletes from all tables and checkpoints. The database lives at
   `$XDG_DATA_HOME/otelop/otelop.duckdb` (falling back to
   `~/.local/share/otelop/`); deleting the file remains a valid reset.
-- `status` (GraphQL and CLI) reports file size and per-table row counts.
+- GraphQL `status` and CLI `otelop info` report file size and per-table row
+  counts.
 
 Sizing: DuckDB compresses spans to roughly 100–300 B/row. A very busy week
 (~10 M spans) lands around 1–3 GB, comfortably inside the default ceiling.

@@ -127,8 +127,8 @@ func (s *Storage) DBStats(ctx context.Context) (DBStats, error) {
 // Counts reports the trace/metric/log counts used by the GraphQL Config
 // surface: distinct traces (a trace_id group, not a raw span count), distinct
 // (service, metric name) pairs (a metric group, not a raw data-point count),
-// and raw log rows — matching the old store package's Store.Len() semantics, where
-// each ring buffer holds one TraceData/MetricData/LogData per logical item.
+// and raw log rows. These are logical UI item counts, not fact-table row
+// counts, so spans and metric points do not inflate their respective totals.
 func (s *Storage) Counts(ctx context.Context) (traces, metrics, logs int, err error) {
 	if err := s.DB().QueryRowContext(ctx, `SELECT count(DISTINCT trace_id) FROM spans`).Scan(&traces); err != nil {
 		return 0, 0, 0, fmt.Errorf("storage: count traces: %w", err)

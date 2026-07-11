@@ -95,7 +95,7 @@ func buildTelemetryMetricsConfig(cfg Config) obj {
 	endpoint := (&url.URL{Scheme: "http", Host: cfg.SelfTelemetryEndpoint}).String()
 	return obj{
 		// "normal" omits per-RPC histograms that "detailed" enables; those
-		// would dominate the bounded in-memory store at default capacity.
+		// add high-volume self-telemetry without helping local investigation.
 		"level": "normal",
 		"readers": []any{
 			obj{
