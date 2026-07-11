@@ -207,13 +207,6 @@ export const traceCountAtom = atom((get) => get(tracesAtom).length);
 export const metricCountAtom = atom((get) => get(metricsAtom).length);
 export const logCountAtom = atom((get) => get(logsAtom).length);
 
-// Clear all data
-export const clearAllAtom = atom(null, (_get, set) => {
-  set(tracesAtom, []);
-  set(metricsAtom, []);
-  set(logsAtom, []);
-});
-
 // Selection state. The id/key (not the object) is the source of truth so it
 // can be restored from the URL before the matching data has loaded — the
 // derived read resolves once tracesAtom/metricsAtom catch up. Equality
