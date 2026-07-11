@@ -59,6 +59,13 @@ mise run build    # Build
 - Always run `mise run check` and `mise run test` after making changes
 - Use agent-browser to verify both light and dark mode
 
+### Verification environment
+
+- Use `mise run e2e-env` for any e2e/manual verification. It boots an isolated backend + frontend on high ports (14317/14318/14319 backend, 15173 frontend) against a throwaway temp DuckDB file, then tears everything down on exit
+- The live dev servers (`:4319` backend, `:5173` frontend) and the user's real DuckDB file are managed by the user's own orchestrator — treat them as **read-only** for verification purposes
+- Never edit `frontend/vite.config.ts` to retarget the dev proxy at a different backend — the proxy target is already an env var (`OTELOP_BACKEND_ORIGIN`); `mise run e2e-env` sets it for you
+- Never kill a process you didn't start (e.g. `kill 0`, `pkill vite`, `pkill otelop`) — this includes the live dev servers
+
 ### Commit messages and PR titles
 
 Releases are cut by [release-please](https://github.com/googleapis/release-please), so commit messages and PR titles must follow [Conventional Commits](https://www.conventionalcommits.org/). release-please parses these to derive the next version and generate the changelog.

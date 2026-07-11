@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+#MISE description="Boot an isolated backend+frontend stack on high ports for e2e verification, so agents never have to touch the live :4319/:5173 dev servers"
+set -euo pipefail
+
+# All ports default to a private range well clear of the live dev servers
+# (backend :4319, frontend :5173) that `mise run dev` manages. Override via
+# env if a port happens to collide with something else on the host.
+http_port="${OTELOP_E2E_HTTP:-14319}"
+grpc_port="${OTELOP_E2E_OTLP_GRPC:-14317}"
+otlp_http_port="${OTELOP_E2E_OTLP_HTTP:-14318}"
+frontend_port="${OTELOP_E2E_FRONTEND:-15173}"
+
+# Self-telemetry is off by default so a verification run's own traces don't
+# pollute the store being inspected. Set OTELOP_E2E_DEBUG=true to opt in.
+# Plain string (not an array) — macOS's system bash is 3.2, whose `set -u`
+# throws "unbound variable" on `"${arr[@]}"` when arr is an empty array.
+debug_flag=""
+if [[ "${OTELOP_E2E_DEBUG:-false}" == "true" ]]; then
+  debug_flag="--debug"
+fi
+
+# A throwaway storage dir and an empty config file keep this run fully
+# isolated from the user's real otelop config/database (which may itself
+# default debug=true — see ~/.config/otelop/config.toml).
+storage_dir="$(mktemp -d)"
+config_file="$(mktemp)"
+# rm before kill: `kill 0` also signals this script's own shell, and the
+# default SIGTERM disposition can terminate it before a later command in
+# the same trap runs — so the temp-dir cleanup must come first.
+trap 'rm -rf "$storage_dir" "$config_file"; kill 0 2>/dev/null' EXIT
+
+echo "=========================================================================="
+echo " otelop e2e verification environment (isolated — live :4319/:5173 untouched)"
+echo "=========================================================================="
+echo "  Backend GraphQL : http://localhost:${http_port}/graphql"
+echo "  OTLP gRPC       : 127.0.0.1:${grpc_port}"
+echo "  OTLP HTTP       : http://127.0.0.1:${otlp_http_port}"
+echo "  Frontend        : http://localhost:${frontend_port}"
+echo "  Storage (temp)  : ${storage_dir}"
+echo "=========================================================================="
+
+OTELOP_CONFIG_FILE="$config_file" go run ./cmd/otelop start --foreground \
+  --http ":${http_port}" \
+  --otlp-grpc "127.0.0.1:${grpc_port}" \
+  --otlp-http "127.0.0.1:${otlp_http_port}" \
+  --storage-path "${storage_dir}/otelop.duckdb" \
+  $debug_flag &
+
+cd frontend && OTELOP_BACKEND_ORIGIN="http://localhost:${http_port}" \
+  pnpm run dev -- --port "${frontend_port}" --strictPort &
+
+wait
