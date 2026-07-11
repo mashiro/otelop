@@ -5,7 +5,7 @@ import { Temporal } from "temporal-polyfill";
 import type { ReactNode } from "react";
 import { useServiceMapSpans } from "./use-service-map-spans";
 import { tracesAtom } from "@/stores/telemetry";
-import { makeTrace, makeSpan } from "@/test/factories";
+import { makeTrace, makeSpan, toQuerySpan } from "@/test/factories";
 import type { ChartTimeRange } from "@/lib/chart-time-range";
 import type { ServiceMapSpansQuery, ServiceMapSpansQueryVariables } from "@/gql/graphql";
 
@@ -18,11 +18,6 @@ vi.mock("@/lib/graphql", () => ({ gqlClient: { request: requestMock } }));
 beforeEach(() => {
   requestMock.mockReset();
 });
-
-function toQuerySpan(span: ReturnType<typeof makeSpan>) {
-  const { duration, ...rest } = span;
-  return { ...rest, durationMs: duration / 1_000_000 };
-}
 
 function renderWithStore(
   initialActive: boolean,

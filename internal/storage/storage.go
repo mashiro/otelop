@@ -46,6 +46,13 @@ const (
 	// (trace_id, span_id) pairs used to drop duplicate re-sends.
 	spanDedupCap = 200_000
 
+	// commitQueueSize bounds the channel handing CommitEvents from the
+	// writer goroutine to the dedicated OnCommit-delivery goroutine (see
+	// Options.OnCommit). Sized the same as writeQueueSize and for the same
+	// reason: absorb a burst without making the writer wait on a slow
+	// listener; once full, the newest event is dropped (see dispatchCommit).
+	commitQueueSize = 256
+
 	// sweepInterval is how often the background retention/max_size sweep
 	// runs, matching docs/design/duckdb-storage.md's "hourly sweep".
 	sweepInterval = time.Hour
@@ -70,12 +77,18 @@ type Options struct {
 	// MaxSize is the on-disk ceiling in bytes for a file-backed database.
 	// Ignored for in-memory databases. Defaults to 4 GiB.
 	MaxSize int64
-	// OnCommit, if set, is invoked by the writer goroutine after each
-	// batch's fact rows are durably flushed — see docs/design/duckdb-storage.md's
-	// ingest step 4 ("after flush, invoke onAdd ... to feed the WebSocket
-	// hub, mirroring the previous store's contract"). It runs synchronously
-	// on the writer goroutine, so callers needing concurrency (e.g. slow
-	// broadcast fan-out) should hand off rather than block here.
+	// OnCommit, if set, is invoked once per flushed batch after its fact rows
+	// are durably written — see docs/design/duckdb-storage.md's ingest step 4
+	// ("after flush, invoke onAdd ... to feed the WebSocket hub, mirroring
+	// the previous store's contract"). Unlike a direct call from the writer
+	// goroutine, delivery runs on its own dedicated goroutine (started by
+	// Open) reached through a bounded channel (commitQueueSize): a slow
+	// listener (e.g. internal/broadcast's DB read-backs + hub fan-out) never
+	// blocks subsequent ingest. Events are delivered in commit order; if the
+	// listener falls behind enough to fill the channel, the newest event is
+	// dropped with a logged warning — the same drop-on-full policy the write
+	// queue applies — rather than blocking the writer. Close waits for every
+	// already-queued event to be delivered before returning.
 	OnCommit OnCommitFunc
 }
 
@@ -104,6 +117,15 @@ type CommitEvent struct {
 
 // OnCommitFunc is the type of Options.OnCommit.
 type OnCommitFunc func(ctx context.Context, ev CommitEvent)
+
+// commitJob is what flows through Storage.commitCh. barrier is non-nil only
+// for the internal "has everything enqueued so far been delivered" probe
+// awaitCommitDrain uses (Sync's synchronization with the delivery
+// goroutine); ev is meaningless in that case and is left zero-valued.
+type commitJob struct {
+	ev      CommitEvent
+	barrier chan struct{}
+}
 
 // spanKey identifies a span for dedup purposes.
 type spanKey struct {
@@ -167,6 +189,14 @@ type Storage struct {
 	sweepTicker *time.Ticker
 	sweepStop   chan struct{}
 
+	// commitCh hands CommitEvents from the writer goroutine to runCommits,
+	// the dedicated goroutine that actually invokes opts.OnCommit — see
+	// Options.OnCommit's doc comment. Non-nil only when opts.OnCommit is
+	// set; commitWG lets Close wait for runCommits to drain it before
+	// returning.
+	commitCh chan commitJob
+	commitWG sync.WaitGroup
+
 	// sizeFn reports the database file's current on-disk size; enforceMaxSize
 	// calls it, defaulting to fileSize. Overridable so tests can drive the
 	// "delete oldest day until under the ceiling" loop deterministically
@@ -223,6 +253,12 @@ func Open(ctx context.Context, opts Options) (*Storage, error) {
 	}
 	s.sizeFn = s.fileSize
 
+	if opts.OnCommit != nil {
+		s.commitCh = make(chan commitJob, commitQueueSize)
+		s.commitWG.Add(1)
+		go s.runCommits()
+	}
+
 	s.wg.Add(1)
 	go s.run()
 
@@ -233,10 +269,9 @@ func Open(ctx context.Context, opts Options) (*Storage, error) {
 	return s, nil
 }
 
-// DB returns the general-purpose read connection pool. Phase 1 has no query
-// layer of its own yet (that's Phase 2's read query layer); this is the seam
-// tests use to verify ingested rows, and that a later phase's read API will
-// wrap.
+// DB returns the general-purpose read connection pool backing the query
+// layer (internal/storage's query_*.go files); it's also the seam tests use
+// to verify ingested rows directly.
 func (s *Storage) DB() *sql.DB { return s.db }
 
 // AddTraces converts td and enqueues it for the writer. Converting outside
@@ -348,6 +383,10 @@ func (s *Storage) Clear(ctx context.Context) error {
 // Close stops accepting new work, drains everything already queued, and
 // releases the database connections. Batches enqueued before Close is
 // called are guaranteed to be written; Close does not cancel in-flight work.
+// If OnCommit is set, Close also waits for every CommitEvent already handed
+// to the delivery goroutine (see Options.OnCommit) to actually be
+// delivered — including ones dispatched from a batch this same Close call
+// is draining — before returning, in commit order.
 func (s *Storage) Close() error {
 	s.mu.Lock()
 	if s.closed {
@@ -362,6 +401,15 @@ func (s *Storage) Close() error {
 	close(s.sweepStop)
 
 	s.wg.Wait() // run() drains the closed channel; sweepLoop exits on sweepStop
+
+	if s.commitCh != nil {
+		// Only safe to close now that run() — commitCh's sole sender — has
+		// exited above; closing while it could still send would panic. The
+		// dedicated delivery goroutine drains whatever is left (in commit
+		// order) before exiting, and commitWG.Wait blocks Close on that.
+		close(s.commitCh)
+		s.commitWG.Wait()
+	}
 
 	var errs []error
 	if err := s.writer.Close(); err != nil {
@@ -388,12 +436,68 @@ func (s *Storage) run() {
 		case msgLogs:
 			s.writeLogs(ctx, msg.logs)
 		case msgSync:
+			// Sync's contract is "every batch enqueued before this call has
+			// been fully processed" — extended here to also cover OnCommit
+			// delivery (not just the write itself), since Sync is the
+			// barrier tests use to make async delivery deterministic.
+			s.awaitCommitDrain()
 			msg.done <- nil
 		case msgSweep:
 			msg.done <- s.performSweep(ctx)
 		case msgClear:
 			msg.done <- s.performClear(ctx)
 		}
+	}
+}
+
+// awaitCommitDrain blocks until every CommitEvent dispatched so far (from
+// this same writer goroutine, strictly before this call) has been delivered
+// by runCommits. It works by enqueuing a barrier job behind them on the same
+// FIFO channel and waiting for runCommits to reach it — since runCommits
+// processes one job at a time, reaching the barrier means the job right
+// before it has already been fully delivered. Unlike dispatchCommit this
+// send is blocking/undroppable: a barrier silently dropped would hang the
+// caller (Sync) forever.
+func (s *Storage) awaitCommitDrain() {
+	if s.commitCh == nil {
+		return
+	}
+	barrier := make(chan struct{})
+	s.commitCh <- commitJob{barrier: barrier}
+	<-barrier
+}
+
+// dispatchCommit hands ev to the dedicated delivery goroutine (see
+// Options.OnCommit), dropping it with a warning if that goroutine has fallen
+// far enough behind to fill commitCh — the same drop-on-full policy enqueue
+// applies to the write queue — rather than blocking the writer goroutine on
+// a slow listener.
+func (s *Storage) dispatchCommit(ev CommitEvent) {
+	if s.commitCh == nil {
+		return
+	}
+	select {
+	case s.commitCh <- commitJob{ev: ev}:
+	default:
+		slog.Warn("storage: commit event queue full, dropping broadcast", "kind", ev.Kind)
+	}
+}
+
+// runCommits is the dedicated OnCommit-delivery goroutine (see
+// Options.OnCommit's doc comment): it owns nothing but commitCh, so a slow
+// opts.OnCommit call here never blocks the writer goroutine dispatching the
+// next batch. Processing one job at a time off a single channel is what
+// gives delivery its commit-order guarantee and lets awaitCommitDrain's
+// barrier trick work.
+func (s *Storage) runCommits() {
+	defer s.commitWG.Done()
+	ctx := context.Background()
+	for job := range s.commitCh {
+		if job.barrier != nil {
+			close(job.barrier)
+			continue
+		}
+		s.opts.OnCommit(ctx, job.ev)
 	}
 }
 
@@ -426,10 +530,9 @@ func (s *Storage) writeTraces(ctx context.Context, batch TraceBatch) {
 	kept := make([]SpanRow, 0, len(batch.Spans))
 	for _, sp := range batch.Spans {
 		key := spanKey{traceID: sp.TraceID, spanID: sp.SpanID}
-		if s.spanDedup.Contains(key) {
+		if s.spanDedup.ContainsOrAdd(key) {
 			continue
 		}
-		s.spanDedup.Add(key)
 		kept = append(kept, sp)
 	}
 	if len(kept) == 0 {
@@ -469,9 +572,7 @@ func (s *Storage) writeTraces(ctx context.Context, batch TraceBatch) {
 		slog.Error("storage: append spans failed", "error", err)
 		return
 	}
-	if s.opts.OnCommit != nil {
-		s.opts.OnCommit(ctx, CommitEvent{Kind: KindTraces, Traces: TraceBatch{Spans: kept}})
-	}
+	s.dispatchCommit(CommitEvent{Kind: KindTraces, Traces: TraceBatch{Spans: kept}})
 }
 
 // writeMetrics upserts the batch's resource rows and series metadata, then
@@ -517,9 +618,7 @@ func (s *Storage) writeMetrics(ctx context.Context, batch MetricBatch) {
 		slog.Error("storage: append metric points failed", "error", err)
 		return
 	}
-	if s.opts.OnCommit != nil {
-		s.opts.OnCommit(ctx, CommitEvent{Kind: KindMetrics, Metrics: batch})
-	}
+	s.dispatchCommit(CommitEvent{Kind: KindMetrics, Metrics: batch})
 }
 
 // writeLogs upserts the batch's resource rows, then appends every log.
@@ -563,9 +662,7 @@ func (s *Storage) writeLogs(ctx context.Context, batch LogBatch) {
 		slog.Error("storage: append logs failed", "error", err)
 		return
 	}
-	if s.opts.OnCommit != nil {
-		s.opts.OnCommit(ctx, CommitEvent{Kind: KindLogs, Logs: LogBatch{Resources: batch.Resources, Logs: batch.Logs}})
-	}
+	s.dispatchCommit(CommitEvent{Kind: KindLogs, Logs: LogBatch{Resources: batch.Resources, Logs: batch.Logs}})
 }
 
 // upsertResources inserts resource dimension rows not already known to

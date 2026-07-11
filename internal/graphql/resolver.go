@@ -215,7 +215,7 @@ type MetricPointsArgs struct {
 }
 
 // MetricPoints is the single-metric counterpart to metrics { dataPoints }
-// (issue #162): it calls the same storage.MetricPoints + filterDerivedPoints
+// (issue #162): it calls the same storage.MetricPoints + storage.FilterDerivedPoints
 // path MetricResolver.DataPoints does, so a metric detail view can fetch just
 // the group it's displaying instead of the whole metrics page to extract one
 // group client-side (see hooks/use-metric-range-points.ts).
@@ -225,7 +225,7 @@ func (r *Resolver) MetricPoints(ctx context.Context, args MetricPointsArgs) ([]*
 	if err != nil {
 		return nil, err
 	}
-	filtered := filterDerivedPoints(points)
+	filtered := storage.FilterDerivedPoints(points)
 	out := make([]*DataPointResolver, len(filtered))
 	for i := range filtered {
 		out[i] = &DataPointResolver{dp: filtered[i]}

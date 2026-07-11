@@ -59,23 +59,35 @@ type TraceDetail struct {
 	Spans []SpanDetail
 }
 
+// traceSearchPredicate (issue #161) is the case-insensitive substring match
+// shared by tracesPageQuery's search_ids CTE and tracesTotalQuery (the
+// latter now only run as TracesPage's empty-page-with-offset total
+// fallback — see queryCount): trace_id, span name, status code, or resource
+// service name — the same field set the frontend's pre-#161 client-side
+// filter searched (status included: searching "error" surfaces error
+// traces). An empty search's "%%" pattern (see likePattern) matches
+// unconditionally, making this a no-op filter.
+const traceSearchPredicate = `
+(
+	s.trace_id ILIKE ? ESCAPE '\' OR
+	s.name ILIKE ? ESCAPE '\' OR
+	s.status_code ILIKE ? ESCAPE '\' OR
+	r.service_name ILIKE ? ESCAPE '\'
+)
+`
+
 // tracesPageQuery implements the two-step trace-list semantics from
 // docs/design/duckdb-storage.md and the task spec: matching_ids finds traces
 // with at least one span in [from, to); every later CTE aggregates over ALL
 // (deduped) spans of those traces, so a trace straddling the range boundary
 // is summarized from its complete span set rather than a truncated one.
 //
-// search_ids (issue #161) narrows matching_ids further by a case-insensitive
-// substring search: a trace matches if ANY of its spans (regardless of
-// whether that particular span itself falls in [from, to) — same
-// full-span-set philosophy as the straddling-range case above) has a
-// matching name, status code, or resource service name, or if the trace_id
-// itself matches — the same field set the frontend's pre-#161 client-side
-// filter searched (status included: searching "error" surfaces error traces).
-// It's a separate CTE (rather than folding the predicate into matching_ids)
-// so the search join only runs over the already time-bounded trace_id set,
-// not every span in the table. An empty search's "%%" pattern (see
-// likePattern) matches unconditionally, making this a no-op filter.
+// search_ids narrows matching_ids further by traceSearchPredicate: a trace
+// matches if ANY of its spans (regardless of whether that particular span
+// itself falls in [from, to) — same full-span-set philosophy as the
+// straddling-range case above) matches. It's a separate CTE (rather than
+// folding the predicate into matching_ids) so the search join only runs over
+// the already time-bounded trace_id set, not every span in the table.
 //
 // Root selection (root_candidates/roots) and the rootless fallback
 // (earliest_candidates/earliest) are separate CTEs — each producing exactly
@@ -84,6 +96,13 @@ type TraceDetail struct {
 // could pick fields from two different "longest root" spans when durations
 // tie. row_number() with an explicit, deterministic tiebreak (span_id)
 // guarantees every Root* field comes from the same chosen row.
+//
+// The final SELECT's count(*) OVER () rides along as total_count: since agg
+// (grouped by trace_id) is the last row-count-changing step before ORDER
+// BY/LIMIT/OFFSET, this window function reports the same "matching traces
+// before pagination" total tracesTotalQuery computes separately — letting
+// TracesPage read it off the page query itself instead of a second round
+// trip (see TracesPage's doc comment).
 const tracesPageQuery = `
 WITH matching_ids AS (
 	SELECT DISTINCT trace_id FROM spans WHERE start_ts >= ? AND start_ts < ?
@@ -93,12 +112,7 @@ search_ids AS (
 	FROM spans s
 	JOIN resources r ON r.resource_hash = s.resource_hash
 	WHERE s.trace_id IN (SELECT trace_id FROM matching_ids)
-	AND (
-		s.trace_id ILIKE ? ESCAPE '\' OR
-		s.name ILIKE ? ESCAPE '\' OR
-		s.status_code ILIKE ? ESCAPE '\' OR
-		r.service_name ILIKE ? ESCAPE '\'
-	)
+	AND ` + traceSearchPredicate + `
 ),
 deduped AS (
 	SELECT * FROM spans
@@ -151,7 +165,8 @@ earliest AS (
 SELECT
 	agg.trace_id, agg.start_time, agg.end_time, agg.span_count, agg.has_error, agg.first_seen,
 	COALESCE(root_res.service_name, earliest_res.service_name) AS service_name,
-	roots.root_name, roots.root_kind, roots.root_status_code, roots.root_start_ts, roots.root_end_ts
+	roots.root_name, roots.root_kind, roots.root_status_code, roots.root_start_ts, roots.root_end_ts,
+	count(*) OVER () AS total_count
 FROM agg
 LEFT JOIN roots USING (trace_id)
 LEFT JOIN earliest USING (trace_id)
@@ -163,7 +178,12 @@ LIMIT ? OFFSET ?
 
 // tracesTotalQuery mirrors tracesPageQuery's matching_ids/search_ids
 // filtering exactly (see that query's doc comment) so `total` reflects the
-// same search-narrowed trace set the page itself pages through.
+// same search-narrowed trace set the page itself pages through. It's no
+// longer TracesPage's normal path to `total` (that's tracesPageQuery's own
+// count(*) OVER () column) — this only runs as the empty-page-with-offset
+// fallback, via queryCount, when offset lands past the end of the matching
+// set and the page query itself comes back with no rows to read a total off
+// of.
 const tracesTotalQuery = `
 WITH matching_ids AS (
 	SELECT DISTINCT trace_id FROM spans WHERE start_ts >= ? AND start_ts < ?
@@ -172,25 +192,19 @@ SELECT count(DISTINCT s.trace_id)
 FROM spans s
 JOIN resources r ON r.resource_hash = s.resource_hash
 WHERE s.trace_id IN (SELECT trace_id FROM matching_ids)
-AND (
-	s.trace_id ILIKE ? ESCAPE '\' OR
-	s.name ILIKE ? ESCAPE '\' OR
-	s.status_code ILIKE ? ESCAPE '\' OR
-	r.service_name ILIKE ? ESCAPE '\'
-)
+AND ` + traceSearchPredicate + `
 `
 
 // TracesPage returns a newest-first (by first-seen ingestion order) page of
 // trace summaries whose span set intersects [from, to) and, when search is
 // non-empty, matches it (see tracesPageQuery's search_ids doc comment),
-// plus the total count of matching traces before pagination.
+// plus the total count of matching traces before pagination. total is read
+// off the page query's own count(*) OVER () column; when the page comes
+// back empty because offset is past the end of the matching set, that
+// column has nothing to report, so a separate tracesTotalQuery run recovers
+// it (see queryCount).
 func (s *Storage) TracesPage(ctx context.Context, from, to time.Time, offset, limit int, search string) ([]TraceSummary, int, error) {
 	pattern := likePattern(search)
-
-	var total int
-	if err := s.DB().QueryRowContext(ctx, tracesTotalQuery, from, to, pattern, pattern, pattern, pattern).Scan(&total); err != nil {
-		return nil, 0, fmt.Errorf("storage: count traces page: %w", err)
-	}
 
 	rows, err := s.DB().QueryContext(ctx, tracesPageQuery, from, to, pattern, pattern, pattern, pattern, pageLimit(limit), offset)
 	if err != nil {
@@ -199,6 +213,7 @@ func (s *Storage) TracesPage(ctx context.Context, from, to time.Time, offset, li
 	defer func() { _ = rows.Close() }()
 
 	items := make([]TraceSummary, 0)
+	var total int
 	for rows.Next() {
 		var (
 			t                                  TraceSummary
@@ -206,13 +221,15 @@ func (s *Storage) TracesPage(ctx context.Context, from, to time.Time, offset, li
 			firstSeen                          time.Time
 			rootName, rootKind, rootStatusCode sql.NullString
 			rootStartTS, rootEndTS             sql.NullTime
+			totalCount                         int
 		)
 		if err := rows.Scan(
 			&t.TraceID, &t.StartTime, &endTime, &t.SpanCount, &t.HasError, &firstSeen,
-			&t.ServiceName, &rootName, &rootKind, &rootStatusCode, &rootStartTS, &rootEndTS,
+			&t.ServiceName, &rootName, &rootKind, &rootStatusCode, &rootStartTS, &rootEndTS, &totalCount,
 		); err != nil {
 			return nil, 0, fmt.Errorf("storage: scan trace summary: %w", err)
 		}
+		total = totalCount
 		t.Duration = endTime.Sub(t.StartTime)
 		if rootStartTS.Valid {
 			t.HasRoot = true
@@ -225,6 +242,13 @@ func (s *Storage) TracesPage(ctx context.Context, from, to time.Time, offset, li
 	}
 	if err := rows.Err(); err != nil {
 		return nil, 0, fmt.Errorf("storage: iterate traces page: %w", err)
+	}
+
+	if len(items) == 0 && offset > 0 {
+		total, err = s.queryCount(ctx, tracesTotalQuery, from, to, pattern, pattern, pattern, pattern)
+		if err != nil {
+			return nil, 0, fmt.Errorf("storage: count traces page: %w", err)
+		}
 	}
 
 	return items, total, nil
@@ -369,6 +393,26 @@ func summarizeSpans(traceID string, spans []SpanDetail) TraceSummary {
 	}
 	t.ServiceName = earliest.ServiceName
 	return t
+}
+
+// PickRootSpan reproduces the old store package's isBetterRoot rule: the
+// parentless span with the longest duration represents the trace. Shared by
+// internal/broadcast (translating a commit into the WebSocket wire shape)
+// and internal/graphql (resolving a TraceResolver's rootSpan field), which
+// both need "the" root span of an already-fetched span set without
+// re-deriving TraceSummary's Root* columns from scratch.
+func PickRootSpan(spans []SpanDetail) *SpanDetail {
+	var root *SpanDetail
+	for i := range spans {
+		sp := &spans[i]
+		if sp.ParentSpanID != "" {
+			continue
+		}
+		if root == nil || sp.Duration > root.Duration {
+			root = sp
+		}
+	}
+	return root
 }
 
 // TraceByIDCalls returns the number of TraceByID invocations so far — see

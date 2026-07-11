@@ -272,6 +272,37 @@ func TestTracesPage_PaginationAndTotal(t *testing.T) {
 	}
 }
 
+// TestTracesPage_EmptyPageWithOffsetStillReportsTotal covers the fallback
+// path (queryCount + tracesTotalQuery) TracesPage takes when the page
+// query's count(*) OVER () column has nothing to report because offset lands
+// past the end of the matching set: total must still reflect the true
+// matching count, not 0.
+func TestTracesPage_EmptyPageWithOffsetStillReportsTotal(t *testing.T) {
+	s := openTestStorage(t, Options{})
+	ctx := context.Background()
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	for i := 0; i < 3; i++ {
+		td := buildTracesMulti(spanSpec{
+			traceID: [16]byte{10, byte(i)}, spanID: [8]byte{byte(i)},
+			name: "op", start: base, end: base.Add(time.Millisecond), service: "svc",
+		})
+		s.AddTraces(ctx, td)
+	}
+	s.Sync()
+
+	items, total, err := s.TracesPage(ctx, base.Add(-time.Minute), base.Add(time.Minute), 10, 2, "")
+	if err != nil {
+		t.Fatalf("TracesPage: %v", err)
+	}
+	if len(items) != 0 {
+		t.Fatalf("expected an empty page past the end of the matching set, got %d items", len(items))
+	}
+	if total != 3 {
+		t.Fatalf("total = %d, want 3 (offset-past-end fallback must still report the true total)", total)
+	}
+}
+
 // TestTracesPage_OrderingNewestFirstByIngestion reproduces the old ring
 // buffer's newest-first-by-insertion order via min(ingested_at) DESC.
 func TestTracesPage_OrderingNewestFirstByIngestion(t *testing.T) {

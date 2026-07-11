@@ -5,7 +5,7 @@ import {
   addMetricAtom,
   addTraceAtom,
   addLogAtom,
-  serverConfigAtom,
+  bufferCapsAtom,
   tracesAtom,
   logsAtom,
   logCountAtom,
@@ -58,7 +58,7 @@ describe("addMetricAtom", () => {
 
   it("keeps only the newest maxDataPoints after merging", () => {
     const store = createStore();
-    store.set(serverConfigAtom, { ...store.get(serverConfigAtom), maxDataPoints: 2 });
+    store.set(bufferCapsAtom, { ...store.get(bufferCapsAtom), maxDataPoints: 2 });
     store.set(metricsAtom, [makeMetric({ name: "m", dataPoints: [makeDataPoint({ id: "a" })] })]);
 
     store.set(
@@ -408,7 +408,7 @@ describe("appendTracesAtom", () => {
 
   it("evicts the oldest (front-most) traces once the append exceeds the client cap", () => {
     const store = createStore();
-    store.set(serverConfigAtom, { traceCap: 2, metricCap: 10, logCap: 10, maxDataPoints: 10 });
+    store.set(bufferCapsAtom, { traceCap: 2, metricCap: 10, logCap: 10, maxDataPoints: 10 });
     store.set(tracesAtom, [makeTrace({ traceId: "a" })]);
 
     store.set(appendTracesAtom, [makeTrace({ traceId: "b" }), makeTrace({ traceId: "c" })]);
@@ -462,7 +462,7 @@ describe("appendLogsAtom", () => {
 
   it("evicts the oldest (front-most) logs once the append exceeds the client cap", () => {
     const store = createStore();
-    store.set(serverConfigAtom, { traceCap: 10, metricCap: 10, logCap: 2, maxDataPoints: 10 });
+    store.set(bufferCapsAtom, { traceCap: 10, metricCap: 10, logCap: 2, maxDataPoints: 10 });
     store.set(logsAtom, [makeLog({ id: "a" })]);
 
     store.set(appendLogsAtom, [makeLog({ id: "b" }), makeLog({ id: "c" })]);

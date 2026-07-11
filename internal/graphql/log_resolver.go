@@ -4,13 +4,24 @@ import (
 	gql "github.com/graph-gophers/graphql-go"
 
 	"context"
+	"sync"
 
 	"github.com/mashiro/otelop/internal/storage"
 )
 
+// LogResolver carries a storage handle so Trace/Span can look up the
+// correlated trace. Both fields fetch the same TraceByID, so the fetch is
+// memoized (the same sync.Once pattern TraceResolver.loadDetail uses)
+// rather than each resolving independently — a query selecting both
+// Log.trace and Log.span on the same row must only issue one TraceByID
+// call, not two.
 type LogResolver struct {
 	storage *storage.Storage
 	l       storage.LogDetail
+
+	once     sync.Once
+	trace    *storage.TraceDetail
+	traceErr error
 }
 
 func (r *LogResolver) ID() gql.ID                  { return gql.ID(r.l.ID.String()) }
@@ -25,30 +36,42 @@ func (r *LogResolver) ServiceName() string         { return r.l.ServiceName }
 func (r *LogResolver) Attributes() JSONMap         { return attrsToJSON(r.l.Attributes) }
 func (r *LogResolver) Resource() JSONMap           { return attrsToJSON(r.l.Resource) }
 
-func (r *LogResolver) Trace(ctx context.Context) (*TraceResolver, error) {
+// loadTrace fetches and memoizes r.l.TraceID's TraceDetail exactly once, so
+// a query selecting both Trace and Span on the same LogResolver issues one
+// TraceByID call instead of two. ok is false when the log has no trace_id or
+// the trace no longer exists.
+func (r *LogResolver) loadTrace(ctx context.Context) (*storage.TraceDetail, bool, error) {
 	if r.l.TraceID == "" {
-		return nil, nil
+		return nil, false, nil
 	}
-	d, ok, err := r.storage.TraceByID(ctx, r.l.TraceID)
-	if err != nil {
+	r.once.Do(func() {
+		d, ok, err := r.storage.TraceByID(ctx, r.l.TraceID)
+		if err != nil {
+			r.traceErr = err
+			return
+		}
+		if ok {
+			r.trace = d
+		}
+	})
+	return r.trace, r.trace != nil, r.traceErr
+}
+
+func (r *LogResolver) Trace(ctx context.Context) (*TraceResolver, error) {
+	d, ok, err := r.loadTrace(ctx)
+	if err != nil || !ok {
 		return nil, err
-	}
-	if !ok {
-		return nil, nil
 	}
 	return newTraceResolverFromDetail(r.storage, d), nil
 }
 
 func (r *LogResolver) Span(ctx context.Context) (*SpanResolver, error) {
-	if r.l.TraceID == "" || r.l.SpanID == "" {
+	if r.l.SpanID == "" {
 		return nil, nil
 	}
-	d, ok, err := r.storage.TraceByID(ctx, r.l.TraceID)
-	if err != nil {
+	d, ok, err := r.loadTrace(ctx)
+	if err != nil || !ok {
 		return nil, err
-	}
-	if !ok {
-		return nil, nil
 	}
 	for i := range d.Spans {
 		if d.Spans[i].SpanID == r.l.SpanID {

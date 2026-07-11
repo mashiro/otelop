@@ -13,9 +13,10 @@ before:
 # or the Pro-only "prebuilt" builder) isn't available on the free tier.
 #
 # So this config is no longer what cuts an actual release — it's kept for
-# local use only (`mise run release-snapshot`, invoked with
-# --single-target so it only builds for the host's own goos/goarch, which
-# always has a matching native toolchain) and for `goreleaser check` in CI.
+# local use only: `mise run release-snapshot` (invoked with --single-target
+# so it only builds for the host's own goos/goarch, which always has a
+# matching native toolchain) and `mise run release-check` (`goreleaser
+# check`, validating this file). Nothing in CI runs goreleaser at all.
 # The real multi-platform release is .github/workflows/release.yml: a
 # go-build matrix across ubuntu-latest/ubuntu-24.04-arm/macos-latest,
 # assembled by scripts/package-release.sh and published with `gh release

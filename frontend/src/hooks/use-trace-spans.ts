@@ -1,14 +1,10 @@
 import { useEffect } from "react";
 import { useSetAtom } from "jotai";
 import { graphql } from "@/gql";
-import type { SpanFieldsFragment } from "@/gql/graphql";
 import { gqlClient } from "@/lib/graphql";
 import { mergeTraceSpansAtom } from "@/stores/telemetry";
-import type { TraceData, SpanData, SpanStatus } from "@/types/telemetry";
-
-// See use-initial-load.ts's MS_TO_NS comment: GraphQL reports durationMs,
-// the frontend type carries nanoseconds.
-const MS_TO_NS = 1_000_000;
+import { toSpan } from "@/lib/span-mapping";
+import type { TraceData } from "@/types/telemetry";
 
 const TraceSpansQuery = graphql(`
   query TraceSpans($traceId: ID!) {
@@ -18,32 +14,7 @@ const TraceSpansQuery = graphql(`
       }
     }
   }
-
-  fragment SpanFields on Span {
-    traceId
-    spanId
-    parentSpanId
-    name
-    kind
-    serviceName
-    startTime
-    endTime
-    durationMs
-    statusCode
-    statusMessage
-    attributes
-    events {
-      name
-      timestamp
-      attributes
-    }
-    resource
-  }
 `);
-
-function toSpan({ durationMs, statusCode, ...rest }: SpanFieldsFragment): SpanData {
-  return { ...rest, statusCode: statusCode as SpanStatus, duration: durationMs * MS_TO_NS };
-}
 
 // Fetches one trace's full span data exactly once, the moment its detail
 // view opens (components/traces/trace-detail.tsx) — the trace counterpart

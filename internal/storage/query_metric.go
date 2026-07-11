@@ -44,11 +44,10 @@ type DerivedPoint struct {
 	TS time.Time
 	// Type is this point's series' metric_type (e.g. "Sum", "Histogram"),
 	// carried per-row rather than only at the MetricSummary/group level so a
-	// caller filtering baseline observations (see internal/graphql's
-	// filterDerivedPoints) can decide which of Value/Count is the
-	// meaningful field without a separate group-metadata lookup — the
-	// top-level metricPoints query (issue #162) has no MetricSummary in
-	// hand the way MetricResolver does.
+	// caller filtering baseline observations (see FilterDerivedPoints) can
+	// decide which of Value/Count is the meaningful field without a
+	// separate group-metadata lookup — the top-level metricPoints query
+	// (issue #162) has no MetricSummary in hand the way MetricResolver does.
 	Type            string
 	Value           *float64
 	Cumulative      *float64
@@ -59,6 +58,40 @@ type DerivedPoint struct {
 	Min             *float64
 	Max             *float64
 	Attributes      map[string]any
+}
+
+// distributionTypesSQL is metricTypesAreDistribution's SQL-side twin: the
+// literal IN-list every derived-point query below gates distribution output
+// columns (out_count/out_sum/...) on. Keeping the Go rule and the SQL
+// fragment next to each other, both spelling out the exact same three
+// OTLP metric type names, is what keeps them from drifting apart.
+const distributionTypesSQL = `('Histogram', 'ExponentialHistogram', 'Summary')`
+
+// IsDistributionType reports whether metricType names one of the
+// distribution shapes (Histogram/ExponentialHistogram/Summary), which carry
+// Count/Sum instead of a plain Value — see DataPoint's schema doc comment
+// and distributionTypesSQL, its SQL-side twin.
+func IsDistributionType(metricType string) bool {
+	return metricType == "Histogram" || metricType == "ExponentialHistogram" || metricType == "Summary"
+}
+
+// FilterDerivedPoints drops baseline observations — a point with nothing to
+// derive a delta against yet, invisible to any caller (internal/broadcast's
+// WebSocket path and internal/graphql's GraphQL surface both apply this
+// exact rule) — using each row's own Type rather than a separately-fetched
+// MetricSummary, so every caller filters through one implementation.
+func FilterDerivedPoints(points []DerivedPoint) []DerivedPoint {
+	filtered := make([]DerivedPoint, 0, len(points))
+	for _, p := range points {
+		if p.Value == nil {
+			continue
+		}
+		if IsDistributionType(p.Type) && p.Count == nil {
+			continue
+		}
+		filtered = append(filtered, p)
+	}
+	return filtered
 }
 
 // metricsPageQuery groups metric_series by (service_name, metric_name) —
@@ -73,6 +106,12 @@ type DerivedPoint struct {
 //
 // Parameter order: to binds first (first_seen < to), from second
 // (last_seen >= from) — the reverse of the other list queries.
+//
+// count(*) OVER (), evaluated over the GROUP BY's output before ORDER
+// BY/LIMIT/OFFSET, rides along as total_count — the same "matching groups
+// before pagination" total metricsTotalQuery computes separately — letting
+// MetricsPage read it off the page query itself instead of a second round
+// trip (see MetricsPage's doc comment).
 const metricsPageQuery = `
 WITH filtered AS (
 	SELECT s.*, r.attributes::VARCHAR AS resource_json
@@ -88,13 +127,20 @@ SELECT
 	arg_max(description, last_seen)   AS description,
 	max(last_seen)                    AS last_seen,
 	list(series_key)                  AS series_keys,
-	arg_max(resource_json, last_seen) AS resource_json
+	arg_max(resource_json, last_seen) AS resource_json,
+	count(*) OVER ()                  AS total_count
 FROM filtered
 GROUP BY service_name, metric_name
 ORDER BY last_seen DESC
 LIMIT ? OFFSET ?
 `
 
+// metricsTotalQuery mirrors metricsPageQuery's filtering exactly so `total`
+// reflects the same group set the page itself pages through. It's no longer
+// MetricsPage's normal path to `total` (that's metricsPageQuery's own
+// count(*) OVER () column) — this only runs as the empty-page-with-offset
+// fallback, via queryCount, when offset lands past the end of the matching
+// set.
 const metricsTotalQuery = `
 SELECT count(*) FROM (
 	SELECT 1 FROM metric_series
@@ -105,13 +151,11 @@ SELECT count(*) FROM (
 
 // MetricsPage returns a page of metric groups (one per distinct
 // service+metric name pair, most-recently-active first) plus the total
-// group count.
+// group count. total is read off the page query's own count(*) OVER ()
+// column; when the page comes back empty because offset is past the end of
+// the matching set, that column has nothing to report, so a separate
+// metricsTotalQuery run recovers it (see queryCount).
 func (s *Storage) MetricsPage(ctx context.Context, from, to time.Time, offset, limit int) ([]MetricSummary, int, error) {
-	var total int
-	if err := s.DB().QueryRowContext(ctx, metricsTotalQuery, to, from).Scan(&total); err != nil {
-		return nil, 0, fmt.Errorf("storage: count metrics page: %w", err)
-	}
-
 	rows, err := s.DB().QueryContext(ctx, metricsPageQuery, to, from, pageLimit(limit), offset)
 	if err != nil {
 		return nil, 0, fmt.Errorf("storage: query metrics page: %w", err)
@@ -119,15 +163,18 @@ func (s *Storage) MetricsPage(ctx context.Context, from, to time.Time, offset, l
 	defer func() { _ = rows.Close() }()
 
 	items := make([]MetricSummary, 0)
+	var total int
 	for rows.Next() {
 		var (
 			m           MetricSummary
 			seriesKeys  any
 			resourceRaw *string
+			totalCount  int
 		)
-		if err := rows.Scan(&m.ServiceName, &m.MetricName, &m.Type, &m.Unit, &m.Description, &m.LastSeen, &seriesKeys, &resourceRaw); err != nil {
+		if err := rows.Scan(&m.ServiceName, &m.MetricName, &m.Type, &m.Unit, &m.Description, &m.LastSeen, &seriesKeys, &resourceRaw, &totalCount); err != nil {
 			return nil, 0, fmt.Errorf("storage: scan metric summary: %w", err)
 		}
+		total = totalCount
 		m.SeriesKeys = decodeSeriesKeys(seriesKeys)
 		resource, err := decodeAttrs(resourceRaw)
 		if err != nil {
@@ -138,6 +185,13 @@ func (s *Storage) MetricsPage(ctx context.Context, from, to time.Time, offset, l
 	}
 	if err := rows.Err(); err != nil {
 		return nil, 0, fmt.Errorf("storage: iterate metrics page: %w", err)
+	}
+
+	if len(items) == 0 && offset > 0 {
+		total, err = s.queryCount(ctx, metricsTotalQuery, to, from)
+		if err != nil {
+			return nil, 0, fmt.Errorf("storage: count metrics page: %w", err)
+		}
 	}
 
 	return items, total, nil
@@ -253,21 +307,21 @@ WITH points AS (
 // "one MetricData, many attribute series" contract. metric_type rides along
 // per row (not just fetched once at the group level) so a caller can filter
 // baseline observations without a separate MetricSummary lookup — see
-// DerivedPoint.Type and internal/graphql's filterDerivedPoints.
+// DerivedPoint.Type and internal/storage's FilterDerivedPoints.
 const metricPointsQuery = metricDerivedCTE + `
 SELECT
 	id, ts, attrs_json, metric_type,
 	CASE
-		WHEN metric_type IN ('Histogram', 'ExponentialHistogram', 'Summary') THEN
+		WHEN metric_type IN ` + distributionTypesSQL + ` THEN
 			CASE WHEN sum_delta IS NULL OR count_delta IS NULL OR count_delta <= 0 THEN 0
 			     ELSE sum_delta / count_delta END
 		ELSE scalar_value
 	END AS out_value,
-	CASE WHEN metric_type IN ('Histogram', 'ExponentialHistogram', 'Summary') THEN NULL ELSE scalar_cumulative END AS out_cumulative,
-	CASE WHEN metric_type IN ('Histogram', 'ExponentialHistogram', 'Summary') THEN count_delta ELSE NULL END AS out_count,
-	CASE WHEN metric_type IN ('Histogram', 'ExponentialHistogram', 'Summary') THEN count_cumulative ELSE NULL END AS out_count_cumulative,
-	CASE WHEN metric_type IN ('Histogram', 'ExponentialHistogram', 'Summary') THEN sum_delta ELSE NULL END AS out_sum,
-	CASE WHEN metric_type IN ('Histogram', 'ExponentialHistogram', 'Summary') THEN sum_cumulative ELSE NULL END AS out_sum_cumulative,
+	CASE WHEN metric_type IN ` + distributionTypesSQL + ` THEN NULL ELSE scalar_cumulative END AS out_cumulative,
+	CASE WHEN metric_type IN ` + distributionTypesSQL + ` THEN count_delta ELSE NULL END AS out_count,
+	CASE WHEN metric_type IN ` + distributionTypesSQL + ` THEN count_cumulative ELSE NULL END AS out_count_cumulative,
+	CASE WHEN metric_type IN ` + distributionTypesSQL + ` THEN sum_delta ELSE NULL END AS out_sum,
+	CASE WHEN metric_type IN ` + distributionTypesSQL + ` THEN sum_cumulative ELSE NULL END AS out_sum_cumulative,
 	min, max
 FROM derived
 ORDER BY ts
@@ -356,7 +410,7 @@ points AS (
 ` + metricDerivedFormula + `
 SELECT
 	CASE
-		WHEN metric_type IN ('Histogram', 'ExponentialHistogram', 'Summary') THEN
+		WHEN metric_type IN ` + distributionTypesSQL + ` THEN
 			CASE WHEN sum_delta IS NULL OR count_delta IS NULL OR count_delta <= 0 THEN NULL
 			     ELSE sum_delta / count_delta END
 		ELSE scalar_value

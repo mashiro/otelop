@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Temporal } from "temporal-polyfill";
 import { graphql } from "@/gql";
 import { gqlClient } from "@/lib/graphql";
-import { rangeToMs, bucketSecondsForRange, type ChartTimeRange } from "@/lib/chart-time-range";
+import { rangeToFrom, bucketSecondsForRange, type ChartTimeRange } from "@/lib/chart-time-range";
 import { useStableArray } from "@/hooks/use-stable-array";
 import type { MetricFacet } from "@/lib/metric-catalog";
 import type { MetricData } from "@/types/telemetry";
@@ -108,11 +107,7 @@ export function useMetricAggregateSeries(
     if (!groupBy) return;
     const requestId = ++requestIdRef.current;
     const bucketSeconds = bucketSecondsForRange(range);
-    const rangeMs = rangeToMs(range);
-    const from =
-      rangeMs === null
-        ? undefined
-        : Temporal.Now.instant().subtract({ milliseconds: rangeMs }).toString();
+    const from = rangeToFrom(range);
 
     void (async () => {
       try {

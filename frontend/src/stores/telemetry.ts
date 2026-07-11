@@ -1,5 +1,5 @@
 import { atom } from "jotai";
-import type { Atom, WritableAtom } from "jotai";
+import type { Atom, PrimitiveAtom, WritableAtom } from "jotai";
 import { Temporal } from "temporal-polyfill";
 import type {
   TraceData,
@@ -23,21 +23,21 @@ import {
 // in-memory buffer this tab holds so a long-running session doesn't grow
 // without limit; historical data beyond them stays queryable from the server
 // (see hooks/use-metric-range-points.ts).
-export interface ServerConfig {
+export interface BufferCaps {
   traceCap: number;
   metricCap: number;
   logCap: number;
   maxDataPoints: number;
 }
 
-const DEFAULT_CONFIG: ServerConfig = {
+const DEFAULT_CONFIG: BufferCaps = {
   traceCap: 1000,
   metricCap: 3000,
   logCap: 5000,
   maxDataPoints: 1000,
 };
 
-export const serverConfigAtom = atom<ServerConfig>(DEFAULT_CONFIG);
+export const bufferCapsAtom = atom<BufferCaps>(DEFAULT_CONFIG);
 
 // WebSocket connection status
 export type WsStatus = "connecting" | "connected" | "disconnected";
@@ -64,7 +64,7 @@ export function mergeSpans(existing: SpanData[], incoming: SpanData[]): SpanData
 // Write-only: add single item from WebSocket
 export const addTraceAtom = atom(null, (get, set, newTrace: TraceData) => {
   const current = get(tracesAtom);
-  const maxTraces = get(serverConfigAtom).traceCap;
+  const maxTraces = get(bufferCapsAtom).traceCap;
   const idx = current.findIndex((t) => t.traceId === newTrace.traceId);
   if (idx >= 0) {
     const existing = current[idx];
@@ -187,7 +187,7 @@ export function mergeDataPoints(existing: DataPoint[], incoming: DataPoint[]): D
 // only moves when that delta is nonzero, to the newest point's value.
 export const addMetricAtom = atom(null, (get, set, newMetric: MetricData) => {
   const current = get(metricsAtom);
-  const maxMetrics = get(serverConfigAtom).metricCap;
+  const maxMetrics = get(bufferCapsAtom).metricCap;
   const idx = current.findIndex((m) => metricKeyEquals(m, newMetric));
   if (idx >= 0) {
     const existing = current[idx];
@@ -196,7 +196,7 @@ export const addMetricAtom = atom(null, (get, set, newMetric: MetricData) => {
     const updated = [...current];
     updated[idx] = {
       ...existing,
-      dataPoints: merged.slice(-get(serverConfigAtom).maxDataPoints),
+      dataPoints: merged.slice(-get(bufferCapsAtom).maxDataPoints),
       pointCount: existing.pointCount + addedCount,
       latestValue: addedCount > 0 ? merged[merged.length - 1].value : existing.latestValue,
       receivedAt: newMetric.receivedAt,
@@ -220,7 +220,7 @@ export const addMetricAtom = atom(null, (get, set, newMetric: MetricData) => {
 });
 
 export const addLogAtom = atom(null, (get, set, newLog: LogData) => {
-  const maxLogs = get(serverConfigAtom).logCap;
+  const maxLogs = get(bufferCapsAtom).logCap;
   // Every log is a genuinely new row — there's no merge-into-existing
   // concept for logs (unlike traces/metrics), so this always increments.
   set(newLogCountAtom, (n) => n + 1);
@@ -346,58 +346,72 @@ export const navigateToLogsAtom = atom(null, (_get, set, traceId: string) => {
 export const serverMatchedTraceIdsAtom = atom<ReadonlySet<string>>(new Set<string>());
 export const serverMatchedLogIdsAtom = atom<ReadonlySet<string>>(new Set<string>());
 
-// Bulk set from the paginated list fetch's page 1
-// (hooks/use-trace-list-page.ts, hooks/use-log-list-page.ts).
-export const setTracesAtom = atom(null, (_get, set, traces: TraceData[]) => {
-  set(tracesAtom, traces);
-  set(serverMatchedTraceIdsAtom, new Set(traces.map((t) => t.traceId)));
-});
 export const setMetricsAtom = atom(null, (_get, set, metrics: MetricData[]) => {
   set(metricsAtom, metrics);
 });
-export const setLogsAtom = atom(null, (_get, set, logs: LogData[]) => {
-  set(logsAtom, logs);
-  set(serverMatchedLogIdsAtom, new Set(logs.map((l) => l.id)));
-});
 
-// Write-only: append an older page of traces fetched via "Load more"
-// (hooks/use-trace-list-page.ts) to the tail of the buffer, deduping against
-// whatever's already there — a trace can appear in both a freshly-paged
-// response and the live WS buffer (e.g. a page boundary race), and de-dup by
-// traceId keeps the existing (possibly WS-merged) entry rather than
-// overwriting it with the paged summary.
-export const appendTracesAtom = atom(null, (get, set, olderTraces: TraceData[]) => {
-  // Every returned id joins the server-matched set — including ones deduped
-  // out of the buffer below: a WS-delivered trace the server ALSO returned
-  // for the active search is server-vouched even though the buffer keeps the
-  // WS entry.
-  set(
-    serverMatchedTraceIdsAtom,
-    (prev) => new Set([...prev, ...olderTraces.map((t) => t.traceId)]),
-  );
-  const current = get(tracesAtom);
-  const seen = new Set(current.map((t) => t.traceId));
-  const deduped = olderTraces.filter((t) => !seen.has(t.traceId));
-  if (deduped.length === 0) return;
-  const merged = [...current, ...deduped];
-  const cap = get(serverConfigAtom).traceCap;
-  // Paging in more history than the live-buffer cap allows evicts the same
-  // way a WS burst would (oldest-first slice, appended rows are at the tail)
-  // — an accepted trade-off (see issue #160): the cap bounds this tab's
-  // memory, it doesn't guarantee every manually paged-in row stays resident.
-  set(tracesAtom, merged.length > cap ? merged.slice(0, cap) : merged);
-});
+// createListSessionAtoms builds the {set, append} pair for a server-paginated
+// list session (traces/logs), mirroring createSelectionAtom's factory idiom
+// above. Every write goes through here so the list atom, its matched-ids
+// atom, and cap-eviction can't drift apart — previously a fragile per-callsite
+// convention where each of setTracesAtom/appendTracesAtom/setLogsAtom/
+// appendLogsAtom had to remember to also update its companion
+// serverMatched*IdsAtom by hand.
+function createListSessionAtoms<T>(
+  listAtom: PrimitiveAtom<T[]>,
+  matchedIdsAtom: PrimitiveAtom<ReadonlySet<string>>,
+  getId: (item: T) => string,
+  getCap: (caps: BufferCaps) => number,
+) {
+  // Bulk set from the paginated list fetch's page 1
+  // (hooks/use-trace-list-page.ts, hooks/use-log-list-page.ts).
+  const set = atom(null, (_get, set, items: T[]) => {
+    set(listAtom, items);
+    set(matchedIdsAtom, new Set(items.map(getId)));
+  });
 
-// Write-only counterpart to appendTracesAtom for the logs tab's "Load more".
-export const appendLogsAtom = atom(null, (get, set, olderLogs: LogData[]) => {
-  // See appendTracesAtom: all returned ids are server-vouched, even deduped ones.
-  set(serverMatchedLogIdsAtom, (prev) => new Set([...prev, ...olderLogs.map((l) => l.id)]));
-  const current = get(logsAtom);
-  const seen = new Set(current.map((l) => l.id));
-  const deduped = olderLogs.filter((l) => !seen.has(l.id));
-  if (deduped.length === 0) return;
-  const merged = [...current, ...deduped];
-  const cap = get(serverConfigAtom).logCap;
-  // See appendTracesAtom's comment: the same cap-eviction trade-off applies.
-  set(logsAtom, merged.length > cap ? merged.slice(0, cap) : merged);
-});
+  // Write-only: append an older page fetched via "Load more" to the tail of
+  // the buffer, deduping against whatever's already there — an item can
+  // appear in both a freshly-paged response and the live WS buffer (e.g. a
+  // page boundary race), and de-dup by id keeps the existing (possibly
+  // WS-merged) entry rather than overwriting it with the paged summary.
+  const append = atom(null, (get, set, olderItems: T[]) => {
+    // Every returned id joins the server-matched set — including ones
+    // deduped out of the buffer below: a WS-delivered item the server ALSO
+    // returned for the active search is server-vouched even though the
+    // buffer keeps the WS entry.
+    set(matchedIdsAtom, (prev) => new Set([...prev, ...olderItems.map(getId)]));
+    const current = get(listAtom);
+    const seen = new Set(current.map(getId));
+    const deduped = olderItems.filter((item) => !seen.has(getId(item)));
+    if (deduped.length === 0) return;
+    const merged = [...current, ...deduped];
+    const cap = getCap(get(bufferCapsAtom));
+    // Paging in more history than the live-buffer cap allows evicts the same
+    // way a WS burst would (oldest-first slice, appended rows are at the
+    // tail) — an accepted trade-off (see issue #160): the cap bounds this
+    // tab's memory, it doesn't guarantee every manually paged-in row stays
+    // resident.
+    set(listAtom, merged.length > cap ? merged.slice(0, cap) : merged);
+  });
+
+  return { set, append };
+}
+
+const traceListSession = createListSessionAtoms(
+  tracesAtom,
+  serverMatchedTraceIdsAtom,
+  (t: TraceData) => t.traceId,
+  (caps) => caps.traceCap,
+);
+export const setTracesAtom = traceListSession.set;
+export const appendTracesAtom = traceListSession.append;
+
+const logListSession = createListSessionAtoms(
+  logsAtom,
+  serverMatchedLogIdsAtom,
+  (l: LogData) => l.id,
+  (caps) => caps.logCap,
+);
+export const setLogsAtom = logListSession.set;
+export const appendLogsAtom = logListSession.append;

@@ -68,7 +68,6 @@ function sumInput(overrides: Partial<StatTilesInput & { kind: "raw" }> = {}): St
     facet: null,
     range: "all",
     isDistribution: false,
-    eligible: true,
     ...overrides,
   };
 }
@@ -135,15 +134,6 @@ describe("computeStatTiles — raw (facet=All) path", () => {
     ]);
   });
 
-  it("returns [] when the metric is ineligible (e.g. Gauge)", () => {
-    const rangeDataPoints = [
-      makeDataPoint({ id: "a", value: 1 }),
-      makeDataPoint({ id: "b", value: 2 }),
-    ];
-
-    expect(computeStatTiles(sumInput({ rangeDataPoints, eligible: false }))).toEqual([]);
-  });
-
   it("returns [] for an empty metric", () => {
     expect(computeStatTiles(sumInput())).toEqual([]);
   });
@@ -199,7 +189,6 @@ describe("computeStatTiles — aggregate (facet active) path", () => {
       facet: MODEL_FACET,
       range: "all",
       isDistribution: false,
-      eligible: true,
     });
 
     expect(tiles).toEqual([
@@ -226,7 +215,6 @@ describe("computeStatTiles — aggregate (facet active) path", () => {
       facet: MODEL_FACET,
       range: "all",
       isDistribution: true,
-      eligible: true,
     });
 
     expect(tiles).toEqual([
@@ -276,19 +264,6 @@ describe("computeStatTiles — aggregate (facet active) path", () => {
     );
 
     expect(groups[0]?.points).toEqual([{ value: 5, count: null, sum: null }]);
-  });
-
-  it("returns [] when the metric is ineligible", () => {
-    const tiles = computeStatTiles({
-      kind: "aggregate",
-      aggregatedSeries: [makeAggregateSeries()],
-      rangeDataPoints: [],
-      facet: MODEL_FACET,
-      range: "all",
-      isDistribution: false,
-      eligible: false,
-    });
-    expect(tiles).toEqual([]);
   });
 });
 

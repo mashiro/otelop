@@ -4,7 +4,7 @@ import { graphql } from "@/gql";
 import { gqlClient } from "@/lib/graphql";
 import { setLogsAtom, appendLogsAtom } from "@/stores/telemetry";
 import type { ChartTimeRange } from "@/lib/chart-time-range";
-import { useSignalListPage, type SignalListPage } from "./use-signal-list-page";
+import { useSignalListPage, type FetchPageArgs, type SignalListPage } from "./use-signal-list-page";
 
 // Same field selection as use-initial-load.ts's old logs query. This query
 // replaces it as the logs tab's data source now that the list is paginated
@@ -40,23 +40,10 @@ export function useLogListPage(range: ChartTimeRange, search: string): SignalLis
   const setLogs = useSetAtom(setLogsAtom);
   const appendLogs = useSetAtom(appendLogsAtom);
 
-  const fetchPage = useCallback(
-    async ({
-      from,
-      offset,
-      limit,
-      search,
-    }: {
-      from: string | undefined;
-      offset: number;
-      limit: number;
-      search: string;
-    }) => {
-      const data = await gqlClient.request(LogsPageQuery, { from, offset, limit, search });
-      return { items: data.logs.items, total: data.logs.total };
-    },
-    [],
-  );
+  const fetchPage = useCallback(async ({ from, offset, limit, search }: FetchPageArgs) => {
+    const data = await gqlClient.request(LogsPageQuery, { from, offset, limit, search });
+    return { items: data.logs.items, total: data.logs.total };
+  }, []);
 
   return useSignalListPage(range, search, fetchPage, setLogs, appendLogs);
 }

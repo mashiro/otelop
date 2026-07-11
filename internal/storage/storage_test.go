@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"path/filepath"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -592,6 +593,75 @@ func TestStorage_OnCommit_FiresPerSignalAfterFlush(t *testing.T) {
 	}
 	if len(events[1].Logs.Logs) != 1 || events[1].Logs.Logs[0].Body != "committed" {
 		t.Errorf("events[1].Logs.Logs = %+v, want 1 log with body 'committed'", events[1].Logs.Logs)
+	}
+}
+
+// TestStorage_OnCommit_DeliversInCommitOrder verifies that moving OnCommit
+// delivery off the writer goroutine (a dedicated goroutine reached through a
+// bounded channel, see Options.OnCommit) doesn't reorder events: several
+// batches enqueued back-to-back without an intervening Sync must still be
+// delivered in the exact order they were committed.
+func TestStorage_OnCommit_DeliversInCommitOrder(t *testing.T) {
+	var mu sync.Mutex
+	var names []string
+	s, err := Open(context.Background(), Options{OnCommit: func(_ context.Context, ev CommitEvent) {
+		mu.Lock()
+		defer mu.Unlock()
+		for _, sp := range ev.Traces.Spans {
+			names = append(names, sp.Name)
+		}
+	}})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+
+	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	want := []string{"first", "second", "third"}
+	for i, name := range want {
+		td := buildTraces([16]byte{41}, [16]byte{}, [8]byte{byte(i)}, name, start)
+		s.AddTraces(context.Background(), td)
+	}
+	s.Sync()
+
+	mu.Lock()
+	defer mu.Unlock()
+	if !slices.Equal(names, want) {
+		t.Errorf("commit events delivered as %v, want %v (in commit order)", names, want)
+	}
+}
+
+// TestStorage_OnCommit_CloseWaitsForInFlightDelivery verifies Close's
+// documented guarantee: a CommitEvent already dispatched to the delivery
+// goroutine (see Options.OnCommit) fires before Close returns, even when the
+// caller never called Sync first — Close itself must drain the pending
+// write AND wait for the resulting delivery.
+func TestStorage_OnCommit_CloseWaitsForInFlightDelivery(t *testing.T) {
+	var mu sync.Mutex
+	var delivered bool
+	s, err := Open(context.Background(), Options{OnCommit: func(_ context.Context, _ CommitEvent) {
+		mu.Lock()
+		delivered = true
+		mu.Unlock()
+	}})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+
+	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	td := buildTraces([16]byte{42}, [16]byte{}, [8]byte{42}, "op-close", start)
+	s.AddTraces(context.Background(), td)
+
+	// Deliberately no Sync(): Close alone must drain the write queue and
+	// wait for the commit event it produces to be delivered.
+	if err := s.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if !delivered {
+		t.Error("OnCommit event was not delivered before Close returned")
 	}
 }
 

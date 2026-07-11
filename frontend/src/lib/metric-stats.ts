@@ -62,6 +62,30 @@ export function facetGroupOrder(
   return order;
 }
 
+/**
+ * Resolves each server-aggregated facet group's display label and chart
+ * colorIndex, in aggregatedSeries order — shared by metric-chart.tsx's
+ * facet-active line series and statTileGroupsFromAggregate below, so the
+ * chart and the stat tiles above it can't desync on color assignment. Colors
+ * come from first-appearance order in rangeDataPoints (the raw live/fetched
+ * buffer), not the aggregate query's own alphabetical group ordering (see
+ * facetGroupOrder); a group present server-side but absent from the raw
+ * buffer falls back to an index appended after every known one.
+ */
+export function resolveFacetGroupColorIndex(
+  aggregatedSeries: AggregateSeriesData[],
+  rangeDataPoints: DataPoint[],
+  facet: MetricFacet,
+): { label: string; colorIndex: number }[] {
+  const rawOrder = facetGroupOrder(rangeDataPoints, facet);
+  let nextIndex = rawOrder.size;
+  return aggregatedSeries.map((s) => {
+    const label = facetGroupLabel(s.groupValues) || "(no attributes)";
+    const colorIndex = rawOrder.has(label) ? rawOrder.get(label)! : nextIndex++;
+    return { label, colorIndex };
+  });
+}
+
 export interface StatTile {
   key: string;
   label: string;
@@ -151,11 +175,9 @@ export function statTileGroupsFromAggregate(
   facet: MetricFacet,
   range: ChartTimeRange,
 ): StatTileGroup[] {
-  const rawOrder = facetGroupOrder(rangeDataPoints, facet);
-  let nextIndex = rawOrder.size;
-  return aggregatedSeries.map((s) => {
-    const label = facetGroupLabel(s.groupValues) || "(no attributes)";
-    const colorIndex = rawOrder.has(label) ? rawOrder.get(label)! : nextIndex++;
+  const resolved = resolveFacetGroupColorIndex(aggregatedSeries, rangeDataPoints, facet);
+  return aggregatedSeries.map((s, i) => {
+    const { label, colorIndex } = resolved[i]!;
     const windowed = filterDataPointsInRange(s.points, range);
     return {
       key: label,
@@ -202,7 +224,6 @@ export type StatTilesInput =
       facet: MetricFacet;
       range: ChartTimeRange;
       isDistribution: boolean;
-      eligible: boolean;
     }
   | {
       kind: "raw";
@@ -210,16 +231,16 @@ export type StatTilesInput =
       facet: MetricFacet | null;
       range: ChartTimeRange;
       isDistribution: boolean;
-      eligible: boolean;
     };
 
 // Range-scoped replacement for the old cumulative-based statTiles: totals now
 // come from summing the SAME range-scoped data the chart renders (aggregate
 // series when a facet is active, raw range points otherwise) rather than
-// reading the backend's "since observing" running totals. `eligible` mirrors
-// the original Gauge/non-monotonic-Sum exclusion — see hasStatTileSignal.
+// reading the backend's "since observing" running totals. The single caller
+// (MetricSummary) gates on hasStatTileSignal itself before calling this —
+// see its Gauge/non-monotonic-Sum exclusion — so this function doesn't need
+// its own eligibility flag.
 export function computeStatTiles(input: StatTilesInput): StatTile[] {
-  if (!input.eligible) return [];
   const groups =
     input.kind === "aggregate"
       ? statTileGroupsFromAggregate(

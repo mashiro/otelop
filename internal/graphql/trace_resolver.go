@@ -106,22 +106,6 @@ func (r *TraceResolver) Logs(ctx context.Context) ([]*LogResolver, error) {
 	return out, nil
 }
 
-// pickRootSpan reproduces the old store package's isBetterRoot rule: the
-// parentless span with the longest duration represents the trace.
-func pickRootSpan(spans []storage.SpanDetail) *storage.SpanDetail {
-	var root *storage.SpanDetail
-	for i := range spans {
-		sp := &spans[i]
-		if sp.ParentSpanID != "" {
-			continue
-		}
-		if root == nil || sp.Duration > root.Duration {
-			root = sp
-		}
-	}
-	return root
-}
-
 // SpanResolver carries a back-pointer to the owning TraceDetail so span.trace
 // and span.parent resolve without re-querying storage.
 //
@@ -156,7 +140,7 @@ func (r *SpanResolver) resolve(ctx context.Context) (*storage.TraceDetail, *stor
 	if err != nil {
 		return nil, nil, err
 	}
-	return d, pickRootSpan(d.Spans), nil
+	return d, storage.PickRootSpan(d.Spans), nil
 }
 
 func (r *SpanResolver) TraceID() gql.ID {
@@ -174,7 +158,7 @@ func (r *SpanResolver) SpanID(ctx context.Context) (gql.ID, error) {
 	return gql.ID(s.SpanID), nil
 }
 
-// ParentSpanID is always "" in owner mode: pickRootSpan only ever selects
+// ParentSpanID is always "" in owner mode: storage.PickRootSpan only ever selects
 // parentless spans, so there is nothing to fetch to answer this.
 func (r *SpanResolver) ParentSpanID() string {
 	if r.s != nil {

@@ -21,13 +21,22 @@ permissions:
 jobs:
   # Built once and shared with every build job below (pure JS bundling, not
   # platform-specific) instead of repeating `pnpm build` on every runner.
+  # Also computes the v-prefix-stripped version once here (as a job output)
+  # instead of every downstream job/step re-deriving it from inputs.tag.
   frontend:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: ${{ inputs.tag }}
       - uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4.2.0
+      - id: version
+        run: |
+          version="${{ inputs.tag }}"
+          version="${version#v}"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
       - run: mise run install
       - run: mise run build-frontend
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -89,8 +98,7 @@ jobs:
           CGO_CFLAGS: ${{ matrix.cgo_cflags }}
           CGO_LDFLAGS: ${{ matrix.cgo_ldflags }}
         run: |
-          version="${{ inputs.tag }}"
-          version="${version#v}"
+          version="${{ needs.frontend.outputs.version }}"
           mkdir -p "dist/${{ matrix.goos }}_${{ matrix.goarch }}"
           go build -tags embed -ldflags "-s -w -X main.version=${version}" \
             -o "dist/${{ matrix.goos }}_${{ matrix.goarch }}/otelop" ./cmd/otelop
@@ -107,7 +115,7 @@ jobs:
   # builder / split-release). release-please already created the GitHub
   # Release for this tag, so this job only needs to attach assets to it.
   release:
-    needs: build
+    needs: [build, frontend]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -131,9 +139,7 @@ jobs:
       - name: Assemble archives + checksums
         run: |
           set -euo pipefail
-          version="${{ inputs.tag }}"
-          version="${version#v}"
-          ./scripts/package-release.sh "$version" dist out
+          ./scripts/package-release.sh "${{ needs.frontend.outputs.version }}" dist out
 
       - name: Upload release assets
         env:
@@ -150,8 +156,7 @@ jobs:
       - name: Build and push Docker image
         run: |
           set -euo pipefail
-          version="${{ inputs.tag }}"
-          version="${version#v}"
+          version="${{ needs.frontend.outputs.version }}"
 
           mkdir -p docker-ctx/linux/amd64 docker-ctx/linux/arm64
           cp dist/linux_amd64/otelop docker-ctx/linux/amd64/otelop

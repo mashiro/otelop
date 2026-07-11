@@ -97,6 +97,33 @@ func TestLogsPage_PaginationAndTotal(t *testing.T) {
 // TestLogsPageByTraceID_IsolatesByTraceIgnoringTimeRange matches
 // the old store package's GetLogsPageByTraceID: no time-range filter, only trace_id
 // isolation. A log far outside any "recent" window must still be returned.
+// TestLogsPage_EmptyPageWithOffsetStillReportsTotal covers the fallback path
+// (queryCount + logsTotalQuery) LogsPage takes when the page query's
+// count(*) OVER () column has nothing to report because offset lands past
+// the end of the matching set: total must still reflect the true matching
+// count, not 0.
+func TestLogsPage_EmptyPageWithOffsetStillReportsTotal(t *testing.T) {
+	s := openTestStorage(t, Options{})
+	ctx := context.Background()
+	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	for i := 0; i < 3; i++ {
+		s.AddLogs(ctx, buildLog([16]byte{8}, "log", "svc", t0.Add(time.Duration(i)*time.Second)))
+	}
+	s.Sync()
+
+	items, total, err := s.LogsPage(ctx, t0.Add(-time.Minute), t0.Add(time.Minute), 10, 2, "")
+	if err != nil {
+		t.Fatalf("LogsPage: %v", err)
+	}
+	if len(items) != 0 {
+		t.Fatalf("expected an empty page past the end of the matching set, got %d items", len(items))
+	}
+	if total != 3 {
+		t.Fatalf("total = %d, want 3 (offset-past-end fallback must still report the true total)", total)
+	}
+}
+
 func TestLogsPageByTraceID_IsolatesByTraceIgnoringTimeRange(t *testing.T) {
 	s := openTestStorage(t, Options{})
 	ctx := context.Background()
@@ -137,5 +164,32 @@ func TestLogsPageByTraceID_PaginationAndTotal(t *testing.T) {
 	}
 	if len(items) != 2 {
 		t.Fatalf("expected page of 2, got %d", len(items))
+	}
+}
+
+// TestLogsPageByTraceID_EmptyPageWithOffsetStillReportsTotal covers the
+// fallback path (queryCount + logsTotalByTraceIDQuery) LogsPageByTraceID
+// takes when the page query's count(*) OVER () column has nothing to report
+// because offset lands past the end of the matching set.
+func TestLogsPageByTraceID_EmptyPageWithOffsetStillReportsTotal(t *testing.T) {
+	s := openTestStorage(t, Options{})
+	ctx := context.Background()
+	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	for i := 0; i < 4; i++ {
+		s.AddLogs(ctx, buildLog([16]byte{9}, "log", "svc", t0.Add(time.Duration(i)*time.Second)))
+	}
+	s.Sync()
+
+	traceID := pcommon.TraceID([16]byte{9}).String()
+	items, total, err := s.LogsPageByTraceID(ctx, traceID, 10, 2)
+	if err != nil {
+		t.Fatalf("LogsPageByTraceID: %v", err)
+	}
+	if len(items) != 0 {
+		t.Fatalf("expected an empty page past the end of the matching set, got %d items", len(items))
+	}
+	if total != 4 {
+		t.Fatalf("total = %d, want 4 (offset-past-end fallback must still report the true total)", total)
 	}
 }

@@ -34,9 +34,10 @@ func (r *MetricResolver) ReceivedAt() gql.Time { return gql.Time{Time: r.m.LastS
 func (r *MetricResolver) Resource() JSONMap { return attrsToJSON(r.m.Resource) }
 
 // filteredPoints fetches every derived point in [from, to) and drops
-// baseline observations (see internal/broadcast's identical rule) so the
-// GraphQL surface matches what the WebSocket path ever broadcasts and what
-// the old store package used to return.
+// baseline observations (storage.FilterDerivedPoints — the same rule
+// internal/broadcast's WebSocket path applies) so the GraphQL surface
+// matches what the WebSocket path ever broadcasts and what the old store
+// package used to return.
 func (r *MetricResolver) filteredPoints(ctx context.Context) ([]storage.DerivedPoint, error) {
 	r.once.Do(func() {
 		points, err := r.storage.MetricPoints(ctx, r.m.ServiceName, r.m.MetricName, r.from, r.to)
@@ -44,7 +45,7 @@ func (r *MetricResolver) filteredPoints(ctx context.Context) ([]storage.DerivedP
 			r.err = err
 			return
 		}
-		r.points = filterDerivedPoints(points)
+		r.points = storage.FilterDerivedPoints(points)
 	})
 	return r.points, r.err
 }
@@ -55,33 +56,6 @@ func (r *MetricResolver) filteredPoints(ctx context.Context) ([]storage.DerivedP
 // #162's list-render motivation).
 func (r *MetricResolver) LatestValue(ctx context.Context) (*float64, error) {
 	return r.storage.LatestValue(ctx, r.m.ServiceName, r.m.MetricName)
-}
-
-// isDistributionType reports whether metricType names one of the
-// distribution shapes (Histogram/ExponentialHistogram/Summary), which carry
-// Count/Sum instead of a plain Value — see DataPoint's schema doc comment.
-func isDistributionType(metricType string) bool {
-	return metricType == "Histogram" || metricType == "ExponentialHistogram" || metricType == "Summary"
-}
-
-// filterDerivedPoints drops baseline observations — a point with nothing to
-// derive a delta against yet, invisible to any caller (internal/broadcast's
-// WebSocket path has the identical rule) — using each row's own Type rather
-// than a separately-fetched MetricSummary, so both MetricResolver.DataPoints
-// (which already has one) and the top-level metricPoints query (which
-// doesn't) apply the exact same rule through one implementation.
-func filterDerivedPoints(points []storage.DerivedPoint) []storage.DerivedPoint {
-	filtered := make([]storage.DerivedPoint, 0, len(points))
-	for _, p := range points {
-		if p.Value == nil {
-			continue
-		}
-		if isDistributionType(p.Type) && p.Count == nil {
-			continue
-		}
-		filtered = append(filtered, p)
-	}
-	return filtered
 }
 
 func (r *MetricResolver) DataPoints(ctx context.Context) ([]*DataPointResolver, error) {
@@ -108,14 +82,9 @@ type DataPointResolver struct {
 	dp storage.DerivedPoint
 }
 
-func (r *DataPointResolver) ID() gql.ID          { return gql.ID(r.dp.ID.String()) }
-func (r *DataPointResolver) Timestamp() gql.Time { return gql.Time{Time: r.dp.TS} }
-func (r *DataPointResolver) Value() float64 {
-	if r.dp.Value == nil {
-		return 0
-	}
-	return *r.dp.Value
-}
+func (r *DataPointResolver) ID() gql.ID                { return gql.ID(r.dp.ID.String()) }
+func (r *DataPointResolver) Timestamp() gql.Time       { return gql.Time{Time: r.dp.TS} }
+func (r *DataPointResolver) Value() float64            { return floatOrZero(r.dp.Value) }
 func (r *DataPointResolver) Cumulative() *float64      { return r.dp.Cumulative }
 func (r *DataPointResolver) Count() *float64           { return r.dp.Count }
 func (r *DataPointResolver) CountCumulative() *float64 { return r.dp.CountCumulative }
@@ -146,13 +115,18 @@ type AggregatePointResolver struct {
 }
 
 func (r *AggregatePointResolver) Timestamp() gql.Time { return gql.Time{Time: r.p.TS} }
-func (r *AggregatePointResolver) Value() float64 {
-	if r.p.Value == nil {
+func (r *AggregatePointResolver) Value() float64      { return floatOrZero(r.p.Value) }
+func (r *AggregatePointResolver) Count() *float64     { return r.p.Count }
+func (r *AggregatePointResolver) Sum() *float64       { return r.p.Sum }
+func (r *AggregatePointResolver) Min() *float64       { return r.p.Min }
+func (r *AggregatePointResolver) Max() *float64       { return r.p.Max }
+
+// floatOrZero unwraps an optional derived value to 0 when nil (a baseline
+// observation with nothing to derive yet) — the GraphQL schema's Value
+// field is non-nullable, unlike the storage layer's pointer representation.
+func floatOrZero(v *float64) float64 {
+	if v == nil {
 		return 0
 	}
-	return *r.p.Value
+	return *v
 }
-func (r *AggregatePointResolver) Count() *float64 { return r.p.Count }
-func (r *AggregatePointResolver) Sum() *float64   { return r.p.Sum }
-func (r *AggregatePointResolver) Min() *float64   { return r.p.Min }
-func (r *AggregatePointResolver) Max() *float64   { return r.p.Max }

@@ -1,12 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Temporal } from "temporal-polyfill";
-import { rangeToMs, type ChartTimeRange } from "@/lib/chart-time-range";
+import { rangeToFrom, type ChartTimeRange } from "@/lib/chart-time-range";
 
 // Page size for the traces/logs tabs' server-side pagination (issue #160).
 // Small enough that the initial page load stays cheap even against 7d of
 // retained history, big enough that "Load more" isn't needed for a typical
 // recent-activity glance.
-export const SIGNAL_PAGE_SIZE = 100;
+const SIGNAL_PAGE_SIZE = 100;
 
 export interface SignalListPage {
   // Honest total row count within the fetched range, from the server
@@ -22,7 +21,10 @@ export interface SignalListPage {
   loadMore: () => void;
 }
 
-interface FetchPageArgs {
+// Exported so the traces/logs wrapper hooks (use-trace-list-page.ts,
+// use-log-list-page.ts) can type their fetchPage callback against the exact
+// shape this hook calls it with, instead of re-declaring the same inline type.
+export interface FetchPageArgs {
   from: string | undefined;
   offset: number;
   limit: number;
@@ -64,11 +66,7 @@ export function useSignalListPage<T>(
 
   useEffect(() => {
     let ignore = false;
-    const rangeMs = rangeToMs(range);
-    const from =
-      rangeMs === null
-        ? undefined
-        : Temporal.Now.instant().subtract({ milliseconds: rangeMs }).toString();
+    const from = rangeToFrom(range);
     fromRef.current = from;
     searchRef.current = search;
     offsetRef.current = 0;

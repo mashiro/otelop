@@ -6,11 +6,8 @@ import { gqlClient } from "@/lib/graphql";
 import { setTracesAtom, appendTracesAtom } from "@/stores/telemetry";
 import type { ChartTimeRange } from "@/lib/chart-time-range";
 import type { TraceData, SpanStatus } from "@/types/telemetry";
-import { useSignalListPage, type SignalListPage } from "./use-signal-list-page";
-
-// See use-initial-load.ts's MS_TO_NS comment: GraphQL reports durationMs,
-// the frontend type carries nanoseconds.
-const MS_TO_NS = 1_000_000;
+import { MS_TO_NS } from "@/lib/span-mapping";
+import { useSignalListPage, type FetchPageArgs, type SignalListPage } from "./use-signal-list-page";
 
 // Same summary-only field selection as use-initial-load.ts's old traces
 // query (no `spans` — see that file's N+1 comment); this query replaces it
@@ -70,23 +67,10 @@ export function useTraceListPage(range: ChartTimeRange, search: string): SignalL
   const setTraces = useSetAtom(setTracesAtom);
   const appendTraces = useSetAtom(appendTracesAtom);
 
-  const fetchPage = useCallback(
-    async ({
-      from,
-      offset,
-      limit,
-      search,
-    }: {
-      from: string | undefined;
-      offset: number;
-      limit: number;
-      search: string;
-    }) => {
-      const data = await gqlClient.request(TracesPageQuery, { from, offset, limit, search });
-      return { items: data.traces.items.map(toTraceData), total: data.traces.total };
-    },
-    [],
-  );
+  const fetchPage = useCallback(async ({ from, offset, limit, search }: FetchPageArgs) => {
+    const data = await gqlClient.request(TracesPageQuery, { from, offset, limit, search });
+    return { items: data.traces.items.map(toTraceData), total: data.traces.total };
+  }, []);
 
   return useSignalListPage(range, search, fetchPage, setTraces, appendTraces);
 }

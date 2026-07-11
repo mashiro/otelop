@@ -1,8 +1,10 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
+import { Temporal } from "temporal-polyfill";
 import {
   CHART_TIME_RANGES,
   DEFAULT_CHART_TIME_RANGE,
   rangeToMs,
+  rangeToFrom,
   timeRangeDomain,
   filterPointsInDomain,
   filterDataPointsInRange,
@@ -40,6 +42,27 @@ describe("rangeToMs", () => {
     expect(rangeToMs("6h")).toBe(6 * 60 * 60_000);
     expect(rangeToMs("24h")).toBe(24 * 60 * 60_000);
   });
+});
+
+describe("rangeToFrom", () => {
+  it("returns undefined for 'all'", () => {
+    expect(rangeToFrom("all")).toBeUndefined();
+  });
+
+  it.each<ChartTimeRange>(["1m", "5m", "15m", "30m", "1h", "6h", "24h"])(
+    "subtracts the %s window from now",
+    (range) => {
+      const before = Temporal.Now.instant();
+
+      const from = rangeToFrom(range);
+
+      const fromInstant = Temporal.Instant.from(from!);
+      const deltaMs = before.since(fromInstant).total("milliseconds");
+      const rangeMs = rangeToMs(range)!;
+      expect(deltaMs).toBeGreaterThan(rangeMs - 1000);
+      expect(deltaMs).toBeLessThan(rangeMs + 1000);
+    },
+  );
 });
 
 describe("timeRangeDomain", () => {
@@ -180,6 +203,19 @@ describe("filterDataPointsInRange", () => {
     const points = [{ timestamp: "2024-01-01T00:00:00Z", value: 42 }];
 
     expect(filterDataPointsInRange(points, "all")).toEqual(points);
+  });
+
+  it("parses each point's timestamp exactly once (single pass, not a max-finding pass plus a filter pass)", () => {
+    const points = [
+      { timestamp: "2024-01-01T00:00:00Z" },
+      { timestamp: "2024-01-01T00:10:00Z" },
+      { timestamp: "2024-01-01T00:20:00Z" },
+    ];
+    const getTimestamp = vi.fn((p: (typeof points)[number]) => p.timestamp);
+
+    filterDataPointsInRange(points, "5m", getTimestamp);
+
+    expect(getTimestamp).toHaveBeenCalledTimes(points.length);
   });
 
   describe("with an explicit getTimestamp selector", () => {

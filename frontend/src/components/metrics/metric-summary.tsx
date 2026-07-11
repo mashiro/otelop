@@ -41,7 +41,7 @@ export const MetricSummary = memo(function MetricSummary({
     // dataPoints (issue #162), so a metric opened before its first WS
     // delivery would otherwise look ineligible for stat tiles even though
     // its fetched history already has cumulative/count/sum signal.
-    const eligible = hasStatTileSignal(rangeDataPoints);
+    if (!hasStatTileSignal(rangeDataPoints)) return [];
     const input: StatTilesInput = facet
       ? {
           kind: "aggregate",
@@ -50,9 +50,8 @@ export const MetricSummary = memo(function MetricSummary({
           facet,
           range,
           isDistribution,
-          eligible,
         }
-      : { kind: "raw", rangeDataPoints, facet: null, range, isDistribution, eligible };
+      : { kind: "raw", rangeDataPoints, facet: null, range, isDistribution };
     return computeStatTiles(input);
   }, [facet, aggregatedSeries, rangeDataPoints, range, isDistribution]);
 

@@ -26,15 +26,7 @@ describe("MetricChart", () => {
     });
 
     expect(() =>
-      render(
-        <MetricChart
-          metric={metric}
-          facet={null}
-          range="all"
-          rangeDataPoints={metric.dataPoints}
-          aggregatedSeries={null}
-        />,
-      ),
+      render(<MetricChart metric={metric} facet={null} range="all" aggregatedSeries={null} />),
     ).not.toThrow();
   });
 
@@ -47,15 +39,7 @@ describe("MetricChart", () => {
     });
 
     expect(() =>
-      render(
-        <MetricChart
-          metric={metric}
-          facet={REGION_FACET}
-          range="5m"
-          rangeDataPoints={metric.dataPoints}
-          aggregatedSeries={[]}
-        />,
-      ),
+      render(<MetricChart metric={metric} facet={REGION_FACET} range="5m" aggregatedSeries={[]} />),
     ).not.toThrow();
   });
 
@@ -66,13 +50,7 @@ describe("MetricChart", () => {
 
     expect(() =>
       render(
-        <MetricChart
-          metric={metric}
-          facet={REGION_FACET}
-          range="all"
-          rangeDataPoints={metric.dataPoints}
-          aggregatedSeries={null}
-        />,
+        <MetricChart metric={metric} facet={REGION_FACET} range="all" aggregatedSeries={null} />,
       ),
     ).not.toThrow();
   });

@@ -11,6 +11,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { DetailPanel } from "@/components/common/detail-panel";
 import { Pill } from "@/components/common/pill";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { TimeRangeTabs } from "@/components/common/time-range-tabs";
 import { KVSection } from "@/components/ui/kv-section";
 import { Field } from "@/components/common/detail-field";
 import {
@@ -22,11 +23,7 @@ import {
 } from "@/lib/metric-catalog";
 import { formatMetricValue } from "@/lib/format-metric";
 import { formatTimestamp } from "@/lib/format";
-import {
-  CHART_TIME_RANGES,
-  filterDataPointsInRange,
-  type ChartTimeRange,
-} from "@/lib/chart-time-range";
+import { filterDataPointsInRange } from "@/lib/chart-time-range";
 import { useMetricRangePoints } from "@/hooks/use-metric-range-points";
 import { useMetricAggregateSeries } from "@/hooks/use-metric-aggregate-series";
 import { useStableArray } from "@/hooks/use-stable-array";
@@ -130,16 +127,16 @@ export function MetricDetailBody({ metric }: { metric: MetricData }) {
   // itself when the underlying content didn't change.
   const windowedDataPoints = useStableArray(windowedDataPointsRaw, (dp) => dp.id);
 
-  // MetricChart/MetricSummary/DataPointsTable only read a metric's
-  // identity/display fields (name/type/unit/description/resource), never
-  // its raw dataPoints (they're driven by rangeDataPoints/aggregatedSeries
-  // instead) — so rebuild the object they receive from primitives that stay
+  // MetricSummary/DataPointsTable only read a metric's identity/display
+  // fields (name/type/unit/description/resource) plus their own
+  // rangeDataPoints/aggregatedSeries props, never metric.dataPoints directly
+  // — so rebuild the object they receive from primitives that stay
   // referentially stable across a WS delivery, instead of the ever-new
   // `metric` object, for the React.memo wrapping on those three to actually
-  // take effect. dataPoints is set to rangeDataPoints (already stable)
-  // purely to satisfy MetricData's shape; nothing downstream reads it off
-  // this object — MetricChart overrides it with rangeDataPoints itself
-  // before use, and MetricSummary takes rangeDataPoints as its own prop.
+  // take effect. dataPoints is set to rangeDataPoints (already stable) so
+  // MetricChart — which reads metric.dataPoints as its range-scoped series,
+  // see metric-chart.tsx's Props doc — renders the same range-scoped data
+  // the tiles/table below it do.
   const stableMetric = useMemo<MetricData>(
     () => ({
       serviceName: metric.serviceName,
@@ -212,19 +209,7 @@ export function MetricDetailBody({ metric }: { metric: MetricData }) {
               </Tabs>
             </div>
 
-            <Tabs value={range} onValueChange={(v) => setRange(v as ChartTimeRange)}>
-              <TabsList className="h-8 bg-muted/50">
-                {CHART_TIME_RANGES.map((r) => (
-                  <TabsTrigger
-                    key={r.value}
-                    value={r.value}
-                    className="h-7 px-3 text-xs data-active:bg-metric/15 data-active:text-metric"
-                  >
-                    {r.label}
-                  </TabsTrigger>
-                ))}
-              </TabsList>
-            </Tabs>
+            <TimeRangeTabs range={range} onRangeChange={setRange} tone="metric" size="md" />
           </div>
 
           <MetricSummary
@@ -241,7 +226,6 @@ export function MetricDetailBody({ metric }: { metric: MetricData }) {
                 metric={stableMetric}
                 facet={effectiveFacet}
                 range={range}
-                rangeDataPoints={rangeDataPoints}
                 aggregatedSeries={aggregatedSeries}
               />
             </div>

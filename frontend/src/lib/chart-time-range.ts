@@ -40,6 +40,20 @@ export function rangeToMs(range: ChartTimeRange): number | null {
   return RANGE_MINUTES[range] * 60_000;
 }
 
+// Converts a range selection into the GraphQL `from` argument every
+// range-scoped fetch sends (hooks/use-signal-list-page.ts,
+// use-metric-range-points.ts, use-metric-aggregate-series.ts,
+// use-service-map-spans.ts): "all" has no fixed lower bound, so it's elided
+// (undefined) rather than sent as an explicit null, letting the server apply
+// its own default; every other range subtracts from "now" via Temporal (not
+// Date.parse) per the project's OTel-timestamp convention.
+export function rangeToFrom(range: ChartTimeRange): string | undefined {
+  const rangeMs = rangeToMs(range);
+  return rangeMs === null
+    ? undefined
+    : Temporal.Now.instant().subtract({ milliseconds: rangeMs }).toString();
+}
+
 // Anchored on the max data timestamp (not Date.now()) so the chart keeps
 // showing the last window of data instead of going blank once data stops
 // arriving.
@@ -65,6 +79,12 @@ export function timeRangeDomain(
 // Target bucket count for server-aggregated facet series (see
 // hooks/use-metric-aggregate-series.ts): enough resolution to read as a
 // smooth line without asking DuckDB to return a bucket per raw point.
+// Mirrors internal/storage/query_metric_aggregate.go's
+// metricAggregateTargetBuckets constant — both encode the same UX policy
+// (how many buckets a chart should aim for), just for two different
+// call sites (this picks a bucket width for a FIXED range client-side; the
+// Go constant auto-sizes buckets against the real data extent server-side
+// for "all"), so keep them in sync by hand if the target ever changes.
 const TARGET_BUCKETS = 150;
 const MIN_BUCKET_SECONDS = 1;
 
@@ -127,11 +147,23 @@ export function filterDataPointsInRange<T>(
   const rangeMs = rangeToMs(range);
   if (rangeMs === null || points.length === 0) return points;
 
+  // Single pass: parse each point's timestamp exactly once, caching the
+  // epoch value alongside it while tracking the max, then filter against the
+  // cached values instead of re-parsing every point a second time. Called on
+  // every WS message via stores/filters.ts's rangeFilteredTracesAtom/
+  // rangeFilteredLogsAtom over the full capped buffer, so halving the
+  // Temporal.Instant.from calls matters here.
   let maxMs = -Infinity;
-  for (const p of points) {
-    const ms = Temporal.Instant.from(getTimestamp(p)).epochMilliseconds;
+  const withMs: { point: T; ms: number }[] = [];
+  for (const point of points) {
+    const ms = Temporal.Instant.from(getTimestamp(point)).epochMilliseconds;
+    withMs.push({ point, ms });
     if (ms > maxMs) maxMs = ms;
   }
   const minMs = maxMs - rangeMs;
-  return points.filter((p) => Temporal.Instant.from(getTimestamp(p)).epochMilliseconds >= minMs);
+  const result: T[] = [];
+  for (const { point, ms } of withMs) {
+    if (ms >= minMs) result.push(point);
+  }
+  return result;
 }

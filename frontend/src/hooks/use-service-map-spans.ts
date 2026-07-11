@@ -1,16 +1,10 @@
 import { useEffect, useRef } from "react";
 import { useSetAtom } from "jotai";
-import { Temporal } from "temporal-polyfill";
 import { graphql } from "@/gql";
-import type { ServiceMapSpanFieldsFragment } from "@/gql/graphql";
 import { gqlClient } from "@/lib/graphql";
 import { mergeManyTraceSpansAtom } from "@/stores/telemetry";
-import { rangeToMs, type ChartTimeRange } from "@/lib/chart-time-range";
-import type { SpanData, SpanStatus } from "@/types/telemetry";
-
-// See use-initial-load.ts's MS_TO_NS comment: GraphQL reports durationMs,
-// the frontend type carries nanoseconds.
-const MS_TO_NS = 1_000_000;
+import { rangeToFrom, type ChartTimeRange } from "@/lib/chart-time-range";
+import { toSpan } from "@/lib/span-mapping";
 
 const ServiceMapSpansQuery = graphql(`
   query ServiceMapSpans($from: Time) {
@@ -18,37 +12,12 @@ const ServiceMapSpansQuery = graphql(`
       items {
         traceId
         spans {
-          ...ServiceMapSpanFields
+          ...SpanFields
         }
       }
     }
   }
-
-  fragment ServiceMapSpanFields on Span {
-    traceId
-    spanId
-    parentSpanId
-    name
-    kind
-    serviceName
-    startTime
-    endTime
-    durationMs
-    statusCode
-    statusMessage
-    attributes
-    events {
-      name
-      timestamp
-      attributes
-    }
-    resource
-  }
 `);
-
-function toSpan({ durationMs, statusCode, ...rest }: ServiceMapSpanFieldsFragment): SpanData {
-  return { ...rest, statusCode: statusCode as SpanStatus, duration: durationMs * MS_TO_NS };
-}
 
 // lib/service-graph.ts (the service map's edge builder) walks every buffered
 // trace's spans to derive parent/child service call edges — it genuinely
@@ -79,11 +48,7 @@ export function useServiceMapSpans(active: boolean, range: ChartTimeRange): void
   useEffect(() => {
     if (!active || fetchedForRangeRef.current === range) return;
     let ignore = false;
-    const rangeMs = rangeToMs(range);
-    const from =
-      rangeMs === null
-        ? undefined
-        : Temporal.Now.instant().subtract({ milliseconds: rangeMs }).toString();
+    const from = rangeToFrom(range);
     const load = async () => {
       try {
         const data = await gqlClient.request(ServiceMapSpansQuery, { from });

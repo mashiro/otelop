@@ -1,5 +1,5 @@
 import { atom } from "jotai";
-import type { Getter } from "jotai";
+import type { Getter, PrimitiveAtom } from "jotai";
 import { useSetAtom } from "jotai";
 import { useEffect } from "react";
 import { SIGNALS } from "@/lib/signals";
@@ -121,81 +121,53 @@ function syncLocation(get: Getter): void {
   }
 }
 
+// createSyncedAtom is the shared "if equal return; set base; syncLocation"
+// write-through wrapper every public selection/range/tab atom below needs, so
+// callers (telemetry.ts's selectedTraceAtom/selectedMetricAtom/
+// selectedLogAtom, and every range Tabs component) can't forget to sync the
+// URL on write. `equals` defaults to `===`, which is correct for every base
+// atom here except selectedMetricKeyBaseAtom (an object), which passes
+// metricKeyEquals explicitly.
+function createSyncedAtom<T>(
+  baseAtom: PrimitiveAtom<T>,
+  equals: (a: T, b: T) => boolean = (a, b) => a === b,
+) {
+  return atom(
+    (get) => get(baseAtom),
+    (get, set, value: T) => {
+      if (equals(get(baseAtom), value)) return;
+      set(baseAtom, value);
+      syncLocation(get);
+    },
+  );
+}
+
 // Write-through atoms: writing the id/key also syncs the URL, so callers
 // (telemetry.ts's selectedTraceAtom/selectedMetricAtom/selectedLogAtom) can't
 // forget to.
-export const selectedTraceIdAtom = atom(
-  (get) => get(selectedTraceIdBaseAtom),
-  (get, set, traceId: string | null) => {
-    if (get(selectedTraceIdBaseAtom) === traceId) return;
-    set(selectedTraceIdBaseAtom, traceId);
-    syncLocation(get);
-  },
-);
+export const selectedTraceIdAtom = createSyncedAtom(selectedTraceIdBaseAtom);
 
-export const selectedMetricKeyAtom = atom(
-  (get) => get(selectedMetricKeyBaseAtom),
-  (get, set, metricKey: MetricKey | null) => {
-    if (metricKeyEquals(get(selectedMetricKeyBaseAtom), metricKey)) return;
-    set(selectedMetricKeyBaseAtom, metricKey);
-    syncLocation(get);
-  },
-);
+export const selectedMetricKeyAtom = createSyncedAtom(selectedMetricKeyBaseAtom, metricKeyEquals);
 
-export const selectedLogIdAtom = atom(
-  (get) => get(selectedLogIdBaseAtom),
-  (get, set, logId: string | null) => {
-    if (get(selectedLogIdBaseAtom) === logId) return;
-    set(selectedLogIdBaseAtom, logId);
-    syncLocation(get);
-  },
-);
+export const selectedLogIdAtom = createSyncedAtom(selectedLogIdBaseAtom);
 
 // Deliberate exception to "detail-internal selection stays local state": the
 // range is what a shared metric-detail link should reproduce, so it's synced
 // like the id/key atoms above. The facet breakdown is not — see
 // metric-detail.tsx's local pickedId state.
-export const selectedMetricRangeAtom = atom(
-  (get) => get(selectedMetricRangeBaseAtom),
-  (get, set, range: ChartTimeRange) => {
-    if (get(selectedMetricRangeBaseAtom) === range) return;
-    set(selectedMetricRangeBaseAtom, range);
-    syncLocation(get);
-  },
-);
+export const selectedMetricRangeAtom = createSyncedAtom(selectedMetricRangeBaseAtom);
 
 // Unlike selectedMetricRangeAtom, these scope the traces/logs tab's LIST
 // view (hooks/use-trace-list-page.ts, hooks/use-log-list-page.ts) rather
 // than a detail selection, so they round-trip through the URL regardless of
 // whether a trace/log is currently selected — see buildPath.
-export const selectedTraceRangeAtom = atom(
-  (get) => get(selectedTraceRangeBaseAtom),
-  (get, set, range: ChartTimeRange) => {
-    if (get(selectedTraceRangeBaseAtom) === range) return;
-    set(selectedTraceRangeBaseAtom, range);
-    syncLocation(get);
-  },
-);
+export const selectedTraceRangeAtom = createSyncedAtom(selectedTraceRangeBaseAtom);
 
-export const selectedLogRangeAtom = atom(
-  (get) => get(selectedLogRangeBaseAtom),
-  (get, set, range: ChartTimeRange) => {
-    if (get(selectedLogRangeBaseAtom) === range) return;
-    set(selectedLogRangeBaseAtom, range);
-    syncLocation(get);
-  },
-);
+export const selectedLogRangeAtom = createSyncedAtom(selectedLogRangeBaseAtom);
 
 // The tab/selection combo is mirrored to the URL so a reload (or shared link)
 // restores the same screen even though the telemetry data itself is volatile.
-export const activeTabAtom = atom(
-  (get) => get(currentTabAtom),
-  (get, set, tab: TabValue) => {
-    if (get(currentTabAtom) === tab) return;
-    set(currentTabAtom, tab);
-    syncLocation(get);
-  },
-);
+export const activeTabAtom = createSyncedAtom(currentTabAtom);
 
 // Applies a browser-navigated (or restored) path to state without touching
 // history — history already reflects this path, pushing again would loop.

@@ -18,15 +18,15 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CopyJsonButton } from "@/components/ui/copy-json-button";
-import { CHART_TIME_RANGES, type ChartTimeRange } from "@/lib/chart-time-range";
 import { formatTimestamp, isZeroId, shortId } from "@/lib/format";
 import { KVSection } from "@/components/ui/kv-section";
 import { Field, Section } from "@/components/common/detail-field";
 import { SearchFilter } from "@/components/filters/search-filter";
 import { ListPanel } from "@/components/common/list-panel";
 import { EmptyState, EmptyMatches } from "@/components/common/empty-state";
+import { TimeRangeTabs } from "@/components/common/time-range-tabs";
+import { LoadMoreRow } from "@/components/common/load-more-row";
 import { Pill } from "@/components/common/pill";
 import { SIGNALS } from "@/lib/signals";
 import { severityTone } from "@/lib/tones";
@@ -43,7 +43,7 @@ export function LogList() {
   const setSelectedLog = useSetAtom(selectedLogAtom);
   const [range, setRange] = useAtom(selectedLogRangeAtom);
   const search = useAtomValue(logSearchAtom);
-  const { total, loaded, hasMore, loadingMore, loadMore } = useLogListPage(range, search);
+  const page = useLogListPage(range, search);
 
   if (allLogs.length === 0) {
     return <EmptyState signal={SIGNALS.logs} />;
@@ -67,19 +67,7 @@ export function LogList() {
           )}
           <SearchFilter atom={logSearchAtom} placeholder="Search logs…" />
           <div className="ml-auto px-3">
-            <Tabs value={range} onValueChange={(v) => setRange(v as ChartTimeRange)}>
-              <TabsList className="h-7 bg-muted/50">
-                {CHART_TIME_RANGES.map((r) => (
-                  <TabsTrigger
-                    key={r.value}
-                    value={r.value}
-                    className="h-6 px-2 text-xs data-active:bg-log/15 data-active:text-log"
-                  >
-                    {r.label}
-                  </TabsTrigger>
-                ))}
-              </TabsList>
-            </Tabs>
+            <TimeRangeTabs range={range} onRangeChange={setRange} tone="log" />
           </div>
         </>
       }
@@ -141,21 +129,7 @@ export function LogList() {
                 })}
               </TableBody>
             </Table>
-            {hasMore && (
-              <div className="border-t border-border/30 p-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="w-full"
-                  onClick={loadMore}
-                  disabled={loadingMore}
-                >
-                  {loadingMore
-                    ? "Loading…"
-                    : `Load more (${loaded.toLocaleString()} of ${total.toLocaleString()})`}
-                </Button>
-              </div>
-            )}
+            <LoadMoreRow {...page} />
           </ScrollArea>
         )}
         {selectedLog && (

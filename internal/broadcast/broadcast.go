@@ -75,29 +75,13 @@ func distinctTraceIDs(spans []storage.SpanRow) []string {
 	return ids
 }
 
-// pickRootSpan reproduces the old store package's isBetterRoot rule: the parentless
-// span with the longest duration represents the trace.
-func pickRootSpan(spans []storage.SpanDetail) *storage.SpanDetail {
-	var root *storage.SpanDetail
-	for i := range spans {
-		sp := &spans[i]
-		if sp.ParentSpanID != "" {
-			continue
-		}
-		if root == nil || sp.Duration > root.Duration {
-			root = sp
-		}
-	}
-	return root
-}
-
 func traceDetailToTraceData(d *storage.TraceDetail) *TraceData {
 	spans := make([]*SpanData, len(d.Spans))
 	for i := range d.Spans {
 		spans[i] = spanDetailToSpanData(&d.Spans[i])
 	}
 	var rootSpan *SpanData
-	if root := pickRootSpan(d.Spans); root != nil {
+	if root := storage.PickRootSpan(d.Spans); root != nil {
 		rootSpan = spanDetailToSpanData(root)
 	}
 	return &TraceData{
@@ -208,23 +192,14 @@ func broadcastMetrics(ctx context.Context, s *storage.Storage, batch storage.Met
 			continue
 		}
 
-		isDistribution := sr.MetricType == "Histogram" || sr.MetricType == "ExponentialHistogram" || sr.MetricType == "Summary"
+		// storage.FilterDerivedPoints drops baseline observations (the first
+		// point of a cumulative series, with no predecessor for lag() to
+		// derive a delta from) — the old store package's seriesStore never
+		// broadcast these either; the newIDs membership check below then
+		// narrows that down to just this batch's newly-appended points.
 		dataPoints := make([]DataPoint, 0, len(newIDs[k]))
-		for _, p := range points {
+		for _, p := range storage.FilterDerivedPoints(points) {
 			if _, isNew := newIDs[k][uuidKey(p.ID)]; !isNew {
-				continue
-			}
-			// Baseline observations (the first point of a cumulative
-			// series) have no predecessor for lag() to derive a delta from.
-			// The old store package's seriesStore never broadcast these at
-			// all; mirror that by dropping them here too. For distribution
-			// types the derived mean falls back to 0 rather than NULL (see
-			// query_metric.go's out_value CASE), so Count is the reliable
-			// baseline signal there.
-			if p.Value == nil {
-				continue
-			}
-			if isDistribution && p.Count == nil {
 				continue
 			}
 			dataPoints = append(dataPoints, DataPoint{

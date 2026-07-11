@@ -8,6 +8,8 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { SearchFilter } from "@/components/filters/search-filter";
 import { ListPanel } from "@/components/common/list-panel";
 import { EmptyMatches } from "@/components/common/empty-state";
+import { TimeRangeTabs } from "@/components/common/time-range-tabs";
+import { LoadMoreRow } from "@/components/common/load-more-row";
 import { useServiceMapSpans } from "@/hooks/use-service-map-spans";
 import { useTraceListPage } from "@/hooks/use-trace-list-page";
 import { ServiceMap } from "./service-map";
@@ -19,9 +21,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Button } from "@/components/ui/button";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { CHART_TIME_RANGES, type ChartTimeRange } from "@/lib/chart-time-range";
 import { formatDuration, formatRelativeTime, shortId } from "@/lib/format";
 import { TraceDetail } from "./trace-detail";
 import { EmptyState } from "@/components/common/empty-state";
@@ -37,7 +36,7 @@ export function TraceList() {
   const [view, setView] = useState<"list" | "map">("list");
   const [range, setRange] = useAtom(selectedTraceRangeAtom);
   const search = useAtomValue(traceSearchAtom);
-  const { total, loaded, hasMore, loadingMore, loadMore } = useTraceListPage(range, search);
+  const page = useTraceListPage(range, search);
   // The service map needs full span data across every buffered trace (see
   // lib/service-graph.ts), which the trace list itself deliberately doesn't
   // load (use-trace-list-page.ts). Fetch it lazily, once per range, the
@@ -58,19 +57,7 @@ export function TraceList() {
         <>
           <SearchFilter atom={traceSearchAtom} placeholder="Search traces…" />
           <div className="ml-auto flex items-center gap-2 px-3">
-            <Tabs value={range} onValueChange={(v) => setRange(v as ChartTimeRange)}>
-              <TabsList className="h-7 bg-muted/50">
-                {CHART_TIME_RANGES.map((r) => (
-                  <TabsTrigger
-                    key={r.value}
-                    value={r.value}
-                    className="h-6 px-2 text-xs data-active:bg-trace/15 data-active:text-trace"
-                  >
-                    {r.label}
-                  </TabsTrigger>
-                ))}
-              </TabsList>
-            </Tabs>
+            <TimeRangeTabs range={range} onRangeChange={setRange} tone="trace" />
             <div className="flex items-center gap-1">
               <button
                 type="button"
@@ -149,21 +136,7 @@ export function TraceList() {
               })}
             </TableBody>
           </Table>
-          {hasMore && (
-            <div className="border-t border-border/30 p-2">
-              <Button
-                variant="outline"
-                size="sm"
-                className="w-full"
-                onClick={loadMore}
-                disabled={loadingMore}
-              >
-                {loadingMore
-                  ? "Loading…"
-                  : `Load more (${loaded.toLocaleString()} of ${total.toLocaleString()})`}
-              </Button>
-            </div>
-          )}
+          <LoadMoreRow {...page} />
         </ScrollArea>
       )}
     </ListPanel>

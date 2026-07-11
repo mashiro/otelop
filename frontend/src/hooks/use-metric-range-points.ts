@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Temporal } from "temporal-polyfill";
 import { graphql } from "@/gql";
 import { gqlClient } from "@/lib/graphql";
 import { mergeDataPoints } from "@/stores/telemetry";
-import { rangeToMs, type ChartTimeRange } from "@/lib/chart-time-range";
+import { rangeToFrom, type ChartTimeRange } from "@/lib/chart-time-range";
 import { useStableArray } from "@/hooks/use-stable-array";
 import type { DataPoint, MetricData } from "@/types/telemetry";
 
@@ -59,11 +58,7 @@ export function useMetricRangePoints(metric: MetricData, range: ChartTimeRange):
     }
     metricKeyRef.current = metricKey;
 
-    const rangeMs = rangeToMs(range);
-    const from =
-      rangeMs === null
-        ? undefined
-        : Temporal.Now.instant().subtract({ milliseconds: rangeMs }).toString();
+    const from = rangeToFrom(range);
 
     const load = async () => {
       try {

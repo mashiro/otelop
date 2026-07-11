@@ -4,7 +4,7 @@ import { createStore, Provider } from "jotai";
 import type { ReactNode } from "react";
 import { useTraceSpans } from "./use-trace-spans";
 import { tracesAtom } from "@/stores/telemetry";
-import { makeTrace, makeSpan } from "@/test/factories";
+import { makeTrace, makeSpan, toQuerySpan } from "@/test/factories";
 import type { TraceSpansQuery, TraceSpansQueryVariables } from "@/gql/graphql";
 
 const { requestMock } = vi.hoisted(() => ({
@@ -15,11 +15,6 @@ vi.mock("@/lib/graphql", () => ({ gqlClient: { request: requestMock } }));
 beforeEach(() => {
   requestMock.mockReset();
 });
-
-function toQuerySpan(span: ReturnType<typeof makeSpan>) {
-  const { duration, ...rest } = span;
-  return { ...rest, durationMs: duration / 1_000_000 };
-}
 
 function renderWithStore(trace: Parameters<typeof useTraceSpans>[0]) {
   const store = createStore();

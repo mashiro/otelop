@@ -254,9 +254,9 @@ func TestMetricPoints_HistogramCumulativeDeltaized(t *testing.T) {
 }
 
 // TestMetricPoints_TypeRidesAlongPerRow verifies DerivedPoint.Type is
-// populated from the series' metric_type so a caller (internal/graphql's
-// filterDerivedPoints) can filter baseline observations without a separate
-// MetricSummary lookup — see the metricPointsQuery doc comment.
+// populated from the series' metric_type so a caller (FilterDerivedPoints)
+// can filter baseline observations without a separate MetricSummary
+// lookup — see the metricPointsQuery doc comment.
 func TestMetricPoints_TypeRidesAlongPerRow(t *testing.T) {
 	s := openTestStorage(t, Options{})
 	ctx := context.Background()
@@ -296,7 +296,7 @@ func TestLatestValue_CumulativeSumReturnsMostRecentDelta(t *testing.T) {
 // TestLatestValue_BaselineOnlyReturnsNil documents that a series with just
 // one observation ever (a monotonic cumulative Sum's baseline, nothing to
 // derive a delta against yet) has no meaningful latest value — mirrors
-// MetricPoints/filterDerivedPoints dropping the same row.
+// MetricPoints/FilterDerivedPoints dropping the same row.
 func TestLatestValue_BaselineOnlyReturnsNil(t *testing.T) {
 	s := openTestStorage(t, Options{})
 	ctx := context.Background()
@@ -530,5 +530,32 @@ func TestMetricsPage_PaginationTotalAndOrdering(t *testing.T) {
 	// Most-recently-active first; offset 1 skips metric.c.
 	if items[0].MetricName != "metric.b" {
 		t.Errorf("MetricName = %q, want metric.b (order by last_seen DESC)", items[0].MetricName)
+	}
+}
+
+// TestMetricsPage_EmptyPageWithOffsetStillReportsTotal covers the fallback
+// path (queryCount + metricsTotalQuery) MetricsPage takes when the page
+// query's count(*) OVER () column has nothing to report because offset
+// lands past the end of the matching set: total must still reflect the true
+// matching group count, not 0.
+func TestMetricsPage_EmptyPageWithOffsetStillReportsTotal(t *testing.T) {
+	s := openTestStorage(t, Options{})
+	ctx := context.Background()
+	now := time.Now()
+
+	for _, name := range []string{"metric.a", "metric.b", "metric.c"} {
+		s.AddMetrics(ctx, buildCumulativeSum(name, "svc", 1, now))
+	}
+	s.Sync()
+
+	items, total, err := s.MetricsPage(ctx, now.Add(-time.Hour), now.Add(time.Hour), 10, 2)
+	if err != nil {
+		t.Fatalf("MetricsPage: %v", err)
+	}
+	if len(items) != 0 {
+		t.Fatalf("expected an empty page past the end of the matching set, got %d items", len(items))
+	}
+	if total != 3 {
+		t.Fatalf("total = %d, want 3 (offset-past-end fallback must still report the true total)", total)
 	}
 }

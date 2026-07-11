@@ -51,5 +51,15 @@ func (c *lruSet[K]) Add(key K) {
 	}
 }
 
-// Len returns the number of keys currently cached. Exposed for tests.
-func (c *lruSet[K]) Len() int { return c.ll.Len() }
+// ContainsOrAdd reports whether key was already seen and records it as seen
+// either way, in one map lookup instead of a separate Contains+Add pair —
+// the span-dedup path (writeTraces) calls this once per span rather than
+// probing then inserting.
+func (c *lruSet[K]) ContainsOrAdd(key K) bool {
+	if el, ok := c.items[key]; ok {
+		c.ll.MoveToFront(el)
+		return true
+	}
+	c.Add(key)
+	return false
+}

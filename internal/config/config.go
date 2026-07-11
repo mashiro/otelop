@@ -164,6 +164,24 @@ func ParseMaxSize(s string) (int64, error) {
 	return n, nil
 }
 
+// xdgPath resolves an XDG base-directory-style path: envVar (e.g.
+// XDG_CONFIG_HOME) if set, joined with configDir and filename; otherwise the
+// user's home directory, joined with homeParts (the env var's conventional
+// fallback location, e.g. ".config" or ".local", "share"), configDir, and
+// filename. Shared by DefaultPath and DefaultStoragePath, which differ only
+// in which env var/fallback dir/filename they use.
+func xdgPath(envVar, filename string, homeParts ...string) (string, error) {
+	if dir := os.Getenv(envVar); dir != "" {
+		return filepath.Join(dir, configDir, filename), nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("resolve home dir: %w", err)
+	}
+	parts := append(append([]string{home}, homeParts...), configDir, filename)
+	return filepath.Join(parts...), nil
+}
+
 // DefaultPath returns the path Load reads when no override is set. Honours
 // OTELOP_CONFIG_FILE first, then $XDG_CONFIG_HOME/otelop/config.toml,
 // falling back to ~/.config/otelop/config.toml on both macOS and Linux.
@@ -171,14 +189,7 @@ func DefaultPath() (string, error) {
 	if p := os.Getenv(EnvConfigFile); p != "" {
 		return p, nil
 	}
-	if dir := os.Getenv("XDG_CONFIG_HOME"); dir != "" {
-		return filepath.Join(dir, configDir, configFilename), nil
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("resolve home dir: %w", err)
-	}
-	return filepath.Join(home, ".config", configDir, configFilename), nil
+	return xdgPath("XDG_CONFIG_HOME", configFilename, ".config")
 }
 
 // DefaultStoragePath returns the DuckDB file location used when neither the
@@ -186,14 +197,7 @@ func DefaultPath() (string, error) {
 // falling back to ~/.local/share/otelop/otelop.duckdb — the XDG data-home
 // counterpart of DefaultPath's config-home resolution.
 func DefaultStoragePath() (string, error) {
-	if dir := os.Getenv("XDG_DATA_HOME"); dir != "" {
-		return filepath.Join(dir, configDir, "otelop.duckdb"), nil
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("resolve home dir: %w", err)
-	}
-	return filepath.Join(home, ".local", "share", configDir, "otelop.duckdb"), nil
+	return xdgPath("XDG_DATA_HOME", "otelop.duckdb", ".local", "share")
 }
 
 // Load reads the config file at the resolved default path and merges it

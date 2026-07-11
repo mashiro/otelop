@@ -6,10 +6,10 @@ import { AxisBottom, AxisLeft } from "@visx/axis";
 import { ParentSize } from "@visx/responsive";
 import { curveMonotoneX } from "@visx/curve";
 import { useTooltip, TooltipWithBounds } from "@visx/tooltip";
-import type { DataPoint, MetricData } from "@/types/telemetry";
+import type { MetricData } from "@/types/telemetry";
 import { formatMetricValue } from "@/lib/format-metric";
 import { resolveMetricUnit, type MetricFacet } from "@/lib/metric-catalog";
-import { facetSeriesKey, facetGroupLabel, facetGroupOrder } from "@/lib/metric-stats";
+import { facetSeriesKey, resolveFacetGroupColorIndex } from "@/lib/metric-stats";
 import { filterPointsInDomain, timeRangeDomain, type ChartTimeRange } from "@/lib/chart-time-range";
 import type { AggregateSeriesData } from "@/hooks/use-metric-aggregate-series";
 
@@ -51,18 +51,16 @@ interface TooltipData {
 }
 
 interface Props {
+  // metric.dataPoints is already the range-scoped data (metric-detail.tsx's
+  // stableMetric sets it to rangeDataPoints — see use-metric-range-points.ts)
+  // — the same range-scoped data the stat tiles above the chart sum, so the
+  // two can't desync (see metric-stats.ts's computeStatTiles and
+  // MetricSummary).
   metric: MetricData;
   // Facet to group series by; when null/undefined, series are keyed by the
   // full attribute combination (the "All" view).
   facet?: MetricFacet | null;
-  // Selected time range and the data fetched for it. Both are lifted to
-  // metric-detail.tsx (not owned here) because the stat tiles above the
-  // chart need the exact same range-scoped data — see metric-stats.ts's
-  // computeStatTiles and MetricSummary.
   range: ChartTimeRange;
-  // Backfills history the live buffer may have evicted, merged with the
-  // still-live dataPoints from the store — see use-metric-range-points.ts.
-  rangeDataPoints: DataPoint[];
   // Server-aggregated facet series (null when facet is null, or while a
   // fetch for the active facet/range hasn't landed yet).
   aggregatedSeries: AggregateSeriesData[] | null;
@@ -91,14 +89,8 @@ export const MetricChart = memo(function MetricChart({
   metric,
   facet,
   range,
-  rangeDataPoints,
   aggregatedSeries,
 }: Props) {
-  const rangedMetric = useMemo(
-    () => ({ ...metric, dataPoints: rangeDataPoints }),
-    [metric, rangeDataPoints],
-  );
-
   return (
     <div className="flex h-full flex-col">
       <div className="min-h-0 flex-1">
@@ -106,7 +98,7 @@ export const MetricChart = memo(function MetricChart({
           {({ width, height }) =>
             width > 0 && height > 0 ? (
               <ChartInner
-                metric={rangedMetric}
+                metric={metric}
                 facet={facet}
                 aggregatedSeries={aggregatedSeries}
                 range={range}
@@ -147,17 +139,11 @@ function ChartInner({
     // (unsummed) grouping, which would reintroduce the zigzag.
     if (facet) {
       if (!aggregatedSeries) return [];
-      // The aggregate query orders groups alphabetically by value (see
-      // internal/storage's MetricAggregate), not by first appearance — color
-      // by first-appearance order in the raw live buffer instead, the same
-      // ordering the stat tiles above use, so line colors stay aligned with
-      // the tiles. A group present server-side but absent from the (bounded)
-      // live buffer falls back to an index appended after every known one.
-      const rawOrder = facetGroupOrder(metric.dataPoints, facet);
-      let nextIndex = rawOrder.size;
-      return aggregatedSeries.map((s) => {
-        const label = facetGroupLabel(s.groupValues) || "(no attributes)";
-        const colorIndex = rawOrder.has(label) ? rawOrder.get(label)! : nextIndex++;
+      // Colors from first-appearance order in the raw buffer, same as the
+      // stat tiles above — see metric-stats.ts's resolveFacetGroupColorIndex.
+      const resolved = resolveFacetGroupColorIndex(aggregatedSeries, metric.dataPoints, facet);
+      return aggregatedSeries.map((s, i) => {
+        const { label, colorIndex } = resolved[i]!;
         return {
           key: label,
           label,

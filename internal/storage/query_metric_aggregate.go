@@ -117,12 +117,12 @@ aggregated AS (
 SELECT
 	bucket, ` + groupColList + `,
 	CASE
-		WHEN metric_type IN ('Histogram', 'ExponentialHistogram', 'Summary') THEN
+		WHEN metric_type IN ` + distributionTypesSQL + ` THEN
 			CASE WHEN count_sum IS NULL OR count_sum <= 0 THEN 0 ELSE sum_sum / count_sum END
 		ELSE scalar_value_sum
 	END AS out_value,
-	CASE WHEN metric_type IN ('Histogram', 'ExponentialHistogram', 'Summary') THEN count_sum ELSE NULL END AS out_count,
-	CASE WHEN metric_type IN ('Histogram', 'ExponentialHistogram', 'Summary') THEN sum_sum ELSE NULL END AS out_sum,
+	CASE WHEN metric_type IN ` + distributionTypesSQL + ` THEN count_sum ELSE NULL END AS out_count,
+	CASE WHEN metric_type IN ` + distributionTypesSQL + ` THEN sum_sum ELSE NULL END AS out_sum,
 	min_min, max_max
 FROM aggregated
 ORDER BY ` + groupColList + `, bucket

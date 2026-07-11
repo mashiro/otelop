@@ -5,10 +5,10 @@
 # CGO (required by the DuckDB driver, see docs/design/duckdb-storage.md
 # "Build and release impact") rules out a single cross-compiling goreleaser
 # build step, so there is no goreleaser-tracked build artifact for its
-# archive/checksum pipes to consume. This script is the replacement glue,
-# shared between the release workflow's assemble job and
-# `mise run release-snapshot` for local testing, so the packaging logic only
-# has one implementation to keep correct.
+# archive/checksum pipes to consume. This script is the replacement glue —
+# only .github/workflows/release.yml's assemble step calls it; local
+# snapshot builds go through `mise run release-snapshot` (plain
+# `goreleaser build --single-target`), which never runs this script at all.
 set -euo pipefail
 
 version="${1:?usage: package-release.sh <version> <dist-dir> <out-dir>}"
@@ -18,14 +18,10 @@ out_dir="${3:?usage: package-release.sh <version> <dist-dir> <out-dir>}"
 mkdir -p "$out_dir"
 out_dir_abs="$(cd "$out_dir" && pwd)"
 
+# The only caller (release.yml's assemble job) always runs on ubuntu-latest,
+# which has sha256sum; no macOS/shasum fallback is ever exercised here.
 sha256() {
-  # macOS has no sha256sum; shasum -a 256 is the portable equivalent, so
-  # this script runs the same way in CI (ubuntu) and local dev (macOS).
-  if command -v sha256sum >/dev/null 2>&1; then
-    sha256sum "$@"
-  else
-    shasum -a 256 "$@"
-  fi
+  sha256sum "$@"
 }
 
 shopt -s nullglob

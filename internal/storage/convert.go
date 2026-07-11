@@ -307,13 +307,7 @@ func convertMetric(m pmetric.Metric, serviceName string, resourceHash uint64, ba
 			attrs := attributesToMap(dp.Attributes())
 			seriesKey := hashSeries(serviceName, m.Name(), attrs)
 			addSeries(seriesKey, attrs, "", false)
-			batch.Points = append(batch.Points, MetricPointRow{
-				ID:        newRowID(),
-				SeriesKey: seriesKey,
-				TS:        dp.Timestamp().AsTime(),
-				StartTS:   optionalTimestamp(dp.StartTimestamp()),
-				Value:     floatPtr(v),
-			})
+			appendScalarPoint(batch, seriesKey, dp.Timestamp().AsTime(), optionalTimestamp(dp.StartTimestamp()), v)
 		}
 	case pmetric.MetricTypeSum:
 		sum := m.Sum()
@@ -329,13 +323,7 @@ func convertMetric(m pmetric.Metric, serviceName string, resourceHash uint64, ba
 			attrs := attributesToMap(dp.Attributes())
 			seriesKey := hashSeries(serviceName, m.Name(), attrs)
 			addSeries(seriesKey, attrs, temporality, sum.IsMonotonic())
-			batch.Points = append(batch.Points, MetricPointRow{
-				ID:        newRowID(),
-				SeriesKey: seriesKey,
-				TS:        dp.Timestamp().AsTime(),
-				StartTS:   optionalTimestamp(dp.StartTimestamp()),
-				Value:     floatPtr(v),
-			})
+			appendScalarPoint(batch, seriesKey, dp.Timestamp().AsTime(), optionalTimestamp(dp.StartTimestamp()), v)
 		}
 	case pmetric.MetricTypeHistogram:
 		hist := m.Histogram()
@@ -346,16 +334,8 @@ func convertMetric(m pmetric.Metric, serviceName string, resourceHash uint64, ba
 			attrs := attributesToMap(dp.Attributes())
 			seriesKey := hashSeries(serviceName, m.Name(), attrs)
 			addSeries(seriesKey, attrs, temporality, false)
-			batch.Points = append(batch.Points, MetricPointRow{
-				ID:        newRowID(),
-				SeriesKey: seriesKey,
-				TS:        dp.Timestamp().AsTime(),
-				StartTS:   optionalTimestamp(dp.StartTimestamp()),
-				Count:     floatPtr(float64(dp.Count())),
-				Sum:       optionalHasFloat(dp.HasSum(), dp.Sum()),
-				Min:       optionalHasFloat(dp.HasMin(), dp.Min()),
-				Max:       optionalHasFloat(dp.HasMax(), dp.Max()),
-			})
+			appendDistributionPoint(batch, seriesKey, dp.Timestamp().AsTime(), optionalTimestamp(dp.StartTimestamp()),
+				float64(dp.Count()), optionalHasFloat(dp.HasSum(), dp.Sum()), optionalHasFloat(dp.HasMin(), dp.Min()), optionalHasFloat(dp.HasMax(), dp.Max()))
 		}
 	case pmetric.MetricTypeExponentialHistogram:
 		eh := m.ExponentialHistogram()
@@ -366,16 +346,8 @@ func convertMetric(m pmetric.Metric, serviceName string, resourceHash uint64, ba
 			attrs := attributesToMap(dp.Attributes())
 			seriesKey := hashSeries(serviceName, m.Name(), attrs)
 			addSeries(seriesKey, attrs, temporality, false)
-			batch.Points = append(batch.Points, MetricPointRow{
-				ID:        newRowID(),
-				SeriesKey: seriesKey,
-				TS:        dp.Timestamp().AsTime(),
-				StartTS:   optionalTimestamp(dp.StartTimestamp()),
-				Count:     floatPtr(float64(dp.Count())),
-				Sum:       optionalHasFloat(dp.HasSum(), dp.Sum()),
-				Min:       optionalHasFloat(dp.HasMin(), dp.Min()),
-				Max:       optionalHasFloat(dp.HasMax(), dp.Max()),
-			})
+			appendDistributionPoint(batch, seriesKey, dp.Timestamp().AsTime(), optionalTimestamp(dp.StartTimestamp()),
+				float64(dp.Count()), optionalHasFloat(dp.HasSum(), dp.Sum()), optionalHasFloat(dp.HasMin(), dp.Min()), optionalHasFloat(dp.HasMax(), dp.Max()))
 		}
 	case pmetric.MetricTypeSummary:
 		dps := m.Summary().DataPoints()
@@ -386,14 +358,8 @@ func convertMetric(m pmetric.Metric, serviceName string, resourceHash uint64, ba
 			// Summary has no temporality field in OTLP; treat as cumulative
 			// so query-time derivation matches Histogram semantics.
 			addSeries(seriesKey, attrs, "cumulative", false)
-			batch.Points = append(batch.Points, MetricPointRow{
-				ID:        newRowID(),
-				SeriesKey: seriesKey,
-				TS:        dp.Timestamp().AsTime(),
-				StartTS:   optionalTimestamp(dp.StartTimestamp()),
-				Count:     floatPtr(float64(dp.Count())),
-				Sum:       floatPtr(dp.Sum()),
-			})
+			appendDistributionPoint(batch, seriesKey, dp.Timestamp().AsTime(), optionalTimestamp(dp.StartTimestamp()),
+				float64(dp.Count()), floatPtr(dp.Sum()), nil, nil)
 		}
 	}
 
@@ -404,6 +370,38 @@ func convertMetric(m pmetric.Metric, serviceName string, resourceHash uint64, ba
 			"skipped", skipped,
 		)
 	}
+}
+
+// appendScalarPoint appends one Gauge/Sum observation (a plain Value, no
+// Count/Sum/Min/Max) to batch.Points — shared by convertMetric's Gauge and
+// Sum arms, which differ only in the series metadata (temporality/
+// isMonotonic) passed to addSeries beforehand.
+func appendScalarPoint(batch *MetricBatch, seriesKey uint64, ts time.Time, startTS *time.Time, value float64) {
+	batch.Points = append(batch.Points, MetricPointRow{
+		ID:        newRowID(),
+		SeriesKey: seriesKey,
+		TS:        ts,
+		StartTS:   startTS,
+		Value:     floatPtr(value),
+	})
+}
+
+// appendDistributionPoint appends one Histogram/ExponentialHistogram/Summary
+// observation (Count/Sum/Min/Max, no Value) to batch.Points — shared by
+// convertMetric's three distribution-shaped arms, which differ only in how
+// they populate sum/min/max (Summary has no HasSum/HasMin/HasMax concept and
+// always reports Sum, never Min/Max).
+func appendDistributionPoint(batch *MetricBatch, seriesKey uint64, ts time.Time, startTS *time.Time, count float64, sum, min, max *float64) {
+	batch.Points = append(batch.Points, MetricPointRow{
+		ID:        newRowID(),
+		SeriesKey: seriesKey,
+		TS:        ts,
+		StartTS:   startTS,
+		Count:     floatPtr(count),
+		Sum:       sum,
+		Min:       min,
+		Max:       max,
+	})
 }
 
 func temporalityString(t pmetric.AggregationTemporality) string {
