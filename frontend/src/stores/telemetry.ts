@@ -269,15 +269,31 @@ export const navigateToLogsAtom = atom(null, (_get, set, traceId: string) => {
   set(activeTabAtom, "logs");
 });
 
-// Bulk set from REST API initial load
+// The ids the server returned for the traces/logs tab's CURRENT paginated
+// fetch session — every id from page 1 plus each "Load more" page (issue
+// #161). setTracesAtom/setLogsAtom REPLACE the set (page 1 of a new
+// (range, search) fetch key starts a fresh session, so ids matched under a
+// previous search never linger); appendTracesAtom/appendLogsAtom union into
+// it. filters.ts's search display-filter treats membership as "the server
+// already vouched this row matches the active search" and only applies its
+// client-side predicate to rows OUTSIDE the set (live WS prepends) — a
+// server-paginated trace summary carries spans: [], so it cannot re-prove a
+// non-root span-name/status match client-side.
+export const serverMatchedTraceIdsAtom = atom<ReadonlySet<string>>(new Set<string>());
+export const serverMatchedLogIdsAtom = atom<ReadonlySet<string>>(new Set<string>());
+
+// Bulk set from the paginated list fetch's page 1
+// (hooks/use-trace-list-page.ts, hooks/use-log-list-page.ts).
 export const setTracesAtom = atom(null, (_get, set, traces: TraceData[]) => {
   set(tracesAtom, traces);
+  set(serverMatchedTraceIdsAtom, new Set(traces.map((t) => t.traceId)));
 });
 export const setMetricsAtom = atom(null, (_get, set, metrics: MetricData[]) => {
   set(metricsAtom, metrics);
 });
 export const setLogsAtom = atom(null, (_get, set, logs: LogData[]) => {
   set(logsAtom, logs);
+  set(serverMatchedLogIdsAtom, new Set(logs.map((l) => l.id)));
 });
 
 // Write-only: append an older page of traces fetched via "Load more"
@@ -287,6 +303,14 @@ export const setLogsAtom = atom(null, (_get, set, logs: LogData[]) => {
 // traceId keeps the existing (possibly WS-merged) entry rather than
 // overwriting it with the paged summary.
 export const appendTracesAtom = atom(null, (get, set, olderTraces: TraceData[]) => {
+  // Every returned id joins the server-matched set — including ones deduped
+  // out of the buffer below: a WS-delivered trace the server ALSO returned
+  // for the active search is server-vouched even though the buffer keeps the
+  // WS entry.
+  set(
+    serverMatchedTraceIdsAtom,
+    (prev) => new Set([...prev, ...olderTraces.map((t) => t.traceId)]),
+  );
   const current = get(tracesAtom);
   const seen = new Set(current.map((t) => t.traceId));
   const deduped = olderTraces.filter((t) => !seen.has(t.traceId));
@@ -302,6 +326,8 @@ export const appendTracesAtom = atom(null, (get, set, olderTraces: TraceData[]) 
 
 // Write-only counterpart to appendTracesAtom for the logs tab's "Load more".
 export const appendLogsAtom = atom(null, (get, set, olderLogs: LogData[]) => {
+  // See appendTracesAtom: all returned ids are server-vouched, even deduped ones.
+  set(serverMatchedLogIdsAtom, (prev) => new Set([...prev, ...olderLogs.map((l) => l.id)]));
   const current = get(logsAtom);
   const seen = new Set(current.map((l) => l.id));
   const deduped = olderLogs.filter((l) => !seen.has(l.id));

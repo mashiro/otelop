@@ -60,7 +60,7 @@ func TestTracesPage_DedupsRepeatedSpans(t *testing.T) {
 	s.AddTraces(ctx, td)
 	s.Sync()
 
-	items, total, err := s.TracesPage(ctx, base.Add(-time.Minute), base.Add(time.Minute), 0, 0)
+	items, total, err := s.TracesPage(ctx, base.Add(-time.Minute), base.Add(time.Minute), 0, 0, "")
 	if err != nil {
 		t.Fatalf("TracesPage: %v", err)
 	}
@@ -99,7 +99,7 @@ func TestTracesPage_MultiRootPicksLongestDurationAsRoot(t *testing.T) {
 	s.AddTraces(ctx, td)
 	s.Sync()
 
-	items, _, err := s.TracesPage(ctx, base.Add(-time.Minute), base.Add(time.Minute), 0, 0)
+	items, _, err := s.TracesPage(ctx, base.Add(-time.Minute), base.Add(time.Minute), 0, 0, "")
 	if err != nil {
 		t.Fatalf("TracesPage: %v", err)
 	}
@@ -146,7 +146,7 @@ func TestTracesPage_RootlessFallsBackToEarliestStartedSpanService(t *testing.T) 
 	s.AddTraces(ctx, td)
 	s.Sync()
 
-	items, _, err := s.TracesPage(ctx, base.Add(-time.Minute), base.Add(time.Minute), 0, 0)
+	items, _, err := s.TracesPage(ctx, base.Add(-time.Minute), base.Add(time.Minute), 0, 0, "")
 	if err != nil {
 		t.Fatalf("TracesPage: %v", err)
 	}
@@ -177,7 +177,7 @@ func TestTracesPage_HasErrorTrueWhenAnySpanErrors(t *testing.T) {
 	s.AddTraces(ctx, td)
 	s.Sync()
 
-	items, _, err := s.TracesPage(ctx, base.Add(-time.Minute), base.Add(time.Minute), 0, 0)
+	items, _, err := s.TracesPage(ctx, base.Add(-time.Minute), base.Add(time.Minute), 0, 0, "")
 	if err != nil {
 		t.Fatalf("TracesPage: %v", err)
 	}
@@ -212,7 +212,7 @@ func TestTracesPage_StraddlingRangeAggregatesFullSpanSet(t *testing.T) {
 
 	from := base.Add(59 * time.Minute)
 	to := base.Add(61 * time.Minute)
-	items, total, err := s.TracesPage(ctx, from, to, 0, 0)
+	items, total, err := s.TracesPage(ctx, from, to, 0, 0, "")
 	if err != nil {
 		t.Fatalf("TracesPage: %v", err)
 	}
@@ -236,7 +236,7 @@ func TestTracesPage_StraddlingRangeAggregatesFullSpanSet(t *testing.T) {
 	// Outside the range entirely: no span starts in [from, to).
 	noneFrom := base.Add(2 * time.Hour)
 	noneTo := base.Add(3 * time.Hour)
-	items, total, err = s.TracesPage(ctx, noneFrom, noneTo, 0, 0)
+	items, total, err = s.TracesPage(ctx, noneFrom, noneTo, 0, 0, "")
 	if err != nil {
 		t.Fatalf("TracesPage (out of range): %v", err)
 	}
@@ -260,7 +260,7 @@ func TestTracesPage_PaginationAndTotal(t *testing.T) {
 		time.Sleep(time.Millisecond) // force distinct ingested_at for ordering
 	}
 
-	items, total, err := s.TracesPage(ctx, base.Add(-time.Minute), base.Add(time.Minute), 2, 2)
+	items, total, err := s.TracesPage(ctx, base.Add(-time.Minute), base.Add(time.Minute), 2, 2, "")
 	if err != nil {
 		t.Fatalf("TracesPage: %v", err)
 	}
@@ -288,7 +288,7 @@ func TestTracesPage_OrderingNewestFirstByIngestion(t *testing.T) {
 	s.AddTraces(ctx, second)
 	s.Sync()
 
-	items, _, err := s.TracesPage(ctx, base.Add(-time.Minute), base.Add(time.Minute), 0, 0)
+	items, _, err := s.TracesPage(ctx, base.Add(-time.Minute), base.Add(time.Minute), 0, 0, "")
 	if err != nil {
 		t.Fatalf("TracesPage: %v", err)
 	}

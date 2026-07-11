@@ -302,6 +302,36 @@ func TestLogs_TraceIDFilter(t *testing.T) {
 	}
 }
 
+// TestLogs_SearchArgFiltersAndReflectsInTotal is the GraphQL-level
+// passthrough check for issue #161's `search` arg on the logs query — field
+// semantics are covered exhaustively at the storage layer
+// (query_log_search_test.go); this confirms the resolver forwards the arg.
+func TestLogs_SearchArgFiltersAndReflectsInTotal(t *testing.T) {
+	s := seedStorage(t)
+
+	data := exec(t, s, `{ logs(search: "timeout") { total items { body } } }`, nil)
+	conn := data["logs"].(map[string]any)
+	if conn["total"].(float64) != 1 {
+		t.Errorf("total = %v, want 1", conn["total"])
+	}
+	items := conn["items"].([]any)
+	if len(items) != 1 || items[0].(map[string]any)["body"] != "db timeout" {
+		t.Errorf("items = %v, want [\"db timeout\"]", items)
+	}
+
+	data = exec(t, s, `{ logs(search: "no-such-log") { total } }`, nil)
+	if data["logs"].(map[string]any)["total"].(float64) != 0 {
+		t.Errorf("total = %v, want 0", data["logs"].(map[string]any)["total"])
+	}
+
+	// traceId given: search is ignored, same as from/to (see resolver.go's
+	// Logs — the trace-correlation branch never consults search).
+	data = exec(t, s, `{ logs(traceId: "02000000000000000000000000000000", search: "no-such-log") { total } }`, nil)
+	if data["logs"].(map[string]any)["total"].(float64) != 1 {
+		t.Errorf("total = %v, want 1 (traceId filter takes precedence over search)", data["logs"].(map[string]any)["total"])
+	}
+}
+
 func TestMetrics_PointCountWithoutFetchingPoints(t *testing.T) {
 	s := seedStorage(t)
 	data := exec(t, s, `{ metrics { items { name type pointCount resource } } }`, nil)

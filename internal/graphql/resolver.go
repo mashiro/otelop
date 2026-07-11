@@ -27,6 +27,16 @@ func (r *Resolver) fullWindow() (from, to time.Time) {
 	return now.Add(-r.runtime.Retention - slack), now.Add(slack)
 }
 
+// stringArg unwraps an optional GraphQL string argument to storage's plain
+// "" (no-op filter) sentinel, since a nil `search` arg (omitted or explicit
+// null) means "no search" the same way an empty string does.
+func stringArg(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
 func (r *Resolver) resolveWindow(from, to *gql.Time) (time.Time, time.Time) {
 	f, t := r.fullWindow()
 	if from != nil {
@@ -88,11 +98,12 @@ type TracesArgs struct {
 	Offset int32
 	From   *gql.Time
 	To     *gql.Time
+	Search *string
 }
 
 func (r *Resolver) Traces(ctx context.Context, args TracesArgs) (*ConnectionResolver[*TraceResolver], error) {
 	from, to := r.resolveWindow(args.From, args.To)
-	items, total, err := r.storage.TracesPage(ctx, from, to, int(args.Offset), int(args.Limit))
+	items, total, err := r.storage.TracesPage(ctx, from, to, int(args.Offset), int(args.Limit), stringArg(args.Search))
 	if err != nil {
 		return nil, err
 	}
@@ -140,6 +151,7 @@ type LogsArgs struct {
 	TraceID *string
 	From    *gql.Time
 	To      *gql.Time
+	Search  *string
 }
 
 func (r *Resolver) Logs(ctx context.Context, args LogsArgs) (*ConnectionResolver[*LogResolver], error) {
@@ -149,10 +161,13 @@ func (r *Resolver) Logs(ctx context.Context, args LogsArgs) (*ConnectionResolver
 		err   error
 	)
 	if args.TraceID != nil && *args.TraceID != "" {
+		// The trace-correlation view ignores search, same as it already
+		// ignores from/to — it ranges over one trace's logs regardless of
+		// time or the traces/logs list's active search box.
 		items, total, err = r.storage.LogsPageByTraceID(ctx, *args.TraceID, int(args.Offset), int(args.Limit))
 	} else {
 		from, to := r.resolveWindow(args.From, args.To)
-		items, total, err = r.storage.LogsPage(ctx, from, to, int(args.Offset), int(args.Limit))
+		items, total, err = r.storage.LogsPage(ctx, from, to, int(args.Offset), int(args.Limit), stringArg(args.Search))
 	}
 	if err != nil {
 		return nil, err

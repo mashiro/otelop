@@ -106,6 +106,40 @@ func TestTracesList_SummaryFieldsDoNotTriggerTraceByID(t *testing.T) {
 	}
 }
 
+// TestTracesList_SearchArgFiltersAndReflectsInTotal is the GraphQL-level
+// passthrough check for issue #161's `search` arg — the field-matching
+// semantics themselves are covered exhaustively at the storage layer
+// (query_trace_search_test.go); this just confirms the resolver actually
+// forwards the arg to storage.TracesPage rather than ignoring it.
+func TestTracesList_SearchArgFiltersAndReflectsInTotal(t *testing.T) {
+	s := seedManyTraces(t, 3)
+
+	data := exec(t, s, `{
+		traces(limit: 0, search: "root") {
+			total
+			items { traceId }
+		}
+	}`, nil)
+	conn := data["traces"].(map[string]any)
+	if int(conn["total"].(float64)) != 3 {
+		t.Fatalf("total = %v, want 3 (every trace's root span is named \"root\")", conn["total"])
+	}
+
+	data = exec(t, s, `{
+		traces(limit: 0, search: "no-such-trace") {
+			total
+			items { traceId }
+		}
+	}`, nil)
+	conn = data["traces"].(map[string]any)
+	if int(conn["total"].(float64)) != 0 {
+		t.Fatalf("total = %v, want 0", conn["total"])
+	}
+	if len(conn["items"].([]any)) != 0 {
+		t.Fatalf("items = %v, want empty", conn["items"])
+	}
+}
+
 // TestTrace_SpansStillTriggersDetailFetch guards the other half of the
 // contract: a query that genuinely needs full span data (spans, or a
 // rootSpan sub-field the summary doesn't carry) must still work — the fix

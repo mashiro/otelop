@@ -4,7 +4,7 @@ import { createStore, Provider } from "jotai";
 import { Temporal } from "temporal-polyfill";
 import type { ReactNode } from "react";
 import { useTraceListPage } from "./use-trace-list-page";
-import { tracesAtom } from "@/stores/telemetry";
+import { tracesAtom, serverMatchedTraceIdsAtom } from "@/stores/telemetry";
 import { makeTrace } from "@/test/factories";
 import type { TracesPageQuery, TracesPageQueryVariables } from "@/gql/graphql";
 import type { ChartTimeRange } from "@/lib/chart-time-range";
@@ -36,14 +36,14 @@ function queryTrace(traceId: string) {
   };
 }
 
-function renderWithStore(range: ChartTimeRange) {
+function renderWithStore(range: ChartTimeRange, search = "") {
   const store = createStore();
   const wrapper = ({ children }: { children: ReactNode }) => (
     <Provider store={store}>{children}</Provider>
   );
-  const view = renderHook(({ range: r }) => useTraceListPage(r), {
+  const view = renderHook(({ range: r, search: s }) => useTraceListPage(r, s), {
     wrapper,
-    initialProps: { range },
+    initialProps: { range, search },
   });
   return { store, ...view };
 }
@@ -132,7 +132,7 @@ describe("useTraceListPage", () => {
     });
     requestMock.mockReturnValueOnce(pending);
 
-    rerender({ range: "6h" });
+    rerender({ range: "6h", search: "" });
 
     // Still showing the 1h page while the 6h range's page 1 is in flight.
     expect(store.get(tracesAtom).map((t) => t.traceId)).toEqual(["a"]);
@@ -150,9 +150,72 @@ describe("useTraceListPage", () => {
     await waitFor(() => expect(store.get(tracesAtom)).toHaveLength(1));
 
     requestMock.mockRejectedValueOnce(new Error("network error"));
-    rerender({ range: "6h" });
+    rerender({ range: "6h", search: "" });
 
     await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(2));
     expect(store.get(tracesAtom).map((t) => t.traceId)).toEqual(["a"]);
+  });
+
+  it("passes search through to the query", async () => {
+    requestMock.mockResolvedValue({ traces: { items: [], total: 0 } });
+
+    renderWithStore("1h", "checkout");
+
+    await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(1));
+    expect(requestMock.mock.calls[0]?.[1]?.search).toBe("checkout");
+  });
+
+  it("resets pagination and refetches page 1 on a search change, keeping the previous page visible while in flight", async () => {
+    requestMock.mockResolvedValueOnce({ traces: { items: [queryTrace("a")], total: 1 } });
+    const { store, rerender } = renderWithStore("1h", "");
+    await waitFor(() => expect(store.get(tracesAtom)).toHaveLength(1));
+
+    let resolveSecond: (v: TracesPageQuery) => void = () => {};
+    const pending = new Promise<TracesPageQuery>((resolve) => {
+      resolveSecond = resolve;
+    });
+    requestMock.mockReturnValueOnce(pending);
+
+    rerender({ range: "1h", search: "checkout" });
+
+    expect(store.get(tracesAtom).map((t) => t.traceId)).toEqual(["a"]);
+
+    resolveSecond({ traces: { items: [queryTrace("b")], total: 1 } });
+    await waitFor(() => expect(store.get(tracesAtom).map((t) => t.traceId)).toEqual(["b"]));
+
+    const secondVars = requestMock.mock.calls[1]?.[1];
+    expect(secondVars?.offset).toBe(0);
+    expect(secondVars?.search).toBe("checkout");
+  });
+
+  it("loadMore reuses the search active when the page-1 fetch ran", async () => {
+    requestMock.mockResolvedValueOnce({ traces: { items: [queryTrace("a")], total: 2 } });
+    const { result } = renderWithStore("1h", "checkout");
+    await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(1));
+
+    requestMock.mockResolvedValueOnce({ traces: { items: [queryTrace("b")], total: 2 } });
+    act(() => result.current.loadMore());
+
+    await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(2));
+    expect(requestMock.mock.calls[1]?.[1]?.search).toBe("checkout");
+  });
+
+  // The server-vouched id set (stores/telemetry.ts's
+  // serverMatchedTraceIdsAtom, consumed by stores/filters.ts's display
+  // filter): page 1 replaces it, "Load more" unions into it, and the next
+  // fetch session (here: a search change) starts fresh so ids matched under
+  // the previous search don't keep passing the filter.
+  it("tracks server-returned ids per fetch session: page 1 replaces, loadMore unions, a search change resets", async () => {
+    requestMock.mockResolvedValueOnce({ traces: { items: [queryTrace("a")], total: 2 } });
+    const { store, result, rerender } = renderWithStore("1h", "");
+    await waitFor(() => expect(store.get(serverMatchedTraceIdsAtom)).toEqual(new Set(["a"])));
+
+    requestMock.mockResolvedValueOnce({ traces: { items: [queryTrace("b")], total: 2 } });
+    act(() => result.current.loadMore());
+    await waitFor(() => expect(store.get(serverMatchedTraceIdsAtom)).toEqual(new Set(["a", "b"])));
+
+    requestMock.mockResolvedValueOnce({ traces: { items: [queryTrace("c")], total: 1 } });
+    rerender({ range: "1h", search: "narrower" });
+    await waitFor(() => expect(store.get(serverMatchedTraceIdsAtom)).toEqual(new Set(["c"])));
   });
 });

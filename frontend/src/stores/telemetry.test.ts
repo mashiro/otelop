@@ -13,6 +13,8 @@ import {
   mergeManyTraceSpansAtom,
   appendTracesAtom,
   appendLogsAtom,
+  setTracesAtom,
+  serverMatchedTraceIdsAtom,
 } from "./telemetry";
 import { selectedTraceIdAtom, selectedMetricKeyAtom, selectedLogIdAtom } from "./navigation";
 import { makeMetric, makeDataPoint, makeTrace, makeLog, makeSpan } from "@/test/factories";
@@ -246,6 +248,20 @@ describe("appendTracesAtom", () => {
     store.set(appendTracesAtom, [makeTrace({ traceId: "b" }), makeTrace({ traceId: "c" })]);
 
     expect(store.get(tracesAtom).map((t) => t.traceId)).toEqual(["a", "b"]);
+  });
+
+  // See serverMatchedTraceIdsAtom's doc: a trace the server returned for the
+  // active search is server-vouched even when the append dedups it out of
+  // the buffer (the WS-delivered entry stays) — the filter must still let
+  // the existing entry pass.
+  it("marks every appended id server-vouched, including ones deduped against the live buffer", () => {
+    const store = createStore();
+    store.set(setTracesAtom, [makeTrace({ traceId: "a" })]);
+    store.set(tracesAtom, [makeTrace({ traceId: "ws-b" }), makeTrace({ traceId: "a" })]);
+
+    store.set(appendTracesAtom, [makeTrace({ traceId: "ws-b" }), makeTrace({ traceId: "c" })]);
+
+    expect(store.get(serverMatchedTraceIdsAtom)).toEqual(new Set(["a", "ws-b", "c"]));
   });
 });
 

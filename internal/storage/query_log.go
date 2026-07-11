@@ -29,26 +29,48 @@ const logSelectColumns = `
 	l.attributes::VARCHAR, r.service_name, r.attributes::VARCHAR
 `
 
+// searchPredicate (issue #161) is the case-insensitive substring match
+// shared by logsPageQuery/logsTotalQuery: body, resource service name,
+// severity text, or trace_id. An empty search's "%%" likePattern matches
+// unconditionally, making this a no-op filter.
+const searchPredicate = `
+(
+	l.body ILIKE ? ESCAPE '\' OR
+	r.service_name ILIKE ? ESCAPE '\' OR
+	l.severity_text ILIKE ? ESCAPE '\' OR
+	l.trace_id ILIKE ? ESCAPE '\'
+)
+`
+
 const logsPageQuery = `
 SELECT ` + logSelectColumns + `
 FROM logs l
 JOIN resources r ON r.resource_hash = l.resource_hash
 WHERE l.ts >= ? AND l.ts < ?
+AND ` + searchPredicate + `
 ORDER BY l.ts DESC
 LIMIT ? OFFSET ?
 `
 
-const logsTotalQuery = `SELECT count(*) FROM logs WHERE ts >= ? AND ts < ?`
+const logsTotalQuery = `
+SELECT count(*)
+FROM logs l
+JOIN resources r ON r.resource_hash = l.resource_hash
+WHERE l.ts >= ? AND l.ts < ?
+AND ` + searchPredicate
 
-// LogsPage returns a newest-first page of logs within [from, to) plus the
-// total matching count.
-func (s *Storage) LogsPage(ctx context.Context, from, to time.Time, offset, limit int) ([]LogDetail, int, error) {
+// LogsPage returns a newest-first page of logs within [from, to) that, when
+// search is non-empty, also match it (see searchPredicate), plus the total
+// matching count.
+func (s *Storage) LogsPage(ctx context.Context, from, to time.Time, offset, limit int, search string) ([]LogDetail, int, error) {
+	pattern := likePattern(search)
+
 	var total int
-	if err := s.DB().QueryRowContext(ctx, logsTotalQuery, from, to).Scan(&total); err != nil {
+	if err := s.DB().QueryRowContext(ctx, logsTotalQuery, from, to, pattern, pattern, pattern, pattern).Scan(&total); err != nil {
 		return nil, 0, fmt.Errorf("storage: count logs page: %w", err)
 	}
 
-	rows, err := s.DB().QueryContext(ctx, logsPageQuery, from, to, pageLimit(limit), offset)
+	rows, err := s.DB().QueryContext(ctx, logsPageQuery, from, to, pattern, pattern, pattern, pattern, pageLimit(limit), offset)
 	if err != nil {
 		return nil, 0, fmt.Errorf("storage: query logs page: %w", err)
 	}

@@ -17,8 +17,8 @@ const MS_TO_NS = 1_000_000;
 // as the traces tab's data source now that the list is paginated by range
 // instead of fetched unbounded.
 const TracesPageQuery = graphql(`
-  query TracesPage($from: Time, $offset: Int!, $limit: Int!) {
-    traces(from: $from, offset: $offset, limit: $limit) {
+  query TracesPage($from: Time, $offset: Int!, $limit: Int!, $search: String) {
+    traces(from: $from, offset: $offset, limit: $limit, search: $search) {
       items {
         traceId
         serviceName
@@ -60,12 +60,13 @@ function toTraceData({
   };
 }
 
-// Fetches the traces tab's list page-by-page within `range`, replacing
-// hooks/use-initial-load.ts's old unbounded `traces(limit: 0)` fetch (issue
-// #160). Mount this once from components/traces/trace-list.tsx; base-ui's
-// Tabs unmounts an inactive tab's panel (see App.tsx), so switching tabs and
-// back naturally resets pagination the same way a range change does.
-export function useTraceListPage(range: ChartTimeRange): SignalListPage {
+// Fetches the traces tab's list page-by-page within `range`, matching
+// `search` server-side (issue #161), replacing hooks/use-initial-load.ts's
+// old unbounded `traces(limit: 0)` fetch (issue #160). Mount this once from
+// components/traces/trace-list.tsx; base-ui's Tabs unmounts an inactive
+// tab's panel (see App.tsx), so switching tabs and back naturally resets
+// pagination the same way a range change does.
+export function useTraceListPage(range: ChartTimeRange, search: string): SignalListPage {
   const setTraces = useSetAtom(setTracesAtom);
   const appendTraces = useSetAtom(appendTracesAtom);
 
@@ -74,16 +75,18 @@ export function useTraceListPage(range: ChartTimeRange): SignalListPage {
       from,
       offset,
       limit,
+      search,
     }: {
       from: string | undefined;
       offset: number;
       limit: number;
+      search: string;
     }) => {
-      const data = await gqlClient.request(TracesPageQuery, { from, offset, limit });
+      const data = await gqlClient.request(TracesPageQuery, { from, offset, limit, search });
       return { items: data.traces.items.map(toTraceData), total: data.traces.total };
     },
     [],
   );
 
-  return useSignalListPage(range, fetchPage, setTraces, appendTraces);
+  return useSignalListPage(range, search, fetchPage, setTraces, appendTraces);
 }

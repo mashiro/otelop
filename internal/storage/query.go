@@ -19,6 +19,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 )
 
 // decodeAttrs decodes a JSON-object column (cast to VARCHAR in SQL) into an
@@ -34,6 +35,22 @@ func decodeAttrs(raw *string) (map[string]any, error) {
 		return nil, fmt.Errorf("storage: decode attributes: %w", err)
 	}
 	return m, nil
+}
+
+// likeEscaper escapes DuckDB ILIKE's two wildcard metacharacters (% and _)
+// plus the backslash escape character itself, so likePattern can build a
+// literal-substring "contains" pattern from arbitrary user input (issue
+// #161) — a search for "100%" must match the literal text "100%", not act
+// as "100" followed by a wildcard. Every likePattern call must be paired
+// with `ESCAPE '\'` in the surrounding SQL.
+var likeEscaper = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
+
+// likePattern turns a raw search string into a case-insensitive
+// "contains" ILIKE pattern (`%escaped-search%`). An empty search yields "%%",
+// which ILIKE matches against any value (including empty strings/NULLs would
+// still need a NULL check elsewhere) — the caller's no-filter default.
+func likePattern(search string) string {
+	return "%" + likeEscaper.Replace(search) + "%"
 }
 
 // DBStats is per-table row counts plus file size, backing the status/config

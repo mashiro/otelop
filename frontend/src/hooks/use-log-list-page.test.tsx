@@ -22,14 +22,14 @@ function queryLog(id: string) {
   return makeLog({ id });
 }
 
-function renderWithStore(range: ChartTimeRange) {
+function renderWithStore(range: ChartTimeRange, search = "") {
   const store = createStore();
   const wrapper = ({ children }: { children: ReactNode }) => (
     <Provider store={store}>{children}</Provider>
   );
-  const view = renderHook(({ range: r }) => useLogListPage(r), {
+  const view = renderHook(({ range: r, search: s }) => useLogListPage(r, s), {
     wrapper,
-    initialProps: { range },
+    initialProps: { range, search },
   });
   return { store, ...view };
 }
@@ -104,7 +104,7 @@ describe("useLogListPage", () => {
     });
     requestMock.mockReturnValueOnce(pending);
 
-    rerender({ range: "24h" });
+    rerender({ range: "24h", search: "" });
 
     expect(store.get(logsAtom).map((l) => l.id)).toEqual(["a"]);
 
@@ -113,5 +113,49 @@ describe("useLogListPage", () => {
 
     const secondVars = requestMock.mock.calls[1]?.[1];
     expect(secondVars?.offset).toBe(0);
+  });
+
+  it("passes search through to the query", async () => {
+    requestMock.mockResolvedValue({ logs: { items: [], total: 0 } });
+
+    renderWithStore("1h", "timeout");
+
+    await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(1));
+    expect(requestMock.mock.calls[0]?.[1]?.search).toBe("timeout");
+  });
+
+  it("resets pagination and refetches page 1 on a search change, keeping the previous page visible while in flight", async () => {
+    requestMock.mockResolvedValueOnce({ logs: { items: [queryLog("a")], total: 1 } });
+    const { store, rerender } = renderWithStore("1h", "");
+    await waitFor(() => expect(store.get(logsAtom)).toHaveLength(1));
+
+    let resolveSecond: (v: LogsPageQuery) => void = () => {};
+    const pending = new Promise<LogsPageQuery>((resolve) => {
+      resolveSecond = resolve;
+    });
+    requestMock.mockReturnValueOnce(pending);
+
+    rerender({ range: "1h", search: "timeout" });
+
+    expect(store.get(logsAtom).map((l) => l.id)).toEqual(["a"]);
+
+    resolveSecond({ logs: { items: [queryLog("b")], total: 1 } });
+    await waitFor(() => expect(store.get(logsAtom).map((l) => l.id)).toEqual(["b"]));
+
+    const secondVars = requestMock.mock.calls[1]?.[1];
+    expect(secondVars?.offset).toBe(0);
+    expect(secondVars?.search).toBe("timeout");
+  });
+
+  it("loadMore reuses the search active when the page-1 fetch ran", async () => {
+    requestMock.mockResolvedValueOnce({ logs: { items: [queryLog("a")], total: 2 } });
+    const { result } = renderWithStore("1h", "timeout");
+    await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(1));
+
+    requestMock.mockResolvedValueOnce({ logs: { items: [queryLog("b")], total: 2 } });
+    act(() => result.current.loadMore());
+
+    await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(2));
+    expect(requestMock.mock.calls[1]?.[1]?.search).toBe("timeout");
   });
 });

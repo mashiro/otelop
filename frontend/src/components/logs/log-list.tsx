@@ -42,7 +42,8 @@ export function LogList() {
   const selectedLog = useAtomValue(selectedLogAtom);
   const setSelectedLog = useSetAtom(selectedLogAtom);
   const [range, setRange] = useAtom(selectedLogRangeAtom);
-  const { total, loaded, hasMore, loadingMore, loadMore } = useLogListPage(range);
+  const search = useAtomValue(logSearchAtom);
+  const { total, loaded, hasMore, loadingMore, loadMore } = useLogListPage(range, search);
 
   if (allLogs.length === 0) {
     return <EmptyState signal={SIGNALS.logs} />;
@@ -64,7 +65,7 @@ export function LogList() {
               </button>
             </div>
           )}
-          <SearchFilter atom={logSearchAtom} placeholder="Filter loaded logs…" />
+          <SearchFilter atom={logSearchAtom} placeholder="Search logs…" />
           <div className="ml-auto px-3">
             <Tabs value={range} onValueChange={(v) => setRange(v as ChartTimeRange)}>
               <TabsList className="h-7 bg-muted/50">

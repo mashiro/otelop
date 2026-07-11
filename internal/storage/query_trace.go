@@ -65,6 +65,18 @@ type TraceDetail struct {
 // (deduped) spans of those traces, so a trace straddling the range boundary
 // is summarized from its complete span set rather than a truncated one.
 //
+// search_ids (issue #161) narrows matching_ids further by a case-insensitive
+// substring search: a trace matches if ANY of its spans (regardless of
+// whether that particular span itself falls in [from, to) — same
+// full-span-set philosophy as the straddling-range case above) has a
+// matching name, status code, or resource service name, or if the trace_id
+// itself matches — the same field set the frontend's pre-#161 client-side
+// filter searched (status included: searching "error" surfaces error traces).
+// It's a separate CTE (rather than folding the predicate into matching_ids)
+// so the search join only runs over the already time-bounded trace_id set,
+// not every span in the table. An empty search's "%%" pattern (see
+// likePattern) matches unconditionally, making this a no-op filter.
+//
 // Root selection (root_candidates/roots) and the rootless fallback
 // (earliest_candidates/earliest) are separate CTEs — each producing exactly
 // one row per trace_id via row_number() — rather than several independent
@@ -76,9 +88,21 @@ const tracesPageQuery = `
 WITH matching_ids AS (
 	SELECT DISTINCT trace_id FROM spans WHERE start_ts >= ? AND start_ts < ?
 ),
+search_ids AS (
+	SELECT DISTINCT s.trace_id
+	FROM spans s
+	JOIN resources r ON r.resource_hash = s.resource_hash
+	WHERE s.trace_id IN (SELECT trace_id FROM matching_ids)
+	AND (
+		s.trace_id ILIKE ? ESCAPE '\' OR
+		s.name ILIKE ? ESCAPE '\' OR
+		s.status_code ILIKE ? ESCAPE '\' OR
+		r.service_name ILIKE ? ESCAPE '\'
+	)
+),
 deduped AS (
 	SELECT * FROM spans
-	WHERE trace_id IN (SELECT trace_id FROM matching_ids)
+	WHERE trace_id IN (SELECT trace_id FROM search_ids)
 	QUALIFY row_number() OVER (PARTITION BY trace_id, span_id ORDER BY ingested_at) = 1
 ),
 agg AS (
@@ -137,18 +161,38 @@ ORDER BY agg.first_seen DESC
 LIMIT ? OFFSET ?
 `
 
-const tracesTotalQuery = `SELECT count(DISTINCT trace_id) FROM spans WHERE start_ts >= ? AND start_ts < ?`
+// tracesTotalQuery mirrors tracesPageQuery's matching_ids/search_ids
+// filtering exactly (see that query's doc comment) so `total` reflects the
+// same search-narrowed trace set the page itself pages through.
+const tracesTotalQuery = `
+WITH matching_ids AS (
+	SELECT DISTINCT trace_id FROM spans WHERE start_ts >= ? AND start_ts < ?
+)
+SELECT count(DISTINCT s.trace_id)
+FROM spans s
+JOIN resources r ON r.resource_hash = s.resource_hash
+WHERE s.trace_id IN (SELECT trace_id FROM matching_ids)
+AND (
+	s.trace_id ILIKE ? ESCAPE '\' OR
+	s.name ILIKE ? ESCAPE '\' OR
+	s.status_code ILIKE ? ESCAPE '\' OR
+	r.service_name ILIKE ? ESCAPE '\'
+)
+`
 
 // TracesPage returns a newest-first (by first-seen ingestion order) page of
-// trace summaries whose span set intersects [from, to), plus the total count
-// of matching traces before pagination.
-func (s *Storage) TracesPage(ctx context.Context, from, to time.Time, offset, limit int) ([]TraceSummary, int, error) {
+// trace summaries whose span set intersects [from, to) and, when search is
+// non-empty, matches it (see tracesPageQuery's search_ids doc comment),
+// plus the total count of matching traces before pagination.
+func (s *Storage) TracesPage(ctx context.Context, from, to time.Time, offset, limit int, search string) ([]TraceSummary, int, error) {
+	pattern := likePattern(search)
+
 	var total int
-	if err := s.DB().QueryRowContext(ctx, tracesTotalQuery, from, to).Scan(&total); err != nil {
+	if err := s.DB().QueryRowContext(ctx, tracesTotalQuery, from, to, pattern, pattern, pattern, pattern).Scan(&total); err != nil {
 		return nil, 0, fmt.Errorf("storage: count traces page: %w", err)
 	}
 
-	rows, err := s.DB().QueryContext(ctx, tracesPageQuery, from, to, pageLimit(limit), offset)
+	rows, err := s.DB().QueryContext(ctx, tracesPageQuery, from, to, pattern, pattern, pattern, pattern, pageLimit(limit), offset)
 	if err != nil {
 		return nil, 0, fmt.Errorf("storage: query traces page: %w", err)
 	}

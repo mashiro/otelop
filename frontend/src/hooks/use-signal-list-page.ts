@@ -26,6 +26,7 @@ interface FetchPageArgs {
   from: string | undefined;
   offset: number;
   limit: number;
+  search: string;
 }
 
 interface FetchPageResult<T> {
@@ -35,18 +36,23 @@ interface FetchPageResult<T> {
 
 // Shared pagination core for the traces/logs list tabs
 // (hooks/use-trace-list-page.ts, hooks/use-log-list-page.ts): fetches the
-// newest SIGNAL_PAGE_SIZE-row page within `range` on mount and whenever
-// `range` changes (replacing via onPage1), then pages further into the past
-// via `fetchPage`'s offset on "Load more" (appending via onAppend). `from` is
-// computed once per range (not recomputed on "Load more") so offsets stay
-// consistent across the whole paging session for that range.
+// newest SIGNAL_PAGE_SIZE-row page within `range` (and, since issue #161,
+// matching `search`) on mount and whenever either changes (replacing via
+// onPage1), then pages further into the past via `fetchPage`'s offset on
+// "Load more" (appending via onAppend). `from`/`search` are captured once per
+// range-or-search change (not recomputed on "Load more") so offsets stay
+// consistent across the whole paging session for that combination — a
+// search edit while a "Load more" is in flight starts a fresh session rather
+// than mixing offsets from two different filters.
 //
-// Deliberately doesn't clear anything before a range-change fetch resolves —
-// the previously loaded page (already sitting in tracesAtom/logsAtom) keeps
-// rendering until the new one arrives, matching the
-// keep-previous-data style used elsewhere (see hooks/use-metric-range-points.ts).
+// Deliberately doesn't clear anything before a range/search-change fetch
+// resolves — the previously loaded page (already sitting in
+// tracesAtom/logsAtom) keeps rendering until the new one arrives, matching
+// the keep-previous-data style used elsewhere (see
+// hooks/use-metric-range-points.ts).
 export function useSignalListPage<T>(
   range: ChartTimeRange,
+  search: string,
   fetchPage: (args: FetchPageArgs) => Promise<FetchPageResult<T>>,
   onPage1: (items: T[]) => void,
   onAppend: (items: T[]) => void,
@@ -54,6 +60,7 @@ export function useSignalListPage<T>(
   const [state, setState] = useState({ total: 0, loaded: 0, loadingMore: false });
   const offsetRef = useRef(0);
   const fromRef = useRef<string | undefined>(undefined);
+  const searchRef = useRef("");
 
   useEffect(() => {
     let ignore = false;
@@ -63,18 +70,24 @@ export function useSignalListPage<T>(
         ? undefined
         : Temporal.Now.instant().subtract({ milliseconds: rangeMs }).toString();
     fromRef.current = from;
+    searchRef.current = search;
     offsetRef.current = 0;
 
     const load = async () => {
       try {
-        const { items, total } = await fetchPage({ from, offset: 0, limit: SIGNAL_PAGE_SIZE });
+        const { items, total } = await fetchPage({
+          from,
+          offset: 0,
+          limit: SIGNAL_PAGE_SIZE,
+          search,
+        });
         if (ignore) return;
         onPage1(items);
         offsetRef.current = items.length;
         setState({ total, loaded: items.length, loadingMore: false });
       } catch {
         // Leave whatever was showing before (the previous range's page, or
-        // just the live buffer) — the next range/tab activation retries.
+        // just the live buffer) — the next range/search/tab activation retries.
       }
     };
     void load();
@@ -84,9 +97,9 @@ export function useSignalListPage<T>(
     };
     // fetchPage/onPage1/onAppend must be reference-stable across renders
     // (callers wrap fetchPage in useCallback([]); onPage1/onAppend are jotai
-    // setters, already stable) so this effect only reruns on a genuine range
-    // change, not on every render.
-  }, [range, fetchPage, onPage1]);
+    // setters, already stable) so this effect only reruns on a genuine
+    // range or search change, not on every render.
+  }, [range, search, fetchPage, onPage1]);
 
   const loadMore = useCallback(() => {
     setState((s) => ({ ...s, loadingMore: true }));
@@ -97,6 +110,7 @@ export function useSignalListPage<T>(
           from: fromRef.current,
           offset,
           limit: SIGNAL_PAGE_SIZE,
+          search: searchRef.current,
         });
         onAppend(items);
         offsetRef.current = offset + items.length;

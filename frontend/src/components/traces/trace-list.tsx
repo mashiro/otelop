@@ -36,7 +36,8 @@ export function TraceList() {
   const setSelectedTrace = useSetAtom(selectedTraceAtom);
   const [view, setView] = useState<"list" | "map">("list");
   const [range, setRange] = useAtom(selectedTraceRangeAtom);
-  const { total, loaded, hasMore, loadingMore, loadMore } = useTraceListPage(range);
+  const search = useAtomValue(traceSearchAtom);
+  const { total, loaded, hasMore, loadingMore, loadMore } = useTraceListPage(range, search);
   // The service map needs full span data across every buffered trace (see
   // lib/service-graph.ts), which the trace list itself deliberately doesn't
   // load (use-trace-list-page.ts). Fetch it lazily, once per range, the
@@ -55,7 +56,7 @@ export function TraceList() {
     <ListPanel
       toolbar={
         <>
-          <SearchFilter atom={traceSearchAtom} placeholder="Filter loaded traces…" />
+          <SearchFilter atom={traceSearchAtom} placeholder="Search traces…" />
           <div className="ml-auto flex items-center gap-2 px-3">
             <Tabs value={range} onValueChange={(v) => setRange(v as ChartTimeRange)}>
               <TabsList className="h-7 bg-muted/50">

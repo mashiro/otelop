@@ -116,6 +116,25 @@ func TestDBStats_FileBackedReportsSize(t *testing.T) {
 	}
 }
 
+func TestLikePattern_EscapesWildcardMetacharacters(t *testing.T) {
+	cases := []struct {
+		name, search, want string
+	}{
+		{"plain text", "hello", "%hello%"},
+		{"percent literal", "100%", `%100\%%`},
+		{"underscore literal", "a_b", `%a\_b%`},
+		{"backslash literal", `a\b`, `%a\\b%`},
+		{"empty search matches everything", "", "%%"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := likePattern(tc.search); got != tc.want {
+				t.Errorf("likePattern(%q) = %q, want %q", tc.search, got, tc.want)
+			}
+		})
+	}
+}
+
 // TestTraceByID_UsesSameTraceIDFormat is a small sanity check that
 // TraceByID's traceID argument matches pcommon.TraceID.String() formatting,
 // since that's what callers (GraphQL args, WebSocket correlation) pass.

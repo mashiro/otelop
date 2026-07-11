@@ -33,7 +33,7 @@ func TestLogsPage_NewestFirstOrdering(t *testing.T) {
 	s.AddLogs(ctx, buildLog([16]byte{1}, "second", "svc", t0.Add(time.Second)))
 	s.Sync()
 
-	items, total, err := s.LogsPage(ctx, t0.Add(-time.Minute), t0.Add(time.Minute), 0, 0)
+	items, total, err := s.LogsPage(ctx, t0.Add(-time.Minute), t0.Add(time.Minute), 0, 0, "")
 	if err != nil {
 		t.Fatalf("LogsPage: %v", err)
 	}
@@ -63,7 +63,7 @@ func TestLogsPage_TimeRangeFiltering(t *testing.T) {
 	s.AddLogs(ctx, buildLog([16]byte{2}, "out-of-range", "svc", t0.Add(time.Hour)))
 	s.Sync()
 
-	items, total, err := s.LogsPage(ctx, t0.Add(-time.Minute), t0.Add(time.Minute), 0, 0)
+	items, total, err := s.LogsPage(ctx, t0.Add(-time.Minute), t0.Add(time.Minute), 0, 0, "")
 	if err != nil {
 		t.Fatalf("LogsPage: %v", err)
 	}
@@ -82,7 +82,7 @@ func TestLogsPage_PaginationAndTotal(t *testing.T) {
 	}
 	s.Sync()
 
-	items, total, err := s.LogsPage(ctx, t0.Add(-time.Minute), t0.Add(time.Minute), 2, 2)
+	items, total, err := s.LogsPage(ctx, t0.Add(-time.Minute), t0.Add(time.Minute), 2, 2, "")
 	if err != nil {
 		t.Fatalf("LogsPage: %v", err)
 	}
