@@ -1,14 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderHook, waitFor } from "@testing-library/react";
 import { createStore, Provider } from "jotai";
+import { Temporal } from "temporal-polyfill";
 import type { ReactNode } from "react";
 import { useServiceMapSpans } from "./use-service-map-spans";
 import { tracesAtom } from "@/stores/telemetry";
 import { makeTrace, makeSpan } from "@/test/factories";
-import type { ServiceMapSpansQuery } from "@/gql/graphql";
+import type { ChartTimeRange } from "@/lib/chart-time-range";
+import type { ServiceMapSpansQuery, ServiceMapSpansQueryVariables } from "@/gql/graphql";
 
 const { requestMock } = vi.hoisted(() => ({
-  requestMock: vi.fn<(doc: unknown) => Promise<ServiceMapSpansQuery>>(),
+  requestMock:
+    vi.fn<(doc: unknown, vars: ServiceMapSpansQueryVariables) => Promise<ServiceMapSpansQuery>>(),
 }));
 vi.mock("@/lib/graphql", () => ({ gqlClient: { request: requestMock } }));
 
@@ -21,15 +24,19 @@ function toQuerySpan(span: ReturnType<typeof makeSpan>) {
   return { ...rest, durationMs: duration / 1_000_000 };
 }
 
-function renderWithStore(initialActive: boolean, traces: ReturnType<typeof makeTrace>[]) {
+function renderWithStore(
+  initialActive: boolean,
+  traces: ReturnType<typeof makeTrace>[],
+  initialRange: ChartTimeRange = "1h",
+) {
   const store = createStore();
   store.set(tracesAtom, traces);
   const wrapper = ({ children }: { children: ReactNode }) => (
     <Provider store={store}>{children}</Provider>
   );
-  const view = renderHook(({ active }) => useServiceMapSpans(active), {
+  const view = renderHook(({ active, range }) => useServiceMapSpans(active, range), {
     wrapper,
-    initialProps: { active: initialActive },
+    initialProps: { active: initialActive, range: initialRange },
   });
   return { store, ...view };
 }
@@ -38,6 +45,48 @@ describe("useServiceMapSpans", () => {
   it("does not fetch while inactive", () => {
     renderWithStore(false, [makeTrace({ traceId: "t1", spans: [] })]);
     expect(requestMock).not.toHaveBeenCalled();
+  });
+
+  it("scopes the bulk fetch to the selected range via `from`, omitting it for 'all'", async () => {
+    requestMock.mockResolvedValue({ traces: { items: [] } });
+    const before = Temporal.Now.instant();
+
+    renderWithStore(true, [makeTrace({ traceId: "t1", spans: [] })], "5m");
+
+    await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(1));
+    const from = requestMock.mock.calls[0]?.[1]?.from;
+    const fromInstant = Temporal.Instant.from(from!);
+    const deltaMs = before.since(fromInstant).total("milliseconds");
+    expect(deltaMs).toBeGreaterThan(4.9 * 60_000);
+    expect(deltaMs).toBeLessThan(5.1 * 60_000);
+
+    requestMock.mockClear();
+    renderWithStore(true, [makeTrace({ traceId: "t2", spans: [] })], "all");
+    await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(1));
+    expect(requestMock.mock.calls[0]?.[1]).toEqual({ from: undefined });
+  });
+
+  it("refetches when the range changes while active", async () => {
+    requestMock.mockResolvedValue({ traces: { items: [] } });
+
+    const { rerender } = renderWithStore(true, [makeTrace({ traceId: "t1", spans: [] })], "1h");
+    await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(1));
+
+    rerender({ active: true, range: "6h" });
+
+    await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(2));
+  });
+
+  it("does not refetch when reactivated with the same range", async () => {
+    requestMock.mockResolvedValue({ traces: { items: [] } });
+
+    const { rerender } = renderWithStore(true, [makeTrace({ traceId: "t1", spans: [] })], "1h");
+    await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(1));
+
+    rerender({ active: false, range: "1h" });
+    rerender({ active: true, range: "1h" });
+
+    expect(requestMock).toHaveBeenCalledTimes(1);
   });
 
   it("bulk-fetches and merges spans for every buffered trace once activated", async () => {
@@ -71,8 +120,8 @@ describe("useServiceMapSpans", () => {
     const { rerender } = renderWithStore(true, [makeTrace({ traceId: "t1", spans: [] })]);
     await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(1));
 
-    rerender({ active: false });
-    rerender({ active: true });
+    rerender({ active: false, range: "1h" });
+    rerender({ active: true, range: "1h" });
 
     expect(requestMock).toHaveBeenCalledTimes(1);
   });
@@ -95,8 +144,8 @@ describe("useServiceMapSpans", () => {
     // — the eager "mark as fetched at dispatch time" bug this guards
     // against would have blocked the second, uncancelled attempt below from
     // ever starting, permanently starving the map of span data.
-    rerender({ active: false });
-    rerender({ active: true });
+    rerender({ active: false, range: "1h" });
+    rerender({ active: true, range: "1h" });
 
     // Late resolution of the cancelled first attempt must not apply.
     resolveFirst({ traces: { items: [] } });
@@ -116,8 +165,8 @@ describe("useServiceMapSpans", () => {
     ]);
     await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(1));
 
-    rerender({ active: false });
-    rerender({ active: true });
+    rerender({ active: false, range: "1h" });
+    rerender({ active: true, range: "1h" });
 
     await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(store.get(tracesAtom)[0].spans).toHaveLength(1));

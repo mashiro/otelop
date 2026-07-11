@@ -20,6 +20,11 @@ interface ParsedLocation {
   // Only meaningful alongside metricKey (see buildPath); still resolved to a
   // valid value for every location so callers never have to null-check it.
   metricRange: ChartTimeRange;
+  // Unlike metricRange, these scope the traces/logs LIST views themselves
+  // (not a detail selection), so they apply to a bare /traces or /logs path
+  // too — see buildPath.
+  traceRange: ChartTimeRange;
+  logRange: ChartTimeRange;
 }
 
 // Only the tab of the currently active screen is meaningful in the path; a
@@ -32,10 +37,13 @@ export function parsePath(location: string): ParsedLocation {
   const tab: TabValue = first && first in SIGNALS ? (first as TabValue) : "traces";
 
   const rangeParam = url.searchParams.get("range");
+  const validRange = rangeParam && isChartTimeRange(rangeParam) ? rangeParam : null;
   const metricRange: ChartTimeRange =
-    tab === "metrics" && rangeParam && isChartTimeRange(rangeParam)
-      ? rangeParam
-      : DEFAULT_CHART_TIME_RANGE;
+    tab === "metrics" && validRange ? validRange : DEFAULT_CHART_TIME_RANGE;
+  const traceRange: ChartTimeRange =
+    tab === "traces" && validRange ? validRange : DEFAULT_CHART_TIME_RANGE;
+  const logRange: ChartTimeRange =
+    tab === "logs" && validRange ? validRange : DEFAULT_CHART_TIME_RANGE;
 
   return {
     tab,
@@ -46,24 +54,36 @@ export function parsePath(location: string): ParsedLocation {
         : null,
     logId: tab === "logs" && second ? decodeURIComponent(second) : null,
     metricRange,
+    traceRange,
+    logRange,
   };
 }
 
 // Takes a full ParsedLocation (rather than positional args) so it stays
 // symmetric with parsePath as more selection kinds are added.
 export function buildPath(location: ParsedLocation): string {
-  const { tab, traceId, metricKey, logId, metricRange } = location;
-  if (tab === "traces" && traceId) return `/traces/${encodeURIComponent(traceId)}`;
+  const { tab, traceId, metricKey, logId, metricRange, traceRange, logRange } = location;
+  // The range param is elided at the default so a list/detail view left at
+  // "1h" keeps a clean URL, matching how the id/key selections below only
+  // appear once a selection exists.
+  if (tab === "traces") {
+    const base = traceId ? `/traces/${encodeURIComponent(traceId)}` : "/traces";
+    return traceRange === DEFAULT_CHART_TIME_RANGE
+      ? base
+      : `${base}?range=${encodeURIComponent(traceRange)}`;
+  }
   if (tab === "metrics" && metricKey) {
     const base = `/metrics/${encodeURIComponent(metricKey.serviceName)}/${encodeURIComponent(metricKey.name)}`;
-    // The range param is elided at the default so a detail view left at "1h"
-    // keeps a clean URL, matching how the id/key selections above only
-    // appear once a selection exists.
     return metricRange === DEFAULT_CHART_TIME_RANGE
       ? base
       : `${base}?range=${encodeURIComponent(metricRange)}`;
   }
-  if (tab === "logs" && logId) return `/logs/${encodeURIComponent(logId)}`;
+  if (tab === "logs") {
+    const base = logId ? `/logs/${encodeURIComponent(logId)}` : "/logs";
+    return logRange === DEFAULT_CHART_TIME_RANGE
+      ? base
+      : `${base}?range=${encodeURIComponent(logRange)}`;
+  }
   return `/${tab}`;
 }
 
@@ -81,6 +101,8 @@ const selectedTraceIdBaseAtom = atom<string | null>(initialLocation.traceId);
 const selectedMetricKeyBaseAtom = atom<MetricKey | null>(initialLocation.metricKey);
 const selectedLogIdBaseAtom = atom<string | null>(initialLocation.logId);
 const selectedMetricRangeBaseAtom = atom<ChartTimeRange>(initialLocation.metricRange);
+const selectedTraceRangeBaseAtom = atom<ChartTimeRange>(initialLocation.traceRange);
+const selectedLogRangeBaseAtom = atom<ChartTimeRange>(initialLocation.logRange);
 
 // Shared by every public writer so the URL always reflects the current
 // tab + selection as a single pushState, and unchanged state never pushes.
@@ -91,6 +113,8 @@ function syncLocation(get: Getter): void {
     metricKey: get(selectedMetricKeyBaseAtom),
     logId: get(selectedLogIdBaseAtom),
     metricRange: get(selectedMetricRangeBaseAtom),
+    traceRange: get(selectedTraceRangeBaseAtom),
+    logRange: get(selectedLogRangeBaseAtom),
   });
   if (window.location.pathname + window.location.search !== path) {
     window.history.pushState(null, "", path);
@@ -140,6 +164,28 @@ export const selectedMetricRangeAtom = atom(
   },
 );
 
+// Unlike selectedMetricRangeAtom, these scope the traces/logs tab's LIST
+// view (hooks/use-trace-list-page.ts, hooks/use-log-list-page.ts) rather
+// than a detail selection, so they round-trip through the URL regardless of
+// whether a trace/log is currently selected — see buildPath.
+export const selectedTraceRangeAtom = atom(
+  (get) => get(selectedTraceRangeBaseAtom),
+  (get, set, range: ChartTimeRange) => {
+    if (get(selectedTraceRangeBaseAtom) === range) return;
+    set(selectedTraceRangeBaseAtom, range);
+    syncLocation(get);
+  },
+);
+
+export const selectedLogRangeAtom = atom(
+  (get) => get(selectedLogRangeBaseAtom),
+  (get, set, range: ChartTimeRange) => {
+    if (get(selectedLogRangeBaseAtom) === range) return;
+    set(selectedLogRangeBaseAtom, range);
+    syncLocation(get);
+  },
+);
+
 // The tab/selection combo is mirrored to the URL so a reload (or shared link)
 // restores the same screen even though the telemetry data itself is volatile.
 export const activeTabAtom = atom(
@@ -161,6 +207,7 @@ export const applyLocationAtom = atom(null, (_get, set, location: string) => {
   set(currentTabAtom, parsed.tab);
   if (parsed.tab === "traces") {
     set(selectedTraceIdBaseAtom, parsed.traceId);
+    set(selectedTraceRangeBaseAtom, parsed.traceRange);
   }
   if (parsed.tab === "metrics") {
     set(selectedMetricKeyBaseAtom, parsed.metricKey);
@@ -168,6 +215,7 @@ export const applyLocationAtom = atom(null, (_get, set, location: string) => {
   }
   if (parsed.tab === "logs") {
     set(selectedLogIdBaseAtom, parsed.logId);
+    set(selectedLogRangeBaseAtom, parsed.logRange);
   }
 });
 

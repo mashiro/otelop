@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { createStore } from "jotai";
 import { tracesAtom, metricsAtom, logsAtom, logTraceFilterAtom } from "./telemetry";
+import { selectedLogRangeAtom, selectedTraceRangeAtom } from "./navigation";
 import {
   traceSearchAtom,
   filteredTracesAtom,
@@ -12,11 +13,23 @@ import {
 import { makeSpan, makeTrace, makeLog, makeMetric } from "@/test/factories";
 
 describe("filteredTracesAtom", () => {
-  it("returns all traces when no search is active", () => {
+  it("returns all traces when no search is active and the range is 'all'", () => {
     const store = createStore();
     const traces = [makeTrace({ traceId: "a" }), makeTrace({ traceId: "b" })];
     store.set(tracesAtom, traces);
+    store.set(selectedTraceRangeAtom, "all");
     expect(store.get(filteredTracesAtom)).toBe(traces);
+  });
+
+  it("applies the selected trace range as a live-tail display filter, anchored on the newest startTime", () => {
+    const store = createStore();
+    store.set(tracesAtom, [
+      makeTrace({ traceId: "old", startTime: "2024-01-01T00:00:00Z" }),
+      makeTrace({ traceId: "new", startTime: "2024-01-01T00:20:00Z" }),
+    ]);
+    store.set(selectedTraceRangeAtom, "5m");
+
+    expect(store.get(filteredTracesAtom).map((t) => t.traceId)).toEqual(["new"]);
   });
 
   it("filters by service name", () => {
@@ -50,11 +63,23 @@ describe("filteredTracesAtom", () => {
 });
 
 describe("filteredLogsAtom", () => {
-  it("returns all logs when no search is active", () => {
+  it("returns all logs when no search is active and the range is 'all'", () => {
     const store = createStore();
     const logs = [makeLog(), makeLog({ body: "other" })];
     store.set(logsAtom, logs);
+    store.set(selectedLogRangeAtom, "all");
     expect(store.get(filteredLogsAtom)).toBe(logs);
+  });
+
+  it("applies the selected log range as a live-tail display filter, anchored on the newest timestamp", () => {
+    const store = createStore();
+    store.set(logsAtom, [
+      makeLog({ id: "old", timestamp: "2024-01-01T00:00:00Z" }),
+      makeLog({ id: "new", timestamp: "2024-01-01T00:20:00Z" }),
+    ]);
+    store.set(selectedLogRangeAtom, "5m");
+
+    expect(store.get(filteredLogsAtom).map((l) => l.id)).toEqual(["new"]);
   });
 
   it("filters by body text", () => {

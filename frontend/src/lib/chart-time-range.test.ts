@@ -181,4 +181,25 @@ describe("filterDataPointsInRange", () => {
 
     expect(filterDataPointsInRange(points, "all")).toEqual(points);
   });
+
+  describe("with an explicit getTimestamp selector", () => {
+    // Trace rows carry their instant under `startTime`, not `timestamp` (see
+    // types/telemetry.ts) — the trace/log list's live-tail display filter
+    // (stores/filters.ts) passes a selector rather than reshaping every row.
+    it("anchors the window on the max value the selector returns", () => {
+      const inWindow = { startTime: "2024-01-01T00:19:00Z" };
+      const outOfWindow = { startTime: "2024-01-01T00:00:00Z" };
+      const max = { startTime: "2024-01-01T00:20:00Z" };
+
+      expect(
+        filterDataPointsInRange([outOfWindow, inWindow, max], "5m", (p) => p.startTime),
+      ).toEqual([inWindow, max]);
+    });
+
+    it("returns everything unfiltered for 'all'", () => {
+      const points = [{ startTime: "2024-01-01T00:00:00Z" }, { startTime: "2024-01-01T00:10:00Z" }];
+
+      expect(filterDataPointsInRange(points, "all", (p) => p.startTime)).toEqual(points);
+    });
+  });
 });

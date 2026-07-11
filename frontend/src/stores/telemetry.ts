@@ -279,3 +279,35 @@ export const setMetricsAtom = atom(null, (_get, set, metrics: MetricData[]) => {
 export const setLogsAtom = atom(null, (_get, set, logs: LogData[]) => {
   set(logsAtom, logs);
 });
+
+// Write-only: append an older page of traces fetched via "Load more"
+// (hooks/use-trace-list-page.ts) to the tail of the buffer, deduping against
+// whatever's already there — a trace can appear in both a freshly-paged
+// response and the live WS buffer (e.g. a page boundary race), and de-dup by
+// traceId keeps the existing (possibly WS-merged) entry rather than
+// overwriting it with the paged summary.
+export const appendTracesAtom = atom(null, (get, set, olderTraces: TraceData[]) => {
+  const current = get(tracesAtom);
+  const seen = new Set(current.map((t) => t.traceId));
+  const deduped = olderTraces.filter((t) => !seen.has(t.traceId));
+  if (deduped.length === 0) return;
+  const merged = [...current, ...deduped];
+  const cap = get(serverConfigAtom).traceCap;
+  // Paging in more history than the live-buffer cap allows evicts the same
+  // way a WS burst would (oldest-first slice, appended rows are at the tail)
+  // — an accepted trade-off (see issue #160): the cap bounds this tab's
+  // memory, it doesn't guarantee every manually paged-in row stays resident.
+  set(tracesAtom, merged.length > cap ? merged.slice(0, cap) : merged);
+});
+
+// Write-only counterpart to appendTracesAtom for the logs tab's "Load more".
+export const appendLogsAtom = atom(null, (get, set, olderLogs: LogData[]) => {
+  const current = get(logsAtom);
+  const seen = new Set(current.map((l) => l.id));
+  const deduped = olderLogs.filter((l) => !seen.has(l.id));
+  if (deduped.length === 0) return;
+  const merged = [...current, ...deduped];
+  const cap = get(serverConfigAtom).logCap;
+  // See appendTracesAtom's comment: the same cap-eviction trade-off applies.
+  set(logsAtom, merged.length > cap ? merged.slice(0, cap) : merged);
+});

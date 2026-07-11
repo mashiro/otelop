@@ -104,18 +104,34 @@ export function filterPointsInDomain<T extends { time: Date }>(
 // render pipeline. Uses Temporal, not Date.parse, per the project's
 // OTel-timestamp convention (Date truncates the nanosecond precision OTel
 // timestamps carry).
+//
+// getTimestamp defaults to reading `.timestamp` (DataPoint/AggregatePoint's
+// shape); trace rows carry their instant under `startTime` instead, so the
+// trace/log list's live-tail display filter (components/traces/trace-list.tsx,
+// components/logs/log-list.tsx) passes an explicit selector rather than
+// reshaping every row just to satisfy this function's default field name.
 export function filterDataPointsInRange<T extends { timestamp: string }>(
   points: T[],
   range: ChartTimeRange,
+): T[];
+export function filterDataPointsInRange<T>(
+  points: T[],
+  range: ChartTimeRange,
+  getTimestamp: (point: T) => string,
+): T[];
+export function filterDataPointsInRange<T>(
+  points: T[],
+  range: ChartTimeRange,
+  getTimestamp: (point: T) => string = (p) => (p as { timestamp: string }).timestamp,
 ): T[] {
   const rangeMs = rangeToMs(range);
   if (rangeMs === null || points.length === 0) return points;
 
   let maxMs = -Infinity;
   for (const p of points) {
-    const ms = Temporal.Instant.from(p.timestamp).epochMilliseconds;
+    const ms = Temporal.Instant.from(getTimestamp(p)).epochMilliseconds;
     if (ms > maxMs) maxMs = ms;
   }
   const minMs = maxMs - rangeMs;
-  return points.filter((p) => Temporal.Instant.from(p.timestamp).epochMilliseconds >= minMs);
+  return points.filter((p) => Temporal.Instant.from(getTimestamp(p)).epochMilliseconds >= minMs);
 }

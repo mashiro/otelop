@@ -11,6 +11,8 @@ import {
   selectedLogAtom,
   mergeTraceSpansAtom,
   mergeManyTraceSpansAtom,
+  appendTracesAtom,
+  appendLogsAtom,
 } from "./telemetry";
 import { selectedTraceIdAtom, selectedMetricKeyAtom, selectedLogIdAtom } from "./navigation";
 import { makeMetric, makeDataPoint, makeTrace, makeLog, makeSpan } from "@/test/factories";
@@ -204,5 +206,85 @@ describe("selectedLogAtom", () => {
 
     store.set(selectedLogAtom, null);
     expect(store.get(selectedLogIdAtom)).toBeNull();
+  });
+});
+
+describe("appendTracesAtom", () => {
+  it("appends older-page traces to the tail, after whatever's already loaded", () => {
+    const store = createStore();
+    store.set(tracesAtom, [makeTrace({ traceId: "a" })]);
+
+    store.set(appendTracesAtom, [makeTrace({ traceId: "b" }), makeTrace({ traceId: "c" })]);
+
+    expect(store.get(tracesAtom).map((t) => t.traceId)).toEqual(["a", "b", "c"]);
+  });
+
+  it("dedups against traces already present (e.g. delivered live via WebSocket)", () => {
+    const store = createStore();
+    store.set(tracesAtom, [makeTrace({ traceId: "a" }), makeTrace({ traceId: "b" })]);
+
+    store.set(appendTracesAtom, [makeTrace({ traceId: "b" }), makeTrace({ traceId: "c" })]);
+
+    expect(store.get(tracesAtom).map((t) => t.traceId)).toEqual(["a", "b", "c"]);
+  });
+
+  it("is a no-op when every appended trace is already present", () => {
+    const store = createStore();
+    const traces = [makeTrace({ traceId: "a" })];
+    store.set(tracesAtom, traces);
+
+    store.set(appendTracesAtom, [makeTrace({ traceId: "a" })]);
+
+    expect(store.get(tracesAtom)).toBe(traces);
+  });
+
+  it("evicts the oldest (front-most) traces once the append exceeds the client cap", () => {
+    const store = createStore();
+    store.set(serverConfigAtom, { traceCap: 2, metricCap: 10, logCap: 10, maxDataPoints: 10 });
+    store.set(tracesAtom, [makeTrace({ traceId: "a" })]);
+
+    store.set(appendTracesAtom, [makeTrace({ traceId: "b" }), makeTrace({ traceId: "c" })]);
+
+    expect(store.get(tracesAtom).map((t) => t.traceId)).toEqual(["a", "b"]);
+  });
+});
+
+describe("appendLogsAtom", () => {
+  it("appends older-page logs to the tail, after whatever's already loaded", () => {
+    const store = createStore();
+    store.set(logsAtom, [makeLog({ id: "a" })]);
+
+    store.set(appendLogsAtom, [makeLog({ id: "b" }), makeLog({ id: "c" })]);
+
+    expect(store.get(logsAtom).map((l) => l.id)).toEqual(["a", "b", "c"]);
+  });
+
+  it("dedups against logs already present (e.g. delivered live via WebSocket)", () => {
+    const store = createStore();
+    store.set(logsAtom, [makeLog({ id: "a" }), makeLog({ id: "b" })]);
+
+    store.set(appendLogsAtom, [makeLog({ id: "b" }), makeLog({ id: "c" })]);
+
+    expect(store.get(logsAtom).map((l) => l.id)).toEqual(["a", "b", "c"]);
+  });
+
+  it("is a no-op when every appended log is already present", () => {
+    const store = createStore();
+    const logs = [makeLog({ id: "a" })];
+    store.set(logsAtom, logs);
+
+    store.set(appendLogsAtom, [makeLog({ id: "a" })]);
+
+    expect(store.get(logsAtom)).toBe(logs);
+  });
+
+  it("evicts the oldest (front-most) logs once the append exceeds the client cap", () => {
+    const store = createStore();
+    store.set(serverConfigAtom, { traceCap: 10, metricCap: 10, logCap: 2, maxDataPoints: 10 });
+    store.set(logsAtom, [makeLog({ id: "a" })]);
+
+    store.set(appendLogsAtom, [makeLog({ id: "b" }), makeLog({ id: "c" })]);
+
+    expect(store.get(logsAtom).map((l) => l.id)).toEqual(["a", "b"]);
   });
 });

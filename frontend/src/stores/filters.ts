@@ -1,5 +1,7 @@
 import { atom } from "jotai";
 import type { Atom, PrimitiveAtom } from "jotai";
+import { filterDataPointsInRange } from "@/lib/chart-time-range";
+import { selectedLogRangeAtom, selectedTraceRangeAtom } from "./navigation";
 import { tracesAtom, metricsAtom, logsAtom, logTraceFilterAtom } from "./telemetry";
 import type { TraceData, MetricData, LogData } from "@/types/telemetry";
 
@@ -19,21 +21,41 @@ function createSearchAtom<T>(
 
 export const traceSearchAtom = atom("");
 
-export const filteredTracesAtom = createSearchAtom(tracesAtom, traceSearchAtom, (t: TraceData) => [
-  t.rootSpan?.name ?? t.spans[0]?.name ?? "",
-  t.serviceName ?? "",
-  t.traceId,
-  t.rootSpan?.statusCode ?? "Unset",
-]);
+// The live-tail display filter (issue #160): tracesAtom already only holds
+// what was server-paginated within the selected range plus whatever the
+// WebSocket has prepended since — but a session left open past the range's
+// length would otherwise keep showing paged-in rows that have aged out of
+// "the last <range>". Anchoring on the max loaded startTime (not wall-clock)
+// mirrors the metric chart's rolling window (see metric-detail.tsx's
+// windowedDataPoints) and keeps re-deriving the true visible window as new
+// data arrives.
+const rangeFilteredTracesAtom = atom((get) =>
+  filterDataPointsInRange(get(tracesAtom), get(selectedTraceRangeAtom), (t) => t.startTime),
+);
+
+export const filteredTracesAtom = createSearchAtom(
+  rangeFilteredTracesAtom,
+  traceSearchAtom,
+  (t: TraceData) => [
+    t.rootSpan?.name ?? t.spans[0]?.name ?? "",
+    t.serviceName ?? "",
+    t.traceId,
+    t.rootSpan?.statusCode ?? "Unset",
+  ],
+);
 
 export const logSearchAtom = atom("");
 
-const filteredLogsBySearchAtom = createSearchAtom(logsAtom, logSearchAtom, (l: LogData) => [
-  l.body,
-  l.serviceName ?? "",
-  l.severityText ?? "",
-  l.traceId,
-]);
+// See rangeFilteredTracesAtom above — same live-tail rolling-window rationale.
+const rangeFilteredLogsAtom = atom((get) =>
+  filterDataPointsInRange(get(logsAtom), get(selectedLogRangeAtom)),
+);
+
+const filteredLogsBySearchAtom = createSearchAtom(
+  rangeFilteredLogsAtom,
+  logSearchAtom,
+  (l: LogData) => [l.body, l.serviceName ?? "", l.severityText ?? "", l.traceId],
+);
 
 export const filteredLogsAtom = atom<LogData[]>((get) => {
   const traceFilter = get(logTraceFilterAtom);
