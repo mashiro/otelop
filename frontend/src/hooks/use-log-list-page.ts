@@ -1,8 +1,9 @@
 import { useCallback } from "react";
-import { useSetAtom } from "jotai";
+import { useSetAtom, useStore } from "jotai";
 import { graphql } from "@/gql";
 import { gqlClient } from "@/lib/graphql";
-import { setLogsAtom, appendLogsAtom } from "@/stores/telemetry";
+import { setLogPageAtom, appendLogsAtom, logsAtom } from "@/stores/telemetry";
+import type { LogData } from "@/types/telemetry";
 import type { ChartTimeRange } from "@/lib/chart-time-range";
 import { useSignalListPage, type FetchPageArgs, type SignalListPage } from "./use-signal-list-page";
 
@@ -10,8 +11,8 @@ import { useSignalListPage, type FetchPageArgs, type SignalListPage } from "./us
 // replaces it as the logs tab's data source now that the list is paginated
 // by range instead of fetched unbounded (issue #160).
 const LogsPageQuery = graphql(`
-  query LogsPage($from: Time, $offset: Int!, $limit: Int!, $search: String) {
-    logs(from: $from, offset: $offset, limit: $limit, search: $search) {
+  query LogsPage($from: Time, $to: Time!, $offset: Int!, $limit: Int!, $search: String) {
+    logs(from: $from, to: $to, offset: $offset, limit: $limit, search: $search) {
       items {
         id
         timestamp
@@ -37,13 +38,30 @@ const LogsPageQuery = graphql(`
 // panel (see App.tsx), so switching tabs and back naturally resets
 // pagination the same way a range change does.
 export function useLogListPage(range: ChartTimeRange, search: string): SignalListPage {
-  const setLogs = useSetAtom(setLogsAtom);
+  const setLogPage = useSetAtom(setLogPageAtom);
   const appendLogs = useSetAtom(appendLogsAtom);
+  const store = useStore();
 
-  const fetchPage = useCallback(async ({ from, offset, limit, search }: FetchPageArgs) => {
-    const data = await gqlClient.request(LogsPageQuery, { from, offset, limit, search });
+  const fetchPage = useCallback(async ({ from, to, offset, limit, search }: FetchPageArgs) => {
+    const data = await gqlClient.request(LogsPageQuery, { from, to, offset, limit, search });
     return { items: data.logs.items, total: data.logs.total };
   }, []);
+  const getCurrentIds = useCallback(
+    () => new Set(store.get(logsAtom).map((log) => log.id)),
+    [store],
+  );
+  const replacePage = useCallback(
+    (items: LogData[], idsAtRequestStart: ReadonlySet<string>) =>
+      setLogPage({ items, idsAtRequestStart }),
+    [setLogPage],
+  );
 
-  return useSignalListPage(range, search, fetchPage, setLogs, appendLogs);
+  return useSignalListPage({
+    range,
+    search,
+    fetchPage,
+    getCurrentIds,
+    onPage1: replacePage,
+    onAppend: appendLogs,
+  });
 }

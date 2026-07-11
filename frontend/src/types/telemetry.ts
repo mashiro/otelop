@@ -60,12 +60,12 @@ export interface TraceData {
 
 // Distribution-only fields are null for Gauge/Sum. See schema.graphql for
 // semantics of value/count/sum/min/max across metric types.
-// The cumulative family carries raw running totals per series (attribute
-// combination) "since otelop started observing"; they reset on daemon restart
-// and are only populated for cumulative OTLP inputs the backend delta-izes.
+// The cumulative family carries the exporter's raw running total for
+// cumulative inputs, or a query-window accumulation for delta inputs. The
+// backend derives both from persisted raw observations at read time.
 export interface DataPoint {
   // Stable, globally unique identity (UUIDv7) assigned by the backend at
-  // ingestion. Use it as the React key: it survives ring-buffer eviction and
+  // ingestion. Use it as the React key: it survives client-buffer eviction and
   // reconnects, unlike timestamp/attributes (which can collide) or array index.
   id: string;
   timestamp: string;

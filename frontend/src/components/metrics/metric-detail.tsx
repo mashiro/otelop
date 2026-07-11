@@ -170,8 +170,8 @@ export function MetricDetailBody({ metric }: { metric: MetricData }) {
   // Resolving against rangeDataPoints (not metric.dataPoints, which starts
   // empty until a WS delivery — issue #162) rather than storing the
   // DataPoint itself lets the sidebar both work for a point that only ever
-  // came from the range fetch AND disappear automatically once a ring-buffer
-  // eviction or range change drops the id.
+  // came from the range fetch AND disappear automatically once the client
+  // buffer evicts it or a range change drops the id.
   const [selectedDpId, setSelectedDpId] = useState<string | null>(null);
   const selectedDp = rangeDataPoints.find((dp) => dp.id === selectedDpId) ?? null;
 

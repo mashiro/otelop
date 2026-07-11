@@ -335,7 +335,7 @@ export const navigateToLogsAtom = atom(null, (_get, set, traceId: string) => {
 
 // The ids the server returned for the traces/logs tab's CURRENT paginated
 // fetch session — every id from page 1 plus each "Load more" page (issue
-// #161). setTracesAtom/setLogsAtom REPLACE the set (page 1 of a new
+// #161). setTracePageAtom/setLogPageAtom REPLACE the set (page 1 of a new
 // (range, search) fetch key starts a fresh session, so ids matched under a
 // previous search never linger); appendTracesAtom/appendLogsAtom union into
 // it. filters.ts's search display-filter treats membership as "the server
@@ -350,25 +350,39 @@ export const setMetricsAtom = atom(null, (_get, set, metrics: MetricData[]) => {
   set(metricsAtom, metrics);
 });
 
-// createListSessionAtoms builds the {set, append} pair for a server-paginated
-// list session (traces/logs), mirroring createSelectionAtom's factory idiom
-// above. Every write goes through here so the list atom, its matched-ids
-// atom, and cap-eviction can't drift apart — previously a fragile per-callsite
-// convention where each of setTracesAtom/appendTracesAtom/setLogsAtom/
-// appendLogsAtom had to remember to also update its companion
-// serverMatched*IdsAtom by hand.
+// createListSessionAtoms builds the write atoms for a server-paginated
+// list session (traces/logs), mirroring createSelectionAtom's factory idiom.
+// Every page write updates its companion serverMatched*IdsAtom in the same
+// transaction so list contents and server-vouched IDs cannot drift apart.
 function createListSessionAtoms<T>(
   listAtom: PrimitiveAtom<T[]>,
   matchedIdsAtom: PrimitiveAtom<ReadonlySet<string>>,
   getId: (item: T) => string,
   getCap: (caps: BufferCaps) => number,
 ) {
-  // Bulk set from the paginated list fetch's page 1
-  // (hooks/use-trace-list-page.ts, hooks/use-log-list-page.ts).
   const set = atom(null, (_get, set, items: T[]) => {
     set(listAtom, items);
     set(matchedIdsAtom, new Set(items.map(getId)));
   });
+
+  // Page 1 replaces the server-backed session while preserving rows delivered
+  // live after its request started. A live row also wins an ID collision
+  // because it may carry richer data than the paginated summary.
+  const setPage = atom(
+    null,
+    (
+      get,
+      set,
+      { items, idsAtRequestStart }: { items: T[]; idsAtRequestStart: ReadonlySet<string> },
+    ) => {
+      const liveItems = get(listAtom).filter((item) => !idsAtRequestStart.has(getId(item)));
+      const liveIds = new Set(liveItems.map(getId));
+      const merged = [...liveItems, ...items.filter((item) => !liveIds.has(getId(item)))];
+      const cap = getCap(get(bufferCapsAtom));
+      set(listAtom, merged.length > cap ? merged.slice(0, cap) : merged);
+      set(matchedIdsAtom, new Set(items.map(getId)));
+    },
+  );
 
   // Write-only: append an older page fetched via "Load more" to the tail of
   // the buffer, deduping against whatever's already there — an item can
@@ -395,7 +409,7 @@ function createListSessionAtoms<T>(
     set(listAtom, merged.length > cap ? merged.slice(0, cap) : merged);
   });
 
-  return { set, append };
+  return { set, setPage, append };
 }
 
 const traceListSession = createListSessionAtoms(
@@ -405,6 +419,7 @@ const traceListSession = createListSessionAtoms(
   (caps) => caps.traceCap,
 );
 export const setTracesAtom = traceListSession.set;
+export const setTracePageAtom = traceListSession.setPage;
 export const appendTracesAtom = traceListSession.append;
 
 const logListSession = createListSessionAtoms(
@@ -414,4 +429,5 @@ const logListSession = createListSessionAtoms(
   (caps) => caps.logCap,
 );
 export const setLogsAtom = logListSession.set;
+export const setLogPageAtom = logListSession.setPage;
 export const appendLogsAtom = logListSession.append;

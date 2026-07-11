@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { graphql } from "@/gql";
 import { gqlClient } from "@/lib/graphql";
 import { mergeDataPoints } from "@/stores/telemetry";
@@ -42,29 +42,23 @@ const MetricPointsQuery = graphql(`
 // metric's domain keeps sliding forward as WS points arrive — no extra
 // branching needed here.
 export function useMetricRangePoints(metric: MetricData, range: ChartTimeRange): DataPoint[] {
-  const [fetched, setFetched] = useState<DataPoint[]>([]);
   const { serviceName, name } = metric;
-  // Tracks the metric identity the last fetch effect ran for, so a
-  // range-only change can keep rendering the previous snapshot instead of
-  // flashing down to the live buffer (the visible axis jump this hook exists
-  // to avoid) while only a genuine metric switch clears it.
-  const metricKeyRef = useRef(`${serviceName}::${name}`);
+  const metricKey = `${serviceName}::${name}`;
+  const [snapshot, setSnapshot] = useState<{ metricKey: string; points: DataPoint[] } | null>(null);
+  // A range-only change keeps the previous snapshot visible while the next
+  // request is in flight. A metric change invalidates it immediately by key,
+  // without a state-reset effect and its extra render.
+  const fetched = snapshot?.metricKey === metricKey ? snapshot.points : [];
 
   useEffect(() => {
     let cancelled = false;
-    const metricKey = `${serviceName}::${name}`;
-    if (metricKeyRef.current !== metricKey) {
-      setFetched([]);
-    }
-    metricKeyRef.current = metricKey;
-
     const from = rangeToFrom(range);
 
     const load = async () => {
       try {
         const data = await gqlClient.request(MetricPointsQuery, { serviceName, name, from });
         if (!cancelled) {
-          setFetched(data.metricPoints);
+          setSnapshot({ metricKey, points: data.metricPoints });
         }
       } catch {
         // Fall back to whatever the live buffer already holds.
@@ -77,7 +71,7 @@ export function useMetricRangePoints(metric: MetricData, range: ChartTimeRange):
     };
     // metric.dataPoints is intentionally excluded: refetch when the range or
     // selected metric changes, not on every WebSocket delivery.
-  }, [range, serviceName, name]);
+  }, [range, serviceName, name, metricKey]);
 
   const merged = useMemo(
     () => mergeDataPoints(fetched, metric.dataPoints),

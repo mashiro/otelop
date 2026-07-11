@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Temporal } from "temporal-polyfill";
 import { rangeToFrom, type ChartTimeRange } from "@/lib/chart-time-range";
 
 // Page size for the traces/logs tabs' server-side pagination (issue #160).
@@ -26,6 +27,7 @@ export interface SignalListPage {
 // shape this hook calls it with, instead of re-declaring the same inline type.
 export interface FetchPageArgs {
   from: string | undefined;
+  to: string;
   offset: number;
   limit: number;
   search: string;
@@ -36,13 +38,29 @@ interface FetchPageResult<T> {
   total: number;
 }
 
+interface PagingSession {
+  from: string | undefined;
+  to: string;
+  search: string;
+  offset: number;
+}
+
+interface SignalListPageOptions<T> {
+  range: ChartTimeRange;
+  search: string;
+  fetchPage: (args: FetchPageArgs) => Promise<FetchPageResult<T>>;
+  getCurrentIds: () => ReadonlySet<string>;
+  onPage1: (items: T[], idsAtRequestStart: ReadonlySet<string>) => void;
+  onAppend: (items: T[]) => void;
+}
+
 // Shared pagination core for the traces/logs list tabs
 // (hooks/use-trace-list-page.ts, hooks/use-log-list-page.ts): fetches the
 // newest SIGNAL_PAGE_SIZE-row page within `range` (and, since issue #161,
 // matching `search`) on mount and whenever either changes (replacing via
 // onPage1), then pages further into the past via `fetchPage`'s offset on
-// "Load more" (appending via onAppend). `from`/`search` are captured once per
-// range-or-search change (not recomputed on "Load more") so offsets stay
+// "Load more" (appending via onAppend). `from`/`to`/`search` are captured once
+// per range-or-search change (not recomputed on "Load more") so offsets stay
 // consistent across the whole paging session for that combination — a
 // search edit while a "Load more" is in flight starts a fresh session rather
 // than mixing offsets from two different filters.
@@ -52,36 +70,40 @@ interface FetchPageResult<T> {
 // tracesAtom/logsAtom) keeps rendering until the new one arrives, matching
 // the keep-previous-data style used elsewhere (see
 // hooks/use-metric-range-points.ts).
-export function useSignalListPage<T>(
-  range: ChartTimeRange,
-  search: string,
-  fetchPage: (args: FetchPageArgs) => Promise<FetchPageResult<T>>,
-  onPage1: (items: T[]) => void,
-  onAppend: (items: T[]) => void,
-): SignalListPage {
+export function useSignalListPage<T>({
+  range,
+  search,
+  fetchPage,
+  getCurrentIds,
+  onPage1,
+  onAppend,
+}: SignalListPageOptions<T>): SignalListPage {
   const [state, setState] = useState({ total: 0, loaded: 0, loadingMore: false });
-  const offsetRef = useRef(0);
-  const fromRef = useRef<string | undefined>(undefined);
-  const searchRef = useRef("");
+  const sessionRef = useRef<PagingSession | null>(null);
 
   useEffect(() => {
     let ignore = false;
-    const from = rangeToFrom(range);
-    fromRef.current = from;
-    searchRef.current = search;
-    offsetRef.current = 0;
+    const session: PagingSession = {
+      from: rangeToFrom(range),
+      to: Temporal.Now.instant().toString(),
+      search,
+      offset: 0,
+    };
+    sessionRef.current = session;
+    const idsAtRequestStart = getCurrentIds();
 
     const load = async () => {
       try {
         const { items, total } = await fetchPage({
-          from,
+          from: session.from,
+          to: session.to,
           offset: 0,
           limit: SIGNAL_PAGE_SIZE,
-          search,
+          search: session.search,
         });
         if (ignore) return;
-        onPage1(items);
-        offsetRef.current = items.length;
+        onPage1(items, idsAtRequestStart);
+        session.offset = items.length;
         setState({ total, loaded: items.length, loadingMore: false });
       } catch {
         // Leave whatever was showing before (the previous range's page, or
@@ -97,23 +119,28 @@ export function useSignalListPage<T>(
     // (callers wrap fetchPage in useCallback([]); onPage1/onAppend are jotai
     // setters, already stable) so this effect only reruns on a genuine
     // range or search change, not on every render.
-  }, [range, search, fetchPage, onPage1]);
+  }, [range, search, fetchPage, getCurrentIds, onPage1]);
 
   const loadMore = useCallback(() => {
+    const session = sessionRef.current;
+    if (!session) return;
     setState((s) => ({ ...s, loadingMore: true }));
-    const offset = offsetRef.current;
+    const offset = session.offset;
     const load = async () => {
       try {
         const { items, total } = await fetchPage({
-          from: fromRef.current,
+          from: session.from,
+          to: session.to,
           offset,
           limit: SIGNAL_PAGE_SIZE,
-          search: searchRef.current,
+          search: session.search,
         });
+        if (sessionRef.current !== session) return;
         onAppend(items);
-        offsetRef.current = offset + items.length;
+        session.offset = offset + items.length;
         setState((s) => ({ total, loaded: s.loaded + items.length, loadingMore: false }));
       } catch {
+        if (sessionRef.current !== session) return;
         setState((s) => ({ ...s, loadingMore: false }));
       }
     };

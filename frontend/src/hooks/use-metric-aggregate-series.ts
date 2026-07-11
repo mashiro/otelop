@@ -89,19 +89,18 @@ export function useMetricAggregateSeries(
   facet: MetricFacet | null,
   range: ChartTimeRange,
 ): AggregateSeriesData[] | null {
-  const [series, setSeries] = useState<AggregateSeriesData[] | null>(null);
   const { serviceName, name, dataPoints } = metric;
+  const metricKey = `${serviceName}::${name}`;
+  const [snapshot, setSnapshot] = useState<{
+    metricKey: string;
+    series: AggregateSeriesData[];
+  } | null>(null);
   const groupBy = facet?.attributes ?? null;
   // facet is often a fresh object per render (resolved via useMemo upstream,
   // but still a new array identity across facet changes) — key on the
   // attribute list's content so effects don't refire every render.
   const groupByKey = groupBy?.join("\u0000") ?? null;
   const requestIdRef = useRef(0);
-  // Tracks the metric identity the series currently on screen belongs to, so
-  // a range or facet-value change (a different groupByKey, but still the
-  // same metric) can keep rendering the previous series while the new fetch
-  // is in flight, instead of blanking the chart until it lands.
-  const metricKeyRef = useRef(`${serviceName}::${name}`);
 
   const fetchNow = useCallback(() => {
     if (!groupBy) return;
@@ -124,42 +123,30 @@ export function useMetricAggregateSeries(
           from,
         });
         if (requestIdRef.current === requestId) {
-          setSeries(data.metricAggregate);
+          setSnapshot({ metricKey, series: data.metricAggregate });
         }
       } catch {
         if (requestIdRef.current === requestId) {
-          setSeries(null);
+          setSnapshot(null);
         }
       }
     })();
     // groupBy's identity isn't stable across renders; groupByKey is the
     // real dependency (see above).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [serviceName, name, groupByKey, range]);
+  }, [serviceName, name, metricKey, groupByKey, range]);
 
   // Immediate fetch on mount and whenever the metric/facet/range identity
-  // changes — mirrors use-metric-range-points.ts's reset-then-fetch effect.
-  // Only null the series out when there's nothing sensible left to show it
-  // against: the facet was cleared (caller switches to the raw-points path)
-  // or the selected metric itself changed. A range or facet-VALUE change
-  // (still faceted, still the same metric) keeps the previous series on
-  // screen — the requestId guard above already discards a stale response if
-  // the user changes their selection again before it lands.
+  // changes. Snapshot keys invalidate another metric's data synchronously;
+  // range and facet changes for the same metric keep the previous series on
+  // screen until the guarded request settles.
   useEffect(() => {
-    const metricKey = `${serviceName}::${name}`;
     if (!groupByKey) {
-      setSeries(null);
-      metricKeyRef.current = metricKey;
+      requestIdRef.current += 1;
       return;
     }
-    if (metricKeyRef.current !== metricKey) {
-      setSeries(null);
-    }
-    metricKeyRef.current = metricKey;
     fetchNow();
-    // fetchNow already depends on every value that should trigger this.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fetchNow, groupByKey, serviceName, name]);
+  }, [fetchNow, groupByKey]);
 
   // Debounced refetch on live WS delivery for this metric. dataPoints is a
   // new array identity each time addMetricAtom merges in a WS message, so
@@ -186,6 +173,7 @@ export function useMetricAggregateSeries(
   // back byte-for-byte identical (no new bucket landed yet); stabilizing
   // here lets memoized consumers (MetricChart, MetricSummary) skip
   // re-rendering when it did.
+  const series = snapshot?.metricKey === metricKey ? snapshot.series : null;
   const stableSeries = useStableArray(series ?? EMPTY_SERIES, seriesKey);
-  return series === null ? null : stableSeries;
+  return groupByKey && series ? stableSeries : null;
 }

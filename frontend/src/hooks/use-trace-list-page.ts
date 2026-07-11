@@ -1,9 +1,9 @@
 import { useCallback } from "react";
-import { useSetAtom } from "jotai";
+import { useSetAtom, useStore } from "jotai";
 import { graphql } from "@/gql";
 import type { TracesPageQuery as TracesPageQueryType } from "@/gql/graphql";
 import { gqlClient } from "@/lib/graphql";
-import { setTracesAtom, appendTracesAtom } from "@/stores/telemetry";
+import { setTracePageAtom, appendTracesAtom, tracesAtom } from "@/stores/telemetry";
 import type { ChartTimeRange } from "@/lib/chart-time-range";
 import type { TraceData, SpanStatus } from "@/types/telemetry";
 import { MS_TO_NS } from "@/lib/span-mapping";
@@ -14,8 +14,8 @@ import { useSignalListPage, type FetchPageArgs, type SignalListPage } from "./us
 // as the traces tab's data source now that the list is paginated by range
 // instead of fetched unbounded.
 const TracesPageQuery = graphql(`
-  query TracesPage($from: Time, $offset: Int!, $limit: Int!, $search: String) {
-    traces(from: $from, offset: $offset, limit: $limit, search: $search) {
+  query TracesPage($from: Time, $to: Time!, $offset: Int!, $limit: Int!, $search: String) {
+    traces(from: $from, to: $to, offset: $offset, limit: $limit, search: $search) {
       items {
         traceId
         serviceName
@@ -64,13 +64,30 @@ function toTraceData({
 // tab's panel (see App.tsx), so switching tabs and back naturally resets
 // pagination the same way a range change does.
 export function useTraceListPage(range: ChartTimeRange, search: string): SignalListPage {
-  const setTraces = useSetAtom(setTracesAtom);
+  const setTracePage = useSetAtom(setTracePageAtom);
   const appendTraces = useSetAtom(appendTracesAtom);
+  const store = useStore();
 
-  const fetchPage = useCallback(async ({ from, offset, limit, search }: FetchPageArgs) => {
-    const data = await gqlClient.request(TracesPageQuery, { from, offset, limit, search });
+  const fetchPage = useCallback(async ({ from, to, offset, limit, search }: FetchPageArgs) => {
+    const data = await gqlClient.request(TracesPageQuery, { from, to, offset, limit, search });
     return { items: data.traces.items.map(toTraceData), total: data.traces.total };
   }, []);
+  const getCurrentIds = useCallback(
+    () => new Set(store.get(tracesAtom).map((trace) => trace.traceId)),
+    [store],
+  );
+  const replacePage = useCallback(
+    (items: TraceData[], idsAtRequestStart: ReadonlySet<string>) =>
+      setTracePage({ items, idsAtRequestStart }),
+    [setTracePage],
+  );
 
-  return useSignalListPage(range, search, fetchPage, setTraces, appendTraces);
+  return useSignalListPage({
+    range,
+    search,
+    fetchPage,
+    getCurrentIds,
+    onPage1: replacePage,
+    onAppend: appendTraces,
+  });
 }

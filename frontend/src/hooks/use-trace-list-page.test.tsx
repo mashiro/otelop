@@ -4,7 +4,7 @@ import { createStore, Provider } from "jotai";
 import { Temporal } from "temporal-polyfill";
 import type { ReactNode } from "react";
 import { useTraceListPage } from "./use-trace-list-page";
-import { tracesAtom, serverMatchedTraceIdsAtom } from "@/stores/telemetry";
+import { addTraceAtom, tracesAtom, serverMatchedTraceIdsAtom } from "@/stores/telemetry";
 import { makeTrace } from "@/test/factories";
 import type { TracesPageQuery, TracesPageQueryVariables } from "@/gql/graphql";
 import type { ChartTimeRange } from "@/lib/chart-time-range";
@@ -110,15 +110,63 @@ describe("useTraceListPage", () => {
     expect(result.current.hasMore).toBe(false);
   });
 
-  it("reuses the same `from` bound across load-more calls within one range", async () => {
+  it("reuses the same `from` and `to` bounds across load-more calls within one range", async () => {
     requestMock.mockResolvedValue({ traces: { items: [queryTrace("a")], total: 10 } });
     const { result } = renderWithStore("1h");
     await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(1));
     const firstFrom = requestMock.mock.calls[0]?.[1]?.from;
+    const firstTo = requestMock.mock.calls[0]?.[1]?.to;
+    expect(firstTo).toBeDefined();
 
     act(() => result.current.loadMore());
     await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(2));
     expect(requestMock.mock.calls[1]?.[1]?.from).toBe(firstFrom);
+    expect(requestMock.mock.calls[1]?.[1]?.to).toBe(firstTo);
+  });
+
+  it("ignores a load-more response from a previous search session", async () => {
+    requestMock.mockResolvedValueOnce({ traces: { items: [queryTrace("a")], total: 2 } });
+    const { store, result, rerender } = renderWithStore("1h", "");
+    await waitFor(() => expect(store.get(tracesAtom).map((t) => t.traceId)).toEqual(["a"]));
+
+    let resolveOldPage: (value: TracesPageQuery) => void = () => {};
+    requestMock.mockReturnValueOnce(
+      new Promise<TracesPageQuery>((resolve) => {
+        resolveOldPage = resolve;
+      }),
+    );
+    act(() => result.current.loadMore());
+    await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(2));
+
+    requestMock.mockResolvedValueOnce({ traces: { items: [queryTrace("c")], total: 1 } });
+    rerender({ range: "1h", search: "new" });
+    await waitFor(() => expect(store.get(tracesAtom).map((t) => t.traceId)).toEqual(["c"]));
+
+    resolveOldPage({ traces: { items: [queryTrace("b")], total: 2 } });
+    await act(async () => Promise.resolve());
+    expect(store.get(tracesAtom).map((t) => t.traceId)).toEqual(["c"]);
+    expect(result.current.total).toBe(1);
+    expect(result.current.loaded).toBe(1);
+  });
+
+  it("preserves a WebSocket row received while page 1 is in flight", async () => {
+    let resolvePage: (value: TracesPageQuery) => void = () => {};
+    requestMock.mockReturnValueOnce(
+      new Promise<TracesPageQuery>((resolve) => {
+        resolvePage = resolve;
+      }),
+    );
+    const { store } = renderWithStore("1h");
+    await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(1));
+
+    store.set(addTraceAtom, makeTrace({ traceId: "live" }));
+    resolvePage({ traces: { items: [queryTrace("live"), queryTrace("page")], total: 2 } });
+
+    await waitFor(() =>
+      expect(store.get(tracesAtom).map((t) => t.traceId)).toEqual(["live", "page"]),
+    );
+    expect(store.get(tracesAtom)[0]?.spans).not.toHaveLength(0);
+    expect(store.get(serverMatchedTraceIdsAtom)).toEqual(new Set(["live", "page"]));
   });
 
   it("resets pagination and refetches page 1 on a range change, keeping the previous page visible while in flight", async () => {
