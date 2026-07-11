@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useMemo, useRef } from "react";
 import { Group } from "@visx/group";
 import { scaleLinear, scaleTime } from "@visx/scale";
 import { LinePath } from "@visx/shape";
@@ -6,17 +6,12 @@ import { AxisBottom, AxisLeft } from "@visx/axis";
 import { ParentSize } from "@visx/responsive";
 import { curveMonotoneX } from "@visx/curve";
 import { useTooltip, TooltipWithBounds } from "@visx/tooltip";
-import type { MetricData } from "@/types/telemetry";
+import type { DataPoint, MetricData } from "@/types/telemetry";
 import { formatMetricValue } from "@/lib/format-metric";
 import { resolveMetricUnit, type MetricFacet } from "@/lib/metric-catalog";
-import { facetSeriesKey } from "@/lib/metric-stats";
-import {
-  CHART_TIME_RANGES,
-  filterPointsInDomain,
-  timeRangeDomain,
-  type ChartTimeRange,
-} from "@/lib/chart-time-range";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { facetSeriesKey, facetGroupLabel, facetGroupOrder } from "@/lib/metric-stats";
+import { filterPointsInDomain, timeRangeDomain, type ChartTimeRange } from "@/lib/chart-time-range";
+import type { AggregateSeriesData } from "@/hooks/use-metric-aggregate-series";
 
 const MARGIN = { top: 10, right: 20, bottom: 40, left: 72 };
 
@@ -60,6 +55,17 @@ interface Props {
   // Facet to group series by; when null/undefined, series are keyed by the
   // full attribute combination (the "All" view).
   facet?: MetricFacet | null;
+  // Selected time range and the data fetched for it. Both are lifted to
+  // metric-detail.tsx (not owned here) because the stat tiles above the
+  // chart need the exact same range-scoped data — see metric-stats.ts's
+  // computeStatTiles and MetricSummary.
+  range: ChartTimeRange;
+  // Backfills history the live buffer may have evicted, merged with the
+  // still-live dataPoints from the store — see use-metric-range-points.ts.
+  rangeDataPoints: DataPoint[];
+  // Server-aggregated facet series (null when facet is null, or while a
+  // fetch for the active facet/range hasn't landed yet).
+  aggregatedSeries: AggregateSeriesData[] | null;
 }
 
 /** Find the point in a series closest to a given time. */
@@ -76,33 +82,33 @@ function closestPoint(points: PointData[], targetMs: number): PointData | undefi
   return best;
 }
 
-export function MetricChart({ metric, facet }: Props) {
-  const [range, setRange] = useState<ChartTimeRange>("all");
+// Memoized so a WS delivery that doesn't change the props MetricDetailBody
+// passes down (rangeDataPoints/aggregatedSeries kept reference-stable via
+// useStableArray — see use-metric-range-points.ts / use-metric-
+// aggregate-series.ts) skips the SVG/axis/tooltip re-render entirely instead
+// of repainting the whole chart on every message.
+export const MetricChart = memo(function MetricChart({
+  metric,
+  facet,
+  range,
+  rangeDataPoints,
+  aggregatedSeries,
+}: Props) {
+  const rangedMetric = useMemo(
+    () => ({ ...metric, dataPoints: rangeDataPoints }),
+    [metric, rangeDataPoints],
+  );
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex justify-end pb-1.5">
-        <Tabs value={range} onValueChange={(v) => setRange(v as ChartTimeRange)}>
-          <TabsList className="h-7 bg-muted/50">
-            {CHART_TIME_RANGES.map((r) => (
-              <TabsTrigger
-                key={r.value}
-                value={r.value}
-                className="h-6 px-2.5 text-xs data-active:bg-metric/15 data-active:text-metric"
-              >
-                {r.label}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-        </Tabs>
-      </div>
       <div className="min-h-0 flex-1">
         <ParentSize>
           {({ width, height }) =>
             width > 0 && height > 0 ? (
               <ChartInner
-                metric={metric}
+                metric={rangedMetric}
                 facet={facet}
+                aggregatedSeries={aggregatedSeries}
                 range={range}
                 width={width}
                 height={height}
@@ -113,19 +119,56 @@ export function MetricChart({ metric, facet }: Props) {
       </div>
     </div>
   );
-}
+});
 
 function ChartInner({
   metric,
   facet,
+  aggregatedSeries,
   range,
   width,
   height,
-}: Props & { range: ChartTimeRange; width: number; height: number }) {
+}: {
+  metric: MetricData;
+  facet?: MetricFacet | null;
+  aggregatedSeries: AggregateSeriesData[] | null;
+  range: ChartTimeRange;
+  width: number;
+  height: number;
+}) {
   const svgRef = useRef<SVGSVGElement>(null);
   const unit = resolveMetricUnit(metric.name, metric.unit);
 
   const series = useMemo(() => {
+    // Facet active: render the server-summed series (the fix for the
+    // zigzag bug — see use-metric-aggregate-series.ts) instead of grouping
+    // raw points client-side. While the aggregated fetch is in flight or
+    // failed, render nothing rather than falling back to the raw
+    // (unsummed) grouping, which would reintroduce the zigzag.
+    if (facet) {
+      if (!aggregatedSeries) return [];
+      // The aggregate query orders groups alphabetically by value (see
+      // internal/storage's MetricAggregate), not by first appearance — color
+      // by first-appearance order in the raw live buffer instead, the same
+      // ordering the stat tiles above use, so line colors stay aligned with
+      // the tiles. A group present server-side but absent from the (bounded)
+      // live buffer falls back to an index appended after every known one.
+      const rawOrder = facetGroupOrder(metric.dataPoints, facet);
+      let nextIndex = rawOrder.size;
+      return aggregatedSeries.map((s) => {
+        const label = facetGroupLabel(s.groupValues) || "(no attributes)";
+        const colorIndex = rawOrder.has(label) ? rawOrder.get(label)! : nextIndex++;
+        return {
+          key: label,
+          label,
+          color: SERIES_COLORS[colorIndex % SERIES_COLORS.length],
+          points: [...s.points]
+            .map((p) => ({ time: new Date(p.timestamp), value: p.value }))
+            .sort((a, b) => a.time.getTime() - b.time.getTime()),
+        };
+      });
+    }
+
     const groups = new Map<string, PointData[]>();
     for (const dp of metric.dataPoints) {
       const key = facetSeriesKey(dp.attributes, facet);
@@ -145,7 +188,7 @@ function ChartInner({
       i++;
     }
     return result;
-  }, [metric.dataPoints, facet]);
+  }, [metric.dataPoints, facet, aggregatedSeries]);
 
   // Kept unfiltered: the "No data points" branch reflects the raw metric,
   // not the current time-range window.

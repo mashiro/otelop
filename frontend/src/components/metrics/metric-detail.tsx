@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { memo, useMemo, useState } from "react";
 import { useAtomValue, useSetAtom } from "jotai";
 import { X } from "lucide-react";
 import { selectedMetricAtom } from "@/stores/telemetry";
@@ -21,6 +21,14 @@ import {
 } from "@/lib/metric-catalog";
 import { formatMetricValue } from "@/lib/format-metric";
 import { formatTimestamp } from "@/lib/format";
+import {
+  CHART_TIME_RANGES,
+  filterDataPointsInRange,
+  type ChartTimeRange,
+} from "@/lib/chart-time-range";
+import { useMetricRangePoints } from "@/hooks/use-metric-range-points";
+import { useMetricAggregateSeries } from "@/hooks/use-metric-aggregate-series";
+import { useStableArray } from "@/hooks/use-stable-array";
 import type { DataPoint, MetricData } from "@/types/telemetry";
 
 const ALL_FACET = "__all__";
@@ -51,13 +59,22 @@ export function MetricDetail() {
 }
 
 // Facet selection lives here (not in the chart) because the summary tiles and
-// the chart must break down by the same dimension.
-function MetricDetailBody({ metric }: { metric: MetricData }) {
+// the chart must break down by the same dimension. Exported for direct
+// testing (see metric-detail.test.tsx), the same way DataPointsTable/
+// DataPointDetail below are, so tests don't need to thread selectedMetricAtom.
+export function MetricDetailBody({ metric }: { metric: MetricData }) {
+  // metric is a fresh object on every WS delivery for the selected metric
+  // (addMetricAtom spreads a new record in); stabilizing the points array
+  // itself lets everything derived from it below skip recompute when a
+  // delivery is a no-op for this metric (already-seen points re-merged) or
+  // this metric just wasn't the one that changed.
+  const stableDataPoints = useStableArray(metric.dataPoints, (dp) => dp.id);
+
   const attributeCardinality = useMemo(() => {
     // Count distinct values per attribute, capping at max+1 so high-cardinality
     // identifiers can still be excluded by resolveMetricFacets.
     const values = new Map<string, Set<string>>();
-    for (const dp of metric.dataPoints) {
+    for (const dp of stableDataPoints) {
       for (const [k, v] of Object.entries(dp.attributes)) {
         if (v === undefined || v === null) continue;
         let set = values.get(k);
@@ -72,7 +89,7 @@ function MetricDetailBody({ metric }: { metric: MetricData }) {
     const counts = new Map<string, number>();
     for (const [k, s] of values) counts.set(k, s.size);
     return counts;
-  }, [metric.dataPoints]);
+  }, [stableDataPoints]);
 
   const facets = useMemo(
     () => resolveMetricFacets(metric.name, attributeCardinality),
@@ -92,6 +109,55 @@ function MetricDetailBody({ metric }: { metric: MetricData }) {
   const tabValue =
     pickedId === ALL_FACET ? ALL_FACET : effectiveFacet ? facetId(effectiveFacet) : ALL_FACET;
 
+  // Time range is the scope for the whole detail view (tiles, chart, and
+  // table all read the same window), so it's lifted here rather than owned
+  // by MetricChart — see metric-stats.ts's computeStatTiles.
+  const [range, setRange] = useState<ChartTimeRange>("all");
+  const rangeDataPoints = useMetricRangePoints(metric, range);
+  const aggregatedSeries = useMetricAggregateSeries(metric, effectiveFacet, range);
+  const windowedDataPointsRaw = useMemo(
+    () => filterDataPointsInRange(rangeDataPoints, range),
+    [rangeDataPoints, range],
+  );
+  // filterDataPointsInRange always returns a new array; rangeDataPoints is
+  // already reference-stable (see use-metric-range-points.ts), but stabilize
+  // here too so DataPointsTable's memo isn't defeated by the .filter() call
+  // itself when the underlying content didn't change.
+  const windowedDataPoints = useStableArray(windowedDataPointsRaw, (dp) => dp.id);
+
+  // MetricChart/MetricSummary/DataPointsTable only read a metric's
+  // identity/display fields (name/type/unit/description/resource), never
+  // its raw dataPoints (they're driven by rangeDataPoints/aggregatedSeries
+  // instead, except MetricSummary's own hasStatTileSignal check below) — so
+  // rebuild the object they receive from primitives that stay referentially
+  // stable across a WS delivery, instead of the ever-new `metric` object,
+  // for the React.memo wrapping on those three to actually take effect.
+  const stableMetric = useMemo<MetricData>(
+    () => ({
+      serviceName: metric.serviceName,
+      name: metric.name,
+      type: metric.type,
+      unit: metric.unit,
+      description: metric.description,
+      resource: metric.resource,
+      dataPoints: stableDataPoints,
+      // Deliberately excluded from the deps below: none of the three memoized
+      // consumers read it, and tracking it would re-churn stableMetric's
+      // reference on every WS delivery, defeating this whole memoization.
+      receivedAt: metric.receivedAt,
+    }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [
+      metric.serviceName,
+      metric.name,
+      metric.type,
+      metric.unit,
+      metric.description,
+      metric.resource,
+      stableDataPoints,
+    ],
+  );
+
   // dataPoints is a ring buffer, so a previously selected id can be evicted;
   // resolving against the live array (rather than storing the DataPoint
   // itself) lets the sidebar disappear automatically once that happens.
@@ -106,41 +172,74 @@ function MetricDetailBody({ metric }: { metric: MetricData }) {
             <p className="mb-4 text-sm text-muted-foreground">{metric.description}</p>
           )}
 
-          <div className="mb-3 flex items-center gap-3">
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Breakdown
-            </span>
-            <Tabs value={tabValue} onValueChange={setPickedId}>
-              <TabsList className="h-8 bg-muted/50">
-                {facets.map((f) => (
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Breakdown
+              </span>
+              <Tabs value={tabValue} onValueChange={setPickedId}>
+                <TabsList className="h-8 bg-muted/50">
+                  {facets.map((f) => (
+                    <TabsTrigger
+                      key={facetId(f)}
+                      value={facetId(f)}
+                      className="h-7 px-3 text-xs data-active:bg-metric/15 data-active:text-metric"
+                    >
+                      {f.label}
+                    </TabsTrigger>
+                  ))}
                   <TabsTrigger
-                    key={facetId(f)}
-                    value={facetId(f)}
+                    value={ALL_FACET}
                     className="h-7 px-3 text-xs data-active:bg-metric/15 data-active:text-metric"
                   >
-                    {f.label}
+                    All
+                  </TabsTrigger>
+                </TabsList>
+              </Tabs>
+            </div>
+
+            <Tabs value={range} onValueChange={(v) => setRange(v as ChartTimeRange)}>
+              <TabsList className="h-8 bg-muted/50">
+                {CHART_TIME_RANGES.map((r) => (
+                  <TabsTrigger
+                    key={r.value}
+                    value={r.value}
+                    className="h-7 px-3 text-xs data-active:bg-metric/15 data-active:text-metric"
+                  >
+                    {r.label}
                   </TabsTrigger>
                 ))}
-                <TabsTrigger
-                  value={ALL_FACET}
-                  className="h-7 px-3 text-xs data-active:bg-metric/15 data-active:text-metric"
-                >
-                  All
-                </TabsTrigger>
               </TabsList>
             </Tabs>
           </div>
 
-          <MetricSummary metric={metric} facet={effectiveFacet} />
+          <MetricSummary
+            metric={stableMetric}
+            facet={effectiveFacet}
+            range={range}
+            rangeDataPoints={rangeDataPoints}
+            aggregatedSeries={aggregatedSeries}
+          />
 
           <div className="mb-4 rounded-lg border border-border/30 bg-muted/50 p-4">
             <div className="h-[336px]">
-              <MetricChart metric={metric} facet={effectiveFacet} />
+              <MetricChart
+                metric={stableMetric}
+                facet={effectiveFacet}
+                range={range}
+                rangeDataPoints={rangeDataPoints}
+                aggregatedSeries={aggregatedSeries}
+              />
             </div>
           </div>
 
           {metric.dataPoints.length > 0 && (
-            <DataPointsTable metric={metric} selectedId={selectedDpId} onSelect={setSelectedDpId} />
+            <DataPointsTable
+              metric={stableMetric}
+              dataPoints={windowedDataPoints}
+              selectedId={selectedDpId}
+              onSelect={setSelectedDpId}
+            />
           )}
         </div>
       </ScrollArea>
@@ -179,23 +278,31 @@ function formatDistributionCell(v: number | null | undefined, unit: string): str
   return v != null ? formatMetricValue(v, unit) : "-";
 }
 
-export function DataPointsTable({
+// Memoized so a WS delivery that doesn't move windowedDataPoints/stableMetric
+// (both kept reference-stable above — see useStableArray) skips re-rendering
+// and re-reversing/re-mapping every row.
+export const DataPointsTable = memo(function DataPointsTable({
   metric,
+  dataPoints,
   selectedId,
   onSelect,
 }: {
   metric: MetricData;
+  // Range-windowed rows to render — see metric-detail.tsx's windowedDataPoints
+  // (filterDataPointsInRange), so the table reflects the same scope as the
+  // tiles and chart above it.
+  dataPoints: DataPoint[];
   selectedId: string | null;
   onSelect: (id: string | null) => void;
 }) {
-  const hasAttributes = metric.dataPoints.some((dp) => Object.keys(dp.attributes).length > 0);
+  const hasAttributes = dataPoints.some((dp) => Object.keys(dp.attributes).length > 0);
   const isDistribution = isDistributionMetric(metric.type);
   const unit = resolveMetricUnit(metric.name, metric.unit);
 
   return (
     <div>
       <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-        Data Points ({metric.dataPoints.length})
+        Data Points ({dataPoints.length})
       </h4>
       <div className="max-h-[360px] overflow-auto rounded-md border border-border/30 bg-muted/50">
         <table className="w-full text-xs">
@@ -215,7 +322,7 @@ export function DataPointsTable({
             </tr>
           </thead>
           <tbody>
-            {[...metric.dataPoints].reverse().map((dp) => {
+            {[...dataPoints].reverse().map((dp) => {
               const isSelected = selectedId === dp.id;
               return (
                 <tr
@@ -252,7 +359,7 @@ export function DataPointsTable({
       </div>
     </div>
   );
-}
+});
 
 export function DataPointDetail({
   dp,

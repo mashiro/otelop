@@ -1,4 +1,5 @@
 import type { SpanData, TraceData, LogData, MetricData, DataPoint } from "@/types/telemetry";
+import type { AggregatePointData, AggregateSeriesData } from "@/hooks/use-metric-aggregate-series";
 
 export function makeSpan(overrides: Partial<SpanData> = {}): SpanData {
   return {
@@ -69,6 +70,30 @@ export function makeMetric(overrides: Partial<MetricData> = {}): MetricData {
     resource: {},
     dataPoints: [],
     receivedAt: "2024-01-01T00:00:00Z",
+    ...overrides,
+  };
+}
+
+export function makeAggregatePoint(
+  overrides: Partial<AggregatePointData> = {},
+): AggregatePointData {
+  return {
+    timestamp: "2024-01-01T00:00:00Z",
+    value: 0,
+    count: null,
+    sum: null,
+    min: null,
+    max: null,
+    ...overrides,
+  };
+}
+
+export function makeAggregateSeries(
+  overrides: Partial<AggregateSeriesData> = {},
+): AggregateSeriesData {
+  return {
+    groupValues: ["a"],
+    points: [makeAggregatePoint()],
     ...overrides,
   };
 }

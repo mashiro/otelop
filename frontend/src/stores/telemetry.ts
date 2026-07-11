@@ -10,7 +10,12 @@ import {
   selectedTraceIdAtom,
 } from "./navigation";
 
-// Server-side capacity config, fetched at startup.
+// Client-side live-buffer bounds. These are NOT derived from the server: the
+// DuckDB backend (docs/design/duckdb-storage.md) has no per-signal caps —
+// retention is time-based. These constants exist purely to bound the
+// in-memory buffer this tab holds so a long-running session doesn't grow
+// without limit; historical data beyond them stays queryable from the server
+// (see hooks/use-metric-range-points.ts).
 export interface ServerConfig {
   traceCap: number;
   metricCap: number;
@@ -90,7 +95,9 @@ function isBetterRoot(current: SpanData | undefined, candidate: SpanData | undef
 // first occurrence. A metric update from the WebSocket carries the metric's
 // full accumulated points, which overlap the ones already loaded; merging by id
 // makes the update idempotent so re-delivered points aren't duplicated.
-function mergeDataPoints(existing: DataPoint[], incoming: DataPoint[]): DataPoint[] {
+// Exported so hooks/use-metric-range-points.ts can union a server-fetched
+// range snapshot with the live buffer using the same de-dup rule.
+export function mergeDataPoints(existing: DataPoint[], incoming: DataPoint[]): DataPoint[] {
   const seen = new Set<string>();
   const merged: DataPoint[] = [];
   for (const dp of existing) {

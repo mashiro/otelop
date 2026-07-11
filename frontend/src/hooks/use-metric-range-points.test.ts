@@ -1,0 +1,238 @@
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { renderHook, waitFor } from "@testing-library/react";
+import { Temporal } from "temporal-polyfill";
+import { useMetricRangePoints } from "./use-metric-range-points";
+import { makeMetric, makeDataPoint } from "@/test/factories";
+import type { MetricRangeQuery, MetricRangeQueryVariables } from "@/gql/graphql";
+import type { DataPoint, MetricData } from "@/types/telemetry";
+
+// MetricRangeQuery's generated type requires the nullable distribution
+// fields to be present (as `null`, not simply omitted) — unlike DataPoint,
+// where they're optional. Bridges a factory-made DataPoint into that shape.
+function toQueryPoint(dp: DataPoint) {
+  return {
+    id: dp.id,
+    timestamp: dp.timestamp,
+    value: dp.value,
+    cumulative: dp.cumulative ?? null,
+    count: dp.count ?? null,
+    countCumulative: dp.countCumulative ?? null,
+    sum: dp.sum ?? null,
+    sumCumulative: dp.sumCumulative ?? null,
+    min: dp.min ?? null,
+    max: dp.max ?? null,
+    attributes: dp.attributes,
+  };
+}
+
+// A standalone mock fn (not `gqlClient.request` accessed as a member) avoids
+// typescript-eslint's unbound-method warning, and an explicit signature keeps
+// `.mock.calls[0][1]` typed instead of falling back to the client's
+// single-argument overload.
+const { requestMock } = vi.hoisted(() => ({
+  requestMock:
+    vi.fn<(doc: unknown, vars: MetricRangeQueryVariables) => Promise<MetricRangeQuery>>(),
+}));
+
+vi.mock("@/lib/graphql", () => ({
+  gqlClient: { request: requestMock },
+}));
+
+beforeEach(() => {
+  requestMock.mockReset();
+});
+
+describe("useMetricRangePoints", () => {
+  it("omits `from` for the all range (fetches the full retention window)", async () => {
+    requestMock.mockResolvedValue({ metrics: { items: [] } });
+    const metric = makeMetric({ dataPoints: [makeDataPoint({ id: "a" })] });
+
+    renderHook(() => useMetricRangePoints(metric, "all"));
+
+    await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(1));
+    expect(requestMock.mock.calls[0]?.[1]).toEqual({ from: undefined });
+  });
+
+  it("computes a wall-clock `from` bound for a fixed range", async () => {
+    requestMock.mockResolvedValue({ metrics: { items: [] } });
+    const metric = makeMetric({ dataPoints: [makeDataPoint({ id: "a" })] });
+    const before = Temporal.Now.instant();
+
+    renderHook(() => useMetricRangePoints(metric, "5m"));
+
+    await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(1));
+    const from = requestMock.mock.calls[0]?.[1]?.from;
+    const fromInstant = Temporal.Instant.from(from!);
+    // from should be ~5 minutes before "now" at call time, not before the test start.
+    const deltaMs = before.since(fromInstant).total("milliseconds");
+    expect(deltaMs).toBeGreaterThan(4.9 * 60_000);
+    expect(deltaMs).toBeLessThan(5.1 * 60_000);
+  });
+
+  it("merges the server-fetched snapshot with the live metric.dataPoints by id", async () => {
+    const serverOnly = makeDataPoint({ id: "server-only", timestamp: "2024-01-01T00:00:00Z" });
+    requestMock.mockResolvedValue({
+      metrics: {
+        items: [
+          {
+            serviceName: "frontend",
+            name: "http.requests",
+            dataPoints: [toQueryPoint(serverOnly)],
+          },
+        ],
+      },
+    });
+    const liveOnly = makeDataPoint({ id: "live-only", timestamp: "2024-01-01T00:01:00Z" });
+    const metric = makeMetric({
+      serviceName: "frontend",
+      name: "http.requests",
+      dataPoints: [liveOnly],
+    });
+
+    const { result } = renderHook(() => useMetricRangePoints(metric, "1h"));
+
+    await waitFor(() =>
+      expect(result.current.map((p) => p.id).sort()).toEqual(["live-only", "server-only"]),
+    );
+  });
+
+  it("ignores a fetched page with no matching (serviceName, name) group", async () => {
+    requestMock.mockResolvedValue({
+      metrics: {
+        items: [{ serviceName: "other-service", name: "other.metric", dataPoints: [] }],
+      },
+    });
+    const live = makeDataPoint({ id: "live-1" });
+    const metric = makeMetric({
+      serviceName: "frontend",
+      name: "http.requests",
+      dataPoints: [live],
+    });
+
+    const { result } = renderHook(() => useMetricRangePoints(metric, "1h"));
+
+    await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(1));
+    expect(result.current.map((p) => p.id)).toEqual(["live-1"]);
+  });
+
+  it("falls back to metric.dataPoints alone when the request rejects", async () => {
+    requestMock.mockRejectedValue(new Error("network error"));
+    const live = makeDataPoint({ id: "live-1" });
+    const metric = makeMetric({ dataPoints: [live] });
+
+    const { result } = renderHook(() => useMetricRangePoints(metric, "1h"));
+
+    await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(1));
+    expect(result.current.map((p) => p.id)).toEqual(["live-1"]);
+  });
+
+  it("does not refetch when only metric.dataPoints changes (same metric identity, same range)", async () => {
+    requestMock.mockResolvedValue({ metrics: { items: [] } });
+    const metric = makeMetric({ dataPoints: [makeDataPoint({ id: "a" })] });
+
+    const { rerender } = renderHook(({ metric: m }) => useMetricRangePoints(m, "1h"), {
+      initialProps: { metric },
+    });
+
+    await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(1));
+
+    // A new WS-delivered point arrives: a new metric object, same identity.
+    const updated = { ...metric, dataPoints: [...metric.dataPoints, makeDataPoint({ id: "b" })] };
+    rerender({ metric: updated });
+
+    expect(requestMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("refetches when the selected metric changes", async () => {
+    requestMock.mockResolvedValue({ metrics: { items: [] } });
+    const metric = makeMetric({ name: "metric.a", dataPoints: [makeDataPoint({ id: "a" })] });
+
+    const { rerender } = renderHook(({ metric: m }) => useMetricRangePoints(m, "1h"), {
+      initialProps: { metric },
+    });
+
+    await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(1));
+
+    rerender({
+      metric: makeMetric({ name: "metric.b", dataPoints: [makeDataPoint({ id: "c" })] }),
+    });
+
+    await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(2));
+  });
+
+  it("refetches when the range changes", async () => {
+    requestMock.mockResolvedValue({ metrics: { items: [] } });
+    const metric = makeMetric({ dataPoints: [makeDataPoint({ id: "a" })] });
+
+    const { rerender } = renderHook(
+      ({ range }: { range: "1h" | "5m" }) => useMetricRangePoints(metric, range),
+      { initialProps: { range: "1h" } },
+    );
+
+    await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(1));
+
+    rerender({ range: "5m" });
+
+    await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(2));
+  });
+
+  it("keeps rendering the previous merged snapshot during a range-change refetch (no intermediate empty emission)", async () => {
+    const serverPoint = makeDataPoint({ id: "server-a", timestamp: "2024-01-01T00:00:00Z" });
+    requestMock.mockResolvedValueOnce({
+      metrics: {
+        items: [
+          {
+            serviceName: "frontend",
+            name: "http.requests",
+            dataPoints: [toQueryPoint(serverPoint)],
+          },
+        ],
+      },
+    });
+    const metric = makeMetric({ serviceName: "frontend", name: "http.requests", dataPoints: [] });
+
+    const { result, rerender } = renderHook(
+      ({ range }: { range: "1h" | "5m" }) => useMetricRangePoints(metric, range),
+      { initialProps: { range: "1h" } },
+    );
+
+    await waitFor(() => expect(result.current.map((p) => p.id)).toEqual(["server-a"]));
+
+    let resolveSecond: (value: MetricRangeQuery) => void = () => {};
+    const pending = new Promise<MetricRangeQuery>((resolve) => {
+      resolveSecond = resolve;
+    });
+    requestMock.mockImplementationOnce(() => pending);
+
+    rerender({ range: "5m" });
+
+    // Still showing the previous snapshot while the range-change fetch is in
+    // flight — not blanked to [] and flashed down to the live buffer.
+    expect(result.current.map((p) => p.id)).toEqual(["server-a"]);
+
+    resolveSecond({ metrics: { items: [] } });
+    await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(2));
+    // The new page had no matching group, so the previous snapshot is kept
+    // (mirrors the existing "falls back on rejection" behavior).
+    expect(result.current.map((p) => p.id)).toEqual(["server-a"]);
+  });
+
+  it("clears the snapshot immediately when the selected metric identity changes", async () => {
+    requestMock.mockResolvedValue({ metrics: { items: [] } });
+    const metricA = makeMetric({ name: "metric.a", dataPoints: [makeDataPoint({ id: "a" })] });
+
+    const { result, rerender } = renderHook(
+      ({ metric }: { metric: MetricData }) => useMetricRangePoints(metric, "1h"),
+      { initialProps: { metric: metricA } },
+    );
+
+    await waitFor(() => expect(result.current.map((p) => p.id)).toEqual(["a"]));
+
+    const metricB = makeMetric({ name: "metric.b", dataPoints: [] });
+    rerender({ metric: metricB });
+
+    // Cleared synchronously (before the new fetch resolves): a metric switch,
+    // unlike a range change, has nothing sensible to keep showing.
+    expect(result.current.map((p) => p.id)).toEqual([]);
+  });
+});

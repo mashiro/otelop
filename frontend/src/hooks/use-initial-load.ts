@@ -3,7 +3,7 @@ import { useSetAtom } from "jotai";
 import { graphql } from "@/gql";
 import type { SpanFieldsFragment } from "@/gql/graphql";
 import { gqlClient } from "@/lib/graphql";
-import { setTracesAtom, setMetricsAtom, setLogsAtom, serverConfigAtom } from "@/stores/telemetry";
+import { setTracesAtom, setMetricsAtom, setLogsAtom } from "@/stores/telemetry";
 import type { TraceData, SpanData, SpanStatus } from "@/types/telemetry";
 
 // GraphQL exposes durationMs (milliseconds, Float) while the frontend type
@@ -12,14 +12,15 @@ import type { TraceData, SpanData, SpanStatus } from "@/types/telemetry";
 // downstream stores don't need to know about the two worlds.
 const MS_TO_NS = 1_000_000;
 
+// Ring-buffer capacity config (traceCap/metricCap/logCap/maxDataPoints) was
+// removed from the backend's Config type when storage moved to DuckDB with
+// time-based retention (docs/design/duckdb-storage.md). The client-side caps
+// that used to come from that query stay as fixed defaults in
+// stores/telemetry.ts (DEFAULT_CONFIG) bounding this tab's live buffer;
+// history beyond them is queryable from the server (see
+// hooks/use-metric-range-points.ts).
 const InitialLoadQuery = graphql(`
   query InitialLoad {
-    config {
-      traceCap
-      metricCap
-      logCap
-      maxDataPoints
-    }
     traces(limit: 0) {
       items {
         traceId
@@ -103,7 +104,6 @@ export function useInitialLoad() {
   const setTraces = useSetAtom(setTracesAtom);
   const setMetrics = useSetAtom(setMetricsAtom);
   const setLogs = useSetAtom(setLogsAtom);
-  const setConfig = useSetAtom(serverConfigAtom);
   // StrictMode double-invokes effects in dev; guard so the bootstrap fetch
   // (and its Jotai writes) only runs once per real mount.
   const loadedRef = useRef(false);
@@ -114,7 +114,6 @@ export function useInitialLoad() {
     const load = async () => {
       try {
         const data = await gqlClient.request(InitialLoadQuery);
-        setConfig(data.config);
 
         const traces: TraceData[] = data.traces.items.map(
           ({ durationMs, spans: rawSpans, ...rest }) => {
@@ -143,5 +142,5 @@ export function useInitialLoad() {
       }
     };
     void load();
-  }, [setTraces, setMetrics, setLogs, setConfig]);
+  }, [setTraces, setMetrics, setLogs]);
 }

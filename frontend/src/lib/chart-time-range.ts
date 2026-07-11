@@ -1,3 +1,5 @@
+import { Temporal } from "temporal-polyfill";
+
 export type ChartTimeRange = "1m" | "5m" | "15m" | "30m" | "1h" | "all";
 
 export const CHART_TIME_RANGES: { value: ChartTimeRange; label: string }[] = [
@@ -44,6 +46,27 @@ export function timeRangeDomain(
   return [new Date(maxMs - rangeMs), new Date(maxMs)];
 }
 
+// Target bucket count for server-aggregated facet series (see
+// hooks/use-metric-aggregate-series.ts): enough resolution to read as a
+// smooth line without asking DuckDB to return a bucket per raw point.
+const TARGET_BUCKETS = 150;
+const MIN_BUCKET_SECONDS = 1;
+
+// bucketSecondsForRange picks a bucket width aiming for ~TARGET_BUCKETS
+// buckets across a FIXED range, clamped so a bucket is never sub-second.
+// Returns null for "all": there's no fixed window to divide client-side (the
+// server defaults to its configured retention, not a value this client
+// knows), and a fixed fallback window collapses a metric whose data spans
+// much less than that window into a handful of giant buckets — the actual
+// facet-view bucketing bug this type signature exists to prevent regressing
+// on. null tells the server to auto-size against the real data extent
+// instead (see storage.MetricAggregate's doc comment).
+export function bucketSecondsForRange(range: ChartTimeRange): number | null {
+  const rangeMs = rangeToMs(range);
+  if (rangeMs === null) return null;
+  return Math.max(MIN_BUCKET_SECONDS, Math.round(rangeMs / TARGET_BUCKETS / 1000));
+}
+
 export function filterPointsInDomain<T extends { time: Date }>(
   points: T[],
   domain: [Date, Date],
@@ -55,4 +78,28 @@ export function filterPointsInDomain<T extends { time: Date }>(
     const t = p.time.getTime();
     return t >= startMs && t <= endMs;
   });
+}
+
+// Trims a raw/aggregate row array to the same max-anchored window
+// timeRangeDomain computes for the chart, but operating directly on
+// timestamped rows (DataPoint / AggregatePointData) instead of the chart's
+// {time: Date} shape — so callers computing range-scoped totals (stat tiles,
+// the data points table) can filter without going through the chart's
+// render pipeline. Uses Temporal, not Date.parse, per the project's
+// OTel-timestamp convention (Date truncates the nanosecond precision OTel
+// timestamps carry).
+export function filterDataPointsInRange<T extends { timestamp: string }>(
+  points: T[],
+  range: ChartTimeRange,
+): T[] {
+  const rangeMs = rangeToMs(range);
+  if (rangeMs === null || points.length === 0) return points;
+
+  let maxMs = -Infinity;
+  for (const p of points) {
+    const ms = Temporal.Instant.from(p.timestamp).epochMilliseconds;
+    if (ms > maxMs) maxMs = ms;
+  }
+  const minMs = maxMs - rangeMs;
+  return points.filter((p) => Temporal.Instant.from(p.timestamp).epochMilliseconds >= minMs);
 }
