@@ -7,14 +7,12 @@ import (
 	"go.opentelemetry.io/collector/consumer"
 	"go.opentelemetry.io/collector/exporter"
 	"go.opentelemetry.io/collector/exporter/exporterhelper"
-
-	"github.com/mashiro/otelop/internal/store"
 )
 
 const typeStr = "otelop"
 
-// NewFactory creates a new exporter factory wired to the given store.
-func NewFactory(s *store.Store) exporter.Factory {
+// NewFactory creates a new exporter factory wired to the given sink.
+func NewFactory(s Sink) exporter.Factory {
 	exp := newExporter(s)
 	return exporter.NewFactory(
 		component.MustNewType(typeStr),

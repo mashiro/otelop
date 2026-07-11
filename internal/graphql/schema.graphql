@@ -7,26 +7,49 @@ schema {
 }
 
 type Query {
-  "Ring buffer capacity and current counts."
+  "Storage configuration and current row counts."
   config: Config!
 
   "Runtime info for the running otelop instance. Consumed by `otelop status`."
   status: Status!
 
-  "List traces newest-first."
-  traces(limit: Int = 50, offset: Int = 0): TraceConnection!
+  """
+  List traces newest-first. from/to bound the query to a time range; both
+  default to the full retention window (now - retention - 24h slack) .. (now + 24h slack).
+  """
+  traces(limit: Int = 50, offset: Int = 0, from: Time, to: Time): TraceConnection!
 
   "Fetch a single trace by its hex-encoded trace ID."
   trace(traceId: ID!): Trace
 
-  "List metrics newest-first."
-  metrics(limit: Int = 50, offset: Int = 0): MetricConnection!
+  """
+  List metrics newest-first. from/to bound the query to a time range; both
+  default to the full retention window.
+  """
+  metrics(limit: Int = 50, offset: Int = 0, from: Time, to: Time): MetricConnection!
 
   """
   List log records newest-first. If traceId is given, only logs whose TraceID
-  matches are returned — the standard observability trace↔log correlation.
+  matches are returned — the standard observability trace↔log correlation —
+  and from/to are ignored (matching the trace's own retained lifetime). Otherwise
+  from/to bound the query to a time range, defaulting to the full retention window.
   """
-  logs(limit: Int = 50, offset: Int = 0, traceId: String): LogConnection!
+  logs(limit: Int = 50, offset: Int = 0, traceId: String, from: Time, to: Time): LogConnection!
+
+  """
+  Facet-aggregated series for one (serviceName, name) metric: every
+  attribute-series is delta/cumulative-derived first (the same derivation
+  `metrics.dataPoints` uses), THEN summed within each distinct combination of
+  groupBy attribute values and bucketed into bucketSeconds-wide time windows —
+  the server-side fix for a chart line that would otherwise zigzag between
+  multiple raw series sharing a facet value. from/to default to the full
+  retention window, matching the other list queries. bucketSeconds is
+  optional: omitted or null auto-sizes the bucket to target ~150 buckets
+  across the metric's actual data extent within from/to, rather than the
+  from/to window itself — the fix for a short-lived metric queried over a
+  wide/unbounded window collapsing into a handful of giant buckets.
+  """
+  metricAggregate(serviceName: String!, name: String!, groupBy: [String!]!, bucketSeconds: Int, from: Time, to: Time): [AggregateSeries!]!
 }
 
 type Mutation {
@@ -35,10 +58,12 @@ type Mutation {
 }
 
 type Config {
-  traceCap: Int!
-  metricCap: Int!
-  logCap: Int!
-  maxDataPoints: Int!
+  "Database file path, or empty for an in-memory database (tests only)."
+  storagePath: String!
+  "Configured retention window, as given in the TOML/CLI/env config (e.g. \"7d\")."
+  retention: String!
+  "Configured on-disk size ceiling, as given in the TOML/CLI/env config (e.g. \"4GB\")."
+  maxSize: String!
   traceCount: Int!
   metricCount: Int!
   logCount: Int!
@@ -62,8 +87,10 @@ type Status {
   proxyProtocol: String!
   "True when self-telemetry is enabled via --debug."
   debug: Boolean!
-  "Ring buffer capacity and current counts."
+  "Storage configuration and current row counts."
   config: Config!
+  "Current database file size in bytes (0 for an in-memory database)."
+  dbSizeBytes: Float!
 }
 
 type TraceConnection {
@@ -194,6 +221,41 @@ type DataPoint {
   "Maximum observation in this window, as reported by the SDK. Null when unavailable."
   max: Float
   attributes: JSON!
+}
+
+"""
+One facet group's fully bucketed series from the metricAggregate query — one
+line on the chart when a facet is active. groupValues is ordered to match the
+groupBy argument (e.g. groupBy: ["region"] → groupValues: ["us-east"]); a
+series missing that attribute contributes to the "" (empty string) value.
+"""
+type AggregateSeries {
+  groupValues: [String!]!
+  points: [AggregatePoint!]!
+}
+
+"""
+One time bucket of an AggregateSeries — the summed-across-series counterpart
+to DataPoint. Unlike DataPoint there is no `cumulative` family: a running
+total only makes sense per series, not summed across a facet group over time.
+"""
+type AggregatePoint {
+  timestamp: Time!
+  """
+  Gauge/Sum: summed per-window delta across every series in the group.
+  Histogram/Summary/ExponentialHistogram: summed-sum / summed-count (0 when
+  the summed count is 0), so the metric's declared unit still applies
+  directly.
+  """
+  value: Float!
+  "Summed per-window observation count for distribution metrics. Null for Gauge/Sum."
+  count: Float
+  "Summed per-window observation sum for distribution metrics. Null for Gauge/Sum."
+  sum: Float
+  "Minimum observation across every contributing series in this window. Null when unavailable."
+  min: Float
+  "Maximum observation across every contributing series in this window. Null when unavailable."
+  max: Float
 }
 
 type Log {

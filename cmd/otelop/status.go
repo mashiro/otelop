@@ -35,13 +35,14 @@ type statusPayload struct {
 	ProxyURL      string    `json:"proxyUrl"`
 	ProxyProtocol string    `json:"proxyProtocol"`
 	Debug         bool      `json:"debug"`
+	DBSizeBytes   float64   `json:"dbSizeBytes"`
 	Config        struct {
-		TraceCount  int32 `json:"traceCount"`
-		MetricCount int32 `json:"metricCount"`
-		LogCount    int32 `json:"logCount"`
-		TraceCap    int32 `json:"traceCap"`
-		MetricCap   int32 `json:"metricCap"`
-		LogCap      int32 `json:"logCap"`
+		TraceCount  int32  `json:"traceCount"`
+		MetricCount int32  `json:"metricCount"`
+		LogCount    int32  `json:"logCount"`
+		StoragePath string `json:"storagePath"`
+		Retention   string `json:"retention"`
+		MaxSize     string `json:"maxSize"`
 	} `json:"config"`
 }
 
@@ -56,13 +57,14 @@ const statusQuery = `{
     proxyUrl
     proxyProtocol
     debug
+    dbSizeBytes
     config {
       traceCount
       metricCount
       logCount
-      traceCap
-      metricCap
-      logCap
+      storagePath
+      retention
+      maxSize
     }
   }
 }`
@@ -152,12 +154,28 @@ func printFull(w io.Writer, meta *daemon.Metadata, s *statusPayload) {
 		{"OTLP gRPC", s.OTLPGrpcAddr},
 		{"OTLP HTTP", s.OTLPHTTPAddr},
 		{"Proxy", formatProxyStatus(s.ProxyURL, s.ProxyProtocol)},
-		{"Buffered", fmt.Sprintf("traces=%d/%d metrics=%d/%d logs=%d/%d",
-			s.Config.TraceCount, s.Config.TraceCap,
-			s.Config.MetricCount, s.Config.MetricCap,
-			s.Config.LogCount, s.Config.LogCap)},
+		{"Buffered", fmt.Sprintf("traces=%d metrics=%d logs=%d", s.Config.TraceCount, s.Config.MetricCount, s.Config.LogCount)},
+		{"Storage", fmt.Sprintf("%s (retention=%s, max-size=%s, db-size=%s)",
+			s.Config.StoragePath, s.Config.Retention, s.Config.MaxSize, formatBytes(s.DBSizeBytes))},
 		{"Log", logFile},
 	})
+}
+
+// formatBytes renders a byte count as a human size using the same units
+// internal/config.ParseMaxSize accepts, so `otelop status`'s output and the
+// [storage] config file agree on vocabulary.
+func formatBytes(n float64) string {
+	const unit = 1000.0
+	if n < unit {
+		return fmt.Sprintf("%.0fB", n)
+	}
+	units := []string{"KB", "MB", "GB", "TB"}
+	div, exp := unit, 0
+	for v := n / unit; v >= unit && exp < len(units)-1; v /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.2f%s", n/div, units[exp])
 }
 
 func printMetaOnly(w io.Writer, meta *daemon.Metadata) {

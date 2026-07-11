@@ -9,14 +9,29 @@ import (
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	otelopgraphql "github.com/mashiro/otelop/internal/graphql"
-	"github.com/mashiro/otelop/internal/store"
+	"github.com/mashiro/otelop/internal/storage"
 )
 
 const testVersion = "test"
 
+// newTestStorage opens an in-memory storage.Storage for tests.
+func newTestStorage(t *testing.T) *storage.Storage {
+	t.Helper()
+	s, err := storage.Open(context.Background(), storage.Options{})
+	if err != nil {
+		t.Fatalf("storage.Open: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := s.Close(); err != nil {
+			t.Errorf("storage.Close: %v", err)
+		}
+	})
+	return s
+}
+
 // newTestSession wires an otelop MCP server to an in-memory client session so
 // tests can exercise tool calls without spinning up a real HTTP transport.
-func newTestSession(t *testing.T, s *store.Store) *sdkmcp.ClientSession {
+func newTestSession(t *testing.T, s *storage.Storage) *sdkmcp.ClientSession {
 	t.Helper()
 	ctx := context.Background()
 	server := NewServer(otelopgraphql.MustNewSchema(s, otelopgraphql.RuntimeInfo{}), testVersion)
@@ -65,7 +80,7 @@ func callQuery(t *testing.T, session *sdkmcp.ClientSession, query string, vars m
 }
 
 func TestListTools_SingleQueryTool(t *testing.T) {
-	session := newTestSession(t, store.NewStore(10, 10, 10, 100, nil))
+	session := newTestSession(t, newTestStorage(t))
 
 	res, err := session.ListTools(context.Background(), nil)
 	if err != nil {
@@ -81,23 +96,23 @@ func TestListTools_SingleQueryTool(t *testing.T) {
 }
 
 func TestQueryTool_Config(t *testing.T) {
-	s := store.NewStore(11, 22, 33, 44, nil)
+	s := newTestStorage(t)
 	session := newTestSession(t, s)
 
-	data := callQuery(t, session, `{ config { traceCap metricCap logCap maxDataPoints } }`, nil)
+	data := callQuery(t, session, `{ config { storagePath retention maxSize traceCount metricCount logCount } }`, nil)
 	cfg := data["config"].(map[string]any)
-	if cfg["traceCap"].(float64) != 11 {
-		t.Errorf("traceCap = %v, want 11", cfg["traceCap"])
+	if cfg["traceCount"].(float64) != 0 {
+		t.Errorf("traceCount = %v, want 0", cfg["traceCount"])
 	}
-	if cfg["maxDataPoints"].(float64) != 44 {
-		t.Errorf("maxDataPoints = %v, want 44", cfg["maxDataPoints"])
+	if _, ok := cfg["retention"]; !ok {
+		t.Errorf("expected retention field in config, got %v", cfg)
 	}
 }
 
 func TestQueryTool_Introspection(t *testing.T) {
 	// AI clients start with an introspection query to discover the schema —
 	// make sure that round-trip works via the MCP tool.
-	session := newTestSession(t, store.NewStore(10, 10, 10, 100, nil))
+	session := newTestSession(t, newTestStorage(t))
 	data := callQuery(t, session, `{ __schema { queryType { name } } }`, nil)
 	schema := data["__schema"].(map[string]any)
 	qt := schema["queryType"].(map[string]any)
@@ -107,7 +122,7 @@ func TestQueryTool_Introspection(t *testing.T) {
 }
 
 func TestQueryTool_ErrorSetsIsError(t *testing.T) {
-	session := newTestSession(t, store.NewStore(10, 10, 10, 100, nil))
+	session := newTestSession(t, newTestStorage(t))
 	args := map[string]any{"query": `{ nonexistentField }`}
 	res, err := session.CallTool(context.Background(), &sdkmcp.CallToolParams{Name: "query", Arguments: args})
 	if err != nil {

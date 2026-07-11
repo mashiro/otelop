@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mashiro/otelop/internal/store"
+	"github.com/mashiro/otelop/internal/broadcast"
 )
 
 func TestHub_RegisterUnregister(t *testing.T) {
@@ -49,7 +49,7 @@ func TestHub_Broadcast(t *testing.T) {
 	time.Sleep(10 * time.Millisecond)
 
 	hub.Broadcast(Message{
-		Type: store.SignalTraces,
+		Type: broadcast.SignalTraces,
 		Data: map[string]string{"test": "data"},
 	})
 
@@ -87,7 +87,7 @@ func TestHub_BroadcastDropsSlowClient(t *testing.T) {
 
 	// Dispatch a broadcast. Because the client buffer is already full, the hub
 	// must drop the new payload rather than block waiting for the slow reader.
-	hub.Broadcast(Message{Type: store.SignalLogs, Data: "msg-should-drop"})
+	hub.Broadcast(Message{Type: broadcast.SignalLogs, Data: "msg-should-drop"})
 
 	// Give the hub Run goroutine a chance to attempt delivery and drop.
 	time.Sleep(20 * time.Millisecond)
@@ -121,7 +121,7 @@ func TestHub_BroadcastIsNonBlockingAndPreservesOrder(t *testing.T) {
 	time.Sleep(10 * time.Millisecond)
 
 	for i := 0; i < 5; i++ {
-		hub.Broadcast(Message{Type: store.SignalLogs, Data: i})
+		hub.Broadcast(Message{Type: broadcast.SignalLogs, Data: i})
 	}
 
 	received := 0
@@ -143,7 +143,7 @@ func TestHub_BroadcastWithNoClients_IsNoop(t *testing.T) {
 	go hub.Run(ctx)
 
 	// Must not panic or block even without any clients connected.
-	hub.Broadcast(Message{Type: store.SignalTraces, Data: "x"})
+	hub.Broadcast(Message{Type: broadcast.SignalTraces, Data: "x"})
 	time.Sleep(10 * time.Millisecond)
 	if hub.ClientCount() != 0 {
 		t.Errorf("ClientCount = %d, want 0", hub.ClientCount())

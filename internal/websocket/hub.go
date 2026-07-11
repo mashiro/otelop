@@ -6,7 +6,7 @@ import (
 	"log/slog"
 	"sync/atomic"
 
-	"github.com/mashiro/otelop/internal/store"
+	"github.com/mashiro/otelop/internal/broadcast"
 )
 
 // broadcastQueueSize bounds how many pending broadcasts the hub will queue
@@ -16,8 +16,8 @@ const broadcastQueueSize = 1024
 
 // Message is sent to WebSocket clients.
 type Message struct {
-	Type store.SignalType `json:"type"`
-	Data any              `json:"data"`
+	Type broadcast.SignalType `json:"type"`
+	Data any                  `json:"data"`
 }
 
 // Hub manages WebSocket client connections and broadcasts messages.

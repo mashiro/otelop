@@ -9,7 +9,9 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/BurntSushi/toml"
 )
@@ -27,14 +29,17 @@ const (
 // a given field. Mirrored as the built-in CLI flag defaults so the values
 // stay visible in `otelop start --help`.
 const (
-	DefaultHTTPAddr      = ":4319"
-	DefaultOTLPGRPCAddr  = "0.0.0.0:4317"
-	DefaultOTLPHTTPAddr  = "0.0.0.0:4318"
-	DefaultTraceCap      = 1000
-	DefaultMetricCap     = 3000
-	DefaultLogCap        = 5000
-	DefaultMaxDataPoints = 1000
-	DefaultLogLevel      = "warn"
+	DefaultHTTPAddr     = ":4319"
+	DefaultOTLPGRPCAddr = "0.0.0.0:4317"
+	DefaultOTLPHTTPAddr = "0.0.0.0:4318"
+	DefaultLogLevel     = "warn"
+
+	// DefaultStorageRetention and DefaultStorageMaxSize are the storage
+	// section's defaults, per docs/design/duckdb-storage.md. Both are
+	// human-readable strings — ParseRetention/ParseMaxSize turn them into
+	// the time.Duration/byte-count internal/storage.Options wants.
+	DefaultStorageRetention = "7d"
+	DefaultStorageMaxSize   = "4GB"
 )
 
 type ProxyAuthConfig struct {
@@ -51,20 +56,34 @@ type ProxyConfig struct {
 	Auth     ProxyAuthConfig `toml:"auth"`
 }
 
+// StorageConfig is the `[storage]` TOML section (docs/design/duckdb-storage.md's
+// "Configuration changes (breaking)"). Retention and MaxSize are kept as the
+// raw human-readable strings the file/CLI/env surfaces all use — parse with
+// ParseRetention/ParseMaxSize at the point they're needed as a
+// time.Duration/byte count (internal/storage.Options).
+type StorageConfig struct {
+	// Path is the database file location. Empty means the XDG default
+	// ($XDG_DATA_HOME/otelop/otelop.duckdb, falling back to
+	// ~/.local/share/otelop/otelop.duckdb) — see DefaultStoragePath.
+	Path string `toml:"path"`
+	// Retention accepts a Go duration string ("168h") or a "<n>d" days
+	// shorthand ("7d"); see ParseRetention.
+	Retention string `toml:"retention"`
+	// MaxSize accepts a human byte size ("4GB", "4GiB"); see ParseMaxSize.
+	MaxSize string `toml:"max_size"`
+}
+
 // Config is the on-disk shape of the TOML config file. Fields use snake_case
 // keys to match TOML conventions (CLI flags are kebab-case, env vars are
 // SCREAMING_SNAKE — pick whichever surface is most ergonomic).
 type Config struct {
-	HTTPAddr      string      `toml:"http"`
-	OTLPGRPCAddr  string      `toml:"otlp_grpc"`
-	OTLPHTTPAddr  string      `toml:"otlp_http"`
-	Proxy         ProxyConfig `toml:"proxy"`
-	TraceCap      int         `toml:"trace_cap"`
-	MetricCap     int         `toml:"metric_cap"`
-	LogCap        int         `toml:"log_cap"`
-	MaxDataPoints int         `toml:"max_data_points"`
-	LogLevel      string      `toml:"log_level"`
-	Debug         bool        `toml:"debug"`
+	HTTPAddr     string        `toml:"http"`
+	OTLPGRPCAddr string        `toml:"otlp_grpc"`
+	OTLPHTTPAddr string        `toml:"otlp_http"`
+	Proxy        ProxyConfig   `toml:"proxy"`
+	Storage      StorageConfig `toml:"storage"`
+	LogLevel     string        `toml:"log_level"`
+	Debug        bool          `toml:"debug"`
 }
 
 // Defaults returns a Config populated with the built-in fallback values.
@@ -72,15 +91,77 @@ type Config struct {
 // values.
 func Defaults() Config {
 	return Config{
-		HTTPAddr:      DefaultHTTPAddr,
-		OTLPGRPCAddr:  DefaultOTLPGRPCAddr,
-		OTLPHTTPAddr:  DefaultOTLPHTTPAddr,
-		TraceCap:      DefaultTraceCap,
-		MetricCap:     DefaultMetricCap,
-		LogCap:        DefaultLogCap,
-		MaxDataPoints: DefaultMaxDataPoints,
-		LogLevel:      DefaultLogLevel,
+		HTTPAddr:     DefaultHTTPAddr,
+		OTLPGRPCAddr: DefaultOTLPGRPCAddr,
+		OTLPHTTPAddr: DefaultOTLPHTTPAddr,
+		Storage: StorageConfig{
+			Retention: DefaultStorageRetention,
+			MaxSize:   DefaultStorageMaxSize,
+		},
+		LogLevel: DefaultLogLevel,
 	}
+}
+
+// ParseRetention parses a retention string in either Go duration form
+// ("168h", "24h30m") or a "<n>d" days shorthand ("7d", "1.5d") — time.ParseDuration
+// itself has no notion of days.
+func ParseRetention(s string) (time.Duration, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0, errors.New("retention: empty value")
+	}
+	if days, ok := strings.CutSuffix(s, "d"); ok {
+		n, err := strconv.ParseFloat(strings.TrimSpace(days), 64)
+		if err != nil {
+			return 0, fmt.Errorf("retention: invalid %q: %w", s, err)
+		}
+		return time.Duration(n * float64(24*time.Hour)), nil
+	}
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		return 0, fmt.Errorf("retention: invalid %q: %w", s, err)
+	}
+	return d, nil
+}
+
+// maxSizeUnits maps a case-normalized suffix to its byte multiplier. Checked
+// in this order so "kib"/"mib"/"gib" are matched before the shorter
+// "kb"/"mb"/"gb" (both would otherwise match a string ending in "b").
+var maxSizeUnits = []struct {
+	suffix     string
+	multiplier float64
+}{
+	{"kib", 1 << 10},
+	{"mib", 1 << 20},
+	{"gib", 1 << 30},
+	{"kb", 1_000},
+	{"mb", 1_000_000},
+	{"gb", 1_000_000_000},
+	{"b", 1},
+}
+
+// ParseMaxSize parses a human disk-size string ("4GB", "4GiB", or a bare
+// byte count) into a byte count.
+func ParseMaxSize(s string) (int64, error) {
+	trimmed := strings.TrimSpace(s)
+	if trimmed == "" {
+		return 0, errors.New("max_size: empty value")
+	}
+	lower := strings.ToLower(trimmed)
+	for _, u := range maxSizeUnits {
+		if num, ok := strings.CutSuffix(lower, u.suffix); ok {
+			n, err := strconv.ParseFloat(strings.TrimSpace(num), 64)
+			if err != nil {
+				return 0, fmt.Errorf("max_size: invalid %q: %w", s, err)
+			}
+			return int64(n * u.multiplier), nil
+		}
+	}
+	n, err := strconv.ParseInt(trimmed, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("max_size: invalid %q: %w", s, err)
+	}
+	return n, nil
 }
 
 // DefaultPath returns the path Load reads when no override is set. Honours
@@ -98,6 +179,21 @@ func DefaultPath() (string, error) {
 		return "", fmt.Errorf("resolve home dir: %w", err)
 	}
 	return filepath.Join(home, ".config", configDir, configFilename), nil
+}
+
+// DefaultStoragePath returns the DuckDB file location used when neither the
+// config file nor --storage-path override it: $XDG_DATA_HOME/otelop/otelop.duckdb,
+// falling back to ~/.local/share/otelop/otelop.duckdb — the XDG data-home
+// counterpart of DefaultPath's config-home resolution.
+func DefaultStoragePath() (string, error) {
+	if dir := os.Getenv("XDG_DATA_HOME"); dir != "" {
+		return filepath.Join(dir, configDir, "otelop.duckdb"), nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("resolve home dir: %w", err)
+	}
+	return filepath.Join(home, ".local", "share", configDir, "otelop.duckdb"), nil
 }
 
 // Load reads the config file at the resolved default path and merges it

@@ -13,7 +13,6 @@ import (
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 
 	otelopgraphql "github.com/mashiro/otelop/internal/graphql"
-	"github.com/mashiro/otelop/internal/store"
 )
 
 func installSpanRecorder(t *testing.T) *tracetest.SpanRecorder {
@@ -33,8 +32,8 @@ func TestTracer_LogsQueryAtDebug(t *testing.T) {
 	var buf bytes.Buffer
 	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
 
-	schema := otelopgraphql.MustNewSchema(store.NewStore(1, 1, 1, 1, nil), otelopgraphql.RuntimeInfo{})
-	schema.Exec(context.Background(), `query Probe { config { traceCap } }`, "", nil)
+	schema := otelopgraphql.MustNewSchema(newTestStorage(t), otelopgraphql.RuntimeInfo{})
+	schema.Exec(context.Background(), `query Probe { config { storagePath }  }`, "", nil)
 
 	out := buf.String()
 	if !strings.Contains(out, "graphql query") {
@@ -55,8 +54,8 @@ func TestTracer_SilentBelowDebug(t *testing.T) {
 	var buf bytes.Buffer
 	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo})))
 
-	schema := otelopgraphql.MustNewSchema(store.NewStore(1, 1, 1, 1, nil), otelopgraphql.RuntimeInfo{})
-	schema.Exec(context.Background(), `{ config { traceCap } }`, "", nil)
+	schema := otelopgraphql.MustNewSchema(newTestStorage(t), otelopgraphql.RuntimeInfo{})
+	schema.Exec(context.Background(), `{ config { storagePath }  }`, "", nil)
 
 	if buf.Len() != 0 {
 		t.Errorf("expected no log output, got %q", buf.String())
@@ -66,7 +65,7 @@ func TestTracer_SilentBelowDebug(t *testing.T) {
 func TestTracer_EmitsOtelSpans(t *testing.T) {
 	rec := installSpanRecorder(t)
 
-	schema := otelopgraphql.MustNewSchema(store.NewStore(1, 1, 1, 1, nil), otelopgraphql.RuntimeInfo{})
+	schema := otelopgraphql.MustNewSchema(newTestStorage(t), otelopgraphql.RuntimeInfo{})
 	// `traces` takes args, so graph-gophers marks it async and TraceField is
 	// invoked with trivial=false — which is where our field-level span fires.
 	schema.Exec(context.Background(), `query Probe { traces(limit: 1) { total } }`, "", nil)
@@ -119,7 +118,7 @@ func TestTracer_LogsValidationFailure(t *testing.T) {
 	var buf bytes.Buffer
 	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
 
-	schema := otelopgraphql.MustNewSchema(store.NewStore(1, 1, 1, 1, nil), otelopgraphql.RuntimeInfo{})
+	schema := otelopgraphql.MustNewSchema(newTestStorage(t), otelopgraphql.RuntimeInfo{})
 	schema.Exec(context.Background(), `{ nonexistentField }`, "", nil)
 
 	out := buf.String()

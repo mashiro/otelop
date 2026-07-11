@@ -12,12 +12,28 @@ import (
 	"go.opentelemetry.io/collector/pdata/ptrace"
 
 	otelopgraphql "github.com/mashiro/otelop/internal/graphql"
-	"github.com/mashiro/otelop/internal/store"
+	"github.com/mashiro/otelop/internal/storage"
 )
 
-func seedStore(t *testing.T) *store.Store {
+// newTestStorage opens an in-memory storage.Storage (Path: "") for tests —
+// same DuckDB engine as production, no file on disk, cleaned up automatically.
+func newTestStorage(t *testing.T) *storage.Storage {
 	t.Helper()
-	s := store.NewStore(10, 10, 10, 100, nil)
+	s, err := storage.Open(context.Background(), storage.Options{})
+	if err != nil {
+		t.Fatalf("storage.Open: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := s.Close(); err != nil {
+			t.Errorf("storage.Close: %v", err)
+		}
+	})
+	return s
+}
+
+func seedStorage(t *testing.T) *storage.Storage {
+	t.Helper()
+	s := newTestStorage(t)
 
 	// Two traces, one with an error span.
 	td := ptrace.NewTraces()
@@ -41,7 +57,7 @@ func seedStore(t *testing.T) *store.Store {
 	sp2.SetTraceID(pcommon.TraceID([16]byte{2}))
 	sp2.SetSpanID(pcommon.SpanID([8]byte{2}))
 	sp2.SetName("root-2")
-	sp2.SetStartTimestamp(pcommon.NewTimestampFromTime(now))
+	sp2.SetStartTimestamp(pcommon.NewTimestampFromTime(now.Add(time.Millisecond)))
 	sp2.SetEndTimestamp(pcommon.NewTimestampFromTime(now.Add(10 * time.Millisecond)))
 
 	sp2child := ss.Spans().AppendEmpty()
@@ -49,7 +65,7 @@ func seedStore(t *testing.T) *store.Store {
 	sp2child.SetSpanID(pcommon.SpanID([8]byte{3}))
 	sp2child.SetParentSpanID(pcommon.SpanID([8]byte{2}))
 	sp2child.SetName("db")
-	sp2child.SetStartTimestamp(pcommon.NewTimestampFromTime(now.Add(time.Millisecond)))
+	sp2child.SetStartTimestamp(pcommon.NewTimestampFromTime(now.Add(2 * time.Millisecond)))
 	sp2child.SetEndTimestamp(pcommon.NewTimestampFromTime(now.Add(4 * time.Millisecond)))
 	sp2child.Status().SetCode(ptrace.StatusCodeError)
 	sp2child.Status().SetMessage("db down")
@@ -69,7 +85,7 @@ func seedStore(t *testing.T) *store.Store {
 	for i := 0; i < 3; i++ {
 		dp := g.DataPoints().AppendEmpty()
 		dp.SetDoubleValue(float64(i) + 0.5)
-		dp.SetTimestamp(pcommon.NewTimestampFromTime(now))
+		dp.SetTimestamp(pcommon.NewTimestampFromTime(now.Add(time.Duration(i) * time.Millisecond)))
 	}
 	s.AddMetrics(context.Background(), md)
 
@@ -91,13 +107,21 @@ func seedStore(t *testing.T) *store.Store {
 	lr2.SetTimestamp(pcommon.NewTimestampFromTime(now))
 
 	s.AddLogs(context.Background(), ld)
+	s.Sync()
 
 	return s
 }
 
-func exec(t *testing.T, s *store.Store, query string, vars map[string]any) map[string]any {
+// testRuntime returns a RuntimeInfo with a generous retention window so
+// seedStorage's fixed 2026 timestamps always fall inside the default
+// traces/metrics/logs query window regardless of when the test runs.
+func testRuntime() otelopgraphql.RuntimeInfo {
+	return otelopgraphql.RuntimeInfo{Retention: 100 * 365 * 24 * time.Hour}
+}
+
+func exec(t *testing.T, s *storage.Storage, query string, vars map[string]any) map[string]any {
 	t.Helper()
-	schema := otelopgraphql.MustNewSchema(s, otelopgraphql.RuntimeInfo{})
+	schema := otelopgraphql.MustNewSchema(s, testRuntime())
 	resp := schema.Exec(context.Background(), query, "", vars)
 	if len(resp.Errors) > 0 {
 		t.Fatalf("graphql errors: %+v", resp.Errors)
@@ -111,22 +135,25 @@ func exec(t *testing.T, s *store.Store, query string, vars map[string]any) map[s
 
 func TestSchemaParses(t *testing.T) {
 	// Panic here would mean the schema.graphql and resolver surface are out of sync.
-	otelopgraphql.MustNewSchema(store.NewStore(1, 1, 1, 1, nil), otelopgraphql.RuntimeInfo{})
+	otelopgraphql.MustNewSchema(newTestStorage(t), otelopgraphql.RuntimeInfo{})
 }
 
 func TestStatusQuery(t *testing.T) {
-	s := seedStore(t)
+	s := seedStorage(t)
 	started := time.Date(2026, 4, 13, 10, 0, 0, 0, time.UTC)
-	runtime := otelopgraphql.RuntimeInfo{
-		Version:       "v1.2.3",
-		StartedAt:     started,
-		HTTPAddr:      ":4319",
-		OTLPGRPCAddr:  "0.0.0.0:4317",
-		OTLPHTTPAddr:  "0.0.0.0:4318",
-		ProxyURL:      "https://upstream.example.com:4317",
-		ProxyProtocol: "grpc",
-		Debug:         true,
-	}
+	runtime := testRuntime()
+	runtime.Version = "v1.2.3"
+	runtime.StartedAt = started
+	runtime.HTTPAddr = ":4319"
+	runtime.OTLPGRPCAddr = "0.0.0.0:4317"
+	runtime.OTLPHTTPAddr = "0.0.0.0:4318"
+	runtime.ProxyURL = "https://upstream.example.com:4317"
+	runtime.ProxyProtocol = "grpc"
+	runtime.Debug = true
+	runtime.StoragePath = "/tmp/otelop.duckdb"
+	runtime.RetentionDisplay = "7d"
+	runtime.MaxSizeDisplay = "4GB"
+
 	schema := otelopgraphql.MustNewSchema(s, runtime)
 	resp := schema.Exec(context.Background(), `{
 		status {
@@ -138,7 +165,8 @@ func TestStatusQuery(t *testing.T) {
 			proxyUrl
 			proxyProtocol
 			debug
-			config { traceCount metricCount logCount traceCap }
+			dbSizeBytes
+			config { traceCount metricCount logCount storagePath retention maxSize }
 		}
 	}`, "", nil)
 	if len(resp.Errors) > 0 {
@@ -167,22 +195,28 @@ func TestStatusQuery(t *testing.T) {
 	if st["debug"] != true {
 		t.Errorf("debug = %v", st["debug"])
 	}
+	if _, ok := st["dbSizeBytes"].(float64); !ok {
+		t.Errorf("dbSizeBytes = %v, want a number (0 for in-memory)", st["dbSizeBytes"])
+	}
 	cfg := st["config"].(map[string]any)
 	if cfg["traceCount"].(float64) != 2 {
 		t.Errorf("config.traceCount = %v, want 2", cfg["traceCount"])
 	}
-	if cfg["traceCap"].(float64) != 10 {
-		t.Errorf("config.traceCap = %v, want 10", cfg["traceCap"])
+	if cfg["storagePath"] != "/tmp/otelop.duckdb" {
+		t.Errorf("config.storagePath = %v", cfg["storagePath"])
+	}
+	if cfg["retention"] != "7d" {
+		t.Errorf("config.retention = %v, want 7d", cfg["retention"])
+	}
+	if cfg["maxSize"] != "4GB" {
+		t.Errorf("config.maxSize = %v, want 4GB", cfg["maxSize"])
 	}
 }
 
 func TestConfig(t *testing.T) {
-	s := seedStore(t)
-	data := exec(t, s, `{ config { traceCap logCap traceCount logCount } }`, nil)
+	s := seedStorage(t)
+	data := exec(t, s, `{ config { storagePath retention maxSize traceCount logCount } }`, nil)
 	cfg := data["config"].(map[string]any)
-	if cfg["traceCap"].(float64) != 10 {
-		t.Errorf("traceCap = %v, want 10", cfg["traceCap"])
-	}
 	if cfg["traceCount"].(float64) != 2 {
 		t.Errorf("traceCount = %v, want 2", cfg["traceCount"])
 	}
@@ -192,7 +226,7 @@ func TestConfig(t *testing.T) {
 }
 
 func TestTraces_FieldSelection(t *testing.T) {
-	s := seedStore(t)
+	s := seedStorage(t)
 	data := exec(t, s, `{ traces(limit: 10) { total items { traceId serviceName hasError spanCount durationMs } } }`, nil)
 	conn := data["traces"].(map[string]any)
 	if conn["total"].(float64) != 2 {
@@ -215,8 +249,21 @@ func TestTraces_FieldSelection(t *testing.T) {
 	}
 }
 
+func TestTraces_TimeRangeArgs_ExcludeOutOfWindow(t *testing.T) {
+	s := seedStorage(t)
+	// A window entirely before the seeded data must return zero traces.
+	data := exec(t, s, `query($from: Time!, $to: Time!) { traces(from: $from, to: $to) { total } }`, map[string]any{
+		"from": "2000-01-01T00:00:00Z",
+		"to":   "2000-01-02T00:00:00Z",
+	})
+	conn := data["traces"].(map[string]any)
+	if conn["total"].(float64) != 0 {
+		t.Errorf("total = %v, want 0 for an out-of-window query", conn["total"])
+	}
+}
+
 func TestTrace_CorrelationJoin(t *testing.T) {
-	s := seedStore(t)
+	s := seedStorage(t)
 	// Root of trace 2 has traceId 02000000000000000000000000000000.
 	traceID := "02000000000000000000000000000000"
 	data := exec(t, s, `query($id: ID!) { trace(traceId: $id) { traceId spanCount logs { body } } }`, map[string]any{"id": traceID})
@@ -234,7 +281,7 @@ func TestTrace_CorrelationJoin(t *testing.T) {
 }
 
 func TestTrace_Missing(t *testing.T) {
-	s := seedStore(t)
+	s := seedStorage(t)
 	data := exec(t, s, `{ trace(traceId: "deadbeef") { traceId } }`, nil)
 	if data["trace"] != nil {
 		t.Errorf("trace = %v, want nil", data["trace"])
@@ -242,7 +289,7 @@ func TestTrace_Missing(t *testing.T) {
 }
 
 func TestLogs_TraceIDFilter(t *testing.T) {
-	s := seedStore(t)
+	s := seedStorage(t)
 	data := exec(t, s, `{ logs(traceId: "02000000000000000000000000000000") { total items { body } } }`, nil)
 	conn := data["logs"].(map[string]any)
 	if conn["total"].(float64) != 1 {
@@ -251,8 +298,8 @@ func TestLogs_TraceIDFilter(t *testing.T) {
 }
 
 func TestMetrics_PointCountWithoutFetchingPoints(t *testing.T) {
-	s := seedStore(t)
-	data := exec(t, s, `{ metrics { items { name type pointCount } } }`, nil)
+	s := seedStorage(t)
+	data := exec(t, s, `{ metrics { items { name type pointCount resource } } }`, nil)
 	items := data["metrics"].(map[string]any)["items"].([]any)
 	if len(items) != 1 {
 		t.Fatalf("metrics len = %d, want 1", len(items))
@@ -267,12 +314,16 @@ func TestMetrics_PointCountWithoutFetchingPoints(t *testing.T) {
 	if _, hasDP := m["dataPoints"]; hasDP {
 		t.Errorf("dataPoints should not be returned when not selected")
 	}
+	resource := m["resource"].(map[string]any)
+	if resource["service.name"] != "svc-a" {
+		t.Errorf("resource = %v, want the metric's full resource attributes", resource)
+	}
 }
 
 func TestLogEdges_TraceAndSpan(t *testing.T) {
-	s := seedStore(t)
+	s := seedStorage(t)
 	// The correlated log was attached to trace 02 but with no SpanID in
-	// seedStore, so log.trace should resolve but log.span should be null.
+	// seedStorage, so log.trace should resolve but log.span should be null.
 	data := exec(t, s, `{
 		logs(traceId: "02000000000000000000000000000000") {
 			items {
@@ -295,34 +346,32 @@ func TestLogEdges_TraceAndSpan(t *testing.T) {
 		t.Errorf("expected log.trace.hasError=true")
 	}
 	if row["span"] != nil {
-		t.Errorf("log.span = %v, want nil (seedStore did not set a spanId on the log)", row["span"])
+		t.Errorf("log.span = %v, want nil (seedStorage did not set a spanId on the log)", row["span"])
 	}
 }
 
-func TestLogEdge_TraceNullWhenEvicted(t *testing.T) {
-	s := seedStore(t)
-	// Clear traces so correlation dangles.
-	exec(t, s, `mutation { clearSignals }`, nil)
-	// Re-seed just a log with a dangling traceId.
-	s = store.NewStore(10, 10, 10, 100, nil)
+func TestLogEdge_TraceNullWhenMissing(t *testing.T) {
+	s := newTestStorage(t)
 	ld := plog.NewLogs()
 	rl := ld.ResourceLogs().AppendEmpty()
 	sl := rl.ScopeLogs().AppendEmpty()
 	lr := sl.LogRecords().AppendEmpty()
 	lr.SetTraceID(pcommon.TraceID([16]byte{9}))
 	lr.Body().SetStr("orphan")
+	lr.SetTimestamp(pcommon.NewTimestampFromTime(time.Now()))
 	s.AddLogs(context.Background(), ld)
+	s.Sync()
 
 	data := exec(t, s, `{ logs { items { body trace { traceId } } } }`, nil)
 	items := data["logs"].(map[string]any)["items"].([]any)
 	row := items[0].(map[string]any)
 	if row["trace"] != nil {
-		t.Errorf("log.trace = %v, want nil for evicted/missing trace", row["trace"])
+		t.Errorf("log.trace = %v, want nil for missing trace", row["trace"])
 	}
 }
 
 func TestSpanEdges_TraceAndParent(t *testing.T) {
-	s := seedStore(t)
+	s := seedStorage(t)
 	data := exec(t, s, `{
 		trace(traceId: "02000000000000000000000000000000") {
 			spans {
@@ -355,10 +404,145 @@ func TestSpanEdges_TraceAndParent(t *testing.T) {
 	}
 }
 
+// TestMetricAggregate_SumsAcrossFacetGroup is the GraphQL-level regression
+// test for the zigzag bug: two attribute-series sharing a facet value
+// (region=A) but differing on another attribute (worker) must sum into one
+// value per bucket when queried through metricAggregate, not surface as two
+// interleaved raw points.
+func TestMetricAggregate_SumsAcrossFacetGroup(t *testing.T) {
+	s := newTestStorage(t)
+	ctx := context.Background()
+	t0 := time.Date(2026, 4, 11, 12, 0, 0, 0, time.UTC)
+
+	build := func(v float64, region, worker string) pmetric.Metrics {
+		md := pmetric.NewMetrics()
+		rm := md.ResourceMetrics().AppendEmpty()
+		rm.Resource().Attributes().PutStr("service.name", "svc-agg")
+		sm := rm.ScopeMetrics().AppendEmpty()
+		m := sm.Metrics().AppendEmpty()
+		m.SetName("reqs")
+		sum := m.SetEmptySum()
+		sum.SetIsMonotonic(true)
+		sum.SetAggregationTemporality(pmetric.AggregationTemporalityDelta)
+		dp := sum.DataPoints().AppendEmpty()
+		dp.SetDoubleValue(v)
+		dp.SetTimestamp(pcommon.NewTimestampFromTime(t0))
+		dp.Attributes().PutStr("region", region)
+		dp.Attributes().PutStr("worker", worker)
+		return md
+	}
+	s.AddMetrics(ctx, build(5, "A", "1"))
+	s.AddMetrics(ctx, build(3, "A", "2"))
+	s.AddMetrics(ctx, build(9, "B", "1"))
+	s.Sync()
+
+	data := exec(t, s, `
+		query($from: Time!) {
+			metricAggregate(serviceName: "svc-agg", name: "reqs", groupBy: ["region"], bucketSeconds: 60, from: $from) {
+				groupValues
+				points { value count sum min max }
+			}
+		}
+	`, map[string]any{"from": t0.Add(-time.Hour).Format(time.RFC3339)})
+
+	series := data["metricAggregate"].([]any)
+	if len(series) != 2 {
+		t.Fatalf("expected 2 groups (region A and B), got %d: %+v", len(series), series)
+	}
+
+	byGroup := map[string][]any{}
+	for _, raw := range series {
+		g := raw.(map[string]any)
+		values := g["groupValues"].([]any)
+		byGroup[values[0].(string)] = g["points"].([]any)
+	}
+
+	pointsA, ok := byGroup["A"]
+	if !ok || len(pointsA) != 1 {
+		t.Fatalf("group A points = %+v, want exactly 1", pointsA)
+	}
+	if v := pointsA[0].(map[string]any)["value"].(float64); v != 8 {
+		t.Errorf("group A value = %v, want 8 (5+3, summed not zigzagged)", v)
+	}
+
+	pointsB, ok := byGroup["B"]
+	if !ok || len(pointsB) != 1 {
+		t.Fatalf("group B points = %+v, want exactly 1", pointsB)
+	}
+	if v := pointsB[0].(map[string]any)["value"].(float64); v != 9 {
+		t.Errorf("group B value = %v, want 9 (single series, passthrough)", v)
+	}
+}
+
+// TestMetricAggregate_AutoBucketsWhenBucketSecondsOmitted verifies the
+// GraphQL layer plumbs a wholly-omitted bucketSeconds through as storage's
+// auto-bucket sentinel (0), rather than erroring on a required-Int argument
+// or defaulting to some fixed value here.
+func TestMetricAggregate_AutoBucketsWhenBucketSecondsOmitted(t *testing.T) {
+	s := newTestStorage(t)
+	ctx := context.Background()
+	t0 := time.Date(2026, 4, 11, 12, 0, 0, 0, time.UTC)
+
+	build := func(v float64, ts time.Time) pmetric.Metrics {
+		md := pmetric.NewMetrics()
+		rm := md.ResourceMetrics().AppendEmpty()
+		rm.Resource().Attributes().PutStr("service.name", "svc-agg-auto")
+		sm := rm.ScopeMetrics().AppendEmpty()
+		m := sm.Metrics().AppendEmpty()
+		m.SetName("reqs")
+		sum := m.SetEmptySum()
+		sum.SetIsMonotonic(true)
+		sum.SetAggregationTemporality(pmetric.AggregationTemporalityDelta)
+		dp := sum.DataPoints().AppendEmpty()
+		dp.SetDoubleValue(v)
+		dp.SetTimestamp(pcommon.NewTimestampFromTime(ts))
+		dp.Attributes().PutStr("region", "A")
+		return md
+	}
+	for i := range 90 {
+		s.AddMetrics(ctx, build(float64(i), t0.Add(time.Duration(i)*60*time.Second)))
+	}
+	s.Sync()
+
+	data := exec(t, s, `
+		query($from: Time!) {
+			metricAggregate(serviceName: "svc-agg-auto", name: "reqs", groupBy: ["region"], from: $from) {
+				groupValues
+				points { value }
+			}
+		}
+	`, map[string]any{"from": t0.Add(-7 * 24 * time.Hour).Format(time.RFC3339)})
+
+	series := data["metricAggregate"].([]any)
+	if len(series) != 1 {
+		t.Fatalf("expected 1 group, got %d: %+v", len(series), series)
+	}
+	points := series[0].(map[string]any)["points"].([]any)
+	if n := len(points); n <= 40 {
+		t.Fatalf("expected > 40 auto-bucketed points, got %d", n)
+	}
+}
+
+func TestMetricAggregate_RejectsEmptyGroupBy(t *testing.T) {
+	s := seedStorage(t)
+	schema := otelopgraphql.MustNewSchema(s, testRuntime())
+	resp := schema.Exec(context.Background(), `
+		{ metricAggregate(serviceName: "svc-a", name: "cpu.usage", groupBy: [], bucketSeconds: 60) {
+			groupValues
+		} }
+	`, "", nil)
+	if len(resp.Errors) == 0 {
+		t.Fatal("expected a GraphQL error for empty groupBy, got none")
+	}
+}
+
 func TestClearMutation(t *testing.T) {
-	s := seedStore(t)
+	s := seedStorage(t)
 	exec(t, s, `mutation { clearSignals }`, nil)
-	traces, metrics, logs := s.Len()
+	traces, metrics, logs, err := s.Counts(context.Background())
+	if err != nil {
+		t.Fatalf("Counts: %v", err)
+	}
 	if traces != 0 || metrics != 0 || logs != 0 {
 		t.Errorf("after clear: %d/%d/%d, want 0/0/0", traces, metrics, logs)
 	}

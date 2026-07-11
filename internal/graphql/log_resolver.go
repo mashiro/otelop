@@ -3,17 +3,19 @@ package graphql
 import (
 	gql "github.com/graph-gophers/graphql-go"
 
-	"github.com/mashiro/otelop/internal/store"
+	"context"
+
+	"github.com/mashiro/otelop/internal/storage"
 )
 
 type LogResolver struct {
-	store *store.Store
-	l     *store.LogData
+	storage *storage.Storage
+	l       storage.LogDetail
 }
 
-func (r *LogResolver) ID() gql.ID                  { return gql.ID(r.l.ID) }
-func (r *LogResolver) Timestamp() gql.Time         { return gql.Time{Time: r.l.Timestamp} }
-func (r *LogResolver) ObservedTimestamp() gql.Time { return gql.Time{Time: r.l.ObservedTimestamp} }
+func (r *LogResolver) ID() gql.ID                  { return gql.ID(r.l.ID.String()) }
+func (r *LogResolver) Timestamp() gql.Time         { return gql.Time{Time: r.l.TS} }
+func (r *LogResolver) ObservedTimestamp() gql.Time { return gql.Time{Time: r.l.ObservedTS} }
 func (r *LogResolver) TraceID() string             { return r.l.TraceID }
 func (r *LogResolver) SpanID() string              { return r.l.SpanID }
 func (r *LogResolver) SeverityNumber() int32       { return r.l.SeverityNumber }
@@ -23,29 +25,35 @@ func (r *LogResolver) ServiceName() string         { return r.l.ServiceName }
 func (r *LogResolver) Attributes() JSONMap         { return attrsToJSON(r.l.Attributes) }
 func (r *LogResolver) Resource() JSONMap           { return attrsToJSON(r.l.Resource) }
 
-func (r *LogResolver) Trace() *TraceResolver {
+func (r *LogResolver) Trace(ctx context.Context) (*TraceResolver, error) {
 	if r.l.TraceID == "" {
-		return nil
+		return nil, nil
 	}
-	t, ok := r.store.GetTraceByID(r.l.TraceID)
+	d, ok, err := r.storage.TraceByID(ctx, r.l.TraceID)
+	if err != nil {
+		return nil, err
+	}
 	if !ok {
-		return nil
+		return nil, nil
 	}
-	return &TraceResolver{store: r.store, t: t}
+	return newTraceResolverFromDetail(r.storage, d), nil
 }
 
-func (r *LogResolver) Span() *SpanResolver {
+func (r *LogResolver) Span(ctx context.Context) (*SpanResolver, error) {
 	if r.l.TraceID == "" || r.l.SpanID == "" {
-		return nil
+		return nil, nil
 	}
-	t, ok := r.store.GetTraceByID(r.l.TraceID)
+	d, ok, err := r.storage.TraceByID(ctx, r.l.TraceID)
+	if err != nil {
+		return nil, err
+	}
 	if !ok {
-		return nil
+		return nil, nil
 	}
-	for _, s := range t.Spans {
-		if s.SpanID == r.l.SpanID {
-			return &SpanResolver{store: r.store, trace: t, s: s}
+	for i := range d.Spans {
+		if d.Spans[i].SpanID == r.l.SpanID {
+			return &SpanResolver{storage: r.storage, trace: d, s: &d.Spans[i]}, nil
 		}
 	}
-	return nil
+	return nil, nil
 }
