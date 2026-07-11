@@ -1,7 +1,8 @@
 import { memo, useMemo, useState } from "react";
-import { useAtomValue, useSetAtom } from "jotai";
+import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { X } from "lucide-react";
 import { selectedMetricAtom } from "@/stores/telemetry";
+import { selectedMetricRangeAtom } from "@/stores/navigation";
 import { MetricChart } from "./metric-chart";
 import { MetricSummary } from "./metric-summary";
 import { attrKey } from "@/lib/metric-stats";
@@ -111,8 +112,12 @@ export function MetricDetailBody({ metric }: { metric: MetricData }) {
 
   // Time range is the scope for the whole detail view (tiles, chart, and
   // table all read the same window), so it's lifted here rather than owned
-  // by MetricChart — see metric-stats.ts's computeStatTiles.
-  const [range, setRange] = useState<ChartTimeRange>("all");
+  // by MetricChart — see metric-stats.ts's computeStatTiles. Defaults to a
+  // recent window rather than "all": DuckDB history is fetched on demand, so
+  // opening a long-lived metric shouldn't eagerly pull its full retention.
+  // Synced to the URL (unlike pickedId below) so a shared/reloaded link
+  // reopens the same window — see selectedMetricRangeAtom in navigation.ts.
+  const [range, setRange] = useAtom(selectedMetricRangeAtom);
   const rangeDataPoints = useMetricRangePoints(metric, range);
   const aggregatedSeries = useMetricAggregateSeries(metric, effectiveFacet, range);
   const windowedDataPointsRaw = useMemo(

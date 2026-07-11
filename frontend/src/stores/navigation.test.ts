@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { createStore } from "jotai";
+import { DEFAULT_CHART_TIME_RANGE } from "@/lib/chart-time-range";
 import {
   activeTabAtom,
   applyLocationAtom,
@@ -7,12 +8,19 @@ import {
   parsePath,
   selectedLogIdAtom,
   selectedMetricKeyAtom,
+  selectedMetricRangeAtom,
   selectedTraceIdAtom,
 } from "./navigation";
 
 describe("parsePath", () => {
   it("maps the root path to traces with no selection", () => {
-    expect(parsePath("/")).toEqual({ tab: "traces", traceId: null, metricKey: null, logId: null });
+    expect(parsePath("/")).toEqual({
+      tab: "traces",
+      traceId: null,
+      metricKey: null,
+      logId: null,
+      metricRange: DEFAULT_CHART_TIME_RANGE,
+    });
   });
 
   it("maps signal paths to their tabs", () => {
@@ -27,6 +35,7 @@ describe("parsePath", () => {
       traceId: null,
       metricKey: null,
       logId: null,
+      metricRange: DEFAULT_CHART_TIME_RANGE,
     });
   });
 
@@ -40,6 +49,7 @@ describe("parsePath", () => {
       traceId: "abc123",
       metricKey: null,
       logId: null,
+      metricRange: DEFAULT_CHART_TIME_RANGE,
     });
   });
 
@@ -60,6 +70,7 @@ describe("parsePath", () => {
       traceId: null,
       metricKey: { serviceName: "svc", name: "cpu" },
       logId: null,
+      metricRange: DEFAULT_CHART_TIME_RANGE,
     });
   });
 
@@ -74,29 +85,77 @@ describe("parsePath", () => {
       traceId: null,
       metricKey: null,
       logId: "log-1",
+      metricRange: DEFAULT_CHART_TIME_RANGE,
     });
   });
 
   it("decodes an encoded logId", () => {
     expect(parsePath("/logs/a%2Fb").logId).toBe("a/b");
   });
+
+  describe("metric range query param", () => {
+    it("reads a valid range param on a metrics path", () => {
+      expect(parsePath("/metrics/svc/cpu?range=6h").metricRange).toBe("6h");
+    });
+
+    it("falls back to the default when the param is absent", () => {
+      expect(parsePath("/metrics/svc/cpu").metricRange).toBe(DEFAULT_CHART_TIME_RANGE);
+    });
+
+    it("falls back to the default silently when the param is invalid", () => {
+      expect(parsePath("/metrics/svc/cpu?range=7d").metricRange).toBe(DEFAULT_CHART_TIME_RANGE);
+      expect(parsePath("/metrics/svc/cpu?range=bogus").metricRange).toBe(DEFAULT_CHART_TIME_RANGE);
+      expect(parsePath("/metrics/svc/cpu?range=").metricRange).toBe(DEFAULT_CHART_TIME_RANGE);
+    });
+
+    it("ignores the range param outside the metrics tab", () => {
+      expect(parsePath("/traces/t1?range=6h").metricRange).toBe(DEFAULT_CHART_TIME_RANGE);
+      expect(parsePath("/logs/log-1?range=6h").metricRange).toBe(DEFAULT_CHART_TIME_RANGE);
+    });
+  });
 });
 
 describe("buildPath", () => {
   it("builds a bare tab path with no selection", () => {
-    expect(buildPath({ tab: "traces", traceId: null, metricKey: null, logId: null })).toBe(
-      "/traces",
-    );
-    expect(buildPath({ tab: "metrics", traceId: null, metricKey: null, logId: null })).toBe(
-      "/metrics",
-    );
-    expect(buildPath({ tab: "logs", traceId: null, metricKey: null, logId: null })).toBe("/logs");
+    expect(
+      buildPath({
+        tab: "traces",
+        traceId: null,
+        metricKey: null,
+        logId: null,
+        metricRange: DEFAULT_CHART_TIME_RANGE,
+      }),
+    ).toBe("/traces");
+    expect(
+      buildPath({
+        tab: "metrics",
+        traceId: null,
+        metricKey: null,
+        logId: null,
+        metricRange: DEFAULT_CHART_TIME_RANGE,
+      }),
+    ).toBe("/metrics");
+    expect(
+      buildPath({
+        tab: "logs",
+        traceId: null,
+        metricKey: null,
+        logId: null,
+        metricRange: DEFAULT_CHART_TIME_RANGE,
+      }),
+    ).toBe("/logs");
   });
 
   it("builds a trace detail path, encoding the traceId", () => {
-    expect(buildPath({ tab: "traces", traceId: "a/b", metricKey: null, logId: null })).toBe(
-      "/traces/a%2Fb",
-    );
+    expect(
+      buildPath({
+        tab: "traces",
+        traceId: "a/b",
+        metricKey: null,
+        logId: null,
+        metricRange: DEFAULT_CHART_TIME_RANGE,
+      }),
+    ).toBe("/traces/a%2Fb");
   });
 
   it("builds a metric detail path, encoding both segments", () => {
@@ -106,20 +165,33 @@ describe("buildPath", () => {
         traceId: null,
         metricKey: { serviceName: "svc/with slash", name: "cpu.usage" },
         logId: null,
+        metricRange: DEFAULT_CHART_TIME_RANGE,
       }),
     ).toBe("/metrics/svc%2Fwith%20slash/cpu.usage");
   });
 
   it("builds a log detail path, encoding the logId", () => {
-    expect(buildPath({ tab: "logs", traceId: null, metricKey: null, logId: "a/b" })).toBe(
-      "/logs/a%2Fb",
-    );
+    expect(
+      buildPath({
+        tab: "logs",
+        traceId: null,
+        metricKey: null,
+        logId: "a/b",
+        metricRange: DEFAULT_CHART_TIME_RANGE,
+      }),
+    ).toBe("/logs/a%2Fb");
   });
 
   it("ignores a traceId when the tab is not traces", () => {
-    expect(buildPath({ tab: "metrics", traceId: "abc", metricKey: null, logId: null })).toBe(
-      "/metrics",
-    );
+    expect(
+      buildPath({
+        tab: "metrics",
+        traceId: "abc",
+        metricKey: null,
+        logId: null,
+        metricRange: DEFAULT_CHART_TIME_RANGE,
+      }),
+    ).toBe("/metrics");
   });
 
   it("ignores a metricKey when the tab is not metrics", () => {
@@ -129,14 +201,21 @@ describe("buildPath", () => {
         traceId: null,
         metricKey: { serviceName: "svc", name: "cpu" },
         logId: null,
+        metricRange: DEFAULT_CHART_TIME_RANGE,
       }),
     ).toBe("/traces");
   });
 
   it("ignores a logId when the tab is not logs", () => {
-    expect(buildPath({ tab: "traces", traceId: null, metricKey: null, logId: "l1" })).toBe(
-      "/traces",
-    );
+    expect(
+      buildPath({
+        tab: "traces",
+        traceId: null,
+        metricKey: null,
+        logId: "l1",
+        metricRange: DEFAULT_CHART_TIME_RANGE,
+      }),
+    ).toBe("/traces");
   });
 
   it("round-trips through parsePath, including characters needing encoding", () => {
@@ -145,18 +224,87 @@ describe("buildPath", () => {
       traceId: null,
       metricKey: { serviceName: "svc/with slash", name: "cpu.usage" },
       logId: null,
+      metricRange: DEFAULT_CHART_TIME_RANGE,
     });
     expect(parsePath(path)).toEqual({
       tab: "metrics",
       traceId: null,
       metricKey: { serviceName: "svc/with slash", name: "cpu.usage" },
       logId: null,
+      metricRange: DEFAULT_CHART_TIME_RANGE,
     });
   });
 
   it("round-trips a logId through parsePath", () => {
-    const path = buildPath({ tab: "logs", traceId: null, metricKey: null, logId: "a/b" });
-    expect(parsePath(path)).toEqual({ tab: "logs", traceId: null, metricKey: null, logId: "a/b" });
+    const path = buildPath({
+      tab: "logs",
+      traceId: null,
+      metricKey: null,
+      logId: "a/b",
+      metricRange: DEFAULT_CHART_TIME_RANGE,
+    });
+    expect(parsePath(path)).toEqual({
+      tab: "logs",
+      traceId: null,
+      metricKey: null,
+      logId: "a/b",
+      metricRange: DEFAULT_CHART_TIME_RANGE,
+    });
+  });
+
+  describe("metric range query param", () => {
+    it("elides the range param at the default", () => {
+      expect(
+        buildPath({
+          tab: "metrics",
+          traceId: null,
+          metricKey: { serviceName: "svc", name: "cpu" },
+          logId: null,
+          metricRange: DEFAULT_CHART_TIME_RANGE,
+        }),
+      ).toBe("/metrics/svc/cpu");
+    });
+
+    it("includes the range param when it differs from the default", () => {
+      expect(
+        buildPath({
+          tab: "metrics",
+          traceId: null,
+          metricKey: { serviceName: "svc", name: "cpu" },
+          logId: null,
+          metricRange: "6h",
+        }),
+      ).toBe("/metrics/svc/cpu?range=6h");
+    });
+
+    it("omits the range param when there is no metricKey, even if non-default", () => {
+      expect(
+        buildPath({
+          tab: "metrics",
+          traceId: null,
+          metricKey: null,
+          logId: null,
+          metricRange: "6h",
+        }),
+      ).toBe("/metrics");
+    });
+
+    it("round-trips a non-default range through parsePath", () => {
+      const path = buildPath({
+        tab: "metrics",
+        traceId: null,
+        metricKey: { serviceName: "svc", name: "cpu" },
+        logId: null,
+        metricRange: "24h",
+      });
+      expect(parsePath(path)).toEqual({
+        tab: "metrics",
+        traceId: null,
+        metricKey: { serviceName: "svc", name: "cpu" },
+        logId: null,
+        metricRange: "24h",
+      });
+    });
   });
 });
 
@@ -258,6 +406,39 @@ describe("selectedTraceIdAtom / selectedMetricKeyAtom / selectedLogIdAtom (write
   });
 });
 
+describe("selectedMetricRangeAtom (write-through)", () => {
+  beforeEach(() => {
+    window.history.replaceState(null, "", "/");
+  });
+
+  it("pushes the range query param once a metric is selected", () => {
+    const store = createStore();
+    store.set(activeTabAtom, "metrics");
+    store.set(selectedMetricKeyAtom, { serviceName: "svc", name: "cpu" });
+    store.set(selectedMetricRangeAtom, "6h");
+    expect(window.location.pathname + window.location.search).toBe("/metrics/svc/cpu?range=6h");
+  });
+
+  it("does not push when set to the same range", () => {
+    const store = createStore();
+    store.set(activeTabAtom, "metrics");
+    store.set(selectedMetricKeyAtom, { serviceName: "svc", name: "cpu" });
+    store.set(selectedMetricRangeAtom, "6h");
+    window.history.replaceState(null, "", "/somewhere-else");
+    store.set(selectedMetricRangeAtom, "6h");
+    expect(window.location.pathname).toBe("/somewhere-else");
+  });
+
+  it("drops the query param entirely when set back to the default", () => {
+    const store = createStore();
+    store.set(activeTabAtom, "metrics");
+    store.set(selectedMetricKeyAtom, { serviceName: "svc", name: "cpu" });
+    store.set(selectedMetricRangeAtom, "6h");
+    store.set(selectedMetricRangeAtom, DEFAULT_CHART_TIME_RANGE);
+    expect(window.location.pathname + window.location.search).toBe("/metrics/svc/cpu");
+  });
+});
+
 describe("applyLocationAtom", () => {
   beforeEach(() => {
     window.history.replaceState(null, "", "/");
@@ -312,5 +493,26 @@ describe("applyLocationAtom", () => {
     const store = createStore();
     store.set(applyLocationAtom, "/traces/t1");
     expect(window.location.pathname).toBe("/");
+  });
+
+  describe("metric range query param", () => {
+    it("applies a valid range from the URL", () => {
+      const store = createStore();
+      store.set(applyLocationAtom, "/metrics/svc/cpu?range=6h");
+      expect(store.get(selectedMetricRangeAtom)).toBe("6h");
+    });
+
+    it("falls back to the default silently for an invalid range", () => {
+      const store = createStore();
+      store.set(applyLocationAtom, "/metrics/svc/cpu?range=bogus");
+      expect(store.get(selectedMetricRangeAtom)).toBe(DEFAULT_CHART_TIME_RANGE);
+    });
+
+    it("resets to the default when returning to the metrics list (no range param)", () => {
+      const store = createStore();
+      store.set(applyLocationAtom, "/metrics/svc/cpu?range=6h");
+      store.set(applyLocationAtom, "/metrics");
+      expect(store.get(selectedMetricRangeAtom)).toBe(DEFAULT_CHART_TIME_RANGE);
+    });
   });
 });

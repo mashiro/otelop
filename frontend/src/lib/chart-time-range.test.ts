@@ -1,22 +1,26 @@
 import { describe, it, expect } from "vitest";
 import {
   CHART_TIME_RANGES,
+  DEFAULT_CHART_TIME_RANGE,
   rangeToMs,
   timeRangeDomain,
   filterPointsInDomain,
   filterDataPointsInRange,
   bucketSecondsForRange,
+  isChartTimeRange,
   type ChartTimeRange,
 } from "./chart-time-range";
 
 describe("CHART_TIME_RANGES", () => {
-  it("lists 1m, 5m, 15m, 30m, 1h, all with an All label", () => {
+  it("lists 1m, 5m, 15m, 30m, 1h, 6h, 24h, all with an All label", () => {
     expect(CHART_TIME_RANGES).toEqual([
       { value: "1m", label: "1m" },
       { value: "5m", label: "5m" },
       { value: "15m", label: "15m" },
       { value: "30m", label: "30m" },
       { value: "1h", label: "1h" },
+      { value: "6h", label: "6h" },
+      { value: "24h", label: "24h" },
       { value: "all", label: "All" },
     ]);
   });
@@ -33,6 +37,8 @@ describe("rangeToMs", () => {
     expect(rangeToMs("15m")).toBe(15 * 60_000);
     expect(rangeToMs("30m")).toBe(30 * 60_000);
     expect(rangeToMs("1h")).toBe(60 * 60_000);
+    expect(rangeToMs("6h")).toBe(6 * 60 * 60_000);
+    expect(rangeToMs("24h")).toBe(24 * 60 * 60_000);
   });
 });
 
@@ -64,7 +70,7 @@ describe("timeRangeDomain", () => {
     expect(domain).toEqual([new Date("2024-01-01T00:15:00Z"), new Date("2024-01-01T00:20:00Z")]);
   });
 
-  it.each<ChartTimeRange>(["1m", "15m"])(
+  it.each<ChartTimeRange>(["1m", "15m", "6h", "24h"])(
     "computes a %s window ending at the max timestamp",
     (range) => {
       const max = new Date("2024-01-01T00:30:00Z");
@@ -84,6 +90,10 @@ describe("bucketSecondsForRange", () => {
     expect(bucketSecondsForRange("1h")).toBe(24);
     // 5m / 150 = 2s.
     expect(bucketSecondsForRange("5m")).toBe(2);
+    // 6h / 150 = 144s.
+    expect(bucketSecondsForRange("6h")).toBe(144);
+    // 24h / 150 = 576s.
+    expect(bucketSecondsForRange("24h")).toBe(576);
   });
 
   it("clamps to a minimum of 1 second", () => {
@@ -116,6 +126,27 @@ describe("filterPointsInDomain", () => {
     const points = [{ time: new Date("2024-01-01T00:07:00Z"), value: 42 }];
 
     expect(filterPointsInDomain(points, domain)).toEqual([{ time: points[0]!.time, value: 42 }]);
+  });
+});
+
+describe("DEFAULT_CHART_TIME_RANGE", () => {
+  it("is 1h, and is a valid CHART_TIME_RANGES entry", () => {
+    expect(DEFAULT_CHART_TIME_RANGE).toBe("1h");
+    expect(CHART_TIME_RANGES.some((r) => r.value === DEFAULT_CHART_TIME_RANGE)).toBe(true);
+  });
+});
+
+describe("isChartTimeRange", () => {
+  it("accepts every CHART_TIME_RANGES value", () => {
+    for (const { value } of CHART_TIME_RANGES) {
+      expect(isChartTimeRange(value)).toBe(true);
+    }
+  });
+
+  it("rejects unknown or malformed values", () => {
+    expect(isChartTimeRange("7d")).toBe(false);
+    expect(isChartTimeRange("")).toBe(false);
+    expect(isChartTimeRange("1H")).toBe(false);
   });
 });
 

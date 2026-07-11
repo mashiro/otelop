@@ -1,13 +1,17 @@
 import { Temporal } from "temporal-polyfill";
 
-export type ChartTimeRange = "1m" | "5m" | "15m" | "30m" | "1h" | "all";
+export type ChartTimeRange = "1m" | "5m" | "15m" | "30m" | "1h" | "6h" | "24h" | "all";
 
+// No 7d option: the default retention window is 7d, so a 7d range would just
+// duplicate "all" instead of offering a genuinely narrower/wider choice.
 export const CHART_TIME_RANGES: { value: ChartTimeRange; label: string }[] = [
   { value: "1m", label: "1m" },
   { value: "5m", label: "5m" },
   { value: "15m", label: "15m" },
   { value: "30m", label: "30m" },
   { value: "1h", label: "1h" },
+  { value: "6h", label: "6h" },
+  { value: "24h", label: "24h" },
   { value: "all", label: "All" },
 ];
 
@@ -17,7 +21,19 @@ const RANGE_MINUTES: Record<Exclude<ChartTimeRange, "all">, number> = {
   "15m": 15,
   "30m": 30,
   "1h": 60,
+  "6h": 6 * 60,
+  "24h": 24 * 60,
 };
+
+// The metric detail view's default window (frontend defaults to a recent
+// window; DuckDB history is fetched on demand). Also the value elided from
+// the `range` URL query param, so a detail view left at the default keeps a
+// clean URL — see buildPath/parsePath in stores/navigation.ts.
+export const DEFAULT_CHART_TIME_RANGE: ChartTimeRange = "1h";
+
+export function isChartTimeRange(value: string): value is ChartTimeRange {
+  return CHART_TIME_RANGES.some((r) => r.value === value);
+}
 
 export function rangeToMs(range: ChartTimeRange): number | null {
   if (range === "all") return null;

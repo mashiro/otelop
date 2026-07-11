@@ -5,6 +5,8 @@ import { useEffect } from "react";
 import { SIGNALS } from "@/lib/signals";
 import type { SignalKey } from "@/lib/signals";
 import type { MetricData } from "@/types/telemetry";
+import { DEFAULT_CHART_TIME_RANGE, isChartTimeRange } from "@/lib/chart-time-range";
+import type { ChartTimeRange } from "@/lib/chart-time-range";
 
 export type TabValue = SignalKey;
 
@@ -15,13 +17,25 @@ interface ParsedLocation {
   traceId: string | null;
   metricKey: MetricKey | null;
   logId: string | null;
+  // Only meaningful alongside metricKey (see buildPath); still resolved to a
+  // valid value for every location so callers never have to null-check it.
+  metricRange: ChartTimeRange;
 }
 
 // Only the tab of the currently active screen is meaningful in the path; a
 // traceId/metricKey/logId segment left over from another tab is ignored.
-export function parsePath(pathname: string): ParsedLocation {
-  const [first, second, third] = pathname.split("/").filter(Boolean);
+// Takes the full pathname + search (not just the pathname) so the metric
+// detail's range survives reload/sharing via the `range` query param.
+export function parsePath(location: string): ParsedLocation {
+  const url = new URL(location, "http://otelop.invalid");
+  const [first, second, third] = url.pathname.split("/").filter(Boolean);
   const tab: TabValue = first && first in SIGNALS ? (first as TabValue) : "traces";
+
+  const rangeParam = url.searchParams.get("range");
+  const metricRange: ChartTimeRange =
+    tab === "metrics" && rangeParam && isChartTimeRange(rangeParam)
+      ? rangeParam
+      : DEFAULT_CHART_TIME_RANGE;
 
   return {
     tab,
@@ -31,16 +45,23 @@ export function parsePath(pathname: string): ParsedLocation {
         ? { serviceName: decodeURIComponent(second), name: decodeURIComponent(third) }
         : null,
     logId: tab === "logs" && second ? decodeURIComponent(second) : null,
+    metricRange,
   };
 }
 
 // Takes a full ParsedLocation (rather than positional args) so it stays
 // symmetric with parsePath as more selection kinds are added.
 export function buildPath(location: ParsedLocation): string {
-  const { tab, traceId, metricKey, logId } = location;
+  const { tab, traceId, metricKey, logId, metricRange } = location;
   if (tab === "traces" && traceId) return `/traces/${encodeURIComponent(traceId)}`;
   if (tab === "metrics" && metricKey) {
-    return `/metrics/${encodeURIComponent(metricKey.serviceName)}/${encodeURIComponent(metricKey.name)}`;
+    const base = `/metrics/${encodeURIComponent(metricKey.serviceName)}/${encodeURIComponent(metricKey.name)}`;
+    // The range param is elided at the default so a detail view left at "1h"
+    // keeps a clean URL, matching how the id/key selections above only
+    // appear once a selection exists.
+    return metricRange === DEFAULT_CHART_TIME_RANGE
+      ? base
+      : `${base}?range=${encodeURIComponent(metricRange)}`;
   }
   if (tab === "logs" && logId) return `/logs/${encodeURIComponent(logId)}`;
   return `/${tab}`;
@@ -52,13 +73,14 @@ export function metricKeyEquals(a: MetricKey | null, b: MetricKey | null): boole
   return a.serviceName === b.serviceName && a.name === b.name;
 }
 
-const initialLocation = parsePath(window.location.pathname);
+const initialLocation = parsePath(window.location.pathname + window.location.search);
 
 const currentTabAtom = atom<TabValue>(initialLocation.tab);
 
 const selectedTraceIdBaseAtom = atom<string | null>(initialLocation.traceId);
 const selectedMetricKeyBaseAtom = atom<MetricKey | null>(initialLocation.metricKey);
 const selectedLogIdBaseAtom = atom<string | null>(initialLocation.logId);
+const selectedMetricRangeBaseAtom = atom<ChartTimeRange>(initialLocation.metricRange);
 
 // Shared by every public writer so the URL always reflects the current
 // tab + selection as a single pushState, and unchanged state never pushes.
@@ -68,8 +90,9 @@ function syncLocation(get: Getter): void {
     traceId: get(selectedTraceIdBaseAtom),
     metricKey: get(selectedMetricKeyBaseAtom),
     logId: get(selectedLogIdBaseAtom),
+    metricRange: get(selectedMetricRangeBaseAtom),
   });
-  if (window.location.pathname !== path) {
+  if (window.location.pathname + window.location.search !== path) {
     window.history.pushState(null, "", path);
   }
 }
@@ -104,6 +127,19 @@ export const selectedLogIdAtom = atom(
   },
 );
 
+// Deliberate exception to "detail-internal selection stays local state": the
+// range is what a shared metric-detail link should reproduce, so it's synced
+// like the id/key atoms above. The facet breakdown is not — see
+// metric-detail.tsx's local pickedId state.
+export const selectedMetricRangeAtom = atom(
+  (get) => get(selectedMetricRangeBaseAtom),
+  (get, set, range: ChartTimeRange) => {
+    if (get(selectedMetricRangeBaseAtom) === range) return;
+    set(selectedMetricRangeBaseAtom, range);
+    syncLocation(get);
+  },
+);
+
 // The tab/selection combo is mirrored to the URL so a reload (or shared link)
 // restores the same screen even though the telemetry data itself is volatile.
 export const activeTabAtom = atom(
@@ -118,15 +154,17 @@ export const activeTabAtom = atom(
 // Applies a browser-navigated (or restored) path to state without touching
 // history — history already reflects this path, pushing again would loop.
 // Only the tab matching the path's selection is updated; a selection held by
-// another tab is left as-is so switching back restores it.
-export const applyLocationAtom = atom(null, (_get, set, pathname: string) => {
-  const parsed = parsePath(pathname);
+// another tab is left as-is so switching back restores it. Takes the full
+// pathname + search (see parsePath) so the metric range round-trips too.
+export const applyLocationAtom = atom(null, (_get, set, location: string) => {
+  const parsed = parsePath(location);
   set(currentTabAtom, parsed.tab);
   if (parsed.tab === "traces") {
     set(selectedTraceIdBaseAtom, parsed.traceId);
   }
   if (parsed.tab === "metrics") {
     set(selectedMetricKeyBaseAtom, parsed.metricKey);
+    set(selectedMetricRangeBaseAtom, parsed.metricRange);
   }
   if (parsed.tab === "logs") {
     set(selectedLogIdBaseAtom, parsed.logId);
@@ -140,7 +178,7 @@ export function useLocationSync(): void {
   const applyLocation = useSetAtom(applyLocationAtom);
 
   useEffect(() => {
-    const onPopState = () => applyLocation(window.location.pathname);
+    const onPopState = () => applyLocation(window.location.pathname + window.location.search);
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
   }, [applyLocation]);
