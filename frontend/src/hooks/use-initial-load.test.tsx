@@ -15,6 +15,7 @@ beforeEach(() => {
 describe("useInitialLoad", () => {
   it("bootstraps traces, metrics, and logs from the initial-load query", async () => {
     const trace = makeTrace();
+    const rootSpan = trace.spans[0];
     requestMock.mockResolvedValue({
       traces: {
         items: [
@@ -24,7 +25,14 @@ describe("useInitialLoad", () => {
             spanCount: trace.spanCount,
             startTime: trace.startTime,
             durationMs: trace.duration / 1_000_000,
-            spans: trace.spans.map((s) => ({ ...s, durationMs: s.duration / 1_000_000 })),
+            // The list query never requests `spans` (see use-initial-load.ts)
+            // — only rootSpan's summary fields.
+            rootSpan: {
+              name: rootSpan.name,
+              kind: rootSpan.kind,
+              statusCode: rootSpan.statusCode,
+              durationMs: rootSpan.duration / 1_000_000,
+            },
           },
         ],
       },
@@ -38,6 +46,18 @@ describe("useInitialLoad", () => {
     });
 
     await waitFor(() => expect(store.get(tracesAtom)).toHaveLength(1));
+    // Traces bootstrap with an empty spans array — full span data is fetched
+    // lazily (hooks/use-trace-spans.ts) once a trace's detail view opens —
+    // but rootSpan's summary fields (used by the list/detail header) come
+    // straight from the initial-load response.
+    const loadedTrace = store.get(tracesAtom)[0];
+    expect(loadedTrace.spans).toEqual([]);
+    expect(loadedTrace.rootSpan).toEqual({
+      name: rootSpan.name,
+      kind: rootSpan.kind,
+      statusCode: rootSpan.statusCode,
+      duration: rootSpan.duration,
+    });
     expect(store.get(metricsAtom)).toHaveLength(1);
     expect(store.get(logsAtom)).toHaveLength(1);
   });

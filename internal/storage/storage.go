@@ -16,6 +16,7 @@ import (
 	"log/slog"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	duckdb "github.com/duckdb/duckdb-go/v2"
@@ -173,6 +174,13 @@ type Storage struct {
 	// DELETE + CHECKPOINT (which — see enforceMaxSize's comment — it may not
 	// do promptly at all).
 	sizeFn func() (int64, error)
+
+	// traceByIDCalls counts TraceByID invocations — one SQL round trip each.
+	// It exists so the GraphQL layer's tests can assert the trace-list N+1
+	// regression (a single Query.traces resolving hundreds of per-trace
+	// TraceByID calls — see internal/graphql/trace_resolver_test.go) stays
+	// fixed, without needing a mock storage layer.
+	traceByIDCalls atomic.Int64
 }
 
 // Open creates or opens a DuckDB database at opts.Path (or an in-memory

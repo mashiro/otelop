@@ -205,6 +205,7 @@ ORDER BY d.start_ts
 // time, plus the same summary fields TracesPage computes. ok is false when
 // no spans exist for traceID.
 func (s *Storage) TraceByID(ctx context.Context, traceID string) (*TraceDetail, bool, error) {
+	s.traceByIDCalls.Add(1)
 	rows, err := s.DB().QueryContext(ctx, traceSpansQuery, traceID)
 	if err != nil {
 		return nil, false, fmt.Errorf("storage: query trace spans: %w", err)
@@ -324,6 +325,12 @@ func summarizeSpans(traceID string, spans []SpanDetail) TraceSummary {
 	}
 	t.ServiceName = earliest.ServiceName
 	return t
+}
+
+// TraceByIDCalls returns the number of TraceByID invocations so far — see
+// the traceByIDCalls field doc on Storage.
+func (s *Storage) TraceByIDCalls() int64 {
+	return s.traceByIDCalls.Load()
 }
 
 // pageLimit returns limit, or a large sentinel when limit <= 0 ("no limit"),

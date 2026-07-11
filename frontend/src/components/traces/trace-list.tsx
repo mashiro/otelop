@@ -7,6 +7,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { SearchFilter } from "@/components/filters/search-filter";
 import { ListPanel } from "@/components/common/list-panel";
 import { EmptyMatches } from "@/components/common/empty-state";
+import { useServiceMapSpans } from "@/hooks/use-service-map-spans";
 import { ServiceMap } from "./service-map";
 import {
   Table,
@@ -29,6 +30,11 @@ export function TraceList() {
   const selectedTrace = useAtomValue(selectedTraceAtom);
   const setSelectedTrace = useSetAtom(selectedTraceAtom);
   const [view, setView] = useState<"list" | "map">("list");
+  // The service map needs full span data across every buffered trace (see
+  // lib/service-graph.ts), which the trace list itself deliberately doesn't
+  // load (use-initial-load.ts). Fetch it lazily, once, the first time this
+  // view is actually opened.
+  useServiceMapSpans(view === "map");
 
   if (selectedTrace) {
     return <TraceDetail />;

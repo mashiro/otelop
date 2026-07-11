@@ -25,9 +25,32 @@ export interface SpanData {
   resource: Record<string, unknown>;
 }
 
+// Trace list/detail-header display fields for the trace's representative
+// root span (the parentless span with the longest duration — see the Go
+// resolver's pickRootSpan). Deliberately narrower than SpanData: the
+// GraphQL trace-list query (use-initial-load.ts) resolves these straight
+// from the backend's TracesPage summary row without the per-trace detail
+// fetch that spanId/attributes/events/etc. would require (see
+// internal/graphql/trace_resolver.go), so only fetch fields the summary
+// actually carries. Nothing downstream needs more than this to render a
+// list row or a detail header — full span data comes from `trace.spans`
+// once the detail view lazily fetches it.
+export interface TraceRootSpan {
+  name: string;
+  kind: string;
+  statusCode: SpanStatus;
+  duration: number;
+}
+
 export interface TraceData {
   traceId: string;
-  rootSpan?: SpanData;
+  rootSpan?: TraceRootSpan;
+  // Empty until the trace detail view lazily fetches it (see
+  // hooks/use-trace-spans.ts) — the initial trace-list load only fetches
+  // summary fields (spanCount, duration, rootSpan) to avoid re-triggering
+  // the N+1 TraceByID fetch across every buffered trace. Never derive a
+  // trace's span count or duration from spans.length/spans — use spanCount/
+  // duration below, which are always populated from the list query.
   spans: SpanData[];
   serviceName: string;
   spanCount: number;

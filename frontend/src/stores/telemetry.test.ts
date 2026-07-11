@@ -9,9 +9,11 @@ import {
   selectedTraceAtom,
   selectedMetricAtom,
   selectedLogAtom,
+  mergeTraceSpansAtom,
+  mergeManyTraceSpansAtom,
 } from "./telemetry";
 import { selectedTraceIdAtom, selectedMetricKeyAtom, selectedLogIdAtom } from "./navigation";
-import { makeMetric, makeDataPoint, makeTrace, makeLog } from "@/test/factories";
+import { makeMetric, makeDataPoint, makeTrace, makeLog, makeSpan } from "@/test/factories";
 
 describe("addMetricAtom", () => {
   it("merges data points by id, dropping re-delivered duplicates", () => {
@@ -52,6 +54,92 @@ describe("addMetricAtom", () => {
     );
 
     expect(store.get(metricsAtom)[0].dataPoints.map((p) => p.id)).toEqual(["b", "c"]);
+  });
+});
+
+describe("mergeTraceSpansAtom", () => {
+  it("merges lazily-fetched spans into the matching trace, deduping by spanId", () => {
+    const store = createStore();
+    const existingSpan = makeSpan({ spanId: "a" });
+    store.set(tracesAtom, [
+      makeTrace({ traceId: "t1", spanCount: 2, spans: [existingSpan] }),
+      makeTrace({ traceId: "t2", spanCount: 1, spans: [] }),
+    ]);
+
+    store.set(mergeTraceSpansAtom, {
+      traceId: "t1",
+      spans: [existingSpan, makeSpan({ spanId: "b" })],
+    });
+
+    const traces = store.get(tracesAtom);
+    expect(traces.find((t) => t.traceId === "t1")?.spans.map((s) => s.spanId)).toEqual(["a", "b"]);
+    // The other trace is untouched.
+    expect(traces.find((t) => t.traceId === "t2")?.spans).toEqual([]);
+  });
+
+  it("leaves spanCount/duration/rootSpan/serviceName untouched — only spans changes", () => {
+    const store = createStore();
+    const rootSpan = { name: "GET /x", kind: "Server", statusCode: "Ok" as const, duration: 5 };
+    store.set(tracesAtom, [
+      makeTrace({
+        traceId: "t1",
+        spanCount: 3,
+        duration: 999,
+        serviceName: "svc-summary",
+        rootSpan,
+        spans: [],
+      }),
+    ]);
+
+    store.set(mergeTraceSpansAtom, { traceId: "t1", spans: [makeSpan()] });
+
+    const trace = store.get(tracesAtom)[0];
+    expect(trace.spanCount).toBe(3);
+    expect(trace.duration).toBe(999);
+    expect(trace.serviceName).toBe("svc-summary");
+    expect(trace.rootSpan).toEqual(rootSpan);
+  });
+
+  it("is a no-op when the traceId isn't in the buffer", () => {
+    const store = createStore();
+    store.set(tracesAtom, [makeTrace({ traceId: "t1", spans: [] })]);
+
+    store.set(mergeTraceSpansAtom, { traceId: "unknown", spans: [makeSpan()] });
+
+    expect(store.get(tracesAtom)).toHaveLength(1);
+    expect(store.get(tracesAtom)[0].spans).toEqual([]);
+  });
+});
+
+describe("mergeManyTraceSpansAtom", () => {
+  it("merges spans for several traces in one update", () => {
+    const store = createStore();
+    store.set(tracesAtom, [
+      makeTrace({ traceId: "t1", spanCount: 1, spans: [] }),
+      makeTrace({ traceId: "t2", spanCount: 1, spans: [] }),
+      makeTrace({ traceId: "t3", spanCount: 1, spans: [] }),
+    ]);
+
+    store.set(mergeManyTraceSpansAtom, [
+      { traceId: "t1", spans: [makeSpan({ spanId: "a" })] },
+      { traceId: "t3", spans: [makeSpan({ spanId: "c" })] },
+    ]);
+
+    const traces = store.get(tracesAtom);
+    expect(traces.find((t) => t.traceId === "t1")?.spans).toHaveLength(1);
+    expect(traces.find((t) => t.traceId === "t2")?.spans).toHaveLength(0);
+    expect(traces.find((t) => t.traceId === "t3")?.spans).toHaveLength(1);
+  });
+
+  it("does nothing when given an empty payload list", () => {
+    const store = createStore();
+    const traces = [makeTrace({ traceId: "t1", spans: [] })];
+    store.set(tracesAtom, traces);
+
+    store.set(mergeManyTraceSpansAtom, []);
+
+    // Same array reference: no spurious tracesAtom write.
+    expect(store.get(tracesAtom)).toBe(traces);
   });
 });
 

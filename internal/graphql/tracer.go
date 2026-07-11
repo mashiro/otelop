@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/graph-gophers/graphql-go/errors"
@@ -37,6 +38,59 @@ func otelTracer() oteltrace.Tracer {
 var noopFieldFinish tracer.FieldFinishFunc = func(*errors.QueryError) {}
 var noopValidationFinish tracer.ValidationFinishFunc = func([]*errors.QueryError) {}
 
+// maxFieldSpansPerRequest bounds how many real OTel spans one (parentType,
+// field) pair may create within a single GraphQL request. This is the fix
+// for self-observation amplifying an N+1 into a thousand-span trace instead
+// of just revealing it: the bug this guards against resolved Trace.spans
+// (then Trace.rootSpan) once per row of an 815-trace list, producing an
+// 861-span/~800ms trace for one page load — see trace_resolver_test.go's
+// TestTracesList_SummaryFieldsDoNotTriggerTraceByID for the SQL-side half of
+// that fix. The first N occurrences of a given field still get a full span
+// (enough to see the shape of the problem); the rest are counted and
+// reported as a single attribute on the request span instead of drowning it
+// in near-duplicate spans.
+const maxFieldSpansPerRequest = 10
+
+// fieldSpanBudget tracks per-request, per-(parentType.field) span counts so
+// TraceField can enforce maxFieldSpansPerRequest. It is stashed on the
+// request context by TraceQuery; graph-gophers can resolve sibling fields
+// concurrently, so access is mutex-guarded.
+type fieldSpanBudget struct {
+	mu      sync.Mutex
+	started map[string]int
+	dropped map[string]int
+}
+
+func newFieldSpanBudget() *fieldSpanBudget {
+	return &fieldSpanBudget{started: map[string]int{}, dropped: map[string]int{}}
+}
+
+// admit reports whether key may start a real span, else records a drop.
+func (b *fieldSpanBudget) admit(key string) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.started[key] >= maxFieldSpansPerRequest {
+		b.dropped[key]++
+		return false
+	}
+	b.started[key]++
+	return true
+}
+
+// snapshotDrops returns a copy of the per-key drop counts, safe to read
+// after the request has finished resolving (TraceQuery's finish func).
+func (b *fieldSpanBudget) snapshotDrops() map[string]int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	out := make(map[string]int, len(b.dropped))
+	for k, v := range b.dropped {
+		out[k] = v
+	}
+	return out
+}
+
+type fieldSpanBudgetKey struct{}
+
 func (slogTracer) TraceQuery(
 	ctx context.Context,
 	query string,
@@ -53,6 +107,9 @@ func (slogTracer) TraceQuery(
 		span.SetAttributes(attribute.String("graphql.variables", fmt.Sprintf("%v", variables)))
 	}
 
+	budget := newFieldSpanBudget()
+	spanCtx = context.WithValue(spanCtx, fieldSpanBudgetKey{}, budget)
+
 	debug := slog.Default().Enabled(spanCtx, slog.LevelDebug)
 	var start time.Time
 	if debug {
@@ -61,6 +118,9 @@ func (slogTracer) TraceQuery(
 
 	return spanCtx, func(errs []*errors.QueryError) {
 		setSpanErrors(span, errs)
+		for key, n := range budget.snapshotDrops() {
+			span.SetAttributes(attribute.Int64("graphql.fields.dropped."+key, int64(n)))
+		}
 		span.End()
 		if !debug {
 			return
@@ -90,6 +150,17 @@ func (slogTracer) TraceField(
 ) (context.Context, tracer.FieldFinishFunc) {
 	if trivial {
 		return ctx, noopFieldFinish
+	}
+	// Top-level Query/Mutation fields are always traced — there are at most
+	// a handful per request, and they're what the request-level span's
+	// children should always show regardless of how a nested list field
+	// fares against the budget below.
+	if typeName != "Query" && typeName != "Mutation" {
+		if budget, ok := ctx.Value(fieldSpanBudgetKey{}).(*fieldSpanBudget); ok {
+			if !budget.admit(typeName + "." + fieldName) {
+				return ctx, noopFieldFinish
+			}
+		}
 	}
 	spanCtx, span := otelTracer().Start(ctx, typeName+"."+fieldName)
 	for name, value := range args {
