@@ -1,4 +1,11 @@
 #!/usr/bin/env bash
-#MISE description="Run goreleaser in snapshot mode (no publish)"
+#MISE description="Build a local snapshot binary for the host platform only (no publish)"
 set -euo pipefail
-goreleaser release --snapshot --clean
+# CGO (the DuckDB driver) means only the host's own goos/goarch has a
+# working C toolchain here — `goreleaser release --snapshot` would still try
+# every (goos, goarch) in .goreleaser.yml's build matrix and fail cross-
+# compiling e.g. linux from a Mac. --single-target restricts the build (and
+# skips archive/checksum/release, which need the full matrix) to what this
+# host can actually produce. The real multi-platform release only happens in
+# .github/workflows/release.yml's build matrix.
+goreleaser build --single-target --snapshot --clean

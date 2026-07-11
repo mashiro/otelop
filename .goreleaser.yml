@@ -4,12 +4,28 @@ before:
   hooks:
     - mise run build-frontend
 
+# CGO (required by the DuckDB storage driver, see
+# docs/design/duckdb-storage.md "Build and release impact") rules out
+# building every (goos, goarch) target from one goreleaser invocation the
+# way the old CGO_ENABLED=0 pure cross-compile did: linux targets need a
+# native (or at least same-OS) C toolchain, which a single runner doesn't
+# have for every OS. goreleaser's own answer to that (Pro-only split/merge,
+# or the Pro-only "prebuilt" builder) isn't available on the free tier.
+#
+# So this config is no longer what cuts an actual release — it's kept for
+# local use only (`mise run release-snapshot`, invoked with
+# --single-target so it only builds for the host's own goos/goarch, which
+# always has a matching native toolchain) and for `goreleaser check` in CI.
+# The real multi-platform release is .github/workflows/release.yml: a
+# go-build matrix across ubuntu-latest/ubuntu-24.04-arm/macos-latest,
+# assembled by scripts/package-release.sh and published with `gh release
+# upload` + `docker buildx`, bypassing goreleaser entirely.
 builds:
   - main: ./cmd/otelop
     flags:
       - -tags=embed
     env:
-      - CGO_ENABLED=0
+      - CGO_ENABLED=1
     goos:
       - linux
       - darwin
@@ -26,25 +42,6 @@ archives:
       - goos: darwin
         formats:
           - zip
-
-dockers_v2:
-  - id: otelop
-    dockerfile: Dockerfile
-    images:
-      - ghcr.io/mashiro/otelop
-    tags:
-      - "{{.Version}}"
-      - "{{ if not .Prerelease }}latest{{ end }}"
-    platforms:
-      - linux/amd64
-      - linux/arm64
-    labels:
-      org.opencontainers.image.source: https://github.com/mashiro/otelop
-      org.opencontainers.image.description: Local OpenTelemetry viewer for traces, metrics, and logs
-      org.opencontainers.image.licenses: MIT
-      org.opencontainers.image.version: "{{.Version}}"
-      org.opencontainers.image.revision: "{{.FullCommit}}"
-      org.opencontainers.image.created: "{{.Date}}"
 
 changelog:
   disable: true

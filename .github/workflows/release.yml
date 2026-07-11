@@ -19,7 +19,9 @@ permissions:
   contents: write
   packages: write
 jobs:
-  release:
+  # Built once and shared with every build job below (pure JS bundling, not
+  # platform-specific) instead of repeating `pnpm build` on every runner.
+  frontend:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -27,14 +29,148 @@ jobs:
           ref: ${{ inputs.tag }}
       - uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4.2.0
       - run: mise run install
+      - run: mise run build-frontend
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: frontend-dist
+          path: frontend/dist
+
+  # The DuckDB storage driver requires CGO with prebuilt per-target static
+  # libs (docs/design/duckdb-storage.md "Build and release impact"), which
+  # rules out cross-compiling every (goos, goarch) from one runner the way
+  # the old CGO_ENABLED=0 build did. Instead this is a native build matrix:
+  # linux runs on native ubuntu runners for each arch, darwin builds both
+  # archs on one macos runner (Xcode's clang cross-compiles x86_64 from
+  # arm64, and vice versa, within the same OS/SDK — verified locally with
+  # `CGO_CFLAGS="-arch x86_64" CGO_LDFLAGS="-arch x86_64"`). No goos/goarch
+  # combination here is emulated (no qemu, no cross-gcc).
+  build:
+    needs: frontend
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            goos: linux
+            goarch: amd64
+            cgo_cflags: ""
+            cgo_ldflags: ""
+          - os: ubuntu-24.04-arm
+            goos: linux
+            goarch: arm64
+            cgo_cflags: ""
+            cgo_ldflags: ""
+          - os: macos-latest
+            goos: darwin
+            goarch: arm64
+            cgo_cflags: ""
+            cgo_ldflags: ""
+          - os: macos-latest
+            goos: darwin
+            goarch: amd64
+            cgo_cflags: "-arch x86_64"
+            cgo_ldflags: "-arch x86_64"
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ inputs.tag }}
+      - uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4.2.0
+      - run: go mod download
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: frontend-dist
+          path: frontend/dist
+      - name: Build otelop (${{ matrix.goos }}/${{ matrix.goarch }})
+        env:
+          CGO_ENABLED: 1
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_CFLAGS: ${{ matrix.cgo_cflags }}
+          CGO_LDFLAGS: ${{ matrix.cgo_ldflags }}
+        run: |
+          version="${{ inputs.tag }}"
+          version="${version#v}"
+          mkdir -p "dist/${{ matrix.goos }}_${{ matrix.goarch }}"
+          go build -tags embed -ldflags "-s -w -X main.version=${version}" \
+            -o "dist/${{ matrix.goos }}_${{ matrix.goarch }}/otelop" ./cmd/otelop
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: target-${{ matrix.goos }}_${{ matrix.goarch }}
+          path: dist/${{ matrix.goos }}_${{ matrix.goarch }}/otelop
+
+  # Assembles archives + checksums from the matrix's binaries, publishes the
+  # GitHub release assets, and builds/pushes the Docker image. No goreleaser
+  # here: it always builds something itself (even with an empty `builds:`
+  # config), and there's no free-tier way to hand it externally-built,
+  # per-OS binaries to assemble instead (that's goreleaser Pro's "prebuilt"
+  # builder / split-release). release-please already created the GitHub
+  # Release for this tag, so this job only needs to attach assets to it.
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ inputs.tag }}
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          path: artifacts
+
+      - name: Stage per-target binaries
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          for d in artifacts/target-*/; do
+            name="$(basename "$d")"
+            target="${name#target-}"
+            mkdir -p "dist/$target"
+            cp "$d/otelop" "dist/$target/otelop"
+          done
+
+      - name: Assemble archives + checksums
+        run: |
+          set -euo pipefail
+          version="${{ inputs.tag }}"
+          version="${version#v}"
+          ./scripts/package-release.sh "$version" dist out
+
+      - name: Upload release assets
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${{ inputs.tag }}" out/* --clobber --repo "${{ github.repository }}"
+
       - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
       - uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
-        with:
-          args: release --clean
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        run: |
+          set -euo pipefail
+          version="${{ inputs.tag }}"
+          version="${version#v}"
+
+          mkdir -p docker-ctx/linux/amd64 docker-ctx/linux/arm64
+          cp dist/linux_amd64/otelop docker-ctx/linux/amd64/otelop
+          cp dist/linux_arm64/otelop docker-ctx/linux/arm64/otelop
+
+          tags=(-t "ghcr.io/mashiro/otelop:${version}")
+          case "$version" in
+            *-*) ;; # prerelease (e.g. 1.2.3-rc1): skip the `latest` tag
+            *) tags+=(-t "ghcr.io/mashiro/otelop:latest") ;;
+          esac
+
+          docker buildx build \
+            --platform linux/amd64,linux/arm64 \
+            "${tags[@]}" \
+            --label org.opencontainers.image.source=https://github.com/mashiro/otelop \
+            --label "org.opencontainers.image.description=Local OpenTelemetry viewer for traces, metrics, and logs" \
+            --label org.opencontainers.image.licenses=MIT \
+            --label "org.opencontainers.image.version=${version}" \
+            --label "org.opencontainers.image.revision=${GITHUB_SHA}" \
+            --label "org.opencontainers.image.created=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            -f Dockerfile docker-ctx \
+            --push
