@@ -11,12 +11,14 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates libstdc++6 \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid 65532 nonroot \
-    && useradd --uid 65532 --gid nonroot --create-home --shell /usr/sbin/nologin nonroot
+    && useradd --uid 65532 --gid nonroot --create-home --shell /usr/sbin/nologin nonroot \
+    && install -d -o nonroot -g nonroot /data
 
 ARG TARGETPLATFORM
 COPY $TARGETPLATFORM/otelop /usr/local/bin/otelop
 
-ENV HOME=/home/nonroot
+ENV HOME=/home/nonroot \
+    OTELOP_STORAGE_PATH=/data/otelop.duckdb
 
 USER nonroot:nonroot
 
