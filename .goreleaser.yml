@@ -2,7 +2,7 @@ version: 2
 
 before:
   hooks:
-    - mise run build-frontend
+    - mise run build:frontend
 
 # CGO (required by the DuckDB storage driver, see
 # docs/design/duckdb-storage.md "Build and release impact") rules out
