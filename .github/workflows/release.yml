@@ -24,7 +24,7 @@ jobs:
   # Also computes the v-prefix-stripped version once here (as a job output)
   # instead of every downstream job/step re-deriving it from inputs.tag.
   frontend:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
@@ -48,8 +48,8 @@ jobs:
   # libs (docs/design/duckdb-storage.md "Build and release impact"), which
   # rules out cross-compiling every (goos, goarch) from one runner the way
   # the old CGO_ENABLED=0 build did. Instead this is a native build matrix:
-  # linux runs on native ubuntu runners for each arch, darwin builds both
-  # archs on one macos runner (Xcode's clang cross-compiles x86_64 from
+  # linux runs on native Ubuntu 24.04 runners for each arch, darwin builds both
+  # archs on macOS 26 (Xcode's clang cross-compiles x86_64 from
   # arm64, and vice versa, within the same OS/SDK — verified locally with
   # `CGO_CFLAGS="-arch x86_64" CGO_LDFLAGS="-arch x86_64"`). No goos/goarch
   # combination here is emulated (no qemu, no cross-gcc).
@@ -59,7 +59,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
+          - os: ubuntu-24.04
             goos: linux
             goarch: amd64
             cgo_cflags: ""
@@ -69,12 +69,12 @@ jobs:
             goarch: arm64
             cgo_cflags: ""
             cgo_ldflags: ""
-          - os: macos-latest
+          - os: macos-26
             goos: darwin
             goarch: arm64
             cgo_cflags: ""
             cgo_ldflags: ""
-          - os: macos-latest
+          - os: macos-26
             goos: darwin
             goarch: amd64
             cgo_cflags: "-arch x86_64"
@@ -116,7 +116,7 @@ jobs:
   # Release for this tag, so this job only needs to attach assets to it.
   release:
     needs: [build, frontend]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:

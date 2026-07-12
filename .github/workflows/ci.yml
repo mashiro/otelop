@@ -5,9 +5,9 @@ on:
   pull_request:
 jobs:
   ci:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # The DuckDB storage driver requires CGO (docs/design/duckdb-storage.md
-    # "Build and release impact"). ubuntu-latest ships a C toolchain so this
+    # "Build and release impact"). Ubuntu 24.04 ships a C toolchain so this
     # is already the default, but pin it explicitly so a future runner image
     # change can't silently flip it off and make `go test`/`go vet`/lint fail
     # to see cgo-gated code paths.
