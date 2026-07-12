@@ -10,7 +10,7 @@ const statusConfig: Record<string, { color: string; glow: string; label: string 
   connected: {
     color: "bg-success",
     glow: "animate-breathe",
-    label: "Live",
+    label: "Connected",
   },
   connecting: {
     color: "bg-warning",

@@ -9,6 +9,7 @@ import {
   eventWindowRange,
   shiftEventWindow,
 } from "@/lib/event-time-window";
+import { cn } from "@/lib/utils";
 
 function formatInstant(value: string): string {
   return Temporal.Instant.from(value)
@@ -26,6 +27,7 @@ export function EventWindowControls({ tone }: { tone: "trace" | "log" }) {
   const [window, setWindow] = useAtom(eventTimeWindowAtom);
   const range = eventWindowRange(window);
   const canMove = range !== "all";
+  const isLive = window.mode === "live";
 
   return (
     <div className="flex items-center gap-1">
@@ -67,9 +69,23 @@ export function EventWindowControls({ tone }: { tone: "trace" | "log" }) {
         variant="ghost"
         size="sm"
         onClick={() => setWindow(range ? { mode: "live", range } : DEFAULT_EVENT_TIME_WINDOW)}
-        disabled={window.mode === "live"}
+        disabled={isLive}
+        className={cn(
+          "disabled:opacity-100",
+          isLive
+            ? "bg-emerald-500/10 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400"
+            : "text-muted-foreground",
+        )}
       >
-        <Radio className="size-3 text-emerald-500" /> Live
+        <Radio
+          className={cn(
+            "size-3",
+            isLive
+              ? "animate-pulse-glow text-emerald-500 drop-shadow-[0_0_4px_oklch(0.72_0.17_155/0.7)]"
+              : "text-muted-foreground",
+          )}
+        />
+        Live
       </Button>
     </div>
   );
