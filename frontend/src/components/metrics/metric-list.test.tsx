@@ -17,6 +17,10 @@ vi.mock("@/components/ui/scroll-area", () => ({
   ),
 }));
 
+vi.mock("@/hooks/use-metric-list-search", () => ({
+  useMetricListSearch: vi.fn(),
+}));
+
 beforeEach(() => {
   const store = getDefaultStore();
   store.set(metricsAtom, []);

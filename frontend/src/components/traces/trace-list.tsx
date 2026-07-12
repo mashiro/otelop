@@ -1,14 +1,14 @@
 import { useState } from "react";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { List, Network } from "lucide-react";
-import { tracesAtom, selectedTraceAtom } from "@/stores/telemetry";
-import { selectedTraceRangeAtom } from "@/stores/navigation";
+import { traceCountAtom, tracesAtom, selectedTraceAtom } from "@/stores/telemetry";
+import { eventTimeWindowAtom } from "@/stores/navigation";
 import { filteredTracesAtom, traceSearchAtom } from "@/stores/filters";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { SearchFilter } from "@/components/filters/search-filter";
 import { ListPanel } from "@/components/common/list-panel";
 import { EmptyMatches } from "@/components/common/empty-state";
-import { TimeRangeTabs } from "@/components/common/time-range-tabs";
+import { EventWindowControls } from "@/components/common/event-window-controls";
 import { LoadMoreRow } from "@/components/common/load-more-row";
 import { useServiceMapSpans } from "@/hooks/use-service-map-spans";
 import { useTraceListPage } from "@/hooks/use-trace-list-page";
@@ -30,24 +30,25 @@ import { traceStatusTone } from "@/lib/tones";
 
 export function TraceList() {
   const allTraces = useAtomValue(tracesAtom);
+  const traceCount = useAtomValue(traceCountAtom);
   const traces = useAtomValue(filteredTracesAtom);
   const selectedTrace = useAtomValue(selectedTraceAtom);
   const setSelectedTrace = useSetAtom(selectedTraceAtom);
   const [view, setView] = useState<"list" | "map">("list");
-  const [range, setRange] = useAtom(selectedTraceRangeAtom);
+  const [window] = useAtom(eventTimeWindowAtom);
   const search = useAtomValue(traceSearchAtom);
-  const page = useTraceListPage(range, search);
+  const page = useTraceListPage(window, search);
   // The service map needs full span data across every buffered trace (see
   // lib/service-graph.ts), which the trace list itself deliberately doesn't
   // load (use-trace-list-page.ts). Fetch it lazily, once per range, the
   // first time this view is actually opened.
-  useServiceMapSpans(view === "map", range);
+  useServiceMapSpans(view === "map", window);
 
   if (selectedTrace) {
     return <TraceDetail />;
   }
 
-  if (allTraces.length === 0) {
+  if (traceCount === 0 && allTraces.length === 0) {
     return <EmptyState signal={SIGNALS.traces} />;
   }
 
@@ -57,7 +58,7 @@ export function TraceList() {
         <>
           <SearchFilter atom={traceSearchAtom} placeholder="Search traces…" />
           <div className="ml-auto flex items-center gap-2 px-3">
-            <TimeRangeTabs range={range} onRangeChange={setRange} tone="trace" />
+            <EventWindowControls tone="trace" />
             <div className="flex items-center gap-1">
               <button
                 type="button"

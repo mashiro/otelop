@@ -16,6 +16,7 @@ import {
   selectedMetricKeyAtom,
   selectedTraceIdAtom,
 } from "./navigation";
+import { DEFAULT_EVENT_TIME_WINDOW, type EventTimeWindow } from "@/lib/event-time-window";
 
 // Client-side live-buffer bounds. These are NOT derived from the server: the
 // DuckDB backend (docs/design/duckdb-storage.md) has no per-signal caps —
@@ -47,6 +48,11 @@ export const wsStatusAtom = atom<WsStatus>("disconnected");
 export const tracesAtom = atom<TraceData[]>([]);
 export const metricsAtom = atom<MetricData[]>([]);
 export const logsAtom = atom<LogData[]>([]);
+// The window represented by the current server-backed list. It advances only
+// when a replacement request succeeds, so selecting another window does not
+// hide the previous result while its request is still in flight.
+export const traceListWindowAtom = atom<EventTimeWindow>(DEFAULT_EVENT_TIME_WINDOW);
+export const logListWindowAtom = atom<EventTimeWindow>(DEFAULT_EVENT_TIME_WINDOW);
 
 // mergeSpans unions two span lists by their stable spanId, keeping the first
 // occurrence. Used both by addTraceAtom (a WS trace delivery always carries
@@ -334,9 +340,8 @@ export const navigateToLogsAtom = atom(null, (_get, set, traceId: string) => {
 });
 
 // The ids the server returned for the traces/logs tab's CURRENT paginated
-// fetch session — every id from page 1 plus each "Load more" page (issue
-// #161). setTracePageAtom/setLogPageAtom REPLACE the set (page 1 of a new
-// (range, search) fetch key starts a fresh session, so ids matched under a
+// fetch session — every id from the replacement page plus each "Load more"
+// page (issue #161). Replacing the page starts a fresh session, so ids matched under a
 // previous search never linger); appendTracesAtom/appendLogsAtom union into
 // it. filters.ts's search display-filter treats membership as "the server
 // already vouched this row matches the active search" and only applies its
@@ -354,9 +359,16 @@ export const setMetricsAtom = atom(null, (_get, set, metrics: MetricData[]) => {
 // list session (traces/logs), mirroring createSelectionAtom's factory idiom.
 // Every page write updates its companion serverMatched*IdsAtom in the same
 // transaction so list contents and server-vouched IDs cannot drift apart.
-function createListSessionAtoms<T>(
+interface ReplacementPage<T> {
+  items: T[];
+  idsBeforeRequest: ReadonlySet<string>;
+  window: EventTimeWindow;
+}
+
+function createPaginatedListAtoms<T>(
   listAtom: PrimitiveAtom<T[]>,
   matchedIdsAtom: PrimitiveAtom<ReadonlySet<string>>,
+  listWindowAtom: PrimitiveAtom<EventTimeWindow>,
   getId: (item: T) => string,
   getCap: (caps: BufferCaps) => number,
 ) {
@@ -365,22 +377,19 @@ function createListSessionAtoms<T>(
     set(matchedIdsAtom, new Set(items.map(getId)));
   });
 
-  // Page 1 replaces the server-backed session while preserving rows delivered
+  // A new request session replaces the server-backed rows while preserving rows delivered
   // live after its request started. A live row also wins an ID collision
   // because it may carry richer data than the paginated summary.
-  const setPage = atom(
+  const replacePage = atom(
     null,
-    (
-      get,
-      set,
-      { items, idsAtRequestStart }: { items: T[]; idsAtRequestStart: ReadonlySet<string> },
-    ) => {
-      const liveItems = get(listAtom).filter((item) => !idsAtRequestStart.has(getId(item)));
+    (get, set, { items, idsBeforeRequest, window }: ReplacementPage<T>) => {
+      const liveItems = get(listAtom).filter((item) => !idsBeforeRequest.has(getId(item)));
       const liveIds = new Set(liveItems.map(getId));
       const merged = [...liveItems, ...items.filter((item) => !liveIds.has(getId(item)))];
       const cap = getCap(get(bufferCapsAtom));
       set(listAtom, merged.length > cap ? merged.slice(0, cap) : merged);
       set(matchedIdsAtom, new Set(items.map(getId)));
+      set(listWindowAtom, window);
     },
   );
 
@@ -409,25 +418,27 @@ function createListSessionAtoms<T>(
     set(listAtom, merged.length > cap ? merged.slice(0, cap) : merged);
   });
 
-  return { set, setPage, append };
+  return { set, replacePage, append };
 }
 
-const traceListSession = createListSessionAtoms(
+const traceList = createPaginatedListAtoms(
   tracesAtom,
   serverMatchedTraceIdsAtom,
+  traceListWindowAtom,
   (t: TraceData) => t.traceId,
   (caps) => caps.traceCap,
 );
-export const setTracesAtom = traceListSession.set;
-export const setTracePageAtom = traceListSession.setPage;
-export const appendTracesAtom = traceListSession.append;
+export const setTracesAtom = traceList.set;
+export const replaceTracePageAtom = traceList.replacePage;
+export const appendTracesAtom = traceList.append;
 
-const logListSession = createListSessionAtoms(
+const logList = createPaginatedListAtoms(
   logsAtom,
   serverMatchedLogIdsAtom,
+  logListWindowAtom,
   (l: LogData) => l.id,
   (caps) => caps.logCap,
 );
-export const setLogsAtom = logListSession.set;
-export const setLogPageAtom = logListSession.setPage;
-export const appendLogsAtom = logListSession.append;
+export const setLogsAtom = logList.set;
+export const replaceLogPageAtom = logList.replacePage;
+export const appendLogsAtom = logList.append;

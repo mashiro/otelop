@@ -5,6 +5,7 @@ import {
   activeTabAtom,
   applyLocationAtom,
   buildPath,
+  eventTimeWindowAtom,
   parsePath,
   selectedLogIdAtom,
   selectedLogRangeAtom,
@@ -694,6 +695,38 @@ describe("selectedTraceRangeAtom (write-through)", () => {
     store.set(selectedTraceRangeAtom, "6h");
     store.set(selectedTraceRangeAtom, DEFAULT_CHART_TIME_RANGE);
     expect(window.location.pathname + window.location.search).toBe("/traces");
+  });
+});
+
+describe("eventTimeWindowAtom", () => {
+  beforeEach(() => {
+    window.history.replaceState(null, "", "/traces");
+  });
+
+  it("shares a live range across traces and logs", () => {
+    const store = createStore();
+    store.set(selectedTraceRangeAtom, "6h");
+    store.set(activeTabAtom, "logs");
+    expect(store.get(selectedLogRangeAtom)).toBe("6h");
+    expect(window.location.pathname + window.location.search).toBe("/logs?range=6h");
+  });
+
+  it("serializes and restores a fixed window", () => {
+    const store = createStore();
+    store.set(eventTimeWindowAtom, {
+      mode: "fixed",
+      from: "2026-07-12T01:00:00Z",
+      to: "2026-07-12T02:00:00Z",
+    });
+    expect(window.location.search).toContain("from=2026-07-12T01%3A00%3A00Z");
+    expect(window.location.search).toContain("to=2026-07-12T02%3A00%3A00Z");
+
+    store.set(applyLocationAtom, window.location.pathname + window.location.search);
+    expect(store.get(eventTimeWindowAtom)).toEqual({
+      mode: "fixed",
+      from: "2026-07-12T01:00:00Z",
+      to: "2026-07-12T02:00:00Z",
+    });
   });
 });
 

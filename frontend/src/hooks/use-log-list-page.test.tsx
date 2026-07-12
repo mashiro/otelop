@@ -27,10 +27,13 @@ function renderWithStore(range: ChartTimeRange, search = "") {
   const wrapper = ({ children }: { children: ReactNode }) => (
     <Provider store={store}>{children}</Provider>
   );
-  const view = renderHook(({ range: r, search: s }) => useLogListPage(r, s), {
-    wrapper,
-    initialProps: { range, search },
-  });
+  const view = renderHook(
+    ({ range: r, search: s }) => useLogListPage({ mode: "live", range: r }, s),
+    {
+      wrapper,
+      initialProps: { range, search },
+    },
+  );
   return { store, ...view };
 }
 

@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Temporal } from "temporal-polyfill";
-import { rangeToFrom, type ChartTimeRange } from "@/lib/chart-time-range";
+import { eventWindowBounds, eventWindowKey, type EventTimeWindow } from "@/lib/event-time-window";
 
 // Page size for the traces/logs tabs' server-side pagination (issue #160).
 // Small enough that the initial page load stays cheap even against 7d of
@@ -46,19 +45,25 @@ interface PagingSession {
 }
 
 interface SignalListPageOptions<T> {
-  range: ChartTimeRange;
+  window: EventTimeWindow;
   search: string;
   fetchPage: (args: FetchPageArgs) => Promise<FetchPageResult<T>>;
   getCurrentIds: () => ReadonlySet<string>;
-  onPage1: (items: T[], idsAtRequestStart: ReadonlySet<string>) => void;
+  replacePage: (page: ReplacementPage<T>) => void;
   onAppend: (items: T[]) => void;
+}
+
+export interface ReplacementPage<T> {
+  items: T[];
+  idsBeforeRequest: ReadonlySet<string>;
+  window: EventTimeWindow;
 }
 
 // Shared pagination core for the traces/logs list tabs
 // (hooks/use-trace-list-page.ts, hooks/use-log-list-page.ts): fetches the
 // newest SIGNAL_PAGE_SIZE-row page within `range` (and, since issue #161,
 // matching `search`) on mount and whenever either changes (replacing via
-// onPage1), then pages further into the past via `fetchPage`'s offset on
+// replacePage), then pages further into the past via `fetchPage`'s offset on
 // "Load more" (appending via onAppend). `from`/`to`/`search` are captured once
 // per range-or-search change (not recomputed on "Load more") so offsets stay
 // consistent across the whole paging session for that combination — a
@@ -71,26 +76,28 @@ interface SignalListPageOptions<T> {
 // the keep-previous-data style used elsewhere (see
 // hooks/use-metric-range-points.ts).
 export function useSignalListPage<T>({
-  range,
+  window,
   search,
   fetchPage,
   getCurrentIds,
-  onPage1,
+  replacePage,
   onAppend,
 }: SignalListPageOptions<T>): SignalListPage {
   const [state, setState] = useState({ total: 0, loaded: 0, loadingMore: false });
   const sessionRef = useRef<PagingSession | null>(null);
+  const windowKey = eventWindowKey(window);
 
   useEffect(() => {
     let ignore = false;
+    const bounds = eventWindowBounds(window);
     const session: PagingSession = {
-      from: rangeToFrom(range),
-      to: Temporal.Now.instant().toString(),
+      from: bounds.from,
+      to: bounds.to,
       search,
       offset: 0,
     };
     sessionRef.current = session;
-    const idsAtRequestStart = getCurrentIds();
+    const idsBeforeRequest = getCurrentIds();
 
     const load = async () => {
       try {
@@ -102,7 +109,7 @@ export function useSignalListPage<T>({
           search: session.search,
         });
         if (ignore) return;
-        onPage1(items, idsAtRequestStart);
+        replacePage({ items, idsBeforeRequest, window });
         session.offset = items.length;
         setState({ total, loaded: items.length, loadingMore: false });
       } catch {
@@ -115,11 +122,10 @@ export function useSignalListPage<T>({
     return () => {
       ignore = true;
     };
-    // fetchPage/onPage1/onAppend must be reference-stable across renders
-    // (callers wrap fetchPage in useCallback([]); onPage1/onAppend are jotai
-    // setters, already stable) so this effect only reruns on a genuine
-    // range or search change, not on every render.
-  }, [range, search, fetchPage, getCurrentIds, onPage1]);
+    // fetchPage/replacePage/onAppend must be reference-stable across renders
+    // (callers wrap them in useCallback or use Jotai setters) so this effect
+    // only reruns on a genuine window or search change, not on every render.
+  }, [windowKey, search, fetchPage, getCurrentIds, replacePage]);
 
   const loadMore = useCallback(() => {
     const session = sessionRef.current;

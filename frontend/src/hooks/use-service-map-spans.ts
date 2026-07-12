@@ -3,12 +3,12 @@ import { useSetAtom } from "jotai";
 import { graphql } from "@/gql";
 import { gqlClient } from "@/lib/graphql";
 import { mergeManyTraceSpansAtom } from "@/stores/telemetry";
-import { rangeToFrom, type ChartTimeRange } from "@/lib/chart-time-range";
+import { eventWindowBounds, eventWindowKey, type EventTimeWindow } from "@/lib/event-time-window";
 import { toSpan } from "@/lib/span-mapping";
 
 const ServiceMapSpansQuery = graphql(`
-  query ServiceMapSpans($from: Time) {
-    traces(limit: 0, from: $from) {
+  query ServiceMapSpans($from: Time, $to: Time!) {
+    traces(limit: 0, from: $from, to: $to) {
       items {
         traceId
         spans {
@@ -33,8 +33,9 @@ const ServiceMapSpansQuery = graphql(`
 // legitimately heavy one-off fetch, not a free one; scoping it to the
 // trace tab's selected range (issue #160) at least keeps a 1h-windowed map
 // from pulling the whole retention window's worth of traces.
-export function useServiceMapSpans(active: boolean, range: ChartTimeRange): void {
+export function useServiceMapSpans(active: boolean, window: EventTimeWindow): void {
   const mergeSpans = useSetAtom(mergeManyTraceSpansAtom);
+  const windowKey = eventWindowKey(window);
   // Tracks the range this was last successfully fetched for (not just a
   // boolean) — set only once the fetch actually succeeds (not at dispatch
   // time) so StrictMode's mount->cleanup->mount cycle can't strand this
@@ -43,15 +44,15 @@ export function useServiceMapSpans(active: boolean, range: ChartTimeRange): void
   // uncancelled attempt that would have actually merged the data — see the
   // identical reasoning in use-trace-spans.ts. A range change invalidates
   // the guard so reopening the map with a wider/narrower window refetches.
-  const fetchedForRangeRef = useRef<ChartTimeRange | null>(null);
+  const fetchedForRangeRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!active || fetchedForRangeRef.current === range) return;
+    if (!active || fetchedForRangeRef.current === windowKey) return;
     let ignore = false;
-    const from = rangeToFrom(range);
+    const { from, to } = eventWindowBounds(window);
     const load = async () => {
       try {
-        const data = await gqlClient.request(ServiceMapSpansQuery, { from });
+        const data = await gqlClient.request(ServiceMapSpansQuery, { from, to });
         if (ignore) return;
         mergeSpans(
           data.traces.items.map((t) => ({
@@ -59,7 +60,7 @@ export function useServiceMapSpans(active: boolean, range: ChartTimeRange): void
             spans: t.spans.map(toSpan),
           })),
         );
-        fetchedForRangeRef.current = range;
+        fetchedForRangeRef.current = windowKey;
       } catch {
         // Leave the guard unset; the next activation retries.
       }
@@ -69,5 +70,5 @@ export function useServiceMapSpans(active: boolean, range: ChartTimeRange): void
     return () => {
       ignore = true;
     };
-  }, [active, range, mergeSpans]);
+  }, [active, windowKey, mergeSpans]);
 }

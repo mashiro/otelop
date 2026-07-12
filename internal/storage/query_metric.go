@@ -118,6 +118,12 @@ WITH filtered AS (
 	FROM metric_series s
 	JOIN resources r ON r.resource_hash = s.resource_hash
 	WHERE s.first_seen < ? AND s.last_seen >= ?
+	AND (
+		s.metric_name ILIKE ? ESCAPE '\' OR
+		s.service_name ILIKE ? ESCAPE '\' OR
+		s.metric_type ILIKE ? ESCAPE '\' OR
+		s.description ILIKE ? ESCAPE '\'
+	)
 )
 SELECT
 	service_name,
@@ -145,6 +151,12 @@ const metricsTotalQuery = `
 SELECT count(*) FROM (
 	SELECT 1 FROM metric_series
 	WHERE first_seen < ? AND last_seen >= ?
+	AND (
+		metric_name ILIKE ? ESCAPE '\' OR
+		service_name ILIKE ? ESCAPE '\' OR
+		metric_type ILIKE ? ESCAPE '\' OR
+		description ILIKE ? ESCAPE '\'
+	)
 	GROUP BY service_name, metric_name
 )
 `
@@ -156,7 +168,14 @@ SELECT count(*) FROM (
 // the matching set, that column has nothing to report, so a separate
 // metricsTotalQuery run recovers it (see queryCount).
 func (s *Storage) MetricsPage(ctx context.Context, from, to time.Time, offset, limit int) ([]MetricSummary, int, error) {
-	rows, err := s.DB().QueryContext(ctx, metricsPageQuery, to, from, pageLimit(limit), offset)
+	return s.MetricsPageSearch(ctx, from, to, offset, limit, "")
+}
+
+// MetricsPageSearch is MetricsPage with a case-insensitive substring search
+// over the fields rendered by the metrics list.
+func (s *Storage) MetricsPageSearch(ctx context.Context, from, to time.Time, offset, limit int, search string) ([]MetricSummary, int, error) {
+	pattern := likePattern(search)
+	rows, err := s.DB().QueryContext(ctx, metricsPageQuery, to, from, pattern, pattern, pattern, pattern, pageLimit(limit), offset)
 	if err != nil {
 		return nil, 0, fmt.Errorf("storage: query metrics page: %w", err)
 	}
@@ -188,7 +207,7 @@ func (s *Storage) MetricsPage(ctx context.Context, from, to time.Time, offset, l
 	}
 
 	if len(items) == 0 && offset > 0 {
-		total, err = s.queryCount(ctx, metricsTotalQuery, to, from)
+		total, err = s.queryCount(ctx, metricsTotalQuery, to, from, pattern, pattern, pattern, pattern)
 		if err != nil {
 			return nil, 0, fmt.Errorf("storage: count metrics page: %w", err)
 		}

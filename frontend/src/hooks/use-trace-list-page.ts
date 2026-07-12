@@ -3,11 +3,16 @@ import { useSetAtom, useStore } from "jotai";
 import { graphql } from "@/gql";
 import type { TracesPageQuery as TracesPageQueryType } from "@/gql/graphql";
 import { gqlClient } from "@/lib/graphql";
-import { setTracePageAtom, appendTracesAtom, tracesAtom } from "@/stores/telemetry";
-import type { ChartTimeRange } from "@/lib/chart-time-range";
+import { replaceTracePageAtom, appendTracesAtom, tracesAtom } from "@/stores/telemetry";
+import type { EventTimeWindow } from "@/lib/event-time-window";
 import type { TraceData, SpanStatus } from "@/types/telemetry";
 import { MS_TO_NS } from "@/lib/span-mapping";
-import { useSignalListPage, type FetchPageArgs, type SignalListPage } from "./use-signal-list-page";
+import {
+  useSignalListPage,
+  type FetchPageArgs,
+  type ReplacementPage,
+  type SignalListPage,
+} from "./use-signal-list-page";
 
 // Same summary-only field selection as use-initial-load.ts's old traces
 // query (no `spans` — see that file's N+1 comment); this query replaces it
@@ -63,8 +68,8 @@ function toTraceData({
 // components/traces/trace-list.tsx; base-ui's Tabs unmounts an inactive
 // tab's panel (see App.tsx), so switching tabs and back naturally resets
 // pagination the same way a range change does.
-export function useTraceListPage(range: ChartTimeRange, search: string): SignalListPage {
-  const setTracePage = useSetAtom(setTracePageAtom);
+export function useTraceListPage(window: EventTimeWindow, search: string): SignalListPage {
+  const replaceTracePage = useSetAtom(replaceTracePageAtom);
   const appendTraces = useSetAtom(appendTracesAtom);
   const store = useStore();
 
@@ -77,17 +82,16 @@ export function useTraceListPage(range: ChartTimeRange, search: string): SignalL
     [store],
   );
   const replacePage = useCallback(
-    (items: TraceData[], idsAtRequestStart: ReadonlySet<string>) =>
-      setTracePage({ items, idsAtRequestStart }),
-    [setTracePage],
+    (page: ReplacementPage<TraceData>) => replaceTracePage(page),
+    [replaceTracePage],
   );
 
   return useSignalListPage({
-    range,
+    window,
     search,
     fetchPage,
     getCurrentIds,
-    onPage1: replacePage,
+    replacePage,
     onAppend: appendTraces,
   });
 }

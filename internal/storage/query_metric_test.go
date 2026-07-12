@@ -594,3 +594,21 @@ func TestMetricsPage_EmptyPageWithOffsetStillReportsTotal(t *testing.T) {
 		t.Fatalf("total = %d, want 3 (offset-past-end fallback must still report the true total)", total)
 	}
 }
+
+func TestMetricsPageSearch_FiltersRenderedFields(t *testing.T) {
+	s := openTestStorage(t, Options{})
+	ctx := context.Background()
+	now := time.Now()
+
+	s.AddMetrics(ctx, buildCumulativeSum("http.requests", "frontend", 1, now))
+	s.AddMetrics(ctx, buildCumulativeSum("queue.depth", "worker", 1, now))
+	s.Sync()
+
+	items, total, err := s.MetricsPageSearch(ctx, now.Add(-time.Hour), now.Add(time.Hour), 0, 0, "FRONT")
+	if err != nil {
+		t.Fatalf("MetricsPageSearch: %v", err)
+	}
+	if total != 1 || len(items) != 1 || items[0].MetricName != "http.requests" {
+		t.Fatalf("items=%+v total=%d, want frontend/http.requests only", items, total)
+	}
+}

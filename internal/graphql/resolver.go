@@ -132,11 +132,12 @@ type MetricsArgs struct {
 	Offset int32
 	From   *gql.Time
 	To     *gql.Time
+	Search *string
 }
 
 func (r *Resolver) Metrics(ctx context.Context, args MetricsArgs) (*ConnectionResolver[*MetricResolver], error) {
 	from, to := r.resolveWindow(args.From, args.To)
-	items, total, err := r.storage.MetricsPage(ctx, from, to, int(args.Offset), int(args.Limit))
+	items, total, err := r.storage.MetricsPageSearch(ctx, from, to, int(args.Offset), int(args.Limit), stringArg(args.Search))
 	if err != nil {
 		return nil, err
 	}

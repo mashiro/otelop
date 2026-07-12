@@ -31,7 +31,7 @@ type Query {
   List metrics newest-first. from/to bound the query to a time range; both
   default to the full retention window.
   """
-  metrics(limit: Int = 50, offset: Int = 0, from: Time, to: Time): MetricConnection!
+  metrics(limit: Int = 50, offset: Int = 0, from: Time, to: Time, search: String): MetricConnection!
 
   """
   List log records newest-first. If traceId is given, only logs whose TraceID

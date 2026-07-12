@@ -20,9 +20,12 @@ import { MetricDetail } from "./metric-detail";
 import { EmptyState } from "@/components/common/empty-state";
 import { Pill } from "@/components/common/pill";
 import { SIGNALS } from "@/lib/signals";
+import { useMetricListSearch } from "@/hooks/use-metric-list-search";
 
 export function MetricList() {
   const allMetrics = useAtomValue(metricsAtom);
+  const search = useAtomValue(metricSearchAtom);
+  useMetricListSearch(search);
   const filtered = useAtomValue(filteredMetricsAtom);
   const metrics = useMemo(
     () => [...filtered].sort((a, b) => a.name.localeCompare(b.name)),

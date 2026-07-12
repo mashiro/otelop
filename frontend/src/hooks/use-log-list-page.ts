@@ -2,10 +2,15 @@ import { useCallback } from "react";
 import { useSetAtom, useStore } from "jotai";
 import { graphql } from "@/gql";
 import { gqlClient } from "@/lib/graphql";
-import { setLogPageAtom, appendLogsAtom, logsAtom } from "@/stores/telemetry";
+import { replaceLogPageAtom, appendLogsAtom, logsAtom } from "@/stores/telemetry";
 import type { LogData } from "@/types/telemetry";
-import type { ChartTimeRange } from "@/lib/chart-time-range";
-import { useSignalListPage, type FetchPageArgs, type SignalListPage } from "./use-signal-list-page";
+import type { EventTimeWindow } from "@/lib/event-time-window";
+import {
+  useSignalListPage,
+  type FetchPageArgs,
+  type ReplacementPage,
+  type SignalListPage,
+} from "./use-signal-list-page";
 
 // Same field selection as use-initial-load.ts's old logs query. This query
 // replaces it as the logs tab's data source now that the list is paginated
@@ -37,8 +42,8 @@ const LogsPageQuery = graphql(`
 // components/logs/log-list.tsx; base-ui's Tabs unmounts an inactive tab's
 // panel (see App.tsx), so switching tabs and back naturally resets
 // pagination the same way a range change does.
-export function useLogListPage(range: ChartTimeRange, search: string): SignalListPage {
-  const setLogPage = useSetAtom(setLogPageAtom);
+export function useLogListPage(window: EventTimeWindow, search: string): SignalListPage {
+  const replaceLogPage = useSetAtom(replaceLogPageAtom);
   const appendLogs = useSetAtom(appendLogsAtom);
   const store = useStore();
 
@@ -51,17 +56,16 @@ export function useLogListPage(range: ChartTimeRange, search: string): SignalLis
     [store],
   );
   const replacePage = useCallback(
-    (items: LogData[], idsAtRequestStart: ReadonlySet<string>) =>
-      setLogPage({ items, idsAtRequestStart }),
-    [setLogPage],
+    (page: ReplacementPage<LogData>) => replaceLogPage(page),
+    [replaceLogPage],
   );
 
   return useSignalListPage({
-    range,
+    window,
     search,
     fetchPage,
     getCurrentIds,
-    onPage1: replacePage,
+    replacePage,
     onAppend: appendLogs,
   });
 }

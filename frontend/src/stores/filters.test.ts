@@ -9,6 +9,8 @@ import {
   setLogsAtom,
   addTraceAtom,
   addLogAtom,
+  traceListWindowAtom,
+  logListWindowAtom,
 } from "./telemetry";
 import { selectedLogRangeAtom, selectedTraceRangeAtom } from "./navigation";
 import {
@@ -26,17 +28,20 @@ describe("filteredTracesAtom", () => {
     const store = createStore();
     const traces = [makeTrace({ traceId: "a" }), makeTrace({ traceId: "b" })];
     store.set(tracesAtom, traces);
-    store.set(selectedTraceRangeAtom, "all");
+    store.set(traceListWindowAtom, { mode: "live", range: "all" });
     expect(store.get(filteredTracesAtom)).toBe(traces);
   });
 
-  it("applies the selected trace range as a live-tail display filter, anchored on the newest startTime", () => {
+  it("keeps the previous traces until the selected range finishes loading", () => {
     const store = createStore();
     store.set(tracesAtom, [
       makeTrace({ traceId: "old", startTime: "2024-01-01T00:00:00Z" }),
       makeTrace({ traceId: "new", startTime: "2024-01-01T00:20:00Z" }),
     ]);
     store.set(selectedTraceRangeAtom, "5m");
+
+    expect(store.get(filteredTracesAtom).map((t) => t.traceId)).toEqual(["old", "new"]);
+    store.set(traceListWindowAtom, { mode: "live", range: "5m" });
 
     expect(store.get(filteredTracesAtom).map((t) => t.traceId)).toEqual(["new"]);
   });
@@ -186,17 +191,20 @@ describe("filteredLogsAtom", () => {
     const store = createStore();
     const logs = [makeLog(), makeLog({ body: "other" })];
     store.set(logsAtom, logs);
-    store.set(selectedLogRangeAtom, "all");
+    store.set(logListWindowAtom, { mode: "live", range: "all" });
     expect(store.get(filteredLogsAtom)).toBe(logs);
   });
 
-  it("applies the selected log range as a live-tail display filter, anchored on the newest timestamp", () => {
+  it("keeps the previous logs until the selected range finishes loading", () => {
     const store = createStore();
     store.set(logsAtom, [
       makeLog({ id: "old", timestamp: "2024-01-01T00:00:00Z" }),
       makeLog({ id: "new", timestamp: "2024-01-01T00:20:00Z" }),
     ]);
     store.set(selectedLogRangeAtom, "5m");
+
+    expect(store.get(filteredLogsAtom).map((l) => l.id)).toEqual(["old", "new"]);
+    store.set(logListWindowAtom, { mode: "live", range: "5m" });
 
     expect(store.get(filteredLogsAtom).map((l) => l.id)).toEqual(["new"]);
   });

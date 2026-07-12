@@ -29,10 +29,13 @@ function renderWithStore(
   const wrapper = ({ children }: { children: ReactNode }) => (
     <Provider store={store}>{children}</Provider>
   );
-  const view = renderHook(({ active, range }) => useServiceMapSpans(active, range), {
-    wrapper,
-    initialProps: { active: initialActive, range: initialRange },
-  });
+  const view = renderHook(
+    ({ active, range }) => useServiceMapSpans(active, { mode: "live", range }),
+    {
+      wrapper,
+      initialProps: { active: initialActive, range: initialRange },
+    },
+  );
   return { store, ...view };
 }
 
@@ -58,7 +61,10 @@ describe("useServiceMapSpans", () => {
     requestMock.mockClear();
     renderWithStore(true, [makeTrace({ traceId: "t2", spans: [] })], "all");
     await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(1));
-    expect(requestMock.mock.calls[0]?.[1]).toEqual({ from: undefined });
+    expect(requestMock.mock.calls[0]?.[1]?.from).toBeUndefined();
+    const to = requestMock.mock.calls[0]?.[1]?.to;
+    expect(to).toBeDefined();
+    expect(Temporal.Instant.from(to as string)).toBeDefined();
   });
 
   it("refetches when the range changes while active", async () => {

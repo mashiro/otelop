@@ -2,11 +2,13 @@ import { atom } from "jotai";
 import type { Getter, PrimitiveAtom } from "jotai";
 import { useSetAtom } from "jotai";
 import { useEffect } from "react";
+import { Temporal } from "temporal-polyfill";
 import { SIGNALS } from "@/lib/signals";
 import type { SignalKey } from "@/lib/signals";
 import type { MetricData } from "@/types/telemetry";
 import { DEFAULT_CHART_TIME_RANGE, isChartTimeRange } from "@/lib/chart-time-range";
 import type { ChartTimeRange } from "@/lib/chart-time-range";
+import { eventWindowEquals, type EventTimeWindow } from "@/lib/event-time-window";
 
 export type TabValue = SignalKey;
 
@@ -95,27 +97,58 @@ export function metricKeyEquals(a: MetricKey | null, b: MetricKey | null): boole
 
 const initialLocation = parsePath(window.location.pathname + window.location.search);
 
+function eventWindowFromLocation(location: string, fallbackRange: ChartTimeRange): EventTimeWindow {
+  const url = new URL(location, "http://otelop.invalid");
+  const from = url.searchParams.get("from");
+  const to = url.searchParams.get("to");
+  if (from && to) {
+    try {
+      const fromInstant = Temporal.Instant.from(from);
+      const toInstant = Temporal.Instant.from(to);
+      if (Temporal.Instant.compare(fromInstant, toInstant) < 0) {
+        return { mode: "fixed", from: fromInstant.toString(), to: toInstant.toString() };
+      }
+    } catch {
+      // Invalid or incomplete bounds fall back to the relative live window.
+    }
+  }
+  return { mode: "live", range: fallbackRange };
+}
+
 const currentTabAtom = atom<TabValue>(initialLocation.tab);
 
 const selectedTraceIdBaseAtom = atom<string | null>(initialLocation.traceId);
 const selectedMetricKeyBaseAtom = atom<MetricKey | null>(initialLocation.metricKey);
 const selectedLogIdBaseAtom = atom<string | null>(initialLocation.logId);
 const selectedMetricRangeBaseAtom = atom<ChartTimeRange>(initialLocation.metricRange);
-const selectedTraceRangeBaseAtom = atom<ChartTimeRange>(initialLocation.traceRange);
-const selectedLogRangeBaseAtom = atom<ChartTimeRange>(initialLocation.logRange);
+const initialEventRange =
+  initialLocation.tab === "logs" ? initialLocation.logRange : initialLocation.traceRange;
+const selectedEventRangeBaseAtom = atom<ChartTimeRange>(initialEventRange);
+const eventTimeWindowBaseAtom = atom<EventTimeWindow>(
+  eventWindowFromLocation(window.location.pathname + window.location.search, initialEventRange),
+);
 
 // Shared by every public writer so the URL always reflects the current
 // tab + selection as a single pushState, and unchanged state never pushes.
 function syncLocation(get: Getter): void {
-  const path = buildPath({
+  let path = buildPath({
     tab: get(currentTabAtom),
     traceId: get(selectedTraceIdBaseAtom),
     metricKey: get(selectedMetricKeyBaseAtom),
     logId: get(selectedLogIdBaseAtom),
     metricRange: get(selectedMetricRangeBaseAtom),
-    traceRange: get(selectedTraceRangeBaseAtom),
-    logRange: get(selectedLogRangeBaseAtom),
+    traceRange: get(selectedEventRangeBaseAtom),
+    logRange: get(selectedEventRangeBaseAtom),
   });
+  const tab = get(currentTabAtom);
+  const eventWindow = get(eventTimeWindowBaseAtom);
+  if ((tab === "traces" || tab === "logs") && eventWindow.mode === "fixed") {
+    const url = new URL(path, "http://otelop.invalid");
+    url.searchParams.delete("range");
+    url.searchParams.set("from", eventWindow.from);
+    url.searchParams.set("to", eventWindow.to);
+    path = url.pathname + url.search;
+  }
   if (window.location.pathname + window.location.search !== path) {
     window.history.pushState(null, "", path);
   }
@@ -161,9 +194,31 @@ export const selectedMetricRangeAtom = createSyncedAtom(selectedMetricRangeBaseA
 // view (hooks/use-trace-list-page.ts, hooks/use-log-list-page.ts) rather
 // than a detail selection, so they round-trip through the URL regardless of
 // whether a trace/log is currently selected — see buildPath.
-export const selectedTraceRangeAtom = createSyncedAtom(selectedTraceRangeBaseAtom);
+const selectedEventRangeAtom = atom(
+  (get) => get(selectedEventRangeBaseAtom),
+  (get, set, value: ChartTimeRange) => {
+    if (get(selectedEventRangeBaseAtom) === value && get(eventTimeWindowBaseAtom).mode === "live") {
+      return;
+    }
+    set(selectedEventRangeBaseAtom, value);
+    set(eventTimeWindowBaseAtom, { mode: "live", range: value });
+    syncLocation(get);
+  },
+);
 
-export const selectedLogRangeAtom = createSyncedAtom(selectedLogRangeBaseAtom);
+export const selectedTraceRangeAtom = selectedEventRangeAtom;
+
+export const selectedLogRangeAtom = selectedEventRangeAtom;
+
+export const eventTimeWindowAtom = atom(
+  (get) => get(eventTimeWindowBaseAtom),
+  (get, set, value: EventTimeWindow) => {
+    if (eventWindowEquals(get(eventTimeWindowBaseAtom), value)) return;
+    set(eventTimeWindowBaseAtom, value);
+    if (value.mode === "live") set(selectedEventRangeBaseAtom, value.range);
+    syncLocation(get);
+  },
+);
 
 // The tab/selection combo is mirrored to the URL so a reload (or shared link)
 // restores the same screen even though the telemetry data itself is volatile.
@@ -179,7 +234,8 @@ export const applyLocationAtom = atom(null, (_get, set, location: string) => {
   set(currentTabAtom, parsed.tab);
   if (parsed.tab === "traces") {
     set(selectedTraceIdBaseAtom, parsed.traceId);
-    set(selectedTraceRangeBaseAtom, parsed.traceRange);
+    set(selectedEventRangeBaseAtom, parsed.traceRange);
+    set(eventTimeWindowBaseAtom, eventWindowFromLocation(location, parsed.traceRange));
   }
   if (parsed.tab === "metrics") {
     set(selectedMetricKeyBaseAtom, parsed.metricKey);
@@ -187,7 +243,8 @@ export const applyLocationAtom = atom(null, (_get, set, location: string) => {
   }
   if (parsed.tab === "logs") {
     set(selectedLogIdBaseAtom, parsed.logId);
-    set(selectedLogRangeBaseAtom, parsed.logRange);
+    set(selectedEventRangeBaseAtom, parsed.logRange);
+    set(eventTimeWindowBaseAtom, eventWindowFromLocation(location, parsed.logRange));
   }
 });
 

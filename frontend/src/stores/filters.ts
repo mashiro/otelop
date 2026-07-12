@@ -1,7 +1,8 @@
 import { atom } from "jotai";
 import type { Atom, PrimitiveAtom } from "jotai";
+import { Temporal } from "temporal-polyfill";
 import { filterDataPointsInRange } from "@/lib/chart-time-range";
-import { selectedLogRangeAtom, selectedTraceRangeAtom } from "./navigation";
+import { eventWindowBounds } from "@/lib/event-time-window";
 import {
   tracesAtom,
   metricsAtom,
@@ -9,6 +10,8 @@ import {
   logTraceFilterAtom,
   serverMatchedTraceIdsAtom,
   serverMatchedLogIdsAtom,
+  traceListWindowAtom,
+  logListWindowAtom,
 } from "./telemetry";
 import type { TraceData, MetricData, LogData } from "@/types/telemetry";
 
@@ -70,9 +73,22 @@ export const traceSearchAtom = atom("");
 // mirrors the metric chart's rolling window (see metric-detail.tsx's
 // windowedDataPoints) and keeps re-deriving the true visible window as new
 // data arrives.
-const rangeFilteredTracesAtom = atom((get) =>
-  filterDataPointsInRange(get(tracesAtom), get(selectedTraceRangeAtom), (t) => t.startTime),
-);
+function inEventWindow(timestamp: string, from: string | undefined, to: string): boolean {
+  const instant = Temporal.Instant.from(timestamp);
+  return (
+    (!from || Temporal.Instant.compare(instant, Temporal.Instant.from(from)) >= 0) &&
+    Temporal.Instant.compare(instant, Temporal.Instant.from(to)) < 0
+  );
+}
+
+const rangeFilteredTracesAtom = atom((get) => {
+  const window = get(traceListWindowAtom);
+  if (window.mode === "live") {
+    return filterDataPointsInRange(get(tracesAtom), window.range, (trace) => trace.startTime);
+  }
+  const { from, to } = eventWindowBounds(window);
+  return get(tracesAtom).filter((trace) => inEventWindow(trace.startTime, from, to));
+});
 
 // The client-side predicate (live WS rows only — see
 // createServerBackedSearchAtom) mirrors the server's TracesPage search
@@ -99,9 +115,12 @@ export const filteredTracesAtom = createServerBackedSearchAtom(
 export const logSearchAtom = atom("");
 
 // See rangeFilteredTracesAtom above — same live-tail rolling-window rationale.
-const rangeFilteredLogsAtom = atom((get) =>
-  filterDataPointsInRange(get(logsAtom), get(selectedLogRangeAtom)),
-);
+const rangeFilteredLogsAtom = atom((get) => {
+  const window = get(logListWindowAtom);
+  if (window.mode === "live") return filterDataPointsInRange(get(logsAtom), window.range);
+  const { from, to } = eventWindowBounds(window);
+  return get(logsAtom).filter((log) => inEventWindow(log.timestamp, from, to));
+});
 
 // The client-side predicate (live WS rows only) mirrors the server's
 // LogsPage search (query_log.go): body, service name, severity text, trace ID.
