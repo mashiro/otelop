@@ -211,7 +211,7 @@ type Storage struct {
 	// TraceByID calls — see internal/graphql/trace_resolver_test.go) stays
 	// fixed, without needing a mock storage layer.
 	traceByIDCalls atomic.Int64
-	queryTelemetry atomic.Pointer[queryTelemetry]
+	telemetry      atomic.Pointer[storageTelemetry]
 }
 
 // Open creates or opens a DuckDB database at opts.Path (or an in-memory
@@ -317,6 +317,7 @@ func (s *Storage) enqueue(msg writerMsg, what string) {
 	select {
 	case s.queue <- msg:
 	default:
+		s.recordQueueDrop(context.Background(), "write", what)
 		slog.Warn("storage: write queue full, dropping batch", "signal", what)
 	}
 }
@@ -480,6 +481,7 @@ func (s *Storage) dispatchCommit(ev CommitEvent) {
 	select {
 	case s.commitCh <- commitJob{ev: ev}:
 	default:
+		s.recordQueueDrop(context.Background(), "commit", signalKindName(ev.Kind))
 		slog.Warn("storage: commit event queue full, dropping broadcast", "kind", ev.Kind)
 	}
 }
@@ -498,7 +500,9 @@ func (s *Storage) runCommits() {
 			close(job.barrier)
 			continue
 		}
+		started := time.Now()
 		s.opts.OnCommit(ctx, job.ev)
+		s.recordCommit(ctx, signalKindName(job.ev.Kind), started)
 	}
 }
 
@@ -523,6 +527,10 @@ func (s *Storage) sweepLoop() {
 // writeTraces upserts the batch's resource rows, drops spans already seen
 // via spanDedup, and appends the rest.
 func (s *Storage) writeTraces(ctx context.Context, batch TraceBatch) {
+	started := time.Now()
+	var written int64
+	defer func() { s.recordWrite(ctx, "traces", started, written) }()
+
 	if err := s.upsertResources(ctx, batch.Resources); err != nil {
 		slog.Error("storage: upsert resources failed", "error", err)
 		return
@@ -573,12 +581,17 @@ func (s *Storage) writeTraces(ctx context.Context, batch TraceBatch) {
 		slog.Error("storage: append spans failed", "error", err)
 		return
 	}
+	written = int64(len(kept))
 	s.dispatchCommit(CommitEvent{Kind: KindTraces, Traces: TraceBatch{Spans: kept}})
 }
 
 // writeMetrics upserts the batch's resource rows and series metadata, then
 // appends every point.
 func (s *Storage) writeMetrics(ctx context.Context, batch MetricBatch) {
+	started := time.Now()
+	var written int64
+	defer func() { s.recordWrite(ctx, "metrics", started, written) }()
+
 	if err := s.upsertResources(ctx, batch.Resources); err != nil {
 		slog.Error("storage: upsert resources failed", "error", err)
 		return
@@ -619,11 +632,16 @@ func (s *Storage) writeMetrics(ctx context.Context, batch MetricBatch) {
 		slog.Error("storage: append metric points failed", "error", err)
 		return
 	}
+	written = int64(len(batch.Points))
 	s.dispatchCommit(CommitEvent{Kind: KindMetrics, Metrics: batch})
 }
 
 // writeLogs upserts the batch's resource rows, then appends every log.
 func (s *Storage) writeLogs(ctx context.Context, batch LogBatch) {
+	started := time.Now()
+	var written int64
+	defer func() { s.recordWrite(ctx, "logs", started, written) }()
+
 	if err := s.upsertResources(ctx, batch.Resources); err != nil {
 		slog.Error("storage: upsert resources failed", "error", err)
 		return
@@ -663,7 +681,21 @@ func (s *Storage) writeLogs(ctx context.Context, batch LogBatch) {
 		slog.Error("storage: append logs failed", "error", err)
 		return
 	}
+	written = int64(len(batch.Logs))
 	s.dispatchCommit(CommitEvent{Kind: KindLogs, Logs: LogBatch{Resources: batch.Resources, Logs: batch.Logs}})
+}
+
+func signalKindName(kind SignalKind) string {
+	switch kind {
+	case KindTraces:
+		return "traces"
+	case KindMetrics:
+		return "metrics"
+	case KindLogs:
+		return "logs"
+	default:
+		return "unknown"
+	}
 }
 
 // upsertResources inserts resource dimension rows not already known to

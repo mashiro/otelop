@@ -33,6 +33,12 @@ started or restart it without the user's permission.
 ## Choose a focused query
 
 - Runtime and ingestion overview: `status` and `config`.
+- Storage performance: inspect `otelop.duckdb.query.duration`,
+  `otelop.duckdb.write.duration`, `otelop.duckdb.write.rows`,
+  `otelop.storage.commit.duration`, `otelop.storage.queue.depth`, and
+  `otelop.storage.queue.dropped`. Query metrics use the `operation` attribute;
+  write/commit metrics use `signal`; queue metrics use `queue` and, for drops,
+  `signal`.
 - Recent traces or errors: `traces` with `startTime`, `hasError`, and
   `durationMs`, followed by `trace(traceId:)` for detail.
 - Logs: `logs` with a narrow time window and `search`; traverse `trace` or
