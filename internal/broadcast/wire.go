@@ -34,12 +34,13 @@ type OnAddFunc func(ctx context.Context, signalType SignalType, data any)
 
 // TraceData represents a group of spans sharing the same trace ID.
 type TraceData struct {
-	TraceID     string      `json:"traceId"`
-	RootSpan    *SpanData   `json:"rootSpan,omitempty"`
-	Spans       []*SpanData `json:"spans"`
-	ServiceName string      `json:"serviceName"`
-	SpanCount   int         `json:"spanCount"`
-	StartTime   time.Time   `json:"startTime"`
+	TraceID      string             `json:"traceId"`
+	RootSpan     *TraceRootSpanData `json:"rootSpan,omitempty"`
+	Spans        []*SpanData        `json:"spans"`
+	ServiceName  string             `json:"serviceName"`
+	SearchValues []string           `json:"searchValues"`
+	SpanCount    int                `json:"spanCount"`
+	StartTime    time.Time          `json:"startTime"`
 	// Duration is the full trace range (max end - min start) across every span,
 	// never just the root span's duration. Codex-style traces can contain
 	// multiple parentless spans or disconnected parent/child relationships;
@@ -47,6 +48,15 @@ type TraceData struct {
 	Duration time.Duration `json:"duration"`
 	// HasError is true when any span under this trace has StatusCode=="Error".
 	HasError bool `json:"hasError"`
+}
+
+// TraceRootSpanData is the summary-only root shape needed by list rows and
+// detail headers. Full span fields are fetched lazily through GraphQL.
+type TraceRootSpanData struct {
+	Name       string        `json:"name"`
+	Kind       string        `json:"kind"`
+	StatusCode string        `json:"statusCode"`
+	Duration   time.Duration `json:"duration"`
 }
 
 // SpanData represents a single span.

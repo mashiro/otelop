@@ -147,9 +147,10 @@ describe("filteredTracesAtom", () => {
       makeTrace({
         traceId: "live-hit",
         startTime: "2024-01-01T00:02:00Z",
-        serviceName: "checkout",
-        rootSpan: makeSpan({ name: "checkout.retry" }),
-        spans: [makeSpan({ name: "checkout.retry", serviceName: "checkout" })],
+        serviceName: "billing",
+        rootSpan: makeSpan({ name: "billing.run" }),
+        spans: [],
+        searchValues: ["checkout.retry", "Error", "checkout"],
       }),
     );
 

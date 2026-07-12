@@ -122,7 +122,7 @@ func TestBroadcast_Traces_WireShapeMatchesFrontendContract(t *testing.T) {
 	trace := rec.traces[0]
 
 	keys := keySet(t, trace)
-	requireExactKeys(t, keys, "traceId", "rootSpan", "spans", "serviceName", "spanCount", "startTime", "duration", "hasError")
+	requireExactKeys(t, keys, "traceId", "rootSpan", "spans", "serviceName", "searchValues", "spanCount", "startTime", "duration", "hasError")
 
 	if trace.TraceID != pcommon.TraceID([16]byte{1}).String() {
 		t.Errorf("traceId = %v", trace.TraceID)
@@ -139,11 +139,15 @@ func TestBroadcast_Traces_WireShapeMatchesFrontendContract(t *testing.T) {
 	if trace.RootSpan == nil || trace.RootSpan.Name != "root" {
 		t.Fatalf("rootSpan = %+v, want span named root", trace.RootSpan)
 	}
-	spanKeys := keySet(t, trace.Spans[0])
-	requireExactKeys(t, spanKeys, "traceId", "spanId", "parentSpanId", "name", "kind", "serviceName",
-		"startTime", "endTime", "duration", "statusCode", "statusMessage", "attributes", "events", "resource")
-	if trace.Spans[0].Events == nil {
-		t.Fatal("empty span events must be [] rather than null on the WebSocket wire")
+	if len(trace.SearchValues) == 0 || trace.SearchValues[0] != "root" {
+		t.Errorf("searchValues = %v, want root span name", trace.SearchValues)
+	}
+	requireExactKeys(t, keySet(t, trace.RootSpan), "name", "kind", "statusCode", "duration")
+	if len(trace.Spans) != 0 {
+		t.Fatalf("WebSocket trace spans = %d, want summary-only payload", len(trace.Spans))
+	}
+	if calls := s.TraceByIDCalls(); calls != 0 {
+		t.Fatalf("TraceByID calls during broadcast = %d, want 0", calls)
 	}
 
 	// duration must marshal as a bare integer of nanoseconds (time.Duration's
@@ -154,10 +158,8 @@ func TestBroadcast_Traces_WireShapeMatchesFrontendContract(t *testing.T) {
 	if _, ok := generic["duration"].(float64); !ok {
 		t.Errorf("duration did not marshal as a JSON number: %T", generic["duration"])
 	}
-	spans := generic["spans"].([]any)
-	events := spans[0].(map[string]any)["events"]
-	if _, ok := events.([]any); !ok {
-		t.Errorf("empty span events marshaled as %T, want JSON array", events)
+	if spans, ok := generic["spans"].([]any); !ok || len(spans) != 0 {
+		t.Errorf("spans marshaled as %T (%v), want empty JSON array", generic["spans"], generic["spans"])
 	}
 }
 
@@ -248,6 +250,42 @@ func TestBroadcast_Metrics_WireShapeAndBaselineOmission(t *testing.T) {
 	}
 	if dp.ID == "" {
 		t.Errorf("id must be non-empty")
+	}
+}
+
+func TestBroadcast_Metrics_BatchesMultipleGroups(t *testing.T) {
+	rec := &captured{}
+	s := openTestStorage(t, rec)
+	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	md := pmetric.NewMetrics()
+	rm := md.ResourceMetrics().AppendEmpty()
+	rm.Resource().Attributes().PutStr("service.name", "svc")
+	sm := rm.ScopeMetrics().AppendEmpty()
+	for i, name := range []string{"cpu.usage", "memory.usage"} {
+		metric := sm.Metrics().AppendEmpty()
+		metric.SetName(name)
+		point := metric.SetEmptyGauge().DataPoints().AppendEmpty()
+		point.SetTimestamp(pcommon.NewTimestampFromTime(start.Add(time.Duration(i) * time.Millisecond)))
+		point.SetDoubleValue(float64(i + 1))
+	}
+
+	s.AddMetrics(context.Background(), md)
+	s.Sync()
+
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+	if len(rec.metrics) != 2 {
+		t.Fatalf("metrics broadcast = %d, want 2", len(rec.metrics))
+	}
+	got := map[string]float64{}
+	for _, metric := range rec.metrics {
+		if len(metric.DataPoints) != 1 {
+			t.Fatalf("%s data points = %d, want 1", metric.Name, len(metric.DataPoints))
+		}
+		got[metric.Name] = metric.DataPoints[0].Value
+	}
+	if got["cpu.usage"] != 1 || got["memory.usage"] != 2 {
+		t.Errorf("broadcast values = %v", got)
 	}
 }
 

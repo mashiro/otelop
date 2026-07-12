@@ -38,19 +38,28 @@ func New(s *storage.Storage, onAdd OnAddFunc) storage.OnCommitFunc {
 }
 
 func broadcastTraces(ctx context.Context, s *storage.Storage, batch storage.TraceBatch, onAdd OnAddFunc) {
-	for _, id := range distinctTraceIDs(batch.Spans) {
-		detail, ok, err := s.TraceByID(ctx, id)
-		if err != nil {
-			slog.Error("broadcast: trace lookup failed", "trace_id", id, "error", err)
-			continue
-		}
-		if !ok {
-			// Should not happen — the span was just appended — but a
-			// concurrent Clear/Sweep is a real (if rare) race.
-			continue
-		}
-		onAdd(ctx, SignalTraces, traceDetailToTraceData(detail))
+	ids := distinctTraceIDs(batch.Spans)
+	searchValues := traceSearchValues(batch)
+	summaries, err := s.TraceSummariesByIDs(ctx, ids)
+	if err != nil {
+		slog.Error("broadcast: trace summaries lookup failed", "trace_count", len(ids), "error", err)
+		return
 	}
+	for i := range summaries {
+		onAdd(ctx, SignalTraces, traceSummaryToTraceData(&summaries[i], searchValues[summaries[i].TraceID]))
+	}
+}
+
+func traceSearchValues(batch storage.TraceBatch) map[string][]string {
+	serviceByHash := make(map[uint64]string, len(batch.Resources))
+	for _, resource := range batch.Resources {
+		serviceByHash[resource.ResourceHash] = resource.ServiceName
+	}
+	values := make(map[string][]string)
+	for _, span := range batch.Spans {
+		values[span.TraceID] = append(values[span.TraceID], span.Name, span.StatusCode, serviceByHash[span.ResourceHash])
+	}
+	return values
 }
 
 func distinctTraceIDs(spans []storage.SpanRow) []string {
@@ -66,61 +75,27 @@ func distinctTraceIDs(spans []storage.SpanRow) []string {
 	return ids
 }
 
-func traceDetailToTraceData(d *storage.TraceDetail) *TraceData {
-	spans := make([]*SpanData, len(d.Spans))
-	for i := range d.Spans {
-		spans[i] = spanDetailToSpanData(&d.Spans[i])
-	}
-	var rootSpan *SpanData
-	if root := storage.PickRootSpan(d.Spans); root != nil {
-		rootSpan = spanDetailToSpanData(root)
-	}
-	return &TraceData{
-		TraceID:     d.TraceID,
-		RootSpan:    rootSpan,
-		Spans:       spans,
-		ServiceName: d.ServiceName,
-		SpanCount:   d.SpanCount,
-		StartTime:   d.StartTime,
-		Duration:    d.Duration,
-		HasError:    d.HasError,
-	}
-}
-
-func spanDetailToSpanData(sp *storage.SpanDetail) *SpanData {
-	return &SpanData{
-		TraceID:      sp.TraceID,
-		SpanID:       sp.SpanID,
-		ParentSpanID: sp.ParentSpanID,
-		Name:         sp.Name,
-		Kind:         sp.Kind,
-		ServiceName:  sp.ServiceName,
-		StartTime:    sp.StartTS,
-		EndTime:      sp.EndTS,
-		Duration:     sp.Duration,
-		StatusCode:   sp.StatusCode,
-		StatusMsg:    sp.StatusMessage,
-		Attributes:   sp.Attributes,
-		Events:       convertEvents(sp.Events),
-		Resource:     sp.Resource,
-	}
-}
-
-func convertEvents(events []storage.SpanEventRow) []SpanEvent {
-	if len(events) == 0 {
-		// The WebSocket contract matches GraphQL's non-null [SpanEvent!]!:
-		// encode an empty list as [] rather than nil as JSON null.
-		return []SpanEvent{}
-	}
-	out := make([]SpanEvent, len(events))
-	for i, e := range events {
-		out[i] = SpanEvent{
-			Name:       e.Name,
-			Timestamp:  e.Timestamp,
-			Attributes: e.Attributes,
+func traceSummaryToTraceData(s *storage.TraceSummary, searchValues []string) *TraceData {
+	var rootSpan *TraceRootSpanData
+	if s.HasRoot {
+		rootSpan = &TraceRootSpanData{
+			Name:       s.RootName,
+			Kind:       s.RootKind,
+			Duration:   s.RootDuration,
+			StatusCode: s.RootStatusCode,
 		}
 	}
-	return out
+	return &TraceData{
+		TraceID:      s.TraceID,
+		RootSpan:     rootSpan,
+		Spans:        []*SpanData{},
+		ServiceName:  s.ServiceName,
+		SearchValues: searchValues,
+		SpanCount:    s.SpanCount,
+		StartTime:    s.StartTime,
+		Duration:     s.Duration,
+		HasError:     s.HasError,
+	}
 }
 
 // metricKey identifies one (service, metric name) group — the granularity
@@ -175,15 +150,23 @@ func broadcastMetrics(ctx context.Context, s *storage.Storage, batch storage.Met
 	}
 
 	now := time.Now()
-	for _, k := range order {
-		sr := seriesRowFor(seriesInfo, k)
-		from := minTS[k]
-		to := maxTS[k].Add(metricLeadMargin)
-		points, err := s.MetricPointsWithPredecessors(ctx, k.service, k.name, from, to)
-		if err != nil {
-			slog.Error("broadcast: metric points lookup failed", "service", k.service, "metric", k.name, "error", err)
-			continue
+	windows := make([]storage.MetricPointWindow, len(order))
+	for i, k := range order {
+		windows[i] = storage.MetricPointWindow{
+			ServiceName: k.service,
+			MetricName:  k.name,
+			From:        minTS[k],
+			To:          maxTS[k].Add(metricLeadMargin),
 		}
+	}
+	pointsByMetric, err := s.MetricPointsWithPredecessorsBatch(ctx, windows)
+	if err != nil {
+		slog.Error("broadcast: metric points batch lookup failed", "metric_count", len(order), "error", err)
+		return
+	}
+
+	for i, k := range order {
+		sr := seriesRowFor(seriesInfo, k)
 
 		// storage.FilterDerivedPoints drops baseline observations (the first
 		// point of a cumulative series, with no predecessor for lag() to
@@ -191,7 +174,7 @@ func broadcastMetrics(ctx context.Context, s *storage.Storage, batch storage.Met
 		// broadcast these either; the newIDs membership check below then
 		// narrows that down to just this batch's newly-appended points.
 		dataPoints := make([]DataPoint, 0, len(newIDs[k]))
-		for _, p := range storage.FilterDerivedPoints(points) {
+		for _, p := range storage.FilterDerivedPoints(pointsByMetric[i]) {
 			if _, isNew := newIDs[k][uuidKey(p.ID)]; !isNew {
 				continue
 			}

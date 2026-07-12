@@ -323,6 +323,44 @@ func TestTracesPage_OrderingNewestTraceStartFirst(t *testing.T) {
 	}
 }
 
+func TestTraceSummariesByIDs_BatchesAndIgnoresMissingIDs(t *testing.T) {
+	s := openTestStorage(t, Options{})
+	ctx := context.Background()
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	firstID := pcommon.TraceID([16]byte{20}).String()
+	secondID := pcommon.TraceID([16]byte{21}).String()
+	s.AddTraces(ctx, buildTracesMulti(
+		spanSpec{traceID: [16]byte{20}, spanID: [8]byte{1}, name: "first-root", start: base, end: base.Add(5 * time.Millisecond), service: "first"},
+		spanSpec{traceID: [16]byte{20}, spanID: [8]byte{2}, parentID: [8]byte{1}, name: "first-child", start: base.Add(time.Millisecond), end: base.Add(8 * time.Millisecond), isError: true, service: "first"},
+		spanSpec{traceID: [16]byte{21}, spanID: [8]byte{3}, name: "second-root", start: base.Add(time.Second), end: base.Add(time.Second + 3*time.Millisecond), service: "second"},
+	))
+	s.Sync()
+
+	items, err := s.TraceSummariesByIDs(ctx, []string{firstID, "missing", secondID})
+	if err != nil {
+		t.Fatalf("TraceSummariesByIDs: %v", err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("summaries = %d, want 2", len(items))
+	}
+	byID := make(map[string]TraceSummary, len(items))
+	for _, item := range items {
+		byID[item.TraceID] = item
+	}
+	first := byID[firstID]
+	if first.SpanCount != 2 || !first.HasError || first.RootName != "first-root" || first.ServiceName != "first" {
+		t.Errorf("first summary = %+v", first)
+	}
+	if first.Duration != 8*time.Millisecond {
+		t.Errorf("first duration = %v, want 8ms", first.Duration)
+	}
+	second := byID[secondID]
+	if second.SpanCount != 1 || second.RootName != "second-root" || second.ServiceName != "second" {
+		t.Errorf("second summary = %+v", second)
+	}
+}
+
 func TestTraceByID_ReturnsAllSpansAndMatchesSummary(t *testing.T) {
 	s := openTestStorage(t, Options{})
 	ctx := context.Background()

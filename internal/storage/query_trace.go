@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -235,6 +236,120 @@ func (s *Storage) TracesPage(ctx context.Context, from, to time.Time, offset, li
 		items = items[:limit]
 	}
 	return items, hasNextPage, nil
+}
+
+const traceSummariesByIDsQuery = `
+WITH requested(trace_id) AS (VALUES %s),
+deduped AS (
+	SELECT s.*
+	FROM spans s
+	JOIN requested r USING (trace_id)
+	QUALIFY row_number() OVER (PARTITION BY s.trace_id, s.span_id ORDER BY s.ingested_at) = 1
+),
+agg AS (
+	SELECT
+		trace_id,
+		min(start_ts)                  AS start_time,
+		max(end_ts)                    AS end_time,
+		count(*)                       AS span_count,
+		bool_or(status_code = 'Error') AS has_error
+	FROM deduped
+	GROUP BY trace_id
+),
+root_candidates AS (
+	SELECT
+		trace_id, name, kind, status_code, start_ts, end_ts, resource_hash,
+		row_number() OVER (
+			PARTITION BY trace_id ORDER BY (end_ts - start_ts) DESC, span_id
+		) AS rn
+	FROM deduped
+	WHERE parent_span_id = ''
+),
+roots AS (
+	SELECT
+		trace_id,
+		name          AS root_name,
+		kind          AS root_kind,
+		status_code   AS root_status_code,
+		start_ts      AS root_start_ts,
+		end_ts        AS root_end_ts,
+		resource_hash AS root_resource_hash
+	FROM root_candidates
+	WHERE rn = 1
+),
+earliest_candidates AS (
+	SELECT
+		trace_id, resource_hash,
+		row_number() OVER (PARTITION BY trace_id ORDER BY start_ts, span_id) AS rn
+	FROM deduped
+),
+earliest AS (
+	SELECT trace_id, resource_hash AS earliest_resource_hash
+	FROM earliest_candidates
+	WHERE rn = 1
+)
+SELECT
+	agg.trace_id, agg.start_time, agg.end_time, agg.span_count, agg.has_error,
+	COALESCE(root_res.service_name, earliest_res.service_name) AS service_name,
+	roots.root_name, roots.root_kind, roots.root_status_code, roots.root_start_ts, roots.root_end_ts
+FROM agg
+LEFT JOIN roots USING (trace_id)
+LEFT JOIN earliest USING (trace_id)
+LEFT JOIN resources root_res ON root_res.resource_hash = roots.root_resource_hash
+LEFT JOIN resources earliest_res ON earliest_res.resource_hash = earliest.earliest_resource_hash
+`
+
+// TraceSummariesByIDs returns current summaries for all requested traces in a
+// single SQL round trip. Broadcast uses this after a commit: list updates need
+// aggregate fields, not every span's JSON-heavy detail.
+func (s *Storage) TraceSummariesByIDs(ctx context.Context, traceIDs []string) (items []TraceSummary, err error) {
+	if len(traceIDs) == 0 {
+		return []TraceSummary{}, nil
+	}
+	started := time.Now()
+	defer func() { s.recordQuery(ctx, "query_trace_summaries", started, err) }()
+
+	values := make([]string, len(traceIDs))
+	args := make([]any, len(traceIDs))
+	for i, id := range traceIDs {
+		values[i] = "(?)"
+		args[i] = id
+	}
+	query := fmt.Sprintf(traceSummariesByIDsQuery, strings.Join(values, ","))
+	rows, err := s.DB().QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("storage: query trace summaries: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	items = make([]TraceSummary, 0, len(traceIDs))
+	for rows.Next() {
+		var (
+			t                                  TraceSummary
+			endTime                            time.Time
+			rootName, rootKind, rootStatusCode sql.NullString
+			rootStartTS, rootEndTS             sql.NullTime
+		)
+		if err := rows.Scan(
+			&t.TraceID, &t.StartTime, &endTime, &t.SpanCount, &t.HasError,
+			&t.ServiceName, &rootName, &rootKind, &rootStatusCode, &rootStartTS, &rootEndTS,
+		); err != nil {
+			return nil, fmt.Errorf("storage: scan trace summary: %w", err)
+		}
+		t.Duration = endTime.Sub(t.StartTime)
+		if rootName.Valid {
+			t.HasRoot = true
+			t.RootName = rootName.String
+			t.RootKind = rootKind.String
+			t.RootStatusCode = rootStatusCode.String
+			t.RootDuration = rootEndTS.Time.Sub(rootStartTS.Time)
+		}
+		items = append(items, t)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("storage: iterate trace summaries: %w", err)
+	}
+	return items, nil
 }
 
 const traceSpansQuery = `

@@ -374,8 +374,10 @@ func decodeSeriesKeys(raw any) []uint64 {
 // window functions partitioned by series_key so counter resets/cumulative
 // baselines are resolved per-attribute-series before any caller merges or
 // sums across series. It expects a preceding `points` CTE already in scope
-// with columns id, series_key, ts, value, count, sum, min, max, metric_type,
-// temporality, is_monotonic, attrs_json — metricDerivedCTE below supplies the
+// with columns request_index, id, series_key, ts, value, count, sum, min,
+// max, metric_type, temporality, is_monotonic, attrs_json — request_index is
+// zero for single-group callers and separates windows for the batch caller.
+// metricDerivedCTE below supplies the
 // group/window-wide `points` selection MetricPoints and MetricAggregate
 // share; metricLatestValueQuery supplies a narrower one (a single series'
 // last two rows) so the exact same CASE logic can derive "the latest value"
@@ -395,7 +397,7 @@ func decodeSeriesKeys(raw any) []uint64 {
 const metricDerivedFormula = `
 derived AS (
 	SELECT
-		id, ts, attrs_json, metric_type,
+		request_index, id, ts, attrs_json, metric_type,
 		CASE
 			WHEN metric_type = 'Sum' AND temporality = 'cumulative' AND is_monotonic THEN
 				CASE WHEN lag(value) OVER w IS NULL THEN NULL
@@ -434,7 +436,7 @@ derived AS (
 		END AS sum_cumulative,
 		min, max
 	FROM points
-	WINDOW w AS (PARTITION BY series_key ORDER BY ts)
+	WINDOW w AS (PARTITION BY request_index, series_key ORDER BY ts)
 )
 `
 
@@ -446,6 +448,7 @@ derived AS (
 const metricDerivedCTE = `
 WITH points AS (
 	SELECT
+		0 AS request_index,
 		p.id, p.series_key, p.ts, p.value, p.count, p.sum, p.min, p.max,
 		s.metric_type, s.temporality, s.is_monotonic, s.attributes::VARCHAR AS attrs_json
 	FROM metric_points p
@@ -493,6 +496,7 @@ WITH target_series AS (
 ),
 window_points AS (
 	SELECT
+		0 AS request_index,
 		p.id, p.series_key, p.ts, p.value, p.count, p.sum, p.min, p.max,
 		s.metric_type, s.temporality, s.is_monotonic, s.attrs_json
 	FROM metric_points p
@@ -505,10 +509,11 @@ represented_series AS (
 points AS (
 	SELECT * FROM window_points
 	UNION ALL
-	SELECT id, series_key, ts, value, count, sum, min, max,
+	SELECT request_index, id, series_key, ts, value, count, sum, min, max,
 		metric_type, temporality, is_monotonic, attrs_json
 	FROM (
 		SELECT
+			0 AS request_index,
 			p.id, p.series_key, p.ts, p.value, p.count, p.sum, p.min, p.max,
 			s.metric_type, s.temporality, s.is_monotonic, s.attrs_json,
 			row_number() OVER (PARTITION BY p.series_key ORDER BY p.ts DESC, p.id DESC) AS predecessor_rank
@@ -520,6 +525,73 @@ points AS (
 	WHERE predecessor_rank = 1
 ),
 ` + metricDerivedFormula + metricPointsSelect
+
+const metricPointsWithPredecessorsBatchQuery = `
+WITH requested(request_index, service_name, metric_name, from_ns, to_ns) AS (VALUES %s),
+target_series AS (
+	SELECT r.request_index, make_timestamp_ns(r.from_ns) AS from_ts, make_timestamp_ns(r.to_ns) AS to_ts,
+		s.series_key, s.metric_type, s.temporality, s.is_monotonic,
+		s.attributes::VARCHAR AS attrs_json
+	FROM requested r
+	JOIN metric_series s USING (service_name, metric_name)
+),
+window_points AS (
+	SELECT
+		s.request_index, p.id, p.series_key, p.ts, p.value, p.count, p.sum, p.min, p.max,
+		s.metric_type, s.temporality, s.is_monotonic, s.attrs_json
+	FROM metric_points p
+	JOIN target_series s USING (series_key)
+	WHERE p.ts >= s.from_ts AND p.ts < s.to_ts
+),
+represented_series AS (
+	SELECT DISTINCT request_index, series_key FROM window_points
+),
+points AS (
+	SELECT * FROM window_points
+	UNION ALL
+	SELECT request_index, id, series_key, ts, value, count, sum, min, max,
+		metric_type, temporality, is_monotonic, attrs_json
+	FROM (
+		SELECT
+			s.request_index, p.id, p.series_key, p.ts, p.value, p.count, p.sum, p.min, p.max,
+			s.metric_type, s.temporality, s.is_monotonic, s.attrs_json,
+			row_number() OVER (
+				PARTITION BY s.request_index, p.series_key ORDER BY p.ts DESC, p.id DESC
+			) AS predecessor_rank
+		FROM metric_points p
+		JOIN target_series s USING (series_key)
+		JOIN represented_series r USING (request_index, series_key)
+		WHERE p.ts < s.from_ts
+	)
+	WHERE predecessor_rank = 1
+),
+` + metricDerivedFormula + `
+SELECT
+	request_index, id, ts, attrs_json, metric_type,
+	CASE
+		WHEN metric_type IN ` + distributionTypesSQL + ` THEN
+			CASE WHEN sum_delta IS NULL OR count_delta IS NULL OR count_delta <= 0 THEN 0
+			     ELSE sum_delta / count_delta END
+		ELSE scalar_value
+	END AS out_value,
+	CASE WHEN metric_type IN ` + distributionTypesSQL + ` THEN NULL ELSE scalar_cumulative END AS out_cumulative,
+	CASE WHEN metric_type IN ` + distributionTypesSQL + ` THEN count_delta ELSE NULL END AS out_count,
+	CASE WHEN metric_type IN ` + distributionTypesSQL + ` THEN count_cumulative ELSE NULL END AS out_count_cumulative,
+	CASE WHEN metric_type IN ` + distributionTypesSQL + ` THEN sum_delta ELSE NULL END AS out_sum,
+	CASE WHEN metric_type IN ` + distributionTypesSQL + ` THEN sum_cumulative ELSE NULL END AS out_sum_cumulative,
+	min, max
+FROM derived
+ORDER BY request_index, ts
+`
+
+// MetricPointWindow identifies one metric group and the newly committed time
+// range whose derived points a broadcaster needs.
+type MetricPointWindow struct {
+	ServiceName string
+	MetricName  string
+	From        time.Time
+	To          time.Time
+}
 
 // MetricPoints returns every data point across every attribute-series of the
 // (serviceName, metricName) pair within [from, to), ordered by timestamp,
@@ -536,6 +608,59 @@ func (s *Storage) MetricPointsWithPredecessors(ctx context.Context, serviceName,
 	started := time.Now()
 	defer func() { s.recordQuery(ctx, "query_metric_points", started, err) }()
 	return s.queryMetricPoints(ctx, metricPointsWithPredecessorsQuery, serviceName, metricName, from, to, from)
+}
+
+// MetricPointsWithPredecessorsBatch derives multiple metric groups in one SQL
+// statement, avoiding one parse/plan/execute cycle per group in an OTLP batch.
+func (s *Storage) MetricPointsWithPredecessorsBatch(ctx context.Context, windows []MetricPointWindow) (result [][]DerivedPoint, err error) {
+	if len(windows) == 0 {
+		return [][]DerivedPoint{}, nil
+	}
+	started := time.Now()
+	defer func() { s.recordQuery(ctx, "query_metric_points_batch", started, err) }()
+
+	values := make([]string, len(windows))
+	args := make([]any, 0, len(windows)*5)
+	for i, window := range windows {
+		values[i] = "(?, ?, ?, ?, ?)"
+		args = append(args, i, window.ServiceName, window.MetricName, window.From.UnixNano(), window.To.UnixNano())
+	}
+	query := fmt.Sprintf(metricPointsWithPredecessorsBatchQuery, strings.Join(values, ","))
+	rows, err := s.DB().QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("storage: query metric points batch: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	result = make([][]DerivedPoint, len(windows))
+	for rows.Next() {
+		var (
+			requestIndex                                              int
+			id                                                        duckdb.UUID
+			ts                                                        time.Time
+			attrsRaw                                                  *string
+			metricType                                                string
+			value, cumulative, count, countCum, sum, sumCum, min, max sql.NullFloat64
+		)
+		if err := rows.Scan(&requestIndex, &id, &ts, &attrsRaw, &metricType, &value, &cumulative, &count, &countCum, &sum, &sumCum, &min, &max); err != nil {
+			return nil, fmt.Errorf("storage: scan metric point batch: %w", err)
+		}
+		attrs, err := decodeAttrs(attrsRaw)
+		if err != nil {
+			return nil, err
+		}
+		result[requestIndex] = append(result[requestIndex], DerivedPoint{
+			ID: uuid.UUID(id), TS: ts, Type: metricType,
+			Value: nullFloatPtr(value), Cumulative: nullFloatPtr(cumulative),
+			Count: nullFloatPtr(count), CountCumulative: nullFloatPtr(countCum),
+			Sum: nullFloatPtr(sum), SumCumulative: nullFloatPtr(sumCum),
+			Min: nullFloatPtr(min), Max: nullFloatPtr(max), Attributes: attrs,
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("storage: iterate metric points batch: %w", err)
+	}
+	return result, nil
 }
 
 func (s *Storage) queryMetricPoints(ctx context.Context, query string, args ...any) ([]DerivedPoint, error) {
@@ -607,6 +732,7 @@ WITH target AS (
 ),
 points AS (
 	SELECT
+		0 AS request_index,
 		p.id, p.series_key, p.ts, p.value, p.count, p.sum, p.min, p.max,
 		s.metric_type, s.temporality, s.is_monotonic, s.attributes::VARCHAR AS attrs_json
 	FROM metric_points p

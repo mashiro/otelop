@@ -174,6 +174,21 @@ describe("header badge totals (traceCountAtom/metricCountAtom/logCountAtom)", ()
     expect(store.get(traceCountAtom)).toBe(300);
   });
 
+  it("merges a summary-only WS update without discarding lazily fetched spans", () => {
+    const store = createStore();
+    const loadedSpan = makeSpan({ spanId: "s1" });
+    store.set(tracesAtom, [
+      makeTrace({ traceId: "t1", spanCount: 1, spans: [loadedSpan], duration: 10 }),
+    ]);
+
+    store.set(addTraceAtom, makeTrace({ traceId: "t1", spanCount: 2, spans: [], duration: 20 }));
+
+    const trace = store.get(tracesAtom)[0];
+    expect(trace.spans).toEqual([loadedSpan]);
+    expect(trace.spanCount).toBe(2);
+    expect(trace.duration).toBe(20);
+  });
+
   it("orders new WebSocket traces by trace start rather than arrival", () => {
     const store = createStore();
     store.set(addTraceAtom, makeTrace({ traceId: "later", startTime: "2024-01-01T00:20:00Z" }));

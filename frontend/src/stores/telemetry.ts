@@ -55,12 +55,8 @@ export const traceListWindowAtom = atom<EventTimeWindow>(DEFAULT_EVENT_TIME_WIND
 export const logListWindowAtom = atom<EventTimeWindow>(DEFAULT_EVENT_TIME_WINDOW);
 
 // mergeSpans unions two span lists by their stable spanId, keeping the first
-// occurrence. Used both by addTraceAtom (a WS trace delivery always carries
-// the trace's full current span set, never a delta — see
-// internal/broadcast/broadcast.go's traceDetailToTraceData) and by
-// mergeTraceSpansAtom (the lazy trace-detail/service-map fetches in
-// hooks/use-trace-spans.ts), which merge freshly GraphQL-fetched spans into
-// whatever a trace already holds.
+// occurrence. WebSocket trace deliveries are summary-only; full spans enter
+// through the lazy trace-detail/service-map GraphQL fetches.
 export function mergeSpans(existing: SpanData[], incoming: SpanData[]): SpanData[] {
   const seen = new Set(existing.map((s) => s.spanId));
   const deduped = incoming.filter((s) => !seen.has(s.spanId));
@@ -92,6 +88,7 @@ export const addTraceAtom = atom(null, (get, set, newTrace: TraceData) => {
     if (
       mergedSpans.length === existing.spans.length &&
       !rootChanged &&
+      newTrace.spanCount <= existing.spanCount &&
       newTrace.duration <= existing.duration &&
       newStart >= existingStart
     ) {
@@ -101,7 +98,11 @@ export const addTraceAtom = atom(null, (get, set, newTrace: TraceData) => {
     updated[idx] = {
       ...existing,
       spans: mergedSpans,
-      spanCount: mergedSpans.length,
+      searchValues: newTrace.searchValues,
+      // WebSocket payloads carry an authoritative persisted summary with an
+      // empty spans array. Preserve already-fetched detail while letting a
+      // growing summary trigger useTraceSpans to fetch the missing rows.
+      spanCount: Math.max(existing.spanCount, newTrace.spanCount),
       rootSpan: rootChanged ? newTrace.rootSpan : existing.rootSpan,
       serviceName: rootChanged ? newTrace.serviceName : existing.serviceName,
       // Multi-root Codex traces can grow past the originally-reported root

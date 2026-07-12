@@ -92,12 +92,9 @@ const rangeFilteredTracesAtom = atom((get) => {
 
 // The client-side predicate (live WS rows only — see
 // createServerBackedSearchAtom) mirrors the server's TracesPage search
-// (query_trace.go): trace ID, any span's name/status, service. A
-// WS-delivered trace carries its full span set (stores/telemetry.ts's
-// addTraceAtom), so per-span name/status are checkable here; the
-// summary-level serviceName/rootSpan fields cover rows whose spans haven't
-// merged yet. The trace's resolved serviceName stands in for per-span
-// service matching — it's the field reliably present on every row shape.
+// (query_trace.go): trace ID, any loaded span's name/status, service. Live
+// WebSocket rows are summary-only, so root/service fields are immediately
+// searchable; non-root span fields become searchable after lazy detail load.
 export const filteredTracesAtom = createServerBackedSearchAtom(
   rangeFilteredTracesAtom,
   traceSearchAtom,
@@ -108,6 +105,7 @@ export const filteredTracesAtom = createServerBackedSearchAtom(
     t.serviceName ?? "",
     t.rootSpan?.name ?? "",
     t.rootSpan?.statusCode ?? "Unset",
+    ...(t.searchValues ?? []),
     ...t.spans.flatMap((s) => [s.name, s.statusCode]),
   ],
 );

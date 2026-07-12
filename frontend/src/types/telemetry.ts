@@ -46,13 +46,14 @@ export interface TraceData {
   traceId: string;
   rootSpan?: TraceRootSpan;
   // Empty until the trace detail view lazily fetches it (see
-  // hooks/use-trace-spans.ts) — the initial trace-list load only fetches
-  // summary fields (spanCount, duration, rootSpan) to avoid re-triggering
-  // the N+1 TraceByID fetch across every buffered trace. Never derive a
-  // trace's span count or duration from spans.length/spans — use spanCount/
-  // duration below, which are always populated from the list query.
+  // hooks/use-trace-spans.ts). Both list queries and live WebSocket updates
+  // carry summary fields only, avoiding a TraceByID query per committed
+  // trace. Never derive count/duration from this array.
   spans: SpanData[];
   serviceName: string;
+  // Lightweight values from spans in the latest WebSocket batch, used to
+  // preserve live search without shipping full span detail.
+  searchValues?: string[];
   spanCount: number;
   startTime: string;
   duration: number;
