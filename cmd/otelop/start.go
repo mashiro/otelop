@@ -724,6 +724,9 @@ func (r *runtime) shutdown() {
 
 func registerMetrics(s *storage.Storage, hub *ws.Hub) error {
 	meter := otel.Meter("otelop")
+	if err := s.RegisterTelemetry(meter); err != nil {
+		return err
+	}
 
 	traceGauge, err := meter.Int64ObservableGauge("otelop.store.traces",
 		metric.WithDescription("Number of traces in the store"),

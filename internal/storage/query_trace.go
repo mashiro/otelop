@@ -203,7 +203,9 @@ AND ` + traceSearchPredicate + `
 // back empty because offset is past the end of the matching set, that
 // column has nothing to report, so a separate tracesTotalQuery run recovers
 // it (see queryCount).
-func (s *Storage) TracesPage(ctx context.Context, from, to time.Time, offset, limit int, search string) ([]TraceSummary, int, error) {
+func (s *Storage) TracesPage(ctx context.Context, from, to time.Time, offset, limit int, search string) (items []TraceSummary, total int, err error) {
+	started := time.Now()
+	defer func() { s.recordQuery(ctx, "query_traces", started, err) }()
 	pattern := likePattern(search)
 
 	rows, err := s.DB().QueryContext(ctx, tracesPageQuery, from, to, pattern, pattern, pattern, pattern, pageLimit(limit), offset)
@@ -212,8 +214,7 @@ func (s *Storage) TracesPage(ctx context.Context, from, to time.Time, offset, li
 	}
 	defer func() { _ = rows.Close() }()
 
-	items := make([]TraceSummary, 0)
-	var total int
+	items = make([]TraceSummary, 0)
 	for rows.Next() {
 		var (
 			t                                  TraceSummary
@@ -272,7 +273,9 @@ ORDER BY d.start_ts
 // TraceByID returns every (deduped) span of one trace, ordered by start
 // time, plus the same summary fields TracesPage computes. ok is false when
 // no spans exist for traceID.
-func (s *Storage) TraceByID(ctx context.Context, traceID string) (*TraceDetail, bool, error) {
+func (s *Storage) TraceByID(ctx context.Context, traceID string) (detail *TraceDetail, found bool, err error) {
+	started := time.Now()
+	defer func() { s.recordQuery(ctx, "query_trace", started, err) }()
 	s.traceByIDCalls.Add(1)
 	rows, err := s.DB().QueryContext(ctx, traceSpansQuery, traceID)
 	if err != nil {
@@ -319,7 +322,7 @@ func (s *Storage) TraceByID(ctx context.Context, traceID string) (*TraceDetail, 
 		return nil, false, nil
 	}
 
-	detail := &TraceDetail{
+	detail = &TraceDetail{
 		TraceSummary: summarizeSpans(traceID, spans),
 		Spans:        spans,
 	}

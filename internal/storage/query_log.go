@@ -76,7 +76,9 @@ AND ` + searchPredicate
 // column; when the page comes back empty because offset is past the end of
 // the matching set, that column has nothing to report, so a separate
 // logsTotalQuery run recovers it (see queryCount).
-func (s *Storage) LogsPage(ctx context.Context, from, to time.Time, offset, limit int, search string) ([]LogDetail, int, error) {
+func (s *Storage) LogsPage(ctx context.Context, from, to time.Time, offset, limit int, search string) (items []LogDetail, total int, err error) {
+	started := time.Now()
+	defer func() { s.recordQuery(ctx, "query_logs", started, err) }()
 	pattern := likePattern(search)
 
 	rows, err := s.DB().QueryContext(ctx, logsPageQuery, from, to, pattern, pattern, pattern, pattern, pageLimit(limit), offset)
@@ -85,7 +87,7 @@ func (s *Storage) LogsPage(ctx context.Context, from, to time.Time, offset, limi
 	}
 	defer func() { _ = rows.Close() }()
 
-	items, total, err := scanLogRowsWithTotal(rows)
+	items, total, err = scanLogRowsWithTotal(rows)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -119,14 +121,16 @@ const logsTotalByTraceIDQuery = `SELECT count(*) FROM logs WHERE trace_id = ?`
 // traceID. Unlike LogsPage it takes no time range — matching
 // the old store package's GetLogsPageByTraceID, which looks up its secondary index
 // by trace_id alone regardless of when the logs arrived.
-func (s *Storage) LogsPageByTraceID(ctx context.Context, traceID string, offset, limit int) ([]LogDetail, int, error) {
+func (s *Storage) LogsPageByTraceID(ctx context.Context, traceID string, offset, limit int) (items []LogDetail, total int, err error) {
+	started := time.Now()
+	defer func() { s.recordQuery(ctx, "query_logs_by_trace", started, err) }()
 	rows, err := s.DB().QueryContext(ctx, logsPageByTraceIDQuery, traceID, pageLimit(limit), offset)
 	if err != nil {
 		return nil, 0, fmt.Errorf("storage: query logs by trace: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
 
-	items, total, err := scanLogRowsWithTotal(rows)
+	items, total, err = scanLogRowsWithTotal(rows)
 	if err != nil {
 		return nil, 0, err
 	}

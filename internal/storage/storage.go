@@ -211,6 +211,7 @@ type Storage struct {
 	// TraceByID calls — see internal/graphql/trace_resolver_test.go) stays
 	// fixed, without needing a mock storage layer.
 	traceByIDCalls atomic.Int64
+	queryTelemetry atomic.Pointer[queryTelemetry]
 }
 
 // Open creates or opens a DuckDB database at opts.Path (or an in-memory

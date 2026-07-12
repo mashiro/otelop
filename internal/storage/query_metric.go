@@ -173,7 +173,9 @@ func (s *Storage) MetricsPage(ctx context.Context, from, to time.Time, offset, l
 
 // MetricsPageSearch is MetricsPage with a case-insensitive substring search
 // over the fields rendered by the metrics list.
-func (s *Storage) MetricsPageSearch(ctx context.Context, from, to time.Time, offset, limit int, search string) ([]MetricSummary, int, error) {
+func (s *Storage) MetricsPageSearch(ctx context.Context, from, to time.Time, offset, limit int, search string) (items []MetricSummary, total int, err error) {
+	started := time.Now()
+	defer func() { s.recordQuery(ctx, "query_metrics", started, err) }()
 	pattern := likePattern(search)
 	rows, err := s.DB().QueryContext(ctx, metricsPageQuery, to, from, pattern, pattern, pattern, pattern, pageLimit(limit), offset)
 	if err != nil {
@@ -181,8 +183,7 @@ func (s *Storage) MetricsPageSearch(ctx context.Context, from, to time.Time, off
 	}
 	defer func() { _ = rows.Close() }()
 
-	items := make([]MetricSummary, 0)
-	var total int
+	items = make([]MetricSummary, 0)
 	for rows.Next() {
 		var (
 			m           MetricSummary
@@ -390,13 +391,17 @@ points AS (
 // MetricPoints returns every data point across every attribute-series of the
 // (serviceName, metricName) pair within [from, to), ordered by timestamp,
 // with cumulative/delta values derived at query time.
-func (s *Storage) MetricPoints(ctx context.Context, serviceName, metricName string, from, to time.Time) ([]DerivedPoint, error) {
+func (s *Storage) MetricPoints(ctx context.Context, serviceName, metricName string, from, to time.Time) (points []DerivedPoint, err error) {
+	started := time.Now()
+	defer func() { s.recordQuery(ctx, "query_metric_points", started, err) }()
 	return s.queryMetricPoints(ctx, metricPointsQuery, serviceName, metricName, from, to)
 }
 
 // MetricPointsWithPredecessors returns the requested points plus at most one
 // older point per series so cumulative values in the window can be derived.
-func (s *Storage) MetricPointsWithPredecessors(ctx context.Context, serviceName, metricName string, from, to time.Time) ([]DerivedPoint, error) {
+func (s *Storage) MetricPointsWithPredecessors(ctx context.Context, serviceName, metricName string, from, to time.Time) (points []DerivedPoint, err error) {
+	started := time.Now()
+	defer func() { s.recordQuery(ctx, "query_metric_points", started, err) }()
 	return s.queryMetricPoints(ctx, metricPointsWithPredecessorsQuery, serviceName, metricName, from, to, from)
 }
 
@@ -496,16 +501,18 @@ LIMIT 1
 // Returns (nil, nil) when the group has no series/points at all, or its
 // latest observation has no meaningful value yet (see metricLatestValueQuery's
 // doc comment).
-func (s *Storage) LatestValue(ctx context.Context, serviceName, metricName string) (*float64, error) {
-	var value sql.NullFloat64
-	err := s.DB().QueryRowContext(ctx, metricLatestValueQuery, serviceName, metricName).Scan(&value)
+func (s *Storage) LatestValue(ctx context.Context, serviceName, metricName string) (value *float64, err error) {
+	started := time.Now()
+	defer func() { s.recordQuery(ctx, "query_metric_latest_value", started, err) }()
+	var latest sql.NullFloat64
+	err = s.DB().QueryRowContext(ctx, metricLatestValueQuery, serviceName, metricName).Scan(&latest)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("storage: query metric latest value: %w", err)
 	}
-	return nullFloatPtr(value), nil
+	return nullFloatPtr(latest), nil
 }
 
 func nullFloatPtr(v sql.NullFloat64) *float64 {

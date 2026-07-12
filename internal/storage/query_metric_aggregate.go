@@ -70,7 +70,9 @@ const metricAggregateTargetBuckets = 150
 // delta-derived, so a bucket containing only a series' very first
 // observation still has a real min/max worth keeping even though it has no
 // delta yet.
-func (s *Storage) MetricAggregate(ctx context.Context, serviceName, metricName string, groupBy []string, bucket time.Duration, from, to time.Time) ([]AggregateSeries, error) {
+func (s *Storage) MetricAggregate(ctx context.Context, serviceName, metricName string, groupBy []string, bucket time.Duration, from, to time.Time) (series []AggregateSeries, err error) {
+	started := time.Now()
+	defer func() { s.recordQuery(ctx, "query_metric_aggregate", started, err) }()
 	if len(groupBy) == 0 {
 		return nil, errors.New("storage: MetricAggregate requires at least one groupBy attribute")
 	}
