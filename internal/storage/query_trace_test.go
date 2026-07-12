@@ -186,12 +186,10 @@ func TestTracesPage_HasErrorTrueWhenAnySpanErrors(t *testing.T) {
 	}
 }
 
-// TestTracesPage_StraddlingRangeAggregatesFullSpanSet is the two-step
-// semantics test: a trace has one span inside [from, to) and one span
-// outside it. The trace must appear (matched via the in-range span) and its
-// summary must reflect BOTH spans (full duration, span count 2) rather than
-// being truncated to only the in-range span.
-func TestTracesPage_StraddlingRangeAggregatesFullSpanSet(t *testing.T) {
+// A trace belongs to the window containing its earliest span, even when a
+// later child span starts in another window. Its summary still covers the
+// complete span set.
+func TestTracesPage_WindowUsesTraceStartAndAggregatesFullSpanSet(t *testing.T) {
 	s := openTestStorage(t, Options{})
 	ctx := context.Background()
 	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -210,8 +208,8 @@ func TestTracesPage_StraddlingRangeAggregatesFullSpanSet(t *testing.T) {
 	s.AddTraces(ctx, td)
 	s.Sync()
 
-	from := base.Add(59 * time.Minute)
-	to := base.Add(61 * time.Minute)
+	from := base.Add(-time.Minute)
+	to := base.Add(time.Minute)
 	items, total, err := s.TracesPage(ctx, from, to, 0, 0, "")
 	if err != nil {
 		t.Fatalf("TracesPage: %v", err)
@@ -227,21 +225,22 @@ func TestTracesPage_StraddlingRangeAggregatesFullSpanSet(t *testing.T) {
 		t.Errorf("SpanCount = %d, want 2 (aggregation must cover the full span set, not just the in-range span)", got.SpanCount)
 	}
 	if !got.StartTime.Equal(base) {
-		t.Errorf("StartTime = %v, want %v (earliest span, even though it's outside the query window)", got.StartTime, base)
+		t.Errorf("StartTime = %v, want %v", got.StartTime, base)
 	}
 	if want := time.Hour + time.Millisecond; got.Duration != want {
 		t.Errorf("Duration = %v, want %v (full range across both spans)", got.Duration, want)
 	}
 
-	// Outside the range entirely: no span starts in [from, to).
-	noneFrom := base.Add(2 * time.Hour)
-	noneTo := base.Add(3 * time.Hour)
-	items, total, err = s.TracesPage(ctx, noneFrom, noneTo, 0, 0, "")
+	// The child span starts in this later window, but the trace does not belong
+	// here because its start time is the earlier span's timestamp.
+	laterFrom := base.Add(59 * time.Minute)
+	laterTo := base.Add(61 * time.Minute)
+	items, total, err = s.TracesPage(ctx, laterFrom, laterTo, 0, 0, "")
 	if err != nil {
-		t.Fatalf("TracesPage (out of range): %v", err)
+		t.Fatalf("TracesPage (child-span window): %v", err)
 	}
 	if total != 0 || len(items) != 0 {
-		t.Errorf("expected no traces outside the range, got total=%d items=%d", total, len(items))
+		t.Errorf("expected no traces in the child-span window, got total=%d items=%d", total, len(items))
 	}
 }
 
@@ -303,19 +302,17 @@ func TestTracesPage_EmptyPageWithOffsetStillReportsTotal(t *testing.T) {
 	}
 }
 
-// TestTracesPage_OrderingNewestFirstByIngestion reproduces the old ring
-// buffer's newest-first-by-insertion order via min(ingested_at) DESC.
-func TestTracesPage_OrderingNewestFirstByIngestion(t *testing.T) {
+func TestTracesPage_OrderingNewestTraceStartFirst(t *testing.T) {
 	s := openTestStorage(t, Options{})
 	ctx := context.Background()
 	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 
-	first := buildTracesMulti(spanSpec{traceID: [16]byte{7, 1}, spanID: [8]byte{1}, name: "first", start: base, end: base.Add(time.Millisecond), service: "svc"})
+	first := buildTracesMulti(spanSpec{traceID: [16]byte{7, 1}, spanID: [8]byte{1}, name: "later-start", start: base.Add(time.Second), end: base.Add(time.Second + time.Millisecond), service: "svc"})
 	s.AddTraces(ctx, first)
 	s.Sync()
 	time.Sleep(2 * time.Millisecond)
 
-	second := buildTracesMulti(spanSpec{traceID: [16]byte{7, 2}, spanID: [8]byte{2}, name: "second", start: base, end: base.Add(time.Millisecond), service: "svc"})
+	second := buildTracesMulti(spanSpec{traceID: [16]byte{7, 2}, spanID: [8]byte{2}, name: "earlier-start", start: base, end: base.Add(time.Millisecond), service: "svc"})
 	s.AddTraces(ctx, second)
 	s.Sync()
 
@@ -326,8 +323,8 @@ func TestTracesPage_OrderingNewestFirstByIngestion(t *testing.T) {
 	if len(items) != 2 {
 		t.Fatalf("expected 2 traces, got %d", len(items))
 	}
-	if items[0].RootName != "second" || items[1].RootName != "first" {
-		t.Errorf("order = [%s, %s], want [second, first] (newest ingested first)", items[0].RootName, items[1].RootName)
+	if items[0].RootName != "later-start" || items[1].RootName != "earlier-start" {
+		t.Errorf("order = [%s, %s], want newest trace start first", items[0].RootName, items[1].RootName)
 	}
 }
 

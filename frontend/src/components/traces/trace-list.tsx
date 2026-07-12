@@ -21,7 +21,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { formatDuration, formatRelativeTime, shortId } from "@/lib/format";
+import { formatDuration, formatTimestamp, shortId } from "@/lib/format";
 import { TraceDetail } from "./trace-detail";
 import { EmptyState } from "@/components/common/empty-state";
 import { Pill } from "@/components/common/pill";
@@ -97,7 +97,7 @@ export function TraceList() {
                 <TableHead className="text-trace/70">Trace ID</TableHead>
                 <TableHead className="text-right text-trace/70">Spans</TableHead>
                 <TableHead className="text-right text-trace/70">Duration</TableHead>
-                <TableHead className="text-trace/70">Started</TableHead>
+                <TableHead className="w-[110px] text-trace/70">Started</TableHead>
                 <TableHead className="text-trace/70">Status</TableHead>
               </TableRow>
             </TableHeader>
@@ -124,8 +124,8 @@ export function TraceList() {
                     <TableCell className="text-right font-mono text-xs text-trace">
                       {formatDuration(trace.duration)}
                     </TableCell>
-                    <TableCell className="text-xs text-muted-foreground">
-                      {formatRelativeTime(trace.startTime)}
+                    <TableCell className="font-mono text-xs text-muted-foreground">
+                      {formatTimestamp(trace.startTime)}
                     </TableCell>
                     <TableCell>
                       <Pill tone={traceStatusTone(status)} dot>

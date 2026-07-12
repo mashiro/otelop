@@ -76,11 +76,9 @@ const traceSearchPredicate = `
 )
 `
 
-// tracesPageQuery implements the two-step trace-list semantics from
-// docs/design/duckdb-storage.md and the task spec: matching_ids finds traces
-// with at least one span in [from, to); every later CTE aggregates over ALL
-// (deduped) spans of those traces, so a trace straddling the range boundary
-// is summarized from its complete span set rather than a truncated one.
+// tracesPageQuery scopes the trace list by each trace's start time (the
+// earliest span start), matching the timestamp rendered for that trace in
+// the UI. Every later CTE still aggregates over the full deduped span set.
 //
 // search_ids narrows matching_ids further by traceSearchPredicate: a trace
 // matches if ANY of its spans (regardless of whether that particular span
@@ -104,8 +102,13 @@ const traceSearchPredicate = `
 // TracesPage read it off the page query itself instead of a second round
 // trip (see TracesPage's doc comment).
 const tracesPageQuery = `
-WITH matching_ids AS (
-	SELECT DISTINCT trace_id FROM spans WHERE start_ts >= ? AND start_ts < ?
+WITH trace_starts AS (
+	SELECT trace_id, min(start_ts) AS start_time
+	FROM spans
+	GROUP BY trace_id
+),
+matching_ids AS (
+	SELECT trace_id FROM trace_starts WHERE start_time >= ? AND start_time < ?
 ),
 search_ids AS (
 	SELECT DISTINCT s.trace_id
@@ -172,7 +175,7 @@ LEFT JOIN roots USING (trace_id)
 LEFT JOIN earliest USING (trace_id)
 LEFT JOIN resources root_res ON root_res.resource_hash = roots.root_resource_hash
 LEFT JOIN resources earliest_res ON earliest_res.resource_hash = earliest.earliest_resource_hash
-ORDER BY agg.first_seen DESC
+ORDER BY agg.start_time DESC, agg.first_seen DESC
 LIMIT ? OFFSET ?
 `
 
@@ -185,8 +188,13 @@ LIMIT ? OFFSET ?
 // set and the page query itself comes back with no rows to read a total off
 // of.
 const tracesTotalQuery = `
-WITH matching_ids AS (
-	SELECT DISTINCT trace_id FROM spans WHERE start_ts >= ? AND start_ts < ?
+WITH trace_starts AS (
+	SELECT trace_id, min(start_ts) AS start_time
+	FROM spans
+	GROUP BY trace_id
+),
+matching_ids AS (
+	SELECT trace_id FROM trace_starts WHERE start_time >= ? AND start_time < ?
 )
 SELECT count(DISTINCT s.trace_id)
 FROM spans s
@@ -195,8 +203,8 @@ WHERE s.trace_id IN (SELECT trace_id FROM matching_ids)
 AND ` + traceSearchPredicate + `
 `
 
-// TracesPage returns a newest-first (by first-seen ingestion order) page of
-// trace summaries whose span set intersects [from, to) and, when search is
+// TracesPage returns a newest-first (by trace start time) page of trace
+// summaries whose start time is within [from, to) and, when search is
 // non-empty, matches it (see tracesPageQuery's search_ids doc comment),
 // plus the total count of matching traces before pagination. total is read
 // off the page query's own count(*) OVER () column; when the page comes

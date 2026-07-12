@@ -136,6 +136,7 @@ describe("filteredTracesAtom", () => {
       addTraceAtom,
       makeTrace({
         traceId: "live-miss",
+        startTime: "2024-01-01T00:01:00Z",
         serviceName: "billing",
         rootSpan: makeSpan({ name: "billing.run" }),
         spans: [makeSpan({ name: "billing.run", serviceName: "billing" })],
@@ -145,6 +146,7 @@ describe("filteredTracesAtom", () => {
       addTraceAtom,
       makeTrace({
         traceId: "live-hit",
+        startTime: "2024-01-01T00:02:00Z",
         serviceName: "checkout",
         rootSpan: makeSpan({ name: "checkout.retry" }),
         spans: [makeSpan({ name: "checkout.retry", serviceName: "checkout" })],
@@ -158,7 +160,15 @@ describe("filteredTracesAtom", () => {
     const store = createStore();
     store.set(setTracesAtom, [makeTrace({ traceId: "srv1", serviceName: "checkout", spans: [] })]);
     store.set(traceSearchAtom, "checkout");
-    store.set(addTraceAtom, makeTrace({ traceId: "live-miss", serviceName: "billing", spans: [] }));
+    store.set(
+      addTraceAtom,
+      makeTrace({
+        traceId: "live-miss",
+        serviceName: "billing",
+        startTime: "2024-01-01T00:01:00Z",
+        spans: [],
+      }),
+    );
     expect(store.get(filteredTracesAtom).map((t) => t.traceId)).toEqual(["srv1"]);
 
     store.set(traceSearchAtom, "");

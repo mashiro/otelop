@@ -174,6 +174,37 @@ describe("header badge totals (traceCountAtom/metricCountAtom/logCountAtom)", ()
     expect(store.get(traceCountAtom)).toBe(300);
   });
 
+  it("orders new WebSocket traces by trace start rather than arrival", () => {
+    const store = createStore();
+    store.set(addTraceAtom, makeTrace({ traceId: "later", startTime: "2024-01-01T00:20:00Z" }));
+    store.set(addTraceAtom, makeTrace({ traceId: "earlier", startTime: "2024-01-01T00:10:00Z" }));
+
+    expect(store.get(tracesAtom).map((trace) => trace.traceId)).toEqual(["later", "earlier"]);
+  });
+
+  it("repositions a trace when a late span moves its start time earlier", () => {
+    const store = createStore();
+    store.set(tracesAtom, [
+      makeTrace({ traceId: "moving", startTime: "2024-01-01T00:20:00Z" }),
+      makeTrace({ traceId: "stable", startTime: "2024-01-01T00:10:00Z" }),
+    ]);
+
+    store.set(
+      addTraceAtom,
+      makeTrace({
+        traceId: "moving",
+        startTime: "2024-01-01T00:00:00Z",
+        spans: [
+          makeSpan({ spanId: "s1", startTime: "2024-01-01T00:20:00Z" }),
+          makeSpan({ spanId: "s2", startTime: "2024-01-01T00:00:00Z" }),
+        ],
+      }),
+    );
+
+    expect(store.get(tracesAtom).map((trace) => trace.traceId)).toEqual(["stable", "moving"]);
+    expect(store.get(tracesAtom)[1].startTime).toBe("2024-01-01T00:00:00Z");
+  });
+
   it("appendTracesAtom (Load more) does not increment the badge — those rows are already in the total", () => {
     const store = createStore();
     store.set(setTotalCountsAtom, { traceCount: 300, metricCount: 0, logCount: 0 });

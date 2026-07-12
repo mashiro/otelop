@@ -67,6 +67,15 @@ export function mergeSpans(existing: SpanData[], incoming: SpanData[]): SpanData
   return [...existing, ...deduped];
 }
 
+function newestTraceStartFirst(traces: TraceData[]): TraceData[] {
+  return traces.toSorted((a, b) =>
+    Temporal.Instant.compare(
+      Temporal.Instant.from(b.startTime),
+      Temporal.Instant.from(a.startTime),
+    ),
+  );
+}
+
 // Write-only: add single item from WebSocket
 export const addTraceAtom = atom(null, (get, set, newTrace: TraceData) => {
   const current = get(tracesAtom);
@@ -101,12 +110,12 @@ export const addTraceAtom = atom(null, (get, set, newTrace: TraceData) => {
       startTime: newStart < existingStart ? newTrace.startTime : existing.startTime,
       duration: Math.max(existing.duration, newTrace.duration),
     };
-    set(tracesAtom, updated);
+    set(tracesAtom, newestTraceStartFirst(updated));
   } else {
     // A brand-new trace, never merged into an existing one — the header
     // badge's "genuinely new" signal (see totalTraceCountAtom).
     set(newTraceCountAtom, (n) => n + 1);
-    const next = [newTrace, ...current];
+    const next = newestTraceStartFirst([...current, newTrace]);
     set(tracesAtom, next.length > maxTraces ? next.slice(0, maxTraces) : next);
   }
 });
@@ -371,9 +380,10 @@ function createPaginatedListAtoms<T>(
   listWindowAtom: PrimitiveAtom<EventTimeWindow>,
   getId: (item: T) => string,
   getCap: (caps: BufferCaps) => number,
+  orderItems: (items: T[]) => T[] = (items) => items,
 ) {
   const set = atom(null, (_get, set, items: T[]) => {
-    set(listAtom, items);
+    set(listAtom, orderItems(items));
     set(matchedIdsAtom, new Set(items.map(getId)));
   });
 
@@ -387,7 +397,8 @@ function createPaginatedListAtoms<T>(
       const liveIds = new Set(liveItems.map(getId));
       const merged = [...liveItems, ...items.filter((item) => !liveIds.has(getId(item)))];
       const cap = getCap(get(bufferCapsAtom));
-      set(listAtom, merged.length > cap ? merged.slice(0, cap) : merged);
+      const ordered = orderItems(merged);
+      set(listAtom, ordered.length > cap ? ordered.slice(0, cap) : ordered);
       set(matchedIdsAtom, new Set(items.map(getId)));
       set(listWindowAtom, window);
     },
@@ -408,7 +419,7 @@ function createPaginatedListAtoms<T>(
     const seen = new Set(current.map(getId));
     const deduped = olderItems.filter((item) => !seen.has(getId(item)));
     if (deduped.length === 0) return;
-    const merged = [...current, ...deduped];
+    const merged = orderItems([...current, ...deduped]);
     const cap = getCap(get(bufferCapsAtom));
     // Paging in more history than the live-buffer cap allows evicts the same
     // way a WS burst would (oldest-first slice, appended rows are at the
@@ -427,6 +438,7 @@ const traceList = createPaginatedListAtoms(
   traceListWindowAtom,
   (t: TraceData) => t.traceId,
   (caps) => caps.traceCap,
+  newestTraceStartFirst,
 );
 export const setTracesAtom = traceList.set;
 export const replaceTracePageAtom = traceList.replacePage;
