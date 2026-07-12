@@ -215,9 +215,13 @@ func ConvertLogs(ld plog.Logs) LogBatch {
 			records := sls.At(j).LogRecords()
 			for k := 0; k < records.Len(); k++ {
 				lr := records.At(k)
+				timestamp := lr.Timestamp()
+				if timestamp == 0 {
+					timestamp = lr.ObservedTimestamp()
+				}
 				batch.Logs = append(batch.Logs, LogRow{
 					ID:             newRowID(),
-					TS:             lr.Timestamp().AsTime(),
+					TS:             timestamp.AsTime(),
 					ObservedTS:     lr.ObservedTimestamp().AsTime(),
 					TraceID:        lr.TraceID().String(),
 					SpanID:         lr.SpanID().String(),

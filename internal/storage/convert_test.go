@@ -168,6 +168,24 @@ func TestConvertLogs_MapsFieldsAndAssignsUniqueUUIDv7Ids(t *testing.T) {
 	}
 }
 
+func TestConvertLogs_FallsBackToObservedTimestamp(t *testing.T) {
+	ld := plog.NewLogs()
+	lr := ld.ResourceLogs().AppendEmpty().ScopeLogs().AppendEmpty().LogRecords().AppendEmpty()
+	observed := time.Date(2026, 7, 12, 6, 30, 0, 0, time.UTC)
+	lr.SetObservedTimestamp(pcommon.NewTimestampFromTime(observed))
+
+	batch := ConvertLogs(ld)
+	if len(batch.Logs) != 1 {
+		t.Fatalf("Logs len = %d, want 1", len(batch.Logs))
+	}
+	if !batch.Logs[0].TS.Equal(observed) {
+		t.Errorf("TS = %v, want observed timestamp %v", batch.Logs[0].TS, observed)
+	}
+	if !batch.Logs[0].ObservedTS.Equal(observed) {
+		t.Errorf("ObservedTS = %v, want %v", batch.Logs[0].ObservedTS, observed)
+	}
+}
+
 func TestConvertMetrics_Gauge(t *testing.T) {
 	md := pmetric.NewMetrics()
 	rm := md.ResourceMetrics().AppendEmpty()
