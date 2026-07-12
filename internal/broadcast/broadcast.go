@@ -108,7 +108,9 @@ func spanDetailToSpanData(sp *storage.SpanDetail) *SpanData {
 
 func convertEvents(events []storage.SpanEventRow) []SpanEvent {
 	if len(events) == 0 {
-		return nil
+		// The WebSocket contract matches GraphQL's non-null [SpanEvent!]!:
+		// encode an empty list as [] rather than nil as JSON null.
+		return []SpanEvent{}
 	}
 	out := make([]SpanEvent, len(events))
 	for i, e := range events {

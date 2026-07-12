@@ -142,6 +142,9 @@ func TestBroadcast_Traces_WireShapeMatchesFrontendContract(t *testing.T) {
 	spanKeys := keySet(t, trace.Spans[0])
 	requireExactKeys(t, spanKeys, "traceId", "spanId", "parentSpanId", "name", "kind", "serviceName",
 		"startTime", "endTime", "duration", "statusCode", "statusMessage", "attributes", "events", "resource")
+	if trace.Spans[0].Events == nil {
+		t.Fatal("empty span events must be [] rather than null on the WebSocket wire")
+	}
 
 	// duration must marshal as a bare integer of nanoseconds (time.Duration's
 	// default encoding), matching frontend/src/types/telemetry.ts's `duration: number`.
@@ -150,6 +153,11 @@ func TestBroadcast_Traces_WireShapeMatchesFrontendContract(t *testing.T) {
 	_ = json.Unmarshal(raw, &generic)
 	if _, ok := generic["duration"].(float64); !ok {
 		t.Errorf("duration did not marshal as a JSON number: %T", generic["duration"])
+	}
+	spans := generic["spans"].([]any)
+	events := spans[0].(map[string]any)["events"]
+	if _, ok := events.([]any); !ok {
+		t.Errorf("empty span events marshaled as %T, want JSON array", events)
 	}
 }
 
