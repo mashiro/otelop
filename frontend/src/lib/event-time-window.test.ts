@@ -3,6 +3,7 @@ import { Temporal } from "temporal-polyfill";
 import {
   eventWindowAround,
   eventWindowBounds,
+  eventWindowRange,
   eventWindowWidthMs,
   shiftEventWindow,
 } from "./event-time-window";
@@ -32,6 +33,17 @@ describe("event time window", () => {
       to: "2026-07-12T01:00:00Z",
     });
     expect(eventWindowWidthMs(window)).toBe(3_600_000);
+    expect(eventWindowRange(window)).toBe("1h");
+  });
+
+  it("returns no preset range for a custom fixed window", () => {
+    expect(
+      eventWindowRange({
+        mode: "fixed",
+        from: "2026-07-12T01:00:00Z",
+        to: "2026-07-12T01:42:00Z",
+      }),
+    ).toBeNull();
   });
 
   it("centers a fixed window on a selected log timestamp", () => {

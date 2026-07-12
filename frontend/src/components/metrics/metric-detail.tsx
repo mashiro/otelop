@@ -11,7 +11,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { DetailPanel } from "@/components/common/detail-panel";
 import { Pill } from "@/components/common/pill";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { TimeRangeTabs } from "@/components/common/time-range-tabs";
+import { TimeRangeSelect } from "@/components/common/time-range-select";
 import { KVSection } from "@/components/ui/kv-section";
 import { Field } from "@/components/common/detail-field";
 import {
@@ -209,7 +209,7 @@ export function MetricDetailBody({ metric }: { metric: MetricData }) {
               </Tabs>
             </div>
 
-            <TimeRangeTabs range={range} onRangeChange={setRange} tone="metric" size="md" />
+            <TimeRangeSelect range={range} onRangeChange={setRange} tone="metric" size="md" />
           </div>
 
           <MetricSummary

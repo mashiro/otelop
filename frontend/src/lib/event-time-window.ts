@@ -1,5 +1,10 @@
 import { Temporal } from "temporal-polyfill";
-import { DEFAULT_CHART_TIME_RANGE, rangeToMs, type ChartTimeRange } from "@/lib/chart-time-range";
+import {
+  CHART_TIME_RANGES,
+  DEFAULT_CHART_TIME_RANGE,
+  rangeToMs,
+  type ChartTimeRange,
+} from "@/lib/chart-time-range";
 
 export type EventTimeWindow =
   | { mode: "live"; range: ChartTimeRange }
@@ -35,6 +40,17 @@ export function eventWindowWidthMs(window: EventTimeWindow): number {
     Temporal.Instant.from(window.to)
       .since(Temporal.Instant.from(window.from))
       .total("milliseconds"),
+  );
+}
+
+export function eventWindowRange(window: EventTimeWindow): ChartTimeRange | null {
+  if (window.mode === "live") return window.range;
+  const widthMs = eventWindowWidthMs(window);
+  return (
+    CHART_TIME_RANGES.find(({ value }) => {
+      const rangeMs = rangeToMs(value);
+      return rangeMs !== null && rangeMs === widthMs;
+    })?.value ?? null
   );
 }
 
