@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #MISE description="Build the container image for the host arch and tag it as otelop:local"
-#MISE depends=["build-frontend"]
+#MISE depends=["build:frontend"]
 set -euo pipefail
 
 case "$(uname -m)" in

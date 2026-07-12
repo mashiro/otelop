@@ -1,7 +1,0 @@
-#!/usr/bin/env bash
-#MISE description="Start backend and frontend dev servers in parallel"
-set -euo pipefail
-trap 'kill 0' EXIT
-go run ./cmd/otelop start --foreground --debug --log-level debug &
-cd frontend && pnpm run dev &
-wait

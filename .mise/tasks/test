@@ -1,5 +1,0 @@
-#!/usr/bin/env bash
-#MISE description="Run all tests"
-set -euo pipefail
-go test ./...
-(cd frontend && pnpm test)

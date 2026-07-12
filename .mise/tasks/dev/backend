@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+#MISE description="Start the backend dev server"
+set -euo pipefail
+go run ./cmd/otelop start --foreground --debug --log-level debug

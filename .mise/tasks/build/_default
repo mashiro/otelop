@@ -1,4 +1,3 @@
 #!/usr/bin/env bash
 #MISE description="Build frontend and backend binary"
-#MISE depends=["build-backend"]
-set -euo pipefail
+#MISE depends=["build:backend"]

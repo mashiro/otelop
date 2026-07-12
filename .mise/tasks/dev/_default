@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+#MISE description="Start backend and frontend dev servers in parallel"
+#MISE depends=["dev:backend", "dev:frontend"]

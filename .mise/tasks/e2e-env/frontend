@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+#MISE description="Start an isolated frontend for e2e verification"
+#MISE dir="frontend"
+set -euo pipefail
+
+http_port="${OTELOP_E2E_HTTP:-14319}"
+frontend_port="${OTELOP_E2E_FRONTEND:-15173}"
+
+OTELOP_BACKEND_ORIGIN="http://localhost:${http_port}" \
+  pnpm run dev -- --port "${frontend_port}" --strictPort

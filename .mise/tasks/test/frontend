@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+#MISE description="Run frontend tests"
+#MISE dir="frontend"
+set -euo pipefail
+pnpm test

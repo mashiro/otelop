@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+#MISE description="Run backend linters"
+set -euo pipefail
+golangci-lint run ./...

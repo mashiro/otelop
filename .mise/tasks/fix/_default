@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+#MISE description="Format and auto-fix backend and frontend code"
+#MISE depends=["fix:backend", "fix:frontend"]

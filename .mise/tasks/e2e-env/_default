@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+#MISE description="Boot an isolated backend+frontend stack on high ports for e2e verification, so agents never have to touch the live :4319/:5173 dev servers"
+#MISE depends=["e2e-env:backend", "e2e-env:frontend"]
