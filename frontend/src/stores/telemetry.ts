@@ -63,6 +63,21 @@ export function mergeSpans(existing: SpanData[], incoming: SpanData[]): SpanData
   return [...existing, ...deduped];
 }
 
+// Each WS batch's searchValues (see internal/broadcast/broadcast.go's
+// traceSearchValues) covers only the spans delivered in that one batch, while
+// mergeSpans above unions the spans themselves — so a later batch's
+// searchValues must be unioned with, not replace, values already learned from
+// an earlier delivery, or a value only present in an earlier batch stops
+// matching the search.
+function mergeSearchValues(
+  existing: string[] | undefined,
+  incoming: string[] | undefined,
+): string[] | undefined {
+  if (!existing || existing.length === 0) return incoming;
+  if (!incoming || incoming.length === 0) return existing;
+  return [...new Set([...existing, ...incoming])];
+}
+
 function newestTraceStartFirst(traces: TraceData[]): TraceData[] {
   return traces.toSorted((a, b) =>
     Temporal.Instant.compare(
@@ -98,7 +113,7 @@ export const addTraceAtom = atom(null, (get, set, newTrace: TraceData) => {
     updated[idx] = {
       ...existing,
       spans: mergedSpans,
-      searchValues: newTrace.searchValues,
+      searchValues: mergeSearchValues(existing.searchValues, newTrace.searchValues),
       // WebSocket payloads carry an authoritative persisted summary with an
       // empty spans array. Preserve already-fetched detail while letting a
       // growing summary trigger useTraceSpans to fetch the missing rows.
@@ -360,6 +375,15 @@ export const navigateToLogsAtom = atom(null, (_get, set, traceId: string) => {
 // non-root span-name/status match client-side.
 export const serverMatchedTraceIdsAtom = atom<ReadonlySet<string>>(new Set<string>());
 export const serverMatchedLogIdsAtom = atom<ReadonlySet<string>>(new Set<string>());
+
+// The (serviceName, name) keys (see navigation.ts's metricKeyToString) the
+// server returned for the currently active metrics search
+// (hooks/use-metric-list-search.ts). Unlike traces/logs, metrics has no
+// pagination to replace — metricsAtom is always the complete buffer (initial
+// load + WS merges) — but the search result still must not itself overwrite
+// that buffer (a zero-hit search would wipe every metric ever seen). This set
+// is filters.ts's filteredMetricsAtom's server-vouched membership instead.
+export const serverMatchedMetricKeysAtom = atom<ReadonlySet<string>>(new Set<string>());
 
 export const setMetricsAtom = atom(null, (_get, set, metrics: MetricData[]) => {
   set(metricsAtom, metrics);

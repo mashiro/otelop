@@ -95,6 +95,16 @@ export function metricKeyEquals(a: MetricKey | null, b: MetricKey | null): boole
   return a.serviceName === b.serviceName && a.name === b.name;
 }
 
+// String encoding of a MetricKey for use as a Set/Map key (e.g.
+// stores/telemetry.ts's serverMatchedMetricKeysAtom) — metrics have no single
+// id field the way traces/logs do (traceId/log id), only this compound key.
+// JSON-encoding the tuple (rather than joining with a delimiter) sidesteps
+// picking a separator that can't collide with characters serviceName/name
+// might contain.
+export function metricKeyToString(key: MetricKey): string {
+  return JSON.stringify([key.serviceName ?? "", key.name]);
+}
+
 const initialLocation = parsePath(window.location.pathname + window.location.search);
 
 function eventWindowFromLocation(location: string, fallbackRange: ChartTimeRange): EventTimeWindow {

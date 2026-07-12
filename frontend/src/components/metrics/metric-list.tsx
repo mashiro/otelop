@@ -41,7 +41,13 @@ export function MetricList() {
     return <MetricDetail key={selectedMetric.name} />;
   }
 
-  if (allMetrics.length === 0) {
+  // Only the true "nothing has ever arrived" case gets the full EmptyState;
+  // an active search must keep the toolbar (and its search box) mounted even
+  // when allMetrics is otherwise empty, matching filteredMetricsAtom's own
+  // zero-hit case below (EmptyMatches) — see stores/filters.ts's
+  // filteredMetricsAtom and hooks/use-metric-list-search.ts for the bug this
+  // guards against.
+  if (allMetrics.length === 0 && !search) {
     return <EmptyState signal={SIGNALS.metrics} />;
   }
 

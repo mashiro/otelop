@@ -10,35 +10,24 @@ import {
   logTraceFilterAtom,
   serverMatchedTraceIdsAtom,
   serverMatchedLogIdsAtom,
+  serverMatchedMetricKeysAtom,
   traceListWindowAtom,
   logListWindowAtom,
 } from "./telemetry";
+import { metricKeyToString } from "./navigation";
 import type { TraceData, MetricData, LogData } from "@/types/telemetry";
 
-function createSearchAtom<T>(
-  sourceAtom: Atom<T[]>,
-  searchAtom: PrimitiveAtom<string>,
-  extractFields: (item: T) => string[],
-) {
-  return atom<T[]>((get) => {
-    const items = get(sourceAtom);
-    const search = get(searchAtom);
-    if (!search) return items;
-    const q = search.toLowerCase();
-    return items.filter((item) => extractFields(item).some((f) => f.toLowerCase().includes(q)));
-  });
-}
-
-// createServerBackedSearchAtom is createSearchAtom for a list whose search is
-// primarily answered SERVER-side (issue #161's traces/logs lists): any row
-// whose id is in serverIdsAtom was returned by the server FOR the currently
-// active search, so it passes unconditionally — the server matched fields the
-// client can't re-check (a paginated trace summary carries spans: [], so a
-// non-root span-name/status match is invisible here). The client-side
-// predicate applies only to rows outside that set, i.e. live WebSocket
-// prepends (stores/telemetry.ts's addTraceAtom/addLogAtom write to the
-// buffer with no awareness of the active search), keeping a non-matching
-// live arrival from flashing into a filtered list.
+// createServerBackedSearchAtom is a display filter for a list whose search is
+// primarily answered SERVER-side (issue #161's traces/logs lists, and
+// metrics' zero-hit-search fix below): any row whose id is in serverIdsAtom
+// was returned by the server FOR the currently active search, so it passes
+// unconditionally — the server matched fields the client can't re-check (a
+// paginated trace summary carries spans: [], so a non-root span-name/status
+// match is invisible here). The client-side predicate applies only to rows
+// outside that set, i.e. live WebSocket prepends (stores/telemetry.ts's
+// addTraceAtom/addLogAtom/addMetricAtom write to the buffer with no
+// awareness of the active search), keeping a non-matching live arrival from
+// flashing into a filtered list.
 function createServerBackedSearchAtom<T>(
   sourceAtom: Atom<T[]>,
   searchAtom: PrimitiveAtom<string>,
@@ -139,8 +128,19 @@ export const filteredLogsAtom = atom<LogData[]>((get) => {
 
 export const metricSearchAtom = atom("");
 
-export const filteredMetricsAtom = createSearchAtom(
+// Metrics has no pagination to replace (metricsAtom is always the complete
+// buffer — see stores/telemetry.ts), so unlike traces/logs there was no
+// server-vouched-id concept until this fixed a real bug: the old
+// implementation had hooks/use-metric-list-search.ts REPLACE metricsAtom
+// itself with the server's search result, so a zero-hit search wiped the
+// entire buffer (and, with it, the toolbar rendering this very search box —
+// see components/metrics/metric-list.tsx). Routing the search result through
+// serverMatchedMetricKeysAtom instead — the same server-backed-search shape
+// traces/logs use — keeps metricsAtom untouched by search.
+export const filteredMetricsAtom = createServerBackedSearchAtom(
   metricsAtom,
   metricSearchAtom,
+  serverMatchedMetricKeysAtom,
+  metricKeyToString,
   (m: MetricData) => [m.name, m.serviceName ?? "", m.type, m.description ?? ""],
 );

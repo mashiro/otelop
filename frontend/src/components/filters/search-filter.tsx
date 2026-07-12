@@ -12,8 +12,24 @@ export function SearchFilter({
   placeholder: string;
 }) {
   const [value, setValue] = useAtom(atom);
+  const [lastSyncedValue, setLastSyncedValue] = useState(value);
   const [input, setInput] = useState(value);
   const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  // An external write to the atom (e.g. log-list.tsx's "Show surrounding
+  // logs" clearing logSearchAtom from outside this component) must reflect
+  // into the box, but typing already writes the atom the other way
+  // (debounced, local input -> atom) — a useEffect syncing input from value
+  // would fight that and violate the project's no-setState-in-useEffect
+  // rule. Adjust state during render instead (React's sanctioned pattern for
+  // deriving state from a prop that can also change externally): only fires
+  // when the atom's value has genuinely diverged from the last one this
+  // component synced, so a re-render caused by typing (where value hasn't
+  // changed yet) never touches input.
+  if (value !== lastSyncedValue) {
+    setLastSyncedValue(value);
+    setInput(value);
+  }
 
   useEffect(() => () => clearTimeout(timerRef.current), []);
 

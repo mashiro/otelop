@@ -273,6 +273,56 @@ describe("header badge totals (traceCountAtom/metricCountAtom/logCountAtom)", ()
   });
 });
 
+describe("addTraceAtom searchValues merge", () => {
+  // Each WS batch's searchValues covers only that batch's spans (see
+  // internal/broadcast/broadcast.go's traceSearchValues) while mergeSpans
+  // unions the spans themselves — searchValues must be unioned the same way,
+  // not replaced, or a value only present in an earlier batch stops matching
+  // the active search after a later batch merges in.
+  it("unions searchValues across merges instead of replacing them", () => {
+    const store = createStore();
+    store.set(tracesAtom, [
+      makeTrace({ traceId: "t1", spanCount: 1, searchValues: ["first-batch-only"] }),
+    ]);
+
+    store.set(
+      addTraceAtom,
+      makeTrace({
+        traceId: "t1",
+        spanCount: 2,
+        spans: [makeSpan({ spanId: "s2" })],
+        searchValues: ["second-batch-only"],
+      }),
+    );
+
+    expect(store.get(tracesAtom)[0].searchValues).toEqual(
+      expect.arrayContaining(["first-batch-only", "second-batch-only"]),
+    );
+    expect(store.get(tracesAtom)[0].searchValues).toHaveLength(2);
+  });
+
+  it("dedups values seen in both batches", () => {
+    const store = createStore();
+    store.set(tracesAtom, [
+      makeTrace({ traceId: "t1", spanCount: 1, searchValues: ["shared", "only-first"] }),
+    ]);
+
+    store.set(
+      addTraceAtom,
+      makeTrace({
+        traceId: "t1",
+        spanCount: 2,
+        spans: [makeSpan({ spanId: "s2" })],
+        searchValues: ["shared", "only-second"],
+      }),
+    );
+
+    expect(new Set(store.get(tracesAtom)[0].searchValues)).toEqual(
+      new Set(["shared", "only-first", "only-second"]),
+    );
+  });
+});
+
 describe("mergeTraceSpansAtom", () => {
   it("merges lazily-fetched spans into the matching trace, deduping by spanId", () => {
     const store = createStore();

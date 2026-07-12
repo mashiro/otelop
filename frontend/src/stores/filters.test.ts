@@ -11,7 +11,9 @@ import {
   addLogAtom,
   traceListWindowAtom,
   logListWindowAtom,
+  serverMatchedMetricKeysAtom,
 } from "./telemetry";
+import { metricKeyToString } from "./navigation";
 import { selectedLogRangeAtom, selectedTraceRangeAtom } from "./navigation";
 import {
   traceSearchAtom,
@@ -314,5 +316,44 @@ describe("filteredMetricsAtom", () => {
     ]);
     store.set(metricSearchAtom, "gauge");
     expect(store.get(filteredMetricsAtom)).toHaveLength(1);
+  });
+
+  // hooks/use-metric-list-search.ts writes serverMatchedMetricKeysAtom
+  // instead of replacing metricsAtom (the blocker this whole mechanism
+  // fixes) — mirrors the trace/log server-vouched pass-through tests above.
+  it("keeps a server-vouched metric visible even when the client predicate can't match it", () => {
+    const store = createStore();
+    const metric = makeMetric({ serviceName: "frontend", name: "http.requests" });
+    store.set(metricsAtom, [metric]);
+    store.set(metricSearchAtom, "no-client-field-contains-this");
+    store.set(serverMatchedMetricKeysAtom, new Set([metricKeyToString(metric)]));
+
+    expect(store.get(filteredMetricsAtom)).toEqual([metric]);
+  });
+
+  // The blocker itself: a zero-hit search must hide every row without ever
+  // touching metricsAtom — the server-matched set stays empty, it doesn't
+  // clobber the buffer.
+  it("a zero-hit search hides every metric without touching the buffer", () => {
+    const store = createStore();
+    const metrics = [makeMetric({ name: "http.requests" }), makeMetric({ name: "http.errors" })];
+    store.set(metricsAtom, metrics);
+    store.set(metricSearchAtom, "nomatch");
+    store.set(serverMatchedMetricKeysAtom, new Set());
+
+    expect(store.get(filteredMetricsAtom)).toHaveLength(0);
+    expect(store.get(metricsAtom)).toBe(metrics);
+  });
+
+  it("clearing the search restores every buffered metric, including one the server never vouched for", () => {
+    const store = createStore();
+    const metrics = [makeMetric({ name: "http.requests" }), makeMetric({ name: "http.errors" })];
+    store.set(metricsAtom, metrics);
+    store.set(metricSearchAtom, "nomatch");
+    store.set(serverMatchedMetricKeysAtom, new Set());
+    expect(store.get(filteredMetricsAtom)).toHaveLength(0);
+
+    store.set(metricSearchAtom, "");
+    expect(store.get(filteredMetricsAtom)).toBe(metrics);
   });
 });
