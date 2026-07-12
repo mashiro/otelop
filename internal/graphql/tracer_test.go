@@ -68,7 +68,7 @@ func TestTracer_EmitsOtelSpans(t *testing.T) {
 	schema := otelopgraphql.MustNewSchema(newTestStorage(t), otelopgraphql.RuntimeInfo{})
 	// `traces` takes args, so graph-gophers marks it async and TraceField is
 	// invoked with trivial=false — which is where our field-level span fires.
-	schema.Exec(context.Background(), `query Probe { traces(limit: 1) { total } }`, "", nil)
+	schema.Exec(context.Background(), `query Probe { traces(limit: 1) { hasNextPage } }`, "", nil)
 
 	spans := rec.Ended()
 	names := make([]string, len(spans))
@@ -177,8 +177,8 @@ func TestTracer_TopLevelFieldsExemptFromCap(t *testing.T) {
 	// Two top-level fields in one request — more than maxFieldSpansPerRequest
 	// would ever matter for, but exercises that Query.* isn't budgeted at all.
 	schema.Exec(context.Background(), `{
-		a: traces(limit: 0) { total }
-		b: traces(limit: 1) { total }
+		a: traces(limit: 0) { hasNextPage }
+		b: traces(limit: 1) { hasNextPage }
 	}`, "", nil)
 
 	var queryFieldSpans int

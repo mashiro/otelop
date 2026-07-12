@@ -95,31 +95,36 @@ const traceSearchPredicate = `
 // tie. row_number() with an explicit, deterministic tiebreak (span_id)
 // guarantees every Root* field comes from the same chosen row.
 //
-// The final SELECT's count(*) OVER () rides along as total_count: since agg
-// (grouped by trace_id) is the last row-count-changing step before ORDER
-// BY/LIMIT/OFFSET, this window function reports the same "matching traces
-// before pagination" total tracesTotalQuery computes separately — letting
-// TracesPage read it off the page query itself instead of a second round
-// trip (see TracesPage's doc comment).
+// page_ids applies LIMIT/OFFSET before the expensive dedupe, summary, and
+// root-selection work. It requests limit+1 IDs; the extra row becomes
+// hasNextPage and is not returned. This keeps an All-window page bounded
+// even when tens of thousands of traces match.
 const tracesPageQuery = `
 WITH trace_starts AS (
-	SELECT trace_id, min(start_ts) AS start_time
+	SELECT trace_id, min(start_ts) AS start_time, min(ingested_at) AS first_seen
 	FROM spans
 	GROUP BY trace_id
 ),
 matching_ids AS (
-	SELECT trace_id FROM trace_starts WHERE start_time >= ? AND start_time < ?
+	SELECT trace_id, start_time, first_seen
+	FROM trace_starts WHERE start_time >= ? AND start_time < ?
 ),
 search_ids AS (
-	SELECT DISTINCT s.trace_id
+	SELECT DISTINCT m.trace_id, m.start_time, m.first_seen
 	FROM spans s
+	JOIN matching_ids m ON m.trace_id = s.trace_id
 	JOIN resources r ON r.resource_hash = s.resource_hash
-	WHERE s.trace_id IN (SELECT trace_id FROM matching_ids)
-	AND ` + traceSearchPredicate + `
+	WHERE ` + traceSearchPredicate + `
+),
+page_ids AS (
+	SELECT trace_id, start_time, first_seen
+	FROM search_ids
+	ORDER BY start_time DESC, first_seen DESC
+	LIMIT ? OFFSET ?
 ),
 deduped AS (
 	SELECT * FROM spans
-	WHERE trace_id IN (SELECT trace_id FROM search_ids)
+	WHERE trace_id IN (SELECT trace_id FROM page_ids)
 	QUALIFY row_number() OVER (PARTITION BY trace_id, span_id ORDER BY ingested_at) = 1
 ),
 agg AS (
@@ -168,57 +173,32 @@ earliest AS (
 SELECT
 	agg.trace_id, agg.start_time, agg.end_time, agg.span_count, agg.has_error, agg.first_seen,
 	COALESCE(root_res.service_name, earliest_res.service_name) AS service_name,
-	roots.root_name, roots.root_kind, roots.root_status_code, roots.root_start_ts, roots.root_end_ts,
-	count(*) OVER () AS total_count
+	roots.root_name, roots.root_kind, roots.root_status_code, roots.root_start_ts, roots.root_end_ts
 FROM agg
 LEFT JOIN roots USING (trace_id)
 LEFT JOIN earliest USING (trace_id)
 LEFT JOIN resources root_res ON root_res.resource_hash = roots.root_resource_hash
 LEFT JOIN resources earliest_res ON earliest_res.resource_hash = earliest.earliest_resource_hash
 ORDER BY agg.start_time DESC, agg.first_seen DESC
-LIMIT ? OFFSET ?
-`
-
-// tracesTotalQuery mirrors tracesPageQuery's matching_ids/search_ids
-// filtering exactly (see that query's doc comment) so `total` reflects the
-// same search-narrowed trace set the page itself pages through. It's no
-// longer TracesPage's normal path to `total` (that's tracesPageQuery's own
-// count(*) OVER () column) — this only runs as the empty-page-with-offset
-// fallback, via queryCount, when offset lands past the end of the matching
-// set and the page query itself comes back with no rows to read a total off
-// of.
-const tracesTotalQuery = `
-WITH trace_starts AS (
-	SELECT trace_id, min(start_ts) AS start_time
-	FROM spans
-	GROUP BY trace_id
-),
-matching_ids AS (
-	SELECT trace_id FROM trace_starts WHERE start_time >= ? AND start_time < ?
-)
-SELECT count(DISTINCT s.trace_id)
-FROM spans s
-JOIN resources r ON r.resource_hash = s.resource_hash
-WHERE s.trace_id IN (SELECT trace_id FROM matching_ids)
-AND ` + traceSearchPredicate + `
 `
 
 // TracesPage returns a newest-first (by trace start time) page of trace
 // summaries whose start time is within [from, to) and, when search is
 // non-empty, matches it (see tracesPageQuery's search_ids doc comment),
-// plus the total count of matching traces before pagination. total is read
-// off the page query's own count(*) OVER () column; when the page comes
-// back empty because offset is past the end of the matching set, that
-// column has nothing to report, so a separate tracesTotalQuery run recovers
-// it (see queryCount).
-func (s *Storage) TracesPage(ctx context.Context, from, to time.Time, offset, limit int, search string) (items []TraceSummary, total int, err error) {
+// plus whether another page exists. At most limit+1 traces receive full
+// summary/root aggregation; the extra row is removed before returning.
+func (s *Storage) TracesPage(ctx context.Context, from, to time.Time, offset, limit int, search string) (items []TraceSummary, hasNextPage bool, err error) {
 	started := time.Now()
 	defer func() { s.recordQuery(ctx, "query_traces", started, err) }()
 	pattern := likePattern(search)
 
-	rows, err := s.DB().QueryContext(ctx, tracesPageQuery, from, to, pattern, pattern, pattern, pattern, pageLimit(limit), offset)
+	queryLimit := pageLimit(limit)
+	if limit > 0 {
+		queryLimit++
+	}
+	rows, err := s.DB().QueryContext(ctx, tracesPageQuery, from, to, pattern, pattern, pattern, pattern, queryLimit, offset)
 	if err != nil {
-		return nil, 0, fmt.Errorf("storage: query traces page: %w", err)
+		return nil, false, fmt.Errorf("storage: query traces page: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
 
@@ -230,15 +210,13 @@ func (s *Storage) TracesPage(ctx context.Context, from, to time.Time, offset, li
 			firstSeen                          time.Time
 			rootName, rootKind, rootStatusCode sql.NullString
 			rootStartTS, rootEndTS             sql.NullTime
-			totalCount                         int
 		)
 		if err := rows.Scan(
 			&t.TraceID, &t.StartTime, &endTime, &t.SpanCount, &t.HasError, &firstSeen,
-			&t.ServiceName, &rootName, &rootKind, &rootStatusCode, &rootStartTS, &rootEndTS, &totalCount,
+			&t.ServiceName, &rootName, &rootKind, &rootStatusCode, &rootStartTS, &rootEndTS,
 		); err != nil {
-			return nil, 0, fmt.Errorf("storage: scan trace summary: %w", err)
+			return nil, false, fmt.Errorf("storage: scan trace summary: %w", err)
 		}
-		total = totalCount
 		t.Duration = endTime.Sub(t.StartTime)
 		if rootStartTS.Valid {
 			t.HasRoot = true
@@ -250,17 +228,13 @@ func (s *Storage) TracesPage(ctx context.Context, from, to time.Time, offset, li
 		items = append(items, t)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, 0, fmt.Errorf("storage: iterate traces page: %w", err)
+		return nil, false, fmt.Errorf("storage: iterate traces page: %w", err)
 	}
-
-	if len(items) == 0 && offset > 0 {
-		total, err = s.queryCount(ctx, tracesTotalQuery, from, to, pattern, pattern, pattern, pattern)
-		if err != nil {
-			return nil, 0, fmt.Errorf("storage: count traces page: %w", err)
-		}
+	if limit > 0 && len(items) > limit {
+		hasNextPage = true
+		items = items[:limit]
 	}
-
-	return items, total, nil
+	return items, hasNextPage, nil
 }
 
 const traceSpansQuery = `

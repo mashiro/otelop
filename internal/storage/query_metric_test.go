@@ -395,6 +395,29 @@ func TestLatestValue_HistogramMeanOfMostRecentWindow(t *testing.T) {
 	}
 }
 
+func TestMetricsPage_HistogramPointCountUsesDistributionCount(t *testing.T) {
+	s := openTestStorage(t, Options{})
+	ctx := context.Background()
+	t0 := time.Now().UTC()
+
+	s.AddMetrics(ctx, buildHistogram("http.server.request.duration", "svc", 10, 2.5, 0.01, 0.8, t0))
+	s.AddMetrics(ctx, buildHistogram("http.server.request.duration", "svc", 15, 4.0, 0.02, 0.9, t0.Add(time.Second)))
+	s.Sync()
+
+	items, total, err := s.MetricsPage(ctx, t0.Add(-time.Second), t0.Add(2*time.Second), 0, 0)
+	if err != nil {
+		t.Fatalf("MetricsPage: %v", err)
+	}
+	if total != 1 || len(items) != 1 {
+		t.Fatalf("got total=%d items=%d, want one histogram", total, len(items))
+	}
+	// The first cumulative observation is a baseline; the second produces
+	// one derived distribution window, exactly as MetricPoints does.
+	if items[0].PointCount != 1 {
+		t.Errorf("PointCount = %d, want 1", items[0].PointCount)
+	}
+}
+
 func TestLatestValue_UnknownMetricReturnsNil(t *testing.T) {
 	s := openTestStorage(t, Options{})
 	ctx := context.Background()

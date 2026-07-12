@@ -50,13 +50,7 @@ func (r *MetricResolver) filteredPoints(ctx context.Context) ([]storage.DerivedP
 	return r.points, r.err
 }
 
-// LatestValue is a cheap, non-memoized alternative to DataPoints/PointCount:
-// it never fetches the group's full point history, so a caller wanting only
-// this field never pays filteredPoints' storage.MetricPoints cost (see issue
-// #162's list-render motivation).
-func (r *MetricResolver) LatestValue(ctx context.Context) (*float64, error) {
-	return r.storage.LatestValue(ctx, r.m.ServiceName, r.m.MetricName)
-}
+func (r *MetricResolver) LatestValue() *float64 { return r.m.LatestValue }
 
 func (r *MetricResolver) DataPoints(ctx context.Context) ([]*DataPointResolver, error) {
 	points, err := r.filteredPoints(ctx)
@@ -70,13 +64,7 @@ func (r *MetricResolver) DataPoints(ctx context.Context) ([]*DataPointResolver, 
 	return out, nil
 }
 
-func (r *MetricResolver) PointCount(ctx context.Context) (int32, error) {
-	points, err := r.filteredPoints(ctx)
-	if err != nil {
-		return 0, err
-	}
-	return int32(len(points)), nil
-}
+func (r *MetricResolver) PointCount() int32 { return int32(r.m.PointCount) }
 
 type DataPointResolver struct {
 	dp storage.DerivedPoint

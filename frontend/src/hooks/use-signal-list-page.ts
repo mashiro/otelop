@@ -8,10 +8,6 @@ import { eventWindowBounds, eventWindowKey, type EventTimeWindow } from "@/lib/e
 const SIGNAL_PAGE_SIZE = 100;
 
 export interface SignalListPage {
-  // Honest total row count within the fetched range, from the server
-  // connection's `total` — distinct from the live buffer's length (which the
-  // tab badge counters still use; see stores/telemetry.ts's traceCountAtom).
-  total: number;
   // Rows fetched from the server across page 1 + every "Load more" so far —
   // NOT the live buffer's length, which can differ (WS deliveries grow it,
   // the client cap or the range display filter can shrink what's rendered).
@@ -34,7 +30,7 @@ export interface FetchPageArgs {
 
 interface FetchPageResult<T> {
   items: T[];
-  total: number;
+  hasNextPage: boolean;
 }
 
 interface PagingSession {
@@ -83,7 +79,7 @@ export function useSignalListPage<T>({
   replacePage,
   onAppend,
 }: SignalListPageOptions<T>): SignalListPage {
-  const [state, setState] = useState({ total: 0, loaded: 0, loadingMore: false });
+  const [state, setState] = useState({ hasMore: false, loaded: 0, loadingMore: false });
   const sessionRef = useRef<PagingSession | null>(null);
   const windowKey = eventWindowKey(window);
 
@@ -101,7 +97,7 @@ export function useSignalListPage<T>({
 
     const load = async () => {
       try {
-        const { items, total } = await fetchPage({
+        const { items, hasNextPage } = await fetchPage({
           from: session.from,
           to: session.to,
           offset: 0,
@@ -111,7 +107,7 @@ export function useSignalListPage<T>({
         if (ignore) return;
         replacePage({ items, idsBeforeRequest, window });
         session.offset = items.length;
-        setState({ total, loaded: items.length, loadingMore: false });
+        setState({ hasMore: hasNextPage, loaded: items.length, loadingMore: false });
       } catch {
         // Leave whatever was showing before (the previous range's page, or
         // just the live buffer) — the next range/search/tab activation retries.
@@ -134,7 +130,7 @@ export function useSignalListPage<T>({
     const offset = session.offset;
     const load = async () => {
       try {
-        const { items, total } = await fetchPage({
+        const { items, hasNextPage } = await fetchPage({
           from: session.from,
           to: session.to,
           offset,
@@ -144,7 +140,11 @@ export function useSignalListPage<T>({
         if (sessionRef.current !== session) return;
         onAppend(items);
         session.offset = offset + items.length;
-        setState((s) => ({ total, loaded: s.loaded + items.length, loadingMore: false }));
+        setState((s) => ({
+          hasMore: hasNextPage,
+          loaded: s.loaded + items.length,
+          loadingMore: false,
+        }));
       } catch {
         if (sessionRef.current !== session) return;
         setState((s) => ({ ...s, loadingMore: false }));
@@ -154,9 +154,8 @@ export function useSignalListPage<T>({
   }, [fetchPage, onAppend]);
 
   return {
-    total: state.total,
     loaded: state.loaded,
-    hasMore: state.loaded < state.total,
+    hasMore: state.hasMore,
     loadingMore: state.loadingMore,
     loadMore,
   };

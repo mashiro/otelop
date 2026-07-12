@@ -34,7 +34,7 @@ const TracesPageQuery = graphql(`
           durationMs
         }
       }
-      total
+      hasNextPage
     }
   }
 `);
@@ -75,7 +75,7 @@ export function useTraceListPage(window: EventTimeWindow, search: string): Signa
 
   const fetchPage = useCallback(async ({ from, to, offset, limit, search }: FetchPageArgs) => {
     const data = await gqlClient.request(TracesPageQuery, { from, to, offset, limit, search });
-    return { items: data.traces.items.map(toTraceData), total: data.traces.total };
+    return { items: data.traces.items.map(toTraceData), hasNextPage: data.traces.hasNextPage };
   }, []);
   const getCurrentIds = useCallback(
     () => new Set(store.get(tracesAtom).map((trace) => trace.traceId)),

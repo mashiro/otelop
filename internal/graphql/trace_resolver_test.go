@@ -66,7 +66,7 @@ func TestTracesList_SummaryFieldsDoNotTriggerTraceByID(t *testing.T) {
 
 	data := exec(t, s, `{
 		traces(limit: 0) {
-			total
+			hasNextPage
 			items {
 				traceId
 				serviceName
@@ -80,8 +80,8 @@ func TestTracesList_SummaryFieldsDoNotTriggerTraceByID(t *testing.T) {
 	}`, nil)
 
 	conn := data["traces"].(map[string]any)
-	if int(conn["total"].(float64)) != n {
-		t.Fatalf("total = %v, want %d", conn["total"], n)
+	if conn["hasNextPage"].(bool) {
+		t.Fatal("hasNextPage = true for unlimited query")
 	}
 	items := conn["items"].([]any)
 	if len(items) != n {
@@ -106,36 +106,33 @@ func TestTracesList_SummaryFieldsDoNotTriggerTraceByID(t *testing.T) {
 	}
 }
 
-// TestTracesList_SearchArgFiltersAndReflectsInTotal is the GraphQL-level
+// TestTracesList_SearchArgFiltersItems is the GraphQL-level
 // passthrough check for issue #161's `search` arg — the field-matching
 // semantics themselves are covered exhaustively at the storage layer
 // (query_trace_search_test.go); this just confirms the resolver actually
 // forwards the arg to storage.TracesPage rather than ignoring it.
-func TestTracesList_SearchArgFiltersAndReflectsInTotal(t *testing.T) {
+func TestTracesList_SearchArgFiltersItems(t *testing.T) {
 	s := seedManyTraces(t, 3)
 
 	data := exec(t, s, `{
 		traces(limit: 0, search: "root") {
-			total
+			hasNextPage
 			items { traceId }
 		}
 	}`, nil)
 	conn := data["traces"].(map[string]any)
-	if int(conn["total"].(float64)) != 3 {
-		t.Fatalf("total = %v, want 3 (every trace's root span is named \"root\")", conn["total"])
+	if len(conn["items"].([]any)) != 3 || conn["hasNextPage"].(bool) {
+		t.Fatalf("matching result = %v, want 3 items and no next page", conn)
 	}
 
 	data = exec(t, s, `{
 		traces(limit: 0, search: "no-such-trace") {
-			total
+			hasNextPage
 			items { traceId }
 		}
 	}`, nil)
 	conn = data["traces"].(map[string]any)
-	if int(conn["total"].(float64)) != 0 {
-		t.Fatalf("total = %v, want 0", conn["total"])
-	}
-	if len(conn["items"].([]any)) != 0 {
+	if len(conn["items"].([]any)) != 0 || conn["hasNextPage"].(bool) {
 		t.Fatalf("items = %v, want empty", conn["items"])
 	}
 }

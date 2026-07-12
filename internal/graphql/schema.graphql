@@ -7,20 +7,21 @@ schema {
 }
 
 type Query {
-  "Storage configuration and current row counts."
+  "Storage configuration and current logical signal counts."
   config: Config!
 
   "Runtime info for the running otelop instance. Consumed by `otelop status`."
   status: Status!
 
   """
-  List traces newest-first. from/to bound the query to a time range; both
+  List traces by trace startTime, newest-first. A trace is in range when its
+  startTime (the earliest retained span start) is in [from, to); both bounds
   default to the full retention window (now - retention - 24h slack) .. (now + 24h slack).
   search, if given, case-insensitively matches a trace whose trace ID, or any
   span's name, status code, or resource service name, contains it (substring
   match; % and _ are treated literally, not as wildcards). An empty/omitted
-  search matches every trace in range. `total` reflects the search-narrowed
-  count.
+  search matches every trace in range. Pagination fetches limit + 1 candidate
+  traces and exposes `hasNextPage` without counting every match.
   """
   traces(limit: Int = 50, offset: Int = 0, from: Time, to: Time, search: String): TraceConnection!
 
@@ -28,8 +29,13 @@ type Query {
   trace(traceId: ID!): Trace
 
   """
-  List metrics newest-first. from/to bound the query to a time range; both
-  default to the full retention window.
+  List metric groups by their most recently received point, newest-first.
+  A metric group is in range when any of its series overlaps [from, to);
+  both bounds default to the full retention window. search, if given,
+  case-insensitively matches metric name, service name, metric type, or
+  description (substring match; % and _ are treated literally, not as
+  wildcards). An empty/omitted search matches every metric group in range.
+  `total` reflects the search-narrowed count.
   """
   metrics(limit: Int = 50, offset: Int = 0, from: Time, to: Time, search: String): MetricConnection!
 
@@ -73,7 +79,7 @@ type Query {
 }
 
 type Mutation {
-  "Drop every buffered trace, metric, and log."
+  "Delete every retained trace, metric, and log."
   clearSignals: Boolean!
 }
 
@@ -84,8 +90,11 @@ type Config {
   retention: String!
   "Configured on-disk size ceiling, as given in the TOML/CLI/env config (e.g. \"4GB\")."
   maxSize: String!
+  "Number of distinct retained trace groups."
   traceCount: Int!
+  "Number of distinct retained (serviceName, metric name) groups."
   metricCount: Int!
+  "Number of retained log records."
   logCount: Int!
 }
 
@@ -109,7 +118,7 @@ type Status {
   debug: Boolean!
   "Configured log level (e.g. \"warn\"), as given in the TOML/CLI/env config."
   logLevel: String!
-  "Storage configuration and current row counts."
+  "Storage configuration and current logical signal counts."
   config: Config!
   "Current database file size in bytes (0 for an in-memory database)."
   dbSizeBytes: Float!
@@ -117,7 +126,8 @@ type Status {
 
 type TraceConnection {
   items: [Trace!]!
-  total: Int!
+  "True when another infinite-scroll page exists after this one."
+  hasNextPage: Boolean!
   limit: Int!
   offset: Int!
 }
@@ -140,7 +150,7 @@ type Trace {
   traceId: ID!
   serviceName: String!
   rootSpan: Span
-  "Every span otelop has buffered under this trace."
+  "Every retained span belonging to this trace."
   spans: [Span!]!
   spanCount: Int!
   startTime: Time!
@@ -191,9 +201,10 @@ type Metric {
   "Length of dataPoints without requesting the array."
   pointCount: Int!
   """
-  Derived value of the most recently observed point, computed from just the
-  group's active series' last two raw rows instead of re-deriving its whole
-  retained history — the metrics list's cheap glance column (issue #162).
+  Derived value of the most recently observed point from the group's active
+  series. Metrics-page values are resolved in one page-wide batch instead of
+  re-deriving each group's whole retained history — the metrics list's cheap
+  glance column (issue #162).
   Null when the group has no points yet, or its latest observation has
   nothing meaningful to derive (see storage.LatestValue's doc comment).
   """
@@ -207,13 +218,14 @@ activity: for cumulative OTLP inputs (monotonic Sum, Histogram, Summary,
 ExponentialHistogram) the server delta-izes against the previous observation
 before returning; delta inputs are already per-interval. The `cumulative`
 family carries the running total "since otelop started observing this series"
-so clients can show session totals without re-summing the delta column — for
+so clients can show retained-history totals without re-summing the delta column — for
 cumulative-temporality input it's the exporter's raw cumulative, for
-delta-temporality input otelop accumulates the deltas itself. Note that otelop
-is a local in-memory viewer: the running total resets when the daemon restarts.
+delta-temporality input otelop accumulates the retained deltas itself. Retention
+or max-size cleanup can therefore change that derived total; cumulative input
+continues to expose the exporter's raw cumulative value.
 """
 type DataPoint {
-  "Stable, globally unique identity (UUIDv7) assigned at ingestion. Survives ring-buffer eviction and reconnects, so clients can use it as a durable key."
+  "Stable, globally unique identity (UUIDv7) assigned at ingestion. Persists with the retained database row, so clients can use it as a key across reconnects."
   id: ID!
   timestamp: Time!
   """
@@ -289,7 +301,7 @@ type AggregatePoint {
 }
 
 type Log {
-  "Stable, globally unique identity (UUIDv7) assigned at ingestion. Survives ring-buffer eviction and reconnects, so clients can use it as a durable key."
+  "Stable, globally unique identity (UUIDv7) assigned at ingestion. Persists with the retained database row, so clients can use it as a key across reconnects."
   id: ID!
   timestamp: Time!
   observedTimestamp: Time!
@@ -301,7 +313,7 @@ type Log {
   serviceName: String!
   attributes: JSON!
   resource: JSON!
-  "Correlated trace, or null if the log has no traceId or the trace has been evicted from the ring buffer."
+  "Correlated retained trace, or null if traceId is unset or that trace is no longer retained."
   trace: Trace
   "Correlated span within the trace, or null if traceId/spanId are unset or the trace/span is missing."
   span: Span

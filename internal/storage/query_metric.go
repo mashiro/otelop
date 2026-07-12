@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	duckdb "github.com/duckdb/duckdb-go/v2"
@@ -30,6 +31,10 @@ type MetricSummary struct {
 	// display value, roughly matching the old store package's "one MetricData carries
 	// one resource" behavior even though each series stores its own hash.
 	Resource map[string]any
+	// PointCount and LatestValue are populated in batches for a metrics page,
+	// avoiding one full-history query plus one latest-point query per item.
+	PointCount  int
+	LatestValue *float64
 }
 
 // DerivedPoint is one metric observation with delta/cumulative values
@@ -213,8 +218,136 @@ func (s *Storage) MetricsPageSearch(ctx context.Context, from, to time.Time, off
 			return nil, 0, fmt.Errorf("storage: count metrics page: %w", err)
 		}
 	}
+	if err := s.populateMetricSummaryStats(ctx, items, from, to); err != nil {
+		return nil, 0, err
+	}
 
 	return items, total, nil
+}
+
+// populateMetricSummaryStats resolves the two metrics-list glance fields in
+// two page-wide queries. This keeps Query.metrics at a constant number of SQL
+// round trips instead of resolving pointCount and latestValue once per item.
+func (s *Storage) populateMetricSummaryStats(ctx context.Context, items []MetricSummary, from, to time.Time) (err error) {
+	started := time.Now()
+	defer func() { s.recordQuery(ctx, "query_metric_summary_stats", started, err) }()
+	if len(items) == 0 {
+		return nil
+	}
+	values := make([]string, len(items))
+	args := make([]any, 0, len(items)*2+2)
+	for i := range items {
+		values[i] = "(?, ?)"
+		args = append(args, items[i].ServiceName, items[i].MetricName)
+	}
+	selected := strings.Join(values, ", ")
+
+	countQuery := `
+WITH selected(service_name, metric_name) AS (VALUES ` + selected + `),
+points AS (
+	SELECT s.service_name, s.metric_name, s.series_key, s.metric_type,
+		s.temporality, s.is_monotonic, p.ts, p.value, p.count
+	FROM selected x
+	JOIN metric_series s USING (service_name, metric_name)
+	JOIN metric_points p USING (series_key)
+	WHERE p.ts >= make_timestamp_ns(?) AND p.ts < make_timestamp_ns(?)
+), ranked AS (
+	SELECT *, row_number() OVER (PARTITION BY series_key ORDER BY ts) AS point_rank
+	FROM points
+)
+SELECT service_name, metric_name, sum(
+	CASE
+		WHEN metric_type IN ` + distributionTypesSQL + `
+			AND count IS NOT NULL AND (temporality <> 'cumulative' OR point_rank > 1) THEN 1
+		WHEN metric_type NOT IN ` + distributionTypesSQL + ` AND value IS NOT NULL
+			AND (metric_type <> 'Sum' OR temporality <> 'cumulative' OR NOT is_monotonic OR point_rank > 1) THEN 1
+		ELSE 0
+	END
+)
+FROM ranked
+GROUP BY service_name, metric_name`
+	countArgs := append(args, from.UnixNano(), to.UnixNano())
+	rows, err := s.DB().QueryContext(ctx, countQuery, countArgs...)
+	if err != nil {
+		return fmt.Errorf("storage: query metric summary point counts: %w", err)
+	}
+	counts := make(map[string]int, len(items))
+	for rows.Next() {
+		var serviceName, metricName string
+		var count int
+		if err := rows.Scan(&serviceName, &metricName, &count); err != nil {
+			_ = rows.Close()
+			return fmt.Errorf("storage: scan metric summary point count: %w", err)
+		}
+		counts[serviceName+"\x00"+metricName] = count
+	}
+	if err := rows.Close(); err != nil {
+		return fmt.Errorf("storage: close metric summary point counts: %w", err)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("storage: iterate metric summary point counts: %w", err)
+	}
+
+	latestQuery := `
+WITH selected(service_name, metric_name) AS (VALUES ` + selected + `),
+targets AS (
+	SELECT s.service_name, s.metric_name, arg_max(s.series_key, s.last_seen) AS series_key
+	FROM selected x JOIN metric_series s USING (service_name, metric_name)
+	GROUP BY s.service_name, s.metric_name
+), ranked AS (
+	SELECT t.service_name, t.metric_name, p.series_key, p.ts, p.value, p.count, p.sum,
+		s.metric_type, s.temporality, s.is_monotonic,
+		row_number() OVER (PARTITION BY p.series_key ORDER BY p.ts DESC, p.id DESC) AS point_rank
+	FROM targets t JOIN metric_points p USING (series_key) JOIN metric_series s USING (series_key)
+), points AS (SELECT * FROM ranked WHERE point_rank <= 2),
+derived AS (
+	SELECT *,
+		CASE WHEN metric_type = 'Sum' AND temporality = 'cumulative' AND is_monotonic
+			THEN CASE WHEN lag(value) OVER w IS NULL THEN NULL
+				WHEN value < lag(value) OVER w THEN value ELSE value - lag(value) OVER w END
+			ELSE value END AS scalar_value,
+		CASE WHEN temporality = 'cumulative'
+			THEN CASE WHEN lag(count) OVER w IS NULL THEN NULL
+				WHEN count < lag(count) OVER w THEN count ELSE count - lag(count) OVER w END
+			ELSE count END AS count_delta,
+		CASE WHEN temporality = 'cumulative'
+			THEN CASE WHEN lag(sum) OVER w IS NULL THEN NULL
+				WHEN sum < lag(sum) OVER w THEN sum ELSE sum - lag(sum) OVER w END
+			ELSE sum END AS sum_delta
+	FROM points WINDOW w AS (PARTITION BY series_key ORDER BY ts)
+)
+SELECT service_name, metric_name,
+	CASE WHEN metric_type IN ` + distributionTypesSQL + `
+		THEN CASE WHEN sum_delta IS NULL OR count_delta IS NULL OR count_delta <= 0 THEN NULL ELSE sum_delta / count_delta END
+		ELSE scalar_value END AS latest_value
+FROM derived QUALIFY row_number() OVER (PARTITION BY service_name, metric_name ORDER BY ts DESC) = 1`
+	rows, err = s.DB().QueryContext(ctx, latestQuery, args...)
+	if err != nil {
+		return fmt.Errorf("storage: query metric summary latest values: %w", err)
+	}
+	latest := make(map[string]*float64, len(items))
+	for rows.Next() {
+		var serviceName, metricName string
+		var value sql.NullFloat64
+		if err := rows.Scan(&serviceName, &metricName, &value); err != nil {
+			_ = rows.Close()
+			return fmt.Errorf("storage: scan metric summary latest value: %w", err)
+		}
+		latest[serviceName+"\x00"+metricName] = nullFloatPtr(value)
+	}
+	if err := rows.Close(); err != nil {
+		return fmt.Errorf("storage: close metric summary latest values: %w", err)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("storage: iterate metric summary latest values: %w", err)
+	}
+
+	for i := range items {
+		key := items[i].ServiceName + "\x00" + items[i].MetricName
+		items[i].PointCount = counts[key]
+		items[i].LatestValue = latest[key]
+	}
+	return nil
 }
 
 // decodeSeriesKeys converts the driver's generic representation of

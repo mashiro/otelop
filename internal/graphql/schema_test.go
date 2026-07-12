@@ -232,10 +232,10 @@ func TestConfig(t *testing.T) {
 
 func TestTraces_FieldSelection(t *testing.T) {
 	s := seedStorage(t)
-	data := exec(t, s, `{ traces(limit: 10) { total items { traceId serviceName hasError spanCount durationMs } } }`, nil)
+	data := exec(t, s, `{ traces(limit: 10) { hasNextPage items { traceId serviceName hasError spanCount durationMs } } }`, nil)
 	conn := data["traces"].(map[string]any)
-	if conn["total"].(float64) != 2 {
-		t.Errorf("total = %v, want 2", conn["total"])
+	if conn["hasNextPage"].(bool) {
+		t.Error("hasNextPage = true, want false")
 	}
 	items := conn["items"].([]any)
 	if len(items) != 2 {
@@ -257,13 +257,13 @@ func TestTraces_FieldSelection(t *testing.T) {
 func TestTraces_TimeRangeArgs_ExcludeOutOfWindow(t *testing.T) {
 	s := seedStorage(t)
 	// A window entirely before the seeded data must return zero traces.
-	data := exec(t, s, `query($from: Time!, $to: Time!) { traces(from: $from, to: $to) { total } }`, map[string]any{
+	data := exec(t, s, `query($from: Time!, $to: Time!) { traces(from: $from, to: $to) { items { traceId } hasNextPage } }`, map[string]any{
 		"from": "2000-01-01T00:00:00Z",
 		"to":   "2000-01-02T00:00:00Z",
 	})
 	conn := data["traces"].(map[string]any)
-	if conn["total"].(float64) != 0 {
-		t.Errorf("total = %v, want 0 for an out-of-window query", conn["total"])
+	if len(conn["items"].([]any)) != 0 || conn["hasNextPage"].(bool) {
+		t.Errorf("out-of-window traces = %v", conn)
 	}
 }
 

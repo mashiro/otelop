@@ -101,16 +101,30 @@ type TracesArgs struct {
 	Search *string
 }
 
-func (r *Resolver) Traces(ctx context.Context, args TracesArgs) (*ConnectionResolver[*TraceResolver], error) {
+func (r *Resolver) Traces(ctx context.Context, args TracesArgs) (*TraceConnectionResolver, error) {
 	from, to := r.resolveWindow(args.From, args.To)
-	items, total, err := r.storage.TracesPage(ctx, from, to, int(args.Offset), int(args.Limit), stringArg(args.Search))
+	items, hasNextPage, err := r.storage.TracesPage(ctx, from, to, int(args.Offset), int(args.Limit), stringArg(args.Search))
 	if err != nil {
 		return nil, err
 	}
-	return newConnection(items, total, args.Limit, args.Offset, func(t storage.TraceSummary) *TraceResolver {
-		return newTraceResolver(r.storage, t)
-	}), nil
+	resolved := make([]*TraceResolver, len(items))
+	for i := range items {
+		resolved[i] = newTraceResolver(r.storage, items[i])
+	}
+	return &TraceConnectionResolver{items: resolved, hasNextPage: hasNextPage, limit: args.Limit, offset: args.Offset}, nil
 }
+
+type TraceConnectionResolver struct {
+	items       []*TraceResolver
+	hasNextPage bool
+	limit       int32
+	offset      int32
+}
+
+func (c *TraceConnectionResolver) Items() []*TraceResolver { return c.items }
+func (c *TraceConnectionResolver) HasNextPage() bool       { return c.hasNextPage }
+func (c *TraceConnectionResolver) Limit() int32            { return c.limit }
+func (c *TraceConnectionResolver) Offset() int32           { return c.offset }
 
 type TraceArgs struct {
 	TraceID gql.ID
@@ -255,8 +269,9 @@ func (c *ConfigResolver) TraceCount() int32   { return c.traceCount }
 func (c *ConfigResolver) MetricCount() int32  { return c.metricCount }
 func (c *ConfigResolver) LogCount() int32     { return c.logCount }
 
-// ConnectionResolver is the generic paginated-list response shared by
-// traces/metrics/logs. Instantiated per element type via newConnection.
+// ConnectionResolver is the total-count pagination response shared by
+// metrics/logs. Traces use TraceConnectionResolver's cheaper hasNextPage
+// contract because their infinite-scroll list does not need an exact total.
 type ConnectionResolver[T any] struct {
 	items  []T
 	total  int32

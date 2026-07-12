@@ -60,12 +60,12 @@ func TestTracesPage_DedupsRepeatedSpans(t *testing.T) {
 	s.AddTraces(ctx, td)
 	s.Sync()
 
-	items, total, err := s.TracesPage(ctx, base.Add(-time.Minute), base.Add(time.Minute), 0, 0, "")
+	items, hasNextPage, err := s.TracesPage(ctx, base.Add(-time.Minute), base.Add(time.Minute), 0, 0, "")
 	if err != nil {
 		t.Fatalf("TracesPage: %v", err)
 	}
-	if total != 1 {
-		t.Fatalf("total = %d, want 1", total)
+	if hasNextPage {
+		t.Fatal("hasNextPage = true for an unlimited query")
 	}
 	if len(items) != 1 || items[0].SpanCount != 1 {
 		t.Fatalf("expected 1 trace with span_count=1 after dedup, got %+v", items)
@@ -210,12 +210,12 @@ func TestTracesPage_WindowUsesTraceStartAndAggregatesFullSpanSet(t *testing.T) {
 
 	from := base.Add(-time.Minute)
 	to := base.Add(time.Minute)
-	items, total, err := s.TracesPage(ctx, from, to, 0, 0, "")
+	items, hasNextPage, err := s.TracesPage(ctx, from, to, 0, 0, "")
 	if err != nil {
 		t.Fatalf("TracesPage: %v", err)
 	}
-	if total != 1 {
-		t.Fatalf("total = %d, want 1", total)
+	if hasNextPage {
+		t.Fatal("hasNextPage = true for an unlimited query")
 	}
 	if len(items) != 1 {
 		t.Fatalf("expected 1 trace, got %d", len(items))
@@ -235,16 +235,16 @@ func TestTracesPage_WindowUsesTraceStartAndAggregatesFullSpanSet(t *testing.T) {
 	// here because its start time is the earlier span's timestamp.
 	laterFrom := base.Add(59 * time.Minute)
 	laterTo := base.Add(61 * time.Minute)
-	items, total, err = s.TracesPage(ctx, laterFrom, laterTo, 0, 0, "")
+	items, hasNextPage, err = s.TracesPage(ctx, laterFrom, laterTo, 0, 0, "")
 	if err != nil {
 		t.Fatalf("TracesPage (child-span window): %v", err)
 	}
-	if total != 0 || len(items) != 0 {
-		t.Errorf("expected no traces in the child-span window, got total=%d items=%d", total, len(items))
+	if hasNextPage || len(items) != 0 {
+		t.Errorf("expected no traces in the child-span window, got hasNextPage=%v items=%d", hasNextPage, len(items))
 	}
 }
 
-func TestTracesPage_PaginationAndTotal(t *testing.T) {
+func TestTracesPage_PaginationAndHasNextPage(t *testing.T) {
 	s := openTestStorage(t, Options{})
 	ctx := context.Background()
 	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -259,24 +259,19 @@ func TestTracesPage_PaginationAndTotal(t *testing.T) {
 		time.Sleep(time.Millisecond) // force distinct ingested_at for ordering
 	}
 
-	items, total, err := s.TracesPage(ctx, base.Add(-time.Minute), base.Add(time.Minute), 2, 2, "")
+	items, hasNextPage, err := s.TracesPage(ctx, base.Add(-time.Minute), base.Add(time.Minute), 2, 2, "")
 	if err != nil {
 		t.Fatalf("TracesPage: %v", err)
 	}
-	if total != 5 {
-		t.Fatalf("total = %d, want 5", total)
+	if !hasNextPage {
+		t.Fatal("hasNextPage = false, want true")
 	}
 	if len(items) != 2 {
 		t.Fatalf("expected page of 2, got %d", len(items))
 	}
 }
 
-// TestTracesPage_EmptyPageWithOffsetStillReportsTotal covers the fallback
-// path (queryCount + tracesTotalQuery) TracesPage takes when the page
-// query's count(*) OVER () column has nothing to report because offset lands
-// past the end of the matching set: total must still reflect the true
-// matching count, not 0.
-func TestTracesPage_EmptyPageWithOffsetStillReportsTotal(t *testing.T) {
+func TestTracesPage_EmptyPageHasNoNextPage(t *testing.T) {
 	s := openTestStorage(t, Options{})
 	ctx := context.Background()
 	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -290,15 +285,15 @@ func TestTracesPage_EmptyPageWithOffsetStillReportsTotal(t *testing.T) {
 	}
 	s.Sync()
 
-	items, total, err := s.TracesPage(ctx, base.Add(-time.Minute), base.Add(time.Minute), 10, 2, "")
+	items, hasNextPage, err := s.TracesPage(ctx, base.Add(-time.Minute), base.Add(time.Minute), 10, 2, "")
 	if err != nil {
 		t.Fatalf("TracesPage: %v", err)
 	}
 	if len(items) != 0 {
 		t.Fatalf("expected an empty page past the end of the matching set, got %d items", len(items))
 	}
-	if total != 3 {
-		t.Fatalf("total = %d, want 3 (offset-past-end fallback must still report the true total)", total)
+	if hasNextPage {
+		t.Fatal("hasNextPage = true for an empty page past the end")
 	}
 }
 

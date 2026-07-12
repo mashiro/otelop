@@ -63,7 +63,7 @@ describe("useLogListPage", () => {
     expect(requestMock.mock.calls[0]?.[1]?.from).toBeUndefined();
   });
 
-  it("replaces logsAtom with page 1 and reports the connection total", async () => {
+  it("replaces logsAtom with page 1 and reports whether another page exists", async () => {
     requestMock.mockResolvedValue({
       logs: { items: [queryLog("a"), queryLog("b")], total: 320 },
     });
@@ -71,7 +71,6 @@ describe("useLogListPage", () => {
     const { store, result } = renderWithStore("1h");
 
     await waitFor(() => expect(store.get(logsAtom).map((l) => l.id)).toEqual(["a", "b"]));
-    expect(result.current.total).toBe(320);
     expect(result.current.loaded).toBe(2);
     expect(result.current.hasMore).toBe(true);
   });

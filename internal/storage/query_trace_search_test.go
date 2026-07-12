@@ -88,12 +88,12 @@ func TestTracesPage_SearchMatchesByField(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			items, total, err := s.TracesPage(ctx, base.Add(-time.Minute), base.Add(time.Minute), 0, 0, tc.search)
+			items, hasNextPage, err := s.TracesPage(ctx, base.Add(-time.Minute), base.Add(time.Minute), 0, 0, tc.search)
 			if err != nil {
 				t.Fatalf("TracesPage: %v", err)
 			}
-			if total != len(tc.want) {
-				t.Fatalf("total = %d, want %d", total, len(tc.want))
+			if hasNextPage {
+				t.Fatal("hasNextPage = true for an unlimited query")
 			}
 			got := make([]string, len(items))
 			for i, it := range items {
@@ -108,7 +108,7 @@ func TestTracesPage_SearchMatchesByField(t *testing.T) {
 
 // TestTracesPage_SearchComposesWithRangeAndPagination confirms search
 // narrows the range-filtered set (a search-matching trace outside the time
-// window is still excluded) and that pagination/total both operate over the
+// window is still excluded) and that pagination/hasNextPage both operate over the
 // search-narrowed set, so a match beyond page 1 is reachable via offset.
 func TestTracesPage_SearchComposesWithRangeAndPagination(t *testing.T) {
 	s := openTestStorage(t, Options{})
@@ -126,7 +126,7 @@ func TestTracesPage_SearchComposesWithRangeAndPagination(t *testing.T) {
 		traceID: [16]byte{1, 0xFF}, spanID: [8]byte{0xFF},
 		name: "worker.task", start: base.Add(time.Hour), end: base.Add(time.Hour + time.Millisecond), service: "worker-svc",
 	}))
-	// A non-matching trace inside the range must not count toward the total.
+	// A non-matching trace inside the range must not affect pagination.
 	s.AddTraces(ctx, buildTracesMulti(spanSpec{
 		traceID: [16]byte{2}, spanID: [8]byte{1},
 		name: "unrelated.op", start: base, end: base.Add(time.Millisecond), service: "other-svc",
@@ -135,28 +135,28 @@ func TestTracesPage_SearchComposesWithRangeAndPagination(t *testing.T) {
 
 	from, to := base.Add(-time.Minute), base.Add(time.Minute)
 
-	_, total, err := s.TracesPage(ctx, from, to, 0, 0, "worker.task")
+	all, hasNextPage, err := s.TracesPage(ctx, from, to, 0, 0, "worker.task")
 	if err != nil {
 		t.Fatalf("TracesPage: %v", err)
 	}
-	if total != 3 {
-		t.Fatalf("total = %d, want 3 (the out-of-range match excluded, the in-range non-match excluded)", total)
+	if hasNextPage || len(all) != 3 {
+		t.Fatalf("unlimited result: hasNextPage=%v len=%d, want false/3", hasNextPage, len(all))
 	}
 
-	page1, total, err := s.TracesPage(ctx, from, to, 0, 2, "worker.task")
+	page1, hasNextPage, err := s.TracesPage(ctx, from, to, 0, 2, "worker.task")
 	if err != nil {
 		t.Fatalf("TracesPage page1: %v", err)
 	}
-	if total != 3 || len(page1) != 2 {
-		t.Fatalf("page1: total=%d len=%d, want total=3 len=2", total, len(page1))
+	if !hasNextPage || len(page1) != 2 {
+		t.Fatalf("page1: hasNextPage=%v len=%d, want true/2", hasNextPage, len(page1))
 	}
 
-	page2, total, err := s.TracesPage(ctx, from, to, 2, 2, "worker.task")
+	page2, hasNextPage, err := s.TracesPage(ctx, from, to, 2, 2, "worker.task")
 	if err != nil {
 		t.Fatalf("TracesPage page2: %v", err)
 	}
-	if total != 3 || len(page2) != 1 {
-		t.Fatalf("page2: total=%d len=%d, want total=3 len=1 (the third match reachable via offset)", total, len(page2))
+	if hasNextPage || len(page2) != 1 {
+		t.Fatalf("page2: hasNextPage=%v len=%d, want false/1", hasNextPage, len(page2))
 	}
 }
 

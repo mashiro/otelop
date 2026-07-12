@@ -49,7 +49,10 @@ export function useLogListPage(window: EventTimeWindow, search: string): SignalL
 
   const fetchPage = useCallback(async ({ from, to, offset, limit, search }: FetchPageArgs) => {
     const data = await gqlClient.request(LogsPageQuery, { from, to, offset, limit, search });
-    return { items: data.logs.items, total: data.logs.total };
+    return {
+      items: data.logs.items,
+      hasNextPage: offset + data.logs.items.length < data.logs.total,
+    };
   }, []);
   const getCurrentIds = useCallback(
     () => new Set(store.get(logsAtom).map((log) => log.id)),
