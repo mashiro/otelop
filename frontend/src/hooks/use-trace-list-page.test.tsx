@@ -52,15 +52,15 @@ function renderWithStore(range: ChartTimeRange, search = "") {
 }
 
 describe("useTraceListPage", () => {
-  it("fetches page 1 with offset 0 / limit 100 and a range-derived `from`", async () => {
-    requestMock.mockResolvedValue({ traces: { items: [], hasNextPage: false } });
+  it("fetches page 1 with empty cursor / limit 100 and a range-derived `from`", async () => {
+    requestMock.mockResolvedValue({ traces: { items: [], hasNextPage: false, endCursor: null } });
     const before = Temporal.Now.instant();
 
     renderWithStore("5m");
 
     await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(1));
     const vars = requestMock.mock.calls[0]?.[1];
-    expect(vars?.offset).toBe(0);
+    expect(vars?.after).toBeNull();
     expect(vars?.limit).toBe(100);
     const fromInstant = Temporal.Instant.from(vars!.from!);
     const deltaMs = before.since(fromInstant).total("milliseconds");
@@ -69,7 +69,7 @@ describe("useTraceListPage", () => {
   });
 
   it("omits `from` for the all range", async () => {
-    requestMock.mockResolvedValue({ traces: { items: [], hasNextPage: false } });
+    requestMock.mockResolvedValue({ traces: { items: [], hasNextPage: false, endCursor: null } });
 
     renderWithStore("all");
 
@@ -79,7 +79,11 @@ describe("useTraceListPage", () => {
 
   it("replaces tracesAtom with page 1 and reports whether another page exists", async () => {
     requestMock.mockResolvedValue({
-      traces: { items: [queryTrace("a"), queryTrace("b")], hasNextPage: true },
+      traces: {
+        items: [queryTrace("a"), queryTrace("b")],
+        hasNextPage: true,
+        endCursor: "cursor-1",
+      },
     });
 
     const { store, result } = renderWithStore("1h");
@@ -89,21 +93,25 @@ describe("useTraceListPage", () => {
     expect(result.current.hasMore).toBe(true);
   });
 
-  it("loads the next page at offset=loaded and appends, deduping against what's already there", async () => {
+  it("loads the next page from the returned cursor and appends, deduping against what's already there", async () => {
     requestMock.mockResolvedValueOnce({
-      traces: { items: [queryTrace("a"), queryTrace("b")], hasNextPage: true },
+      traces: {
+        items: [queryTrace("a"), queryTrace("b")],
+        hasNextPage: true,
+        endCursor: "cursor-1",
+      },
     });
     const { store, result } = renderWithStore("1h");
     await waitFor(() => expect(store.get(tracesAtom)).toHaveLength(2));
 
     requestMock.mockResolvedValueOnce({
-      traces: { items: [queryTrace("c"), queryTrace("d")], hasNextPage: false },
+      traces: { items: [queryTrace("c"), queryTrace("d")], hasNextPage: false, endCursor: null },
     });
     act(() => result.current.loadMore());
 
     await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(2));
     const secondVars = requestMock.mock.calls[1]?.[1];
-    expect(secondVars?.offset).toBe(2);
+    expect(secondVars?.after).toBe("cursor-1");
     expect(secondVars?.limit).toBe(100);
     await waitFor(() =>
       expect(store.get(tracesAtom).map((t) => t.traceId)).toEqual(["a", "b", "c", "d"]),
@@ -113,7 +121,9 @@ describe("useTraceListPage", () => {
   });
 
   it("reuses the same `from` and `to` bounds across load-more calls within one range", async () => {
-    requestMock.mockResolvedValue({ traces: { items: [queryTrace("a")], hasNextPage: true } });
+    requestMock.mockResolvedValue({
+      traces: { items: [queryTrace("a")], hasNextPage: true, endCursor: "cursor-1" },
+    });
     const { result } = renderWithStore("1h");
     await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(1));
     const firstFrom = requestMock.mock.calls[0]?.[1]?.from;
@@ -127,7 +137,9 @@ describe("useTraceListPage", () => {
   });
 
   it("ignores a load-more response from a previous search session", async () => {
-    requestMock.mockResolvedValueOnce({ traces: { items: [queryTrace("a")], hasNextPage: true } });
+    requestMock.mockResolvedValueOnce({
+      traces: { items: [queryTrace("a")], hasNextPage: true, endCursor: "cursor-1" },
+    });
     const { store, result, rerender } = renderWithStore("1h", "");
     await waitFor(() => expect(store.get(tracesAtom).map((t) => t.traceId)).toEqual(["a"]));
 
@@ -140,11 +152,13 @@ describe("useTraceListPage", () => {
     act(() => result.current.loadMore());
     await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(2));
 
-    requestMock.mockResolvedValueOnce({ traces: { items: [queryTrace("c")], hasNextPage: false } });
+    requestMock.mockResolvedValueOnce({
+      traces: { items: [queryTrace("c")], hasNextPage: false, endCursor: null },
+    });
     rerender({ range: "1h", search: "new" });
     await waitFor(() => expect(store.get(tracesAtom).map((t) => t.traceId)).toEqual(["c"]));
 
-    resolveOldPage({ traces: { items: [queryTrace("b")], hasNextPage: false } });
+    resolveOldPage({ traces: { items: [queryTrace("b")], hasNextPage: false, endCursor: null } });
     await act(async () => Promise.resolve());
     expect(store.get(tracesAtom).map((t) => t.traceId)).toEqual(["c"]);
     expect(result.current.loaded).toBe(1);
@@ -162,7 +176,11 @@ describe("useTraceListPage", () => {
 
     store.set(addTraceAtom, makeTrace({ traceId: "live" }));
     resolvePage({
-      traces: { items: [queryTrace("live"), queryTrace("page")], hasNextPage: false },
+      traces: {
+        items: [queryTrace("live"), queryTrace("page")],
+        hasNextPage: false,
+        endCursor: null,
+      },
     });
 
     await waitFor(() =>
@@ -173,7 +191,9 @@ describe("useTraceListPage", () => {
   });
 
   it("resets pagination and refetches page 1 on a range change, keeping the previous page visible while in flight", async () => {
-    requestMock.mockResolvedValueOnce({ traces: { items: [queryTrace("a")], hasNextPage: false } });
+    requestMock.mockResolvedValueOnce({
+      traces: { items: [queryTrace("a")], hasNextPage: false, endCursor: null },
+    });
     const { store, rerender } = renderWithStore("1h");
     await waitFor(() => expect(store.get(tracesAtom)).toHaveLength(1));
 
@@ -188,15 +208,23 @@ describe("useTraceListPage", () => {
     // Still showing the 1h page while the 6h range's page 1 is in flight.
     expect(store.get(tracesAtom).map((t) => t.traceId)).toEqual(["a"]);
 
-    resolveSecond({ traces: { items: [queryTrace("b"), queryTrace("c")], hasNextPage: true } });
+    resolveSecond({
+      traces: {
+        items: [queryTrace("b"), queryTrace("c")],
+        hasNextPage: true,
+        endCursor: "cursor-1",
+      },
+    });
     await waitFor(() => expect(store.get(tracesAtom).map((t) => t.traceId)).toEqual(["b", "c"]));
 
     const secondVars = requestMock.mock.calls[1]?.[1];
-    expect(secondVars?.offset).toBe(0);
+    expect(secondVars?.after).toBeNull();
   });
 
   it("keeps showing the previous page when a range-change fetch rejects", async () => {
-    requestMock.mockResolvedValueOnce({ traces: { items: [queryTrace("a")], hasNextPage: false } });
+    requestMock.mockResolvedValueOnce({
+      traces: { items: [queryTrace("a")], hasNextPage: false, endCursor: null },
+    });
     const { store, rerender } = renderWithStore("1h");
     await waitFor(() => expect(store.get(tracesAtom)).toHaveLength(1));
 
@@ -208,7 +236,7 @@ describe("useTraceListPage", () => {
   });
 
   it("passes search through to the query", async () => {
-    requestMock.mockResolvedValue({ traces: { items: [], hasNextPage: false } });
+    requestMock.mockResolvedValue({ traces: { items: [], hasNextPage: false, endCursor: null } });
 
     renderWithStore("1h", "checkout");
 
@@ -217,7 +245,9 @@ describe("useTraceListPage", () => {
   });
 
   it("resets pagination and refetches page 1 on a search change, keeping the previous page visible while in flight", async () => {
-    requestMock.mockResolvedValueOnce({ traces: { items: [queryTrace("a")], hasNextPage: false } });
+    requestMock.mockResolvedValueOnce({
+      traces: { items: [queryTrace("a")], hasNextPage: false, endCursor: null },
+    });
     const { store, rerender } = renderWithStore("1h", "");
     await waitFor(() => expect(store.get(tracesAtom)).toHaveLength(1));
 
@@ -231,20 +261,24 @@ describe("useTraceListPage", () => {
 
     expect(store.get(tracesAtom).map((t) => t.traceId)).toEqual(["a"]);
 
-    resolveSecond({ traces: { items: [queryTrace("b")], hasNextPage: false } });
+    resolveSecond({ traces: { items: [queryTrace("b")], hasNextPage: false, endCursor: null } });
     await waitFor(() => expect(store.get(tracesAtom).map((t) => t.traceId)).toEqual(["b"]));
 
     const secondVars = requestMock.mock.calls[1]?.[1];
-    expect(secondVars?.offset).toBe(0);
+    expect(secondVars?.after).toBeNull();
     expect(secondVars?.search).toBe("checkout");
   });
 
   it("loadMore reuses the search active when the page-1 fetch ran", async () => {
-    requestMock.mockResolvedValueOnce({ traces: { items: [queryTrace("a")], hasNextPage: true } });
+    requestMock.mockResolvedValueOnce({
+      traces: { items: [queryTrace("a")], hasNextPage: true, endCursor: "cursor-1" },
+    });
     const { result } = renderWithStore("1h", "checkout");
     await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(1));
 
-    requestMock.mockResolvedValueOnce({ traces: { items: [queryTrace("b")], hasNextPage: false } });
+    requestMock.mockResolvedValueOnce({
+      traces: { items: [queryTrace("b")], hasNextPage: false, endCursor: null },
+    });
     act(() => result.current.loadMore());
 
     await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(2));
@@ -257,15 +291,21 @@ describe("useTraceListPage", () => {
   // fetch session (here: a search change) starts fresh so ids matched under
   // the previous search don't keep passing the filter.
   it("tracks server-returned ids per fetch session: page 1 replaces, loadMore unions, a search change resets", async () => {
-    requestMock.mockResolvedValueOnce({ traces: { items: [queryTrace("a")], hasNextPage: true } });
+    requestMock.mockResolvedValueOnce({
+      traces: { items: [queryTrace("a")], hasNextPage: true, endCursor: "cursor-1" },
+    });
     const { store, result, rerender } = renderWithStore("1h", "");
     await waitFor(() => expect(store.get(serverMatchedTraceIdsAtom)).toEqual(new Set(["a"])));
 
-    requestMock.mockResolvedValueOnce({ traces: { items: [queryTrace("b")], hasNextPage: false } });
+    requestMock.mockResolvedValueOnce({
+      traces: { items: [queryTrace("b")], hasNextPage: false, endCursor: null },
+    });
     act(() => result.current.loadMore());
     await waitFor(() => expect(store.get(serverMatchedTraceIdsAtom)).toEqual(new Set(["a", "b"])));
 
-    requestMock.mockResolvedValueOnce({ traces: { items: [queryTrace("c")], hasNextPage: false } });
+    requestMock.mockResolvedValueOnce({
+      traces: { items: [queryTrace("c")], hasNextPage: false, endCursor: null },
+    });
     rerender({ range: "1h", search: "narrower" });
     await waitFor(() => expect(store.get(serverMatchedTraceIdsAtom)).toEqual(new Set(["c"])));
   });

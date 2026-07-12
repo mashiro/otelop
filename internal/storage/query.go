@@ -53,21 +53,6 @@ func likePattern(search string) string {
 	return "%" + likeEscaper.Replace(search) + "%"
 }
 
-// queryCount runs a `SELECT count(*) ...`-shaped query and scans the single
-// resulting int. It backs the empty-page-with-offset fallback shared by
-// TracesPage/LogsPage/LogsPageByTraceID/MetricsPage: each of those normally
-// reads its total from the page query's own `count(*) OVER ()` column, which
-// has nothing to report when the page itself comes back empty (offset >=
-// total) — queryCount reruns the unpaginated count-only query to recover the
-// true total in that one case.
-func (s *Storage) queryCount(ctx context.Context, query string, args ...any) (int, error) {
-	var n int
-	if err := s.DB().QueryRowContext(ctx, query, args...).Scan(&n); err != nil {
-		return 0, err
-	}
-	return n, nil
-}
-
 // DBStats is per-table row counts plus file size, backing the status/config
 // surface (Phase 3's GraphQL Config/Status resolvers).
 type DBStats struct {

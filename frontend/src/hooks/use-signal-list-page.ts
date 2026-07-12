@@ -23,7 +23,7 @@ export interface SignalListPage {
 export interface FetchPageArgs {
   from: string | undefined;
   to: string;
-  offset: number;
+  after: string | null;
   limit: number;
   search: string;
 }
@@ -31,13 +31,14 @@ export interface FetchPageArgs {
 interface FetchPageResult<T> {
   items: T[];
   hasNextPage: boolean;
+  endCursor: string | null;
 }
 
 interface PagingSession {
   from: string | undefined;
   to: string;
   search: string;
-  offset: number;
+  endCursor: string | null;
 }
 
 interface SignalListPageOptions<T> {
@@ -59,12 +60,11 @@ export interface ReplacementPage<T> {
 // (hooks/use-trace-list-page.ts, hooks/use-log-list-page.ts): fetches the
 // newest SIGNAL_PAGE_SIZE-row page within `range` (and, since issue #161,
 // matching `search`) on mount and whenever either changes (replacing via
-// replacePage), then pages further into the past via `fetchPage`'s offset on
+// replacePage), then pages further into the past via the server cursor on
 // "Load more" (appending via onAppend). `from`/`to`/`search` are captured once
-// per range-or-search change (not recomputed on "Load more") so offsets stay
-// consistent across the whole paging session for that combination — a
+// per range-or-search change. A
 // search edit while a "Load more" is in flight starts a fresh session rather
-// than mixing offsets from two different filters.
+// than mixing cursors from two different filters.
 //
 // Deliberately doesn't clear anything before a range/search-change fetch
 // resolves — the previously loaded page (already sitting in
@@ -90,23 +90,23 @@ export function useSignalListPage<T>({
       from: bounds.from,
       to: bounds.to,
       search,
-      offset: 0,
+      endCursor: null,
     };
     sessionRef.current = session;
     const idsBeforeRequest = getCurrentIds();
 
     const load = async () => {
       try {
-        const { items, hasNextPage } = await fetchPage({
+        const { items, hasNextPage, endCursor } = await fetchPage({
           from: session.from,
           to: session.to,
-          offset: 0,
+          after: null,
           limit: SIGNAL_PAGE_SIZE,
           search: session.search,
         });
         if (ignore) return;
         replacePage({ items, idsBeforeRequest, window });
-        session.offset = items.length;
+        session.endCursor = endCursor;
         setState({ hasMore: hasNextPage, loaded: items.length, loadingMore: false });
       } catch {
         // Leave whatever was showing before (the previous range's page, or
@@ -127,19 +127,19 @@ export function useSignalListPage<T>({
     const session = sessionRef.current;
     if (!session) return;
     setState((s) => ({ ...s, loadingMore: true }));
-    const offset = session.offset;
+    const after = session.endCursor;
     const load = async () => {
       try {
-        const { items, hasNextPage } = await fetchPage({
+        const { items, hasNextPage, endCursor } = await fetchPage({
           from: session.from,
           to: session.to,
-          offset,
+          after,
           limit: SIGNAL_PAGE_SIZE,
           search: session.search,
         });
         if (sessionRef.current !== session) return;
         onAppend(items);
-        session.offset = offset + items.length;
+        session.endCursor = endCursor;
         setState((s) => ({
           hasMore: hasNextPage,
           loaded: s.loaded + items.length,

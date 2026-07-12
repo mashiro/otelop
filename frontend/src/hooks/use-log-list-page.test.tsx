@@ -38,15 +38,15 @@ function renderWithStore(range: ChartTimeRange, search = "") {
 }
 
 describe("useLogListPage", () => {
-  it("fetches page 1 with offset 0 / limit 100 and a range-derived `from`", async () => {
-    requestMock.mockResolvedValue({ logs: { items: [], total: 0 } });
+  it("fetches page 1 with empty cursor / limit 100 and a range-derived `from`", async () => {
+    requestMock.mockResolvedValue({ logs: { items: [], hasNextPage: false, endCursor: null } });
     const before = Temporal.Now.instant();
 
     renderWithStore("15m");
 
     await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(1));
     const vars = requestMock.mock.calls[0]?.[1];
-    expect(vars?.offset).toBe(0);
+    expect(vars?.after).toBeNull();
     expect(vars?.limit).toBe(100);
     const fromInstant = Temporal.Instant.from(vars!.from!);
     const deltaMs = before.since(fromInstant).total("milliseconds");
@@ -55,7 +55,7 @@ describe("useLogListPage", () => {
   });
 
   it("omits `from` for the all range", async () => {
-    requestMock.mockResolvedValue({ logs: { items: [], total: 0 } });
+    requestMock.mockResolvedValue({ logs: { items: [], hasNextPage: false, endCursor: null } });
 
     renderWithStore("all");
 
@@ -65,7 +65,7 @@ describe("useLogListPage", () => {
 
   it("replaces logsAtom with page 1 and reports whether another page exists", async () => {
     requestMock.mockResolvedValue({
-      logs: { items: [queryLog("a"), queryLog("b")], total: 320 },
+      logs: { items: [queryLog("a"), queryLog("b")], hasNextPage: true, endCursor: "cursor-1" },
     });
 
     const { store, result } = renderWithStore("1h");
@@ -75,28 +75,30 @@ describe("useLogListPage", () => {
     expect(result.current.hasMore).toBe(true);
   });
 
-  it("loads the next page at offset=loaded and appends, deduping against what's already there", async () => {
+  it("loads the next page from the returned cursor and appends, deduping against what's already there", async () => {
     requestMock.mockResolvedValueOnce({
-      logs: { items: [queryLog("a"), queryLog("b")], total: 4 },
+      logs: { items: [queryLog("a"), queryLog("b")], hasNextPage: true, endCursor: "cursor-1" },
     });
     const { store, result } = renderWithStore("1h");
     await waitFor(() => expect(store.get(logsAtom)).toHaveLength(2));
 
     requestMock.mockResolvedValueOnce({
-      logs: { items: [queryLog("c"), queryLog("d")], total: 4 },
+      logs: { items: [queryLog("c"), queryLog("d")], hasNextPage: false, endCursor: null },
     });
     act(() => result.current.loadMore());
 
     await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(2));
     const secondVars = requestMock.mock.calls[1]?.[1];
-    expect(secondVars?.offset).toBe(2);
+    expect(secondVars?.after).toBe("cursor-1");
     await waitFor(() => expect(store.get(logsAtom).map((l) => l.id)).toEqual(["a", "b", "c", "d"]));
     expect(result.current.loaded).toBe(4);
     expect(result.current.hasMore).toBe(false);
   });
 
   it("resets pagination and refetches page 1 on a range change, keeping the previous page visible while in flight", async () => {
-    requestMock.mockResolvedValueOnce({ logs: { items: [queryLog("a")], total: 1 } });
+    requestMock.mockResolvedValueOnce({
+      logs: { items: [queryLog("a")], hasNextPage: false, endCursor: null },
+    });
     const { store, rerender } = renderWithStore("1h");
     await waitFor(() => expect(store.get(logsAtom)).toHaveLength(1));
 
@@ -110,15 +112,17 @@ describe("useLogListPage", () => {
 
     expect(store.get(logsAtom).map((l) => l.id)).toEqual(["a"]);
 
-    resolveSecond({ logs: { items: [queryLog("b"), queryLog("c")], total: 50 } });
+    resolveSecond({
+      logs: { items: [queryLog("b"), queryLog("c")], hasNextPage: true, endCursor: "cursor-1" },
+    });
     await waitFor(() => expect(store.get(logsAtom).map((l) => l.id)).toEqual(["b", "c"]));
 
     const secondVars = requestMock.mock.calls[1]?.[1];
-    expect(secondVars?.offset).toBe(0);
+    expect(secondVars?.after).toBeNull();
   });
 
   it("passes search through to the query", async () => {
-    requestMock.mockResolvedValue({ logs: { items: [], total: 0 } });
+    requestMock.mockResolvedValue({ logs: { items: [], hasNextPage: false, endCursor: null } });
 
     renderWithStore("1h", "timeout");
 
@@ -127,7 +131,9 @@ describe("useLogListPage", () => {
   });
 
   it("resets pagination and refetches page 1 on a search change, keeping the previous page visible while in flight", async () => {
-    requestMock.mockResolvedValueOnce({ logs: { items: [queryLog("a")], total: 1 } });
+    requestMock.mockResolvedValueOnce({
+      logs: { items: [queryLog("a")], hasNextPage: false, endCursor: null },
+    });
     const { store, rerender } = renderWithStore("1h", "");
     await waitFor(() => expect(store.get(logsAtom)).toHaveLength(1));
 
@@ -141,20 +147,24 @@ describe("useLogListPage", () => {
 
     expect(store.get(logsAtom).map((l) => l.id)).toEqual(["a"]);
 
-    resolveSecond({ logs: { items: [queryLog("b")], total: 1 } });
+    resolveSecond({ logs: { items: [queryLog("b")], hasNextPage: false, endCursor: null } });
     await waitFor(() => expect(store.get(logsAtom).map((l) => l.id)).toEqual(["b"]));
 
     const secondVars = requestMock.mock.calls[1]?.[1];
-    expect(secondVars?.offset).toBe(0);
+    expect(secondVars?.after).toBeNull();
     expect(secondVars?.search).toBe("timeout");
   });
 
   it("loadMore reuses the search active when the page-1 fetch ran", async () => {
-    requestMock.mockResolvedValueOnce({ logs: { items: [queryLog("a")], total: 2 } });
+    requestMock.mockResolvedValueOnce({
+      logs: { items: [queryLog("a")], hasNextPage: true, endCursor: "cursor-1" },
+    });
     const { result } = renderWithStore("1h", "timeout");
     await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(1));
 
-    requestMock.mockResolvedValueOnce({ logs: { items: [queryLog("b")], total: 2 } });
+    requestMock.mockResolvedValueOnce({
+      logs: { items: [queryLog("b")], hasNextPage: false, endCursor: null },
+    });
     act(() => result.current.loadMore());
 
     await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(2));

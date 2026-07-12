@@ -33,12 +33,12 @@ func TestLogsPage_NewestFirstOrdering(t *testing.T) {
 	s.AddLogs(ctx, buildLog([16]byte{1}, "second", "svc", t0.Add(time.Second)))
 	s.Sync()
 
-	items, total, err := s.LogsPage(ctx, t0.Add(-time.Minute), t0.Add(time.Minute), 0, 0, "")
+	items, hasNextPage, err := s.LogsPage(ctx, t0.Add(-time.Minute), t0.Add(time.Minute), nil, 0, "")
 	if err != nil {
 		t.Fatalf("LogsPage: %v", err)
 	}
-	if total != 2 {
-		t.Fatalf("total = %d, want 2", total)
+	if hasNextPage {
+		t.Fatal("hasNextPage = true for unlimited query")
 	}
 	if len(items) != 2 || items[0].Body != "second" || items[1].Body != "first" {
 		t.Fatalf("order = %+v, want [second, first] (newest ts first)", items)
@@ -63,16 +63,16 @@ func TestLogsPage_TimeRangeFiltering(t *testing.T) {
 	s.AddLogs(ctx, buildLog([16]byte{2}, "out-of-range", "svc", t0.Add(time.Hour)))
 	s.Sync()
 
-	items, total, err := s.LogsPage(ctx, t0.Add(-time.Minute), t0.Add(time.Minute), 0, 0, "")
+	items, hasNextPage, err := s.LogsPage(ctx, t0.Add(-time.Minute), t0.Add(time.Minute), nil, 0, "")
 	if err != nil {
 		t.Fatalf("LogsPage: %v", err)
 	}
-	if total != 1 || len(items) != 1 || items[0].Body != "in-range" {
-		t.Fatalf("expected only the in-range log, got total=%d items=%+v", total, items)
+	if hasNextPage || len(items) != 1 || items[0].Body != "in-range" {
+		t.Fatalf("expected only the in-range log, got hasNextPage=%v items=%+v", hasNextPage, items)
 	}
 }
 
-func TestLogsPage_PaginationAndTotal(t *testing.T) {
+func TestLogsPage_PaginationAndHasNextPage(t *testing.T) {
 	s := openTestStorage(t, Options{})
 	ctx := context.Background()
 	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -82,12 +82,17 @@ func TestLogsPage_PaginationAndTotal(t *testing.T) {
 	}
 	s.Sync()
 
-	items, total, err := s.LogsPage(ctx, t0.Add(-time.Minute), t0.Add(time.Minute), 2, 2, "")
+	first, _, err := s.LogsPage(ctx, t0.Add(-time.Minute), t0.Add(time.Minute), nil, 2, "")
+	if err != nil {
+		t.Fatalf("LogsPage first page: %v", err)
+	}
+	after := &LogCursor{TS: first[len(first)-1].TS, ID: first[len(first)-1].ID}
+	items, hasNextPage, err := s.LogsPage(ctx, t0.Add(-time.Minute), t0.Add(time.Minute), after, 2, "")
 	if err != nil {
 		t.Fatalf("LogsPage: %v", err)
 	}
-	if total != 5 {
-		t.Fatalf("total = %d, want 5", total)
+	if !hasNextPage {
+		t.Fatal("hasNextPage = false, want true")
 	}
 	if len(items) != 2 {
 		t.Fatalf("expected page of 2, got %d", len(items))
@@ -97,12 +102,7 @@ func TestLogsPage_PaginationAndTotal(t *testing.T) {
 // TestLogsPageByTraceID_IsolatesByTraceIgnoringTimeRange matches
 // the old store package's GetLogsPageByTraceID: no time-range filter, only trace_id
 // isolation. A log far outside any "recent" window must still be returned.
-// TestLogsPage_EmptyPageWithOffsetStillReportsTotal covers the fallback path
-// (queryCount + logsTotalQuery) LogsPage takes when the page query's
-// count(*) OVER () column has nothing to report because offset lands past
-// the end of the matching set: total must still reflect the true matching
-// count, not 0.
-func TestLogsPage_EmptyPageWithOffsetStillReportsTotal(t *testing.T) {
+func TestLogsPage_EmptyPageHasNoNextPage(t *testing.T) {
 	s := openTestStorage(t, Options{})
 	ctx := context.Background()
 	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -112,15 +112,15 @@ func TestLogsPage_EmptyPageWithOffsetStillReportsTotal(t *testing.T) {
 	}
 	s.Sync()
 
-	items, total, err := s.LogsPage(ctx, t0.Add(-time.Minute), t0.Add(time.Minute), 10, 2, "")
+	items, hasNextPage, err := s.LogsPage(ctx, t0.Add(-time.Minute), t0.Add(time.Minute), &LogCursor{TS: t0.Add(-time.Hour)}, 2, "")
 	if err != nil {
 		t.Fatalf("LogsPage: %v", err)
 	}
 	if len(items) != 0 {
 		t.Fatalf("expected an empty page past the end of the matching set, got %d items", len(items))
 	}
-	if total != 3 {
-		t.Fatalf("total = %d, want 3 (offset-past-end fallback must still report the true total)", total)
+	if hasNextPage {
+		t.Fatal("hasNextPage = true for an empty page")
 	}
 }
 
@@ -134,16 +134,16 @@ func TestLogsPageByTraceID_IsolatesByTraceIgnoringTimeRange(t *testing.T) {
 	s.Sync()
 
 	traceID := pcommon.TraceID([16]byte{4}).String()
-	items, total, err := s.LogsPageByTraceID(ctx, traceID, 0, 0)
+	items, hasNextPage, err := s.LogsPageByTraceID(ctx, traceID, nil, 0)
 	if err != nil {
 		t.Fatalf("LogsPageByTraceID: %v", err)
 	}
-	if total != 1 || len(items) != 1 || items[0].Body != "matches" {
-		t.Fatalf("expected only the matching-trace log regardless of age, got total=%d items=%+v", total, items)
+	if hasNextPage || len(items) != 1 || items[0].Body != "matches" {
+		t.Fatalf("expected only the matching-trace log regardless of age, got hasNextPage=%v items=%+v", hasNextPage, items)
 	}
 }
 
-func TestLogsPageByTraceID_PaginationAndTotal(t *testing.T) {
+func TestLogsPageByTraceID_PaginationAndHasNextPage(t *testing.T) {
 	s := openTestStorage(t, Options{})
 	ctx := context.Background()
 	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -155,23 +155,24 @@ func TestLogsPageByTraceID_PaginationAndTotal(t *testing.T) {
 	s.Sync()
 
 	traceID := pcommon.TraceID([16]byte{6}).String()
-	items, total, err := s.LogsPageByTraceID(ctx, traceID, 1, 2)
+	first, _, err := s.LogsPageByTraceID(ctx, traceID, nil, 1)
+	if err != nil {
+		t.Fatalf("LogsPageByTraceID first page: %v", err)
+	}
+	after := &LogCursor{TS: first[0].TS, ID: first[0].ID}
+	items, hasNextPage, err := s.LogsPageByTraceID(ctx, traceID, after, 2)
 	if err != nil {
 		t.Fatalf("LogsPageByTraceID: %v", err)
 	}
-	if total != 4 {
-		t.Fatalf("total = %d, want 4", total)
+	if !hasNextPage {
+		t.Fatal("hasNextPage = false, want true")
 	}
 	if len(items) != 2 {
 		t.Fatalf("expected page of 2, got %d", len(items))
 	}
 }
 
-// TestLogsPageByTraceID_EmptyPageWithOffsetStillReportsTotal covers the
-// fallback path (queryCount + logsTotalByTraceIDQuery) LogsPageByTraceID
-// takes when the page query's count(*) OVER () column has nothing to report
-// because offset lands past the end of the matching set.
-func TestLogsPageByTraceID_EmptyPageWithOffsetStillReportsTotal(t *testing.T) {
+func TestLogsPageByTraceID_EmptyPageHasNoNextPage(t *testing.T) {
 	s := openTestStorage(t, Options{})
 	ctx := context.Background()
 	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -182,14 +183,14 @@ func TestLogsPageByTraceID_EmptyPageWithOffsetStillReportsTotal(t *testing.T) {
 	s.Sync()
 
 	traceID := pcommon.TraceID([16]byte{9}).String()
-	items, total, err := s.LogsPageByTraceID(ctx, traceID, 10, 2)
+	items, hasNextPage, err := s.LogsPageByTraceID(ctx, traceID, &LogCursor{TS: t0.Add(-time.Hour)}, 2)
 	if err != nil {
 		t.Fatalf("LogsPageByTraceID: %v", err)
 	}
 	if len(items) != 0 {
 		t.Fatalf("expected an empty page past the end of the matching set, got %d items", len(items))
 	}
-	if total != 4 {
-		t.Fatalf("total = %d, want 4 (offset-past-end fallback must still report the true total)", total)
+	if hasNextPage {
+		t.Fatal("hasNextPage = true for an empty page")
 	}
 }

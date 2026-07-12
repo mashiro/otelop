@@ -16,6 +16,7 @@ import (
 type TraceSummary struct {
 	TraceID     string
 	StartTime   time.Time
+	FirstSeen   time.Time
 	Duration    time.Duration
 	SpanCount   int
 	HasError    bool
@@ -29,6 +30,12 @@ type TraceSummary struct {
 	RootKind       string
 	RootStatusCode string
 	RootDuration   time.Duration
+}
+
+type TraceCursor struct {
+	StartTime time.Time
+	FirstSeen time.Time
+	TraceID   string
 }
 
 // SpanEventRow is reused for the decoded shape of a span's events JSON
@@ -61,9 +68,7 @@ type TraceDetail struct {
 }
 
 // traceSearchPredicate (issue #161) is the case-insensitive substring match
-// shared by tracesPageQuery's search_ids CTE and tracesTotalQuery (the
-// latter now only run as TracesPage's empty-page-with-offset total
-// fallback — see queryCount): trace_id, span name, status code, or resource
+// used by tracesPageQuery's search_ids CTE: trace_id, span name, status code, or resource
 // service name — the same field set the frontend's pre-#161 client-side
 // filter searched (status included: searching "error" surfaces error
 // traces). An empty search's "%%" pattern (see likePattern) matches
@@ -96,7 +101,7 @@ const traceSearchPredicate = `
 // tie. row_number() with an explicit, deterministic tiebreak (span_id)
 // guarantees every Root* field comes from the same chosen row.
 //
-// page_ids applies LIMIT/OFFSET before the expensive dedupe, summary, and
+// page_ids applies keyset pagination before the expensive dedupe, summary, and
 // root-selection work. It requests limit+1 IDs; the extra row becomes
 // hasNextPage and is not returned. This keeps an All-window page bounded
 // even when tens of thousands of traces match.
@@ -120,8 +125,11 @@ search_ids AS (
 page_ids AS (
 	SELECT trace_id, start_time, first_seen
 	FROM search_ids
-	ORDER BY start_time DESC, first_seen DESC
-	LIMIT ? OFFSET ?
+	WHERE (CAST(? AS BOOLEAN) OR start_time < ?
+		OR (start_time = ? AND first_seen < ?)
+		OR (start_time = ? AND first_seen = ? AND trace_id < ?))
+	ORDER BY start_time DESC, first_seen DESC, trace_id DESC
+	LIMIT ?
 ),
 deduped AS (
 	SELECT * FROM spans
@@ -180,7 +188,7 @@ LEFT JOIN roots USING (trace_id)
 LEFT JOIN earliest USING (trace_id)
 LEFT JOIN resources root_res ON root_res.resource_hash = roots.root_resource_hash
 LEFT JOIN resources earliest_res ON earliest_res.resource_hash = earliest.earliest_resource_hash
-ORDER BY agg.start_time DESC, agg.first_seen DESC
+ORDER BY agg.start_time DESC, agg.first_seen DESC, agg.trace_id DESC
 `
 
 // TracesPage returns a newest-first (by trace start time) page of trace
@@ -188,7 +196,7 @@ ORDER BY agg.start_time DESC, agg.first_seen DESC
 // non-empty, matches it (see tracesPageQuery's search_ids doc comment),
 // plus whether another page exists. At most limit+1 traces receive full
 // summary/root aggregation; the extra row is removed before returning.
-func (s *Storage) TracesPage(ctx context.Context, from, to time.Time, offset, limit int, search string) (items []TraceSummary, hasNextPage bool, err error) {
+func (s *Storage) TracesPage(ctx context.Context, from, to time.Time, after *TraceCursor, limit int, search string) (items []TraceSummary, hasNextPage bool, err error) {
 	started := time.Now()
 	defer func() { s.recordQuery(ctx, "query_traces", started, err) }()
 	pattern := likePattern(search)
@@ -197,7 +205,9 @@ func (s *Storage) TracesPage(ctx context.Context, from, to time.Time, offset, li
 	if limit > 0 {
 		queryLimit++
 	}
-	rows, err := s.DB().QueryContext(ctx, tracesPageQuery, from, to, pattern, pattern, pattern, pattern, queryLimit, offset)
+	firstPage, cursorStart, cursorSeen, cursorID := traceCursorArgs(after)
+	rows, err := s.DB().QueryContext(ctx, tracesPageQuery, from, to, pattern, pattern, pattern, pattern,
+		firstPage, cursorStart, cursorStart, cursorSeen, cursorStart, cursorSeen, cursorID, queryLimit)
 	if err != nil {
 		return nil, false, fmt.Errorf("storage: query traces page: %w", err)
 	}
@@ -208,12 +218,11 @@ func (s *Storage) TracesPage(ctx context.Context, from, to time.Time, offset, li
 		var (
 			t                                  TraceSummary
 			endTime                            time.Time
-			firstSeen                          time.Time
 			rootName, rootKind, rootStatusCode sql.NullString
 			rootStartTS, rootEndTS             sql.NullTime
 		)
 		if err := rows.Scan(
-			&t.TraceID, &t.StartTime, &endTime, &t.SpanCount, &t.HasError, &firstSeen,
+			&t.TraceID, &t.StartTime, &endTime, &t.SpanCount, &t.HasError, &t.FirstSeen,
 			&t.ServiceName, &rootName, &rootKind, &rootStatusCode, &rootStartTS, &rootEndTS,
 		); err != nil {
 			return nil, false, fmt.Errorf("storage: scan trace summary: %w", err)
@@ -236,6 +245,14 @@ func (s *Storage) TracesPage(ctx context.Context, from, to time.Time, offset, li
 		items = items[:limit]
 	}
 	return items, hasNextPage, nil
+}
+
+func traceCursorArgs(after *TraceCursor) (bool, time.Time, time.Time, string) {
+	if after == nil {
+		epoch := time.Unix(0, 0).UTC()
+		return true, epoch, epoch, ""
+	}
+	return false, after.StartTime, after.FirstSeen, after.TraceID
 }
 
 const traceSummariesByIDsQuery = `

@@ -23,7 +23,7 @@ type Query {
   search matches every trace in range. Pagination fetches limit + 1 candidate
   traces and exposes `hasNextPage` without counting every match.
   """
-  traces(limit: Int = 50, offset: Int = 0, from: Time, to: Time, search: String): TraceConnection!
+  traces(limit: Int = 50, after: String, from: Time, to: Time, search: String): TraceConnection!
 
   "Fetch a single trace by its hex-encoded trace ID."
   trace(traceId: ID!): Trace
@@ -35,9 +35,8 @@ type Query {
   case-insensitively matches metric name, service name, metric type, or
   description (substring match; % and _ are treated literally, not as
   wildcards). An empty/omitted search matches every metric group in range.
-  `total` reflects the search-narrowed count.
   """
-  metrics(limit: Int = 50, offset: Int = 0, from: Time, to: Time, search: String): MetricConnection!
+  metrics(limit: Int = 50, after: String, from: Time, to: Time, search: String): MetricConnection!
 
   """
   List log records newest-first. If traceId is given, only logs whose TraceID
@@ -47,10 +46,9 @@ type Query {
   the full retention window, and search, if given, case-insensitively matches
   a log whose body, resource service name, severity text, or trace ID
   contains it (substring match; % and _ are treated literally, not as
-  wildcards). An empty/omitted search matches every log in range. `total`
-  reflects the search-narrowed count.
+  wildcards). An empty/omitted search matches every log in range.
   """
-  logs(limit: Int = 50, offset: Int = 0, traceId: String, from: Time, to: Time, search: String): LogConnection!
+  logs(limit: Int = 50, after: String, traceId: String, from: Time, to: Time, search: String): LogConnection!
 
   """
   Facet-aggregated series for one (serviceName, name) metric: every
@@ -128,22 +126,27 @@ type TraceConnection {
   items: [Trace!]!
   "True when another infinite-scroll page exists after this one."
   hasNextPage: Boolean!
+  "Opaque position to pass as `after` for the next page."
+  endCursor: String
   limit: Int!
-  offset: Int!
 }
 
 type MetricConnection {
   items: [Metric!]!
-  total: Int!
+  "True when another page exists after this one."
+  hasNextPage: Boolean!
+  "Opaque position to pass as `after` for the next page."
+  endCursor: String
   limit: Int!
-  offset: Int!
 }
 
 type LogConnection {
   items: [Log!]!
-  total: Int!
+  "True when another infinite-scroll page exists after this one."
+  hasNextPage: Boolean!
+  "Opaque position to pass as `after` for the next page."
+  endCursor: String
   limit: Int!
-  offset: Int!
 }
 
 type Trace {

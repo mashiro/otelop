@@ -56,16 +56,17 @@ Top-level queries:
 
 - `status: Status!`
 - `config: Config!`
-- `traces(limit: 50, offset: 0, from: Time, to: Time, search: String)`
+- `traces(limit: 50, after: String, from: Time, to: Time, search: String)`
 - `trace(traceId: ID!): Trace`
-- `metrics(limit: 50, offset: 0, from: Time, to: Time, search: String)`
+- `metrics(limit: 50, after: String, from: Time, to: Time, search: String)`
 - `metricPoints(serviceName: String!, name: String!, from: Time, to: Time)`
 - `metricAggregate(serviceName: String!, name: String!, groupBy: [String!]!, bucketSeconds: Int, from: Time, to: Time)`
-- `logs(limit: 50, offset: 0, traceId: String, from: Time, to: Time, search: String)`
+- `logs(limit: 50, after: String, traceId: String, from: Time, to: Time, search: String)`
 
-`traces` returns `items`, `hasNextPage`, `limit`, and `offset`; it deliberately
-does not count every matching trace. `metrics` and `logs` return `items`,
-`total`, `limit`, and `offset`. Their `search` is a case-insensitive literal
+All three signal connections return `items`, `hasNextPage`, `endCursor`, and
+`limit`; pass `endCursor` as the next query's `after` value. A changed time
+window or search starts again without `after`. List queries deliberately do
+not count every match. Their `search` is a case-insensitive literal
 substring match; `%` and `_` are not wildcards. `from` is inclusive and `to`
 is exclusive.
 
@@ -109,6 +110,7 @@ null when its ID is absent or the referenced retained row no longer exists.
 query($from: Time, $to: Time, $search: String) {
   traces(limit: 100, from: $from, to: $to, search: $search) {
     hasNextPage
+    endCursor
     items { traceId startTime serviceName durationMs hasError spanCount rootSpan { name } }
   }
 }
@@ -132,7 +134,8 @@ query($id: ID!) {
 ```graphql
 query($from: Time!, $to: Time!, $search: String) {
   logs(limit: 100, from: $from, to: $to, search: $search) {
-    total
+    hasNextPage
+    endCursor
     items {
       id timestamp severityText body serviceName
       trace { traceId hasError durationMs }
@@ -151,7 +154,8 @@ logs for that trace and ignores `from`, `to`, and `search`.
 ```graphql
 query($from: Time, $to: Time, $search: String) {
   metrics(limit: 100, from: $from, to: $to, search: $search) {
-    total
+    hasNextPage
+    endCursor
     items { serviceName name type unit receivedAt latestValue pointCount }
   }
 }

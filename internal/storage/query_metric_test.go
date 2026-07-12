@@ -404,12 +404,12 @@ func TestMetricsPage_HistogramPointCountUsesDistributionCount(t *testing.T) {
 	s.AddMetrics(ctx, buildHistogram("http.server.request.duration", "svc", 15, 4.0, 0.02, 0.9, t0.Add(time.Second)))
 	s.Sync()
 
-	items, total, err := s.MetricsPage(ctx, t0.Add(-time.Second), t0.Add(2*time.Second), 0, 0)
+	items, hasNextPage, err := s.MetricsPage(ctx, t0.Add(-time.Second), t0.Add(2*time.Second), nil, 0)
 	if err != nil {
 		t.Fatalf("MetricsPage: %v", err)
 	}
-	if total != 1 || len(items) != 1 {
-		t.Fatalf("got total=%d items=%d, want one histogram", total, len(items))
+	if hasNextPage || len(items) != 1 {
+		t.Fatalf("got hasNextPage=%v items=%d, want false and one histogram", hasNextPage, len(items))
 	}
 	// The first cumulative observation is a baseline; the second produces
 	// one derived distribution window, exactly as MetricPoints does.
@@ -482,12 +482,12 @@ func TestMetricsPage_GroupsAcrossAttributeSeries(t *testing.T) {
 	s.AddMetrics(ctx, md)
 	s.Sync()
 
-	items, total, err := s.MetricsPage(ctx, now.Add(-time.Hour), now.Add(time.Hour), 0, 0)
+	items, hasNextPage, err := s.MetricsPage(ctx, now.Add(-time.Hour), now.Add(time.Hour), nil, 0)
 	if err != nil {
 		t.Fatalf("MetricsPage: %v", err)
 	}
-	if total != 1 {
-		t.Fatalf("total = %d, want 1 (one group across both attribute series)", total)
+	if hasNextPage {
+		t.Fatal("hasNextPage = true for unlimited query")
 	}
 	if len(items) != 1 {
 		t.Fatalf("expected 1 group, got %d", len(items))
@@ -526,12 +526,12 @@ func TestMetricsPage_ActiveSeriesVisibleInPastWindow(t *testing.T) {
 	}
 
 	// A past window strictly inside the series' lifetime: to < now <= last_seen.
-	items, total, err := s.MetricsPage(ctx, now.Add(-90*time.Minute), now.Add(-30*time.Minute), 0, 0)
+	items, hasNextPage, err := s.MetricsPage(ctx, now.Add(-90*time.Minute), now.Add(-30*time.Minute), nil, 0)
 	if err != nil {
 		t.Fatalf("MetricsPage: %v", err)
 	}
-	if total != 1 || len(items) != 1 || items[0].MetricName != "requests.total" {
-		t.Fatalf("expected the still-active series in a past window, got total=%d items=%+v", total, items)
+	if hasNextPage || len(items) != 1 || items[0].MetricName != "requests.total" {
+		t.Fatalf("expected the still-active series in a past window, got hasNextPage=%v items=%+v", hasNextPage, items)
 	}
 }
 
@@ -552,18 +552,18 @@ func TestMetricsPage_SeriesOutsideWindowExcluded(t *testing.T) {
 		{name: "window entirely after lifetime", from: now.Add(time.Hour), to: now.Add(2 * time.Hour)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			items, total, err := s.MetricsPage(ctx, tc.from, tc.to, 0, 0)
+			items, hasNextPage, err := s.MetricsPage(ctx, tc.from, tc.to, nil, 0)
 			if err != nil {
 				t.Fatalf("MetricsPage: %v", err)
 			}
-			if total != 0 || len(items) != 0 {
-				t.Errorf("expected no series for a non-overlapping window, got total=%d items=%+v", total, items)
+			if hasNextPage || len(items) != 0 {
+				t.Errorf("expected no series for a non-overlapping window, got hasNextPage=%v items=%+v", hasNextPage, items)
 			}
 		})
 	}
 }
 
-func TestMetricsPage_PaginationTotalAndOrdering(t *testing.T) {
+func TestMetricsPage_PaginationHasNextPageAndOrdering(t *testing.T) {
 	s := openTestStorage(t, Options{})
 	ctx := context.Background()
 	now := time.Now()
@@ -575,28 +575,29 @@ func TestMetricsPage_PaginationTotalAndOrdering(t *testing.T) {
 		time.Sleep(2 * time.Millisecond) // force distinct last_seen for ordering
 	}
 
-	items, total, err := s.MetricsPage(ctx, now.Add(-time.Hour), now.Add(time.Hour), 1, 1)
+	first, _, err := s.MetricsPage(ctx, now.Add(-time.Hour), now.Add(time.Hour), nil, 1)
+	if err != nil {
+		t.Fatalf("MetricsPage first page: %v", err)
+	}
+	last := first[0]
+	after := &MetricCursor{LastSeen: last.LastSeen, ServiceName: last.ServiceName, MetricName: last.MetricName}
+	items, hasNextPage, err := s.MetricsPage(ctx, now.Add(-time.Hour), now.Add(time.Hour), after, 1)
 	if err != nil {
 		t.Fatalf("MetricsPage: %v", err)
 	}
-	if total != 3 {
-		t.Fatalf("total = %d, want 3", total)
+	if !hasNextPage {
+		t.Fatal("hasNextPage = false, want true")
 	}
 	if len(items) != 1 {
 		t.Fatalf("expected page of 1, got %d", len(items))
 	}
-	// Most-recently-active first; offset 1 skips metric.c.
+	// Most-recently-active first; the cursor follows metric.c.
 	if items[0].MetricName != "metric.b" {
 		t.Errorf("MetricName = %q, want metric.b (order by last_seen DESC)", items[0].MetricName)
 	}
 }
 
-// TestMetricsPage_EmptyPageWithOffsetStillReportsTotal covers the fallback
-// path (queryCount + metricsTotalQuery) MetricsPage takes when the page
-// query's count(*) OVER () column has nothing to report because offset
-// lands past the end of the matching set: total must still reflect the true
-// matching group count, not 0.
-func TestMetricsPage_EmptyPageWithOffsetStillReportsTotal(t *testing.T) {
+func TestMetricsPage_EmptyPageHasNoNextPage(t *testing.T) {
 	s := openTestStorage(t, Options{})
 	ctx := context.Background()
 	now := time.Now()
@@ -606,15 +607,15 @@ func TestMetricsPage_EmptyPageWithOffsetStillReportsTotal(t *testing.T) {
 	}
 	s.Sync()
 
-	items, total, err := s.MetricsPage(ctx, now.Add(-time.Hour), now.Add(time.Hour), 10, 2)
+	items, hasNextPage, err := s.MetricsPage(ctx, now.Add(-time.Hour), now.Add(time.Hour), &MetricCursor{LastSeen: now.Add(-2 * time.Hour)}, 2)
 	if err != nil {
 		t.Fatalf("MetricsPage: %v", err)
 	}
 	if len(items) != 0 {
 		t.Fatalf("expected an empty page past the end of the matching set, got %d items", len(items))
 	}
-	if total != 3 {
-		t.Fatalf("total = %d, want 3 (offset-past-end fallback must still report the true total)", total)
+	if hasNextPage {
+		t.Fatal("hasNextPage = true for an empty page")
 	}
 }
 
@@ -627,11 +628,11 @@ func TestMetricsPageSearch_FiltersRenderedFields(t *testing.T) {
 	s.AddMetrics(ctx, buildCumulativeSum("queue.depth", "worker", 1, now))
 	s.Sync()
 
-	items, total, err := s.MetricsPageSearch(ctx, now.Add(-time.Hour), now.Add(time.Hour), 0, 0, "FRONT")
+	items, hasNextPage, err := s.MetricsPageSearch(ctx, now.Add(-time.Hour), now.Add(time.Hour), nil, 0, "FRONT")
 	if err != nil {
 		t.Fatalf("MetricsPageSearch: %v", err)
 	}
-	if total != 1 || len(items) != 1 || items[0].MetricName != "http.requests" {
-		t.Fatalf("items=%+v total=%d, want frontend/http.requests only", items, total)
+	if hasNextPage || len(items) != 1 || items[0].MetricName != "http.requests" {
+		t.Fatalf("items=%+v hasNextPage=%v, want frontend/http.requests only", items, hasNextPage)
 	}
 }

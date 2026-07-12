@@ -95,7 +95,7 @@ func (r *TraceResolver) Spans(ctx context.Context) ([]*SpanResolver, error) {
 }
 
 func (r *TraceResolver) Logs(ctx context.Context) ([]*LogResolver, error) {
-	items, _, err := r.storage.LogsPageByTraceID(ctx, r.id, 0, 0)
+	items, _, err := r.storage.LogsPageByTraceID(ctx, r.id, nil, 0)
 	if err != nil {
 		return nil, err
 	}

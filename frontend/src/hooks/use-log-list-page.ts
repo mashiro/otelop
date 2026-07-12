@@ -16,8 +16,8 @@ import {
 // replaces it as the logs tab's data source now that the list is paginated
 // by range instead of fetched unbounded (issue #160).
 const LogsPageQuery = graphql(`
-  query LogsPage($from: Time, $to: Time!, $offset: Int!, $limit: Int!, $search: String) {
-    logs(from: $from, to: $to, offset: $offset, limit: $limit, search: $search) {
+  query LogsPage($from: Time, $to: Time!, $after: String, $limit: Int!, $search: String) {
+    logs(from: $from, to: $to, after: $after, limit: $limit, search: $search) {
       items {
         id
         timestamp
@@ -31,7 +31,8 @@ const LogsPageQuery = graphql(`
         attributes
         resource
       }
-      total
+      hasNextPage
+      endCursor
     }
   }
 `);
@@ -47,11 +48,12 @@ export function useLogListPage(window: EventTimeWindow, search: string): SignalL
   const appendLogs = useSetAtom(appendLogsAtom);
   const store = useStore();
 
-  const fetchPage = useCallback(async ({ from, to, offset, limit, search }: FetchPageArgs) => {
-    const data = await gqlClient.request(LogsPageQuery, { from, to, offset, limit, search });
+  const fetchPage = useCallback(async ({ from, to, after, limit, search }: FetchPageArgs) => {
+    const data = await gqlClient.request(LogsPageQuery, { from, to, after, limit, search });
     return {
       items: data.logs.items,
-      hasNextPage: offset + data.logs.items.length < data.logs.total,
+      hasNextPage: data.logs.hasNextPage,
+      endCursor: data.logs.endCursor ?? null,
     };
   }, []);
   const getCurrentIds = useCallback(

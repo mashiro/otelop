@@ -254,6 +254,26 @@ func TestTraces_FieldSelection(t *testing.T) {
 	}
 }
 
+func TestTraces_CursorPagination(t *testing.T) {
+	s := seedStorage(t)
+	first := exec(t, s, `{ traces(limit: 1) { items { traceId } hasNextPage endCursor } }`, nil)["traces"].(map[string]any)
+	if !first["hasNextPage"].(bool) || first["endCursor"] == nil {
+		t.Fatalf("first page = %v, want a next-page cursor", first)
+	}
+	firstID := first["items"].([]any)[0].(map[string]any)["traceId"]
+
+	second := exec(t, s, `query($after: String!) { traces(limit: 1, after: $after) { items { traceId } hasNextPage } }`, map[string]any{
+		"after": first["endCursor"],
+	})["traces"].(map[string]any)
+	items := second["items"].([]any)
+	if len(items) != 1 || items[0].(map[string]any)["traceId"] == firstID {
+		t.Fatalf("second page = %v, want the other trace", second)
+	}
+	if second["hasNextPage"].(bool) {
+		t.Fatal("second page unexpectedly has another page")
+	}
+}
+
 func TestTraces_TimeRangeArgs_ExcludeOutOfWindow(t *testing.T) {
 	s := seedStorage(t)
 	// A window entirely before the seeded data must return zero traces.
@@ -295,40 +315,42 @@ func TestTrace_Missing(t *testing.T) {
 
 func TestLogs_TraceIDFilter(t *testing.T) {
 	s := seedStorage(t)
-	data := exec(t, s, `{ logs(traceId: "02000000000000000000000000000000") { total items { body } } }`, nil)
+	data := exec(t, s, `{ logs(traceId: "02000000000000000000000000000000") { hasNextPage items { body } } }`, nil)
 	conn := data["logs"].(map[string]any)
-	if conn["total"].(float64) != 1 {
-		t.Errorf("total = %v, want 1", conn["total"])
+	if conn["hasNextPage"].(bool) {
+		t.Error("hasNextPage = true, want false")
 	}
 }
 
-// TestLogs_SearchArgFiltersAndReflectsInTotal is the GraphQL-level
+// TestLogs_SearchArgFiltersAndPagination is the GraphQL-level
 // passthrough check for issue #161's `search` arg on the logs query — field
 // semantics are covered exhaustively at the storage layer
 // (query_log_search_test.go); this confirms the resolver forwards the arg.
-func TestLogs_SearchArgFiltersAndReflectsInTotal(t *testing.T) {
+func TestLogs_SearchArgFiltersAndPagination(t *testing.T) {
 	s := seedStorage(t)
 
-	data := exec(t, s, `{ logs(search: "timeout") { total items { body } } }`, nil)
+	data := exec(t, s, `{ logs(search: "timeout") { hasNextPage items { body } } }`, nil)
 	conn := data["logs"].(map[string]any)
-	if conn["total"].(float64) != 1 {
-		t.Errorf("total = %v, want 1", conn["total"])
+	if conn["hasNextPage"].(bool) {
+		t.Error("hasNextPage = true, want false")
 	}
 	items := conn["items"].([]any)
 	if len(items) != 1 || items[0].(map[string]any)["body"] != "db timeout" {
 		t.Errorf("items = %v, want [\"db timeout\"]", items)
 	}
 
-	data = exec(t, s, `{ logs(search: "no-such-log") { total } }`, nil)
-	if data["logs"].(map[string]any)["total"].(float64) != 0 {
-		t.Errorf("total = %v, want 0", data["logs"].(map[string]any)["total"])
+	data = exec(t, s, `{ logs(search: "no-such-log") { hasNextPage items { id } } }`, nil)
+	empty := data["logs"].(map[string]any)
+	if empty["hasNextPage"].(bool) || len(empty["items"].([]any)) != 0 {
+		t.Errorf("no-match connection = %v", empty)
 	}
 
 	// traceId given: search is ignored, same as from/to (see resolver.go's
 	// Logs — the trace-correlation branch never consults search).
-	data = exec(t, s, `{ logs(traceId: "02000000000000000000000000000000", search: "no-such-log") { total } }`, nil)
-	if data["logs"].(map[string]any)["total"].(float64) != 1 {
-		t.Errorf("total = %v, want 1 (traceId filter takes precedence over search)", data["logs"].(map[string]any)["total"])
+	data = exec(t, s, `{ logs(traceId: "02000000000000000000000000000000", search: "no-such-log") { hasNextPage items { id } } }`, nil)
+	byTrace := data["logs"].(map[string]any)
+	if byTrace["hasNextPage"].(bool) || len(byTrace["items"].([]any)) != 1 {
+		t.Errorf("traceId-filtered connection = %v, want one item", byTrace)
 	}
 }
 

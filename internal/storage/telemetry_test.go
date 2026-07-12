@@ -18,7 +18,7 @@ func TestRegisterTelemetryCollectsDuckDBStateAndQueryMetrics(t *testing.T) {
 	if err := s.RegisterTelemetry(provider.Meter("test")); err != nil {
 		t.Fatalf("RegisterTelemetry: %v", err)
 	}
-	_, _, err := s.LogsPage(context.Background(), time.Unix(0, 0), time.Now().Add(time.Hour), 0, 10, "")
+	_, _, err := s.LogsPage(context.Background(), time.Unix(0, 0), time.Now().Add(time.Hour), nil, 10, "")
 	if err != nil {
 		t.Fatalf("LogsPage: %v", err)
 	}

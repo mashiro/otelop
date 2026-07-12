@@ -60,7 +60,7 @@ func TestTracesPage_DedupsRepeatedSpans(t *testing.T) {
 	s.AddTraces(ctx, td)
 	s.Sync()
 
-	items, hasNextPage, err := s.TracesPage(ctx, base.Add(-time.Minute), base.Add(time.Minute), 0, 0, "")
+	items, hasNextPage, err := s.TracesPage(ctx, base.Add(-time.Minute), base.Add(time.Minute), nil, 0, "")
 	if err != nil {
 		t.Fatalf("TracesPage: %v", err)
 	}
@@ -99,7 +99,7 @@ func TestTracesPage_MultiRootPicksLongestDurationAsRoot(t *testing.T) {
 	s.AddTraces(ctx, td)
 	s.Sync()
 
-	items, _, err := s.TracesPage(ctx, base.Add(-time.Minute), base.Add(time.Minute), 0, 0, "")
+	items, _, err := s.TracesPage(ctx, base.Add(-time.Minute), base.Add(time.Minute), nil, 0, "")
 	if err != nil {
 		t.Fatalf("TracesPage: %v", err)
 	}
@@ -146,7 +146,7 @@ func TestTracesPage_RootlessFallsBackToEarliestStartedSpanService(t *testing.T) 
 	s.AddTraces(ctx, td)
 	s.Sync()
 
-	items, _, err := s.TracesPage(ctx, base.Add(-time.Minute), base.Add(time.Minute), 0, 0, "")
+	items, _, err := s.TracesPage(ctx, base.Add(-time.Minute), base.Add(time.Minute), nil, 0, "")
 	if err != nil {
 		t.Fatalf("TracesPage: %v", err)
 	}
@@ -177,7 +177,7 @@ func TestTracesPage_HasErrorTrueWhenAnySpanErrors(t *testing.T) {
 	s.AddTraces(ctx, td)
 	s.Sync()
 
-	items, _, err := s.TracesPage(ctx, base.Add(-time.Minute), base.Add(time.Minute), 0, 0, "")
+	items, _, err := s.TracesPage(ctx, base.Add(-time.Minute), base.Add(time.Minute), nil, 0, "")
 	if err != nil {
 		t.Fatalf("TracesPage: %v", err)
 	}
@@ -210,7 +210,7 @@ func TestTracesPage_WindowUsesTraceStartAndAggregatesFullSpanSet(t *testing.T) {
 
 	from := base.Add(-time.Minute)
 	to := base.Add(time.Minute)
-	items, hasNextPage, err := s.TracesPage(ctx, from, to, 0, 0, "")
+	items, hasNextPage, err := s.TracesPage(ctx, from, to, nil, 0, "")
 	if err != nil {
 		t.Fatalf("TracesPage: %v", err)
 	}
@@ -235,7 +235,7 @@ func TestTracesPage_WindowUsesTraceStartAndAggregatesFullSpanSet(t *testing.T) {
 	// here because its start time is the earlier span's timestamp.
 	laterFrom := base.Add(59 * time.Minute)
 	laterTo := base.Add(61 * time.Minute)
-	items, hasNextPage, err = s.TracesPage(ctx, laterFrom, laterTo, 0, 0, "")
+	items, hasNextPage, err = s.TracesPage(ctx, laterFrom, laterTo, nil, 0, "")
 	if err != nil {
 		t.Fatalf("TracesPage (child-span window): %v", err)
 	}
@@ -259,7 +259,13 @@ func TestTracesPage_PaginationAndHasNextPage(t *testing.T) {
 		time.Sleep(time.Millisecond) // force distinct ingested_at for ordering
 	}
 
-	items, hasNextPage, err := s.TracesPage(ctx, base.Add(-time.Minute), base.Add(time.Minute), 2, 2, "")
+	first, _, err := s.TracesPage(ctx, base.Add(-time.Minute), base.Add(time.Minute), nil, 2, "")
+	if err != nil {
+		t.Fatalf("TracesPage first page: %v", err)
+	}
+	last := first[len(first)-1]
+	after := &TraceCursor{StartTime: last.StartTime, FirstSeen: last.FirstSeen, TraceID: last.TraceID}
+	items, hasNextPage, err := s.TracesPage(ctx, base.Add(-time.Minute), base.Add(time.Minute), after, 2, "")
 	if err != nil {
 		t.Fatalf("TracesPage: %v", err)
 	}
@@ -285,7 +291,9 @@ func TestTracesPage_EmptyPageHasNoNextPage(t *testing.T) {
 	}
 	s.Sync()
 
-	items, hasNextPage, err := s.TracesPage(ctx, base.Add(-time.Minute), base.Add(time.Minute), 10, 2, "")
+	items, hasNextPage, err := s.TracesPage(ctx, base.Add(-time.Minute), base.Add(time.Minute), &TraceCursor{
+		StartTime: base.Add(-time.Hour), FirstSeen: time.Unix(0, 0).UTC(),
+	}, 2, "")
 	if err != nil {
 		t.Fatalf("TracesPage: %v", err)
 	}
@@ -311,7 +319,7 @@ func TestTracesPage_OrderingNewestTraceStartFirst(t *testing.T) {
 	s.AddTraces(ctx, second)
 	s.Sync()
 
-	items, _, err := s.TracesPage(ctx, base.Add(-time.Minute), base.Add(time.Minute), 0, 0, "")
+	items, _, err := s.TracesPage(ctx, base.Add(-time.Minute), base.Add(time.Minute), nil, 0, "")
 	if err != nil {
 		t.Fatalf("TracesPage: %v", err)
 	}

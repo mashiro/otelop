@@ -66,12 +66,12 @@ func TestLogsPage_SearchMatchesByField(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			items, total, err := s.LogsPage(ctx, t0.Add(-time.Minute), t0.Add(time.Minute), 0, 0, tc.search)
+			items, hasNextPage, err := s.LogsPage(ctx, t0.Add(-time.Minute), t0.Add(time.Minute), nil, 0, tc.search)
 			if err != nil {
 				t.Fatalf("LogsPage: %v", err)
 			}
-			if total != len(tc.want) {
-				t.Fatalf("total = %d, want %d", total, len(tc.want))
+			if hasNextPage {
+				t.Fatal("hasNextPage = true for unlimited query")
 			}
 			got := make([]string, len(items))
 			for i, it := range items {
@@ -87,7 +87,7 @@ func TestLogsPage_SearchMatchesByField(t *testing.T) {
 // TestLogsPage_SearchComposesWithRangeAndPagination mirrors
 // TestTracesPage_SearchComposesWithRangeAndPagination: a search-matching log
 // outside the time window is excluded, a non-matching log inside the window
-// doesn't count toward the total, and pagination/total both operate over
+// doesn't affect pagination, which operates over
 // the search-narrowed set.
 func TestLogsPage_SearchComposesWithRangeAndPagination(t *testing.T) {
 	s := openTestStorage(t, Options{})
@@ -103,27 +103,28 @@ func TestLogsPage_SearchComposesWithRangeAndPagination(t *testing.T) {
 
 	from, to := t0.Add(-time.Minute), t0.Add(time.Minute)
 
-	_, total, err := s.LogsPage(ctx, from, to, 0, 0, "heartbeat")
+	all, hasNextPage, err := s.LogsPage(ctx, from, to, nil, 0, "heartbeat")
 	if err != nil {
 		t.Fatalf("LogsPage: %v", err)
 	}
-	if total != 3 {
-		t.Fatalf("total = %d, want 3 (the out-of-range match excluded, the in-range non-match excluded)", total)
+	if hasNextPage || len(all) != 3 {
+		t.Fatalf("unlimited page: hasNextPage=%v len=%d, want false/3", hasNextPage, len(all))
 	}
 
-	page1, total, err := s.LogsPage(ctx, from, to, 0, 2, "heartbeat")
+	page1, hasNextPage, err := s.LogsPage(ctx, from, to, nil, 2, "heartbeat")
 	if err != nil {
 		t.Fatalf("LogsPage page1: %v", err)
 	}
-	if total != 3 || len(page1) != 2 {
-		t.Fatalf("page1: total=%d len=%d, want total=3 len=2", total, len(page1))
+	if !hasNextPage || len(page1) != 2 {
+		t.Fatalf("page1: hasNextPage=%v len=%d, want true/2", hasNextPage, len(page1))
 	}
 
-	page2, total, err := s.LogsPage(ctx, from, to, 2, 2, "heartbeat")
+	after := &LogCursor{TS: page1[len(page1)-1].TS, ID: page1[len(page1)-1].ID}
+	page2, hasNextPage, err := s.LogsPage(ctx, from, to, after, 2, "heartbeat")
 	if err != nil {
 		t.Fatalf("LogsPage page2: %v", err)
 	}
-	if total != 3 || len(page2) != 1 {
-		t.Fatalf("page2: total=%d len=%d, want total=3 len=1 (the third match reachable via offset)", total, len(page2))
+	if hasNextPage || len(page2) != 1 {
+		t.Fatalf("page2: hasNextPage=%v len=%d, want false/1", hasNextPage, len(page2))
 	}
 }

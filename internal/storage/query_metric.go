@@ -37,6 +37,12 @@ type MetricSummary struct {
 	LatestValue *float64
 }
 
+type MetricCursor struct {
+	LastSeen    time.Time
+	ServiceName string
+	MetricName  string
+}
+
 // DerivedPoint is one metric observation with delta/cumulative values
 // derived at query time (see docs/design/duckdb-storage.md's "Reads"
 // section). Value and Cumulative are populated for Gauge/Sum; Count/
@@ -111,12 +117,6 @@ func FilterDerivedPoints(points []DerivedPoint) []DerivedPoint {
 //
 // Parameter order: to binds first (first_seen < to), from second
 // (last_seen >= from) — the reverse of the other list queries.
-//
-// count(*) OVER (), evaluated over the GROUP BY's output before ORDER
-// BY/LIMIT/OFFSET, rides along as total_count — the same "matching groups
-// before pagination" total metricsTotalQuery computes separately — letting
-// MetricsPage read it off the page query itself instead of a second round
-// trip (see MetricsPage's doc comment).
 const metricsPageQuery = `
 WITH filtered AS (
 	SELECT s.*, r.attributes::VARCHAR AS resource_json
@@ -138,53 +138,38 @@ SELECT
 	arg_max(description, last_seen)   AS description,
 	max(last_seen)                    AS last_seen,
 	list(series_key)                  AS series_keys,
-	arg_max(resource_json, last_seen) AS resource_json,
-	count(*) OVER ()                  AS total_count
+	arg_max(resource_json, last_seen) AS resource_json
 FROM filtered
 GROUP BY service_name, metric_name
-ORDER BY last_seen DESC
-LIMIT ? OFFSET ?
-`
-
-// metricsTotalQuery mirrors metricsPageQuery's filtering exactly so `total`
-// reflects the same group set the page itself pages through. It's no longer
-// MetricsPage's normal path to `total` (that's metricsPageQuery's own
-// count(*) OVER () column) — this only runs as the empty-page-with-offset
-// fallback, via queryCount, when offset lands past the end of the matching
-// set.
-const metricsTotalQuery = `
-SELECT count(*) FROM (
-	SELECT 1 FROM metric_series
-	WHERE first_seen < ? AND last_seen >= ?
-	AND (
-		metric_name ILIKE ? ESCAPE '\' OR
-		service_name ILIKE ? ESCAPE '\' OR
-		metric_type ILIKE ? ESCAPE '\' OR
-		description ILIKE ? ESCAPE '\'
-	)
-	GROUP BY service_name, metric_name
-)
+HAVING (CAST(? AS BOOLEAN) OR max(last_seen) < ?
+	OR (max(last_seen) = ? AND service_name < ?)
+	OR (max(last_seen) = ? AND service_name = ? AND metric_name < ?))
+ORDER BY last_seen DESC, service_name DESC, metric_name DESC
+LIMIT ?
 `
 
 // MetricsPage returns a page of metric groups (one per distinct
-// service+metric name pair, most-recently-active first) plus the total
-// group count. total is read off the page query's own count(*) OVER ()
-// column; when the page comes back empty because offset is past the end of
-// the matching set, that column has nothing to report, so a separate
-// metricsTotalQuery run recovers it (see queryCount).
-func (s *Storage) MetricsPage(ctx context.Context, from, to time.Time, offset, limit int) ([]MetricSummary, int, error) {
-	return s.MetricsPageSearch(ctx, from, to, offset, limit, "")
+// service+metric name pair, most-recently-active first), fetching one extra
+// group to report whether another page exists without an exact count.
+func (s *Storage) MetricsPage(ctx context.Context, from, to time.Time, after *MetricCursor, limit int) ([]MetricSummary, bool, error) {
+	return s.MetricsPageSearch(ctx, from, to, after, limit, "")
 }
 
 // MetricsPageSearch is MetricsPage with a case-insensitive substring search
 // over the fields rendered by the metrics list.
-func (s *Storage) MetricsPageSearch(ctx context.Context, from, to time.Time, offset, limit int, search string) (items []MetricSummary, total int, err error) {
+func (s *Storage) MetricsPageSearch(ctx context.Context, from, to time.Time, after *MetricCursor, limit int, search string) (items []MetricSummary, hasNextPage bool, err error) {
 	started := time.Now()
 	defer func() { s.recordQuery(ctx, "query_metrics", started, err) }()
 	pattern := likePattern(search)
-	rows, err := s.DB().QueryContext(ctx, metricsPageQuery, to, from, pattern, pattern, pattern, pattern, pageLimit(limit), offset)
+	queryLimit := pageLimit(limit)
+	if limit > 0 {
+		queryLimit++
+	}
+	firstPage, cursorSeen, cursorService, cursorName := metricCursorArgs(after)
+	rows, err := s.DB().QueryContext(ctx, metricsPageQuery, to, from, pattern, pattern, pattern, pattern,
+		firstPage, cursorSeen, cursorSeen, cursorService, cursorSeen, cursorService, cursorName, queryLimit)
 	if err != nil {
-		return nil, 0, fmt.Errorf("storage: query metrics page: %w", err)
+		return nil, false, fmt.Errorf("storage: query metrics page: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
 
@@ -194,35 +179,36 @@ func (s *Storage) MetricsPageSearch(ctx context.Context, from, to time.Time, off
 			m           MetricSummary
 			seriesKeys  any
 			resourceRaw *string
-			totalCount  int
 		)
-		if err := rows.Scan(&m.ServiceName, &m.MetricName, &m.Type, &m.Unit, &m.Description, &m.LastSeen, &seriesKeys, &resourceRaw, &totalCount); err != nil {
-			return nil, 0, fmt.Errorf("storage: scan metric summary: %w", err)
+		if err := rows.Scan(&m.ServiceName, &m.MetricName, &m.Type, &m.Unit, &m.Description, &m.LastSeen, &seriesKeys, &resourceRaw); err != nil {
+			return nil, false, fmt.Errorf("storage: scan metric summary: %w", err)
 		}
-		total = totalCount
 		m.SeriesKeys = decodeSeriesKeys(seriesKeys)
 		resource, err := decodeAttrs(resourceRaw)
 		if err != nil {
-			return nil, 0, err
+			return nil, false, err
 		}
 		m.Resource = resource
 		items = append(items, m)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, 0, fmt.Errorf("storage: iterate metrics page: %w", err)
+		return nil, false, fmt.Errorf("storage: iterate metrics page: %w", err)
 	}
-
-	if len(items) == 0 && offset > 0 {
-		total, err = s.queryCount(ctx, metricsTotalQuery, to, from, pattern, pattern, pattern, pattern)
-		if err != nil {
-			return nil, 0, fmt.Errorf("storage: count metrics page: %w", err)
-		}
+	if limit > 0 && len(items) > limit {
+		hasNextPage = true
+		items = items[:limit]
 	}
 	if err := s.populateMetricSummaryStats(ctx, items, from, to); err != nil {
-		return nil, 0, err
+		return nil, false, err
 	}
+	return items, hasNextPage, nil
+}
 
-	return items, total, nil
+func metricCursorArgs(after *MetricCursor) (bool, time.Time, string, string) {
+	if after == nil {
+		return true, time.Unix(0, 0).UTC(), "", ""
+	}
+	return false, after.LastSeen, after.ServiceName, after.MetricName
 }
 
 // populateMetricSummaryStats resolves the two metrics-list glance fields in

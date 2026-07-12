@@ -19,8 +19,8 @@ import {
 // as the traces tab's data source now that the list is paginated by range
 // instead of fetched unbounded.
 const TracesPageQuery = graphql(`
-  query TracesPage($from: Time, $to: Time!, $offset: Int!, $limit: Int!, $search: String) {
-    traces(from: $from, to: $to, offset: $offset, limit: $limit, search: $search) {
+  query TracesPage($from: Time, $to: Time!, $after: String, $limit: Int!, $search: String) {
+    traces(from: $from, to: $to, after: $after, limit: $limit, search: $search) {
       items {
         traceId
         serviceName
@@ -35,6 +35,7 @@ const TracesPageQuery = graphql(`
         }
       }
       hasNextPage
+      endCursor
     }
   }
 `);
@@ -73,9 +74,13 @@ export function useTraceListPage(window: EventTimeWindow, search: string): Signa
   const appendTraces = useSetAtom(appendTracesAtom);
   const store = useStore();
 
-  const fetchPage = useCallback(async ({ from, to, offset, limit, search }: FetchPageArgs) => {
-    const data = await gqlClient.request(TracesPageQuery, { from, to, offset, limit, search });
-    return { items: data.traces.items.map(toTraceData), hasNextPage: data.traces.hasNextPage };
+  const fetchPage = useCallback(async ({ from, to, after, limit, search }: FetchPageArgs) => {
+    const data = await gqlClient.request(TracesPageQuery, { from, to, after, limit, search });
+    return {
+      items: data.traces.items.map(toTraceData),
+      hasNextPage: data.traces.hasNextPage,
+      endCursor: data.traces.endCursor ?? null,
+    };
   }, []);
   const getCurrentIds = useCallback(
     () => new Set(store.get(tracesAtom).map((trace) => trace.traceId)),

@@ -88,7 +88,7 @@ func TestTracesPage_SearchMatchesByField(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			items, hasNextPage, err := s.TracesPage(ctx, base.Add(-time.Minute), base.Add(time.Minute), 0, 0, tc.search)
+			items, hasNextPage, err := s.TracesPage(ctx, base.Add(-time.Minute), base.Add(time.Minute), nil, 0, tc.search)
 			if err != nil {
 				t.Fatalf("TracesPage: %v", err)
 			}
@@ -109,7 +109,7 @@ func TestTracesPage_SearchMatchesByField(t *testing.T) {
 // TestTracesPage_SearchComposesWithRangeAndPagination confirms search
 // narrows the range-filtered set (a search-matching trace outside the time
 // window is still excluded) and that pagination/hasNextPage both operate over the
-// search-narrowed set, so a match beyond page 1 is reachable via offset.
+// search-narrowed set, so a match beyond page 1 is reachable via its cursor.
 func TestTracesPage_SearchComposesWithRangeAndPagination(t *testing.T) {
 	s := openTestStorage(t, Options{})
 	ctx := context.Background()
@@ -135,7 +135,7 @@ func TestTracesPage_SearchComposesWithRangeAndPagination(t *testing.T) {
 
 	from, to := base.Add(-time.Minute), base.Add(time.Minute)
 
-	all, hasNextPage, err := s.TracesPage(ctx, from, to, 0, 0, "worker.task")
+	all, hasNextPage, err := s.TracesPage(ctx, from, to, nil, 0, "worker.task")
 	if err != nil {
 		t.Fatalf("TracesPage: %v", err)
 	}
@@ -143,7 +143,7 @@ func TestTracesPage_SearchComposesWithRangeAndPagination(t *testing.T) {
 		t.Fatalf("unlimited result: hasNextPage=%v len=%d, want false/3", hasNextPage, len(all))
 	}
 
-	page1, hasNextPage, err := s.TracesPage(ctx, from, to, 0, 2, "worker.task")
+	page1, hasNextPage, err := s.TracesPage(ctx, from, to, nil, 2, "worker.task")
 	if err != nil {
 		t.Fatalf("TracesPage page1: %v", err)
 	}
@@ -151,7 +151,9 @@ func TestTracesPage_SearchComposesWithRangeAndPagination(t *testing.T) {
 		t.Fatalf("page1: hasNextPage=%v len=%d, want true/2", hasNextPage, len(page1))
 	}
 
-	page2, hasNextPage, err := s.TracesPage(ctx, from, to, 2, 2, "worker.task")
+	last := page1[len(page1)-1]
+	after := &TraceCursor{StartTime: last.StartTime, FirstSeen: last.FirstSeen, TraceID: last.TraceID}
+	page2, hasNextPage, err := s.TracesPage(ctx, from, to, after, 2, "worker.task")
 	if err != nil {
 		t.Fatalf("TracesPage page2: %v", err)
 	}
