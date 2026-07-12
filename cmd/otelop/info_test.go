@@ -34,9 +34,6 @@ max_size = "1GB"
 	if err := os.WriteFile(cfgPath, []byte(body), 0o644); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
-	if err := os.WriteFile(dbPath, make([]byte, 2048), 0o644); err != nil {
-		t.Fatalf("write db file: %v", err)
-	}
 	t.Setenv(config.EnvConfigFile, cfgPath)
 
 	var buf bytes.Buffer
@@ -56,7 +53,6 @@ max_size = "1GB"
 		dbPath,
 		"24h",
 		"1GB",
-		formatBytes(2048),
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output missing %q\noutput:\n%s", want, out)
@@ -93,38 +89,7 @@ func TestPrintInfoResolved_MissingConfigFile(t *testing.T) {
 	if !strings.Contains(out, "(none)") {
 		t.Errorf("output missing proxy (none):\n%s", out)
 	}
-	if !strings.Contains(out, "(no database yet)") {
-		t.Errorf("output missing (no database yet):\n%s", out)
-	}
-}
-
-func TestPrintInfoResolved_DBFileSize(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv(config.EnvConfigFile, filepath.Join(dir, "missing.toml"))
-	t.Setenv("XDG_DATA_HOME", filepath.Join(dir, "xdg-data"))
-
-	dbPath, err := config.DefaultStoragePath()
-	if err != nil {
-		t.Fatalf("DefaultStoragePath: %v", err)
-	}
-	if err := os.MkdirAll(filepath.Dir(dbPath), 0o755); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
-	if err := os.WriteFile(dbPath, make([]byte, 5000), 0o644); err != nil {
-		t.Fatalf("write db file: %v", err)
-	}
-
-	var buf bytes.Buffer
-	if err := printInfoResolved(&buf); err != nil {
-		t.Fatalf("printInfoResolved: %v", err)
-	}
-	out := buf.String()
-
-	want := formatBytes(5000)
-	if !strings.Contains(out, want) {
-		t.Errorf("output missing db size %q:\n%s", want, out)
-	}
-	if strings.Contains(out, "no database yet") {
-		t.Errorf("output should not say no database yet:\n%s", out)
+	if strings.Contains(out, "DB size") {
+		t.Errorf("output should not include database state:\n%s", out)
 	}
 }

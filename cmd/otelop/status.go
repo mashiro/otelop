@@ -161,23 +161,6 @@ func printFull(w io.Writer, meta *daemon.Metadata, s *statusPayload) {
 	})
 }
 
-// formatBytes renders a byte count as a human size using the same units
-// internal/config.ParseMaxSize accepts, so `otelop status`'s output and the
-// [storage] config file agree on vocabulary.
-func formatBytes(n float64) string {
-	const unit = 1000.0
-	if n < unit {
-		return fmt.Sprintf("%.0fB", n)
-	}
-	units := []string{"KB", "MB", "GB", "TB"}
-	div, exp := unit, 0
-	for v := n / unit; v >= unit && exp < len(units)-1; v /= unit {
-		div *= unit
-		exp++
-	}
-	return fmt.Sprintf("%.2f%s", n/div, units[exp])
-}
-
 func printMetaOnly(w io.Writer, meta *daemon.Metadata) {
 	logFile, _ := daemon.LogFile()
 	writeBanner(w, " is running", bannerRows{
