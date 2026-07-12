@@ -103,4 +103,28 @@ describe("SearchFilter", () => {
     expect(input.value).toBe("in-progress");
     expect(store.get(searchAtom)).toBe("initial");
   });
+
+  it("does not let a pending debounce overwrite a newer external atom value", () => {
+    const store = createStore();
+    const searchAtom = atom("checkout");
+    render(
+      <Provider store={store}>
+        <SearchFilter atom={searchAtom} placeholder="Search…" />
+      </Provider>,
+    );
+
+    const input = screen.getByPlaceholderText("Search…") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "checkout failed" } });
+
+    act(() => {
+      store.set(searchAtom, "");
+    });
+    expect(input.value).toBe("");
+
+    act(() => {
+      vi.advanceTimersByTime(300);
+    });
+    expect(store.get(searchAtom)).toBe("");
+    expect(input.value).toBe("");
+  });
 });

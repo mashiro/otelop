@@ -10,7 +10,7 @@ import {
   logTraceFilterAtom,
   serverMatchedTraceIdsAtom,
   serverMatchedLogIdsAtom,
-  serverMatchedMetricKeysAtom,
+  metricSearchResultAtom,
   traceListWindowAtom,
   logListWindowAtom,
 } from "./telemetry";
@@ -128,19 +128,30 @@ export const filteredLogsAtom = atom<LogData[]>((get) => {
 
 export const metricSearchAtom = atom("");
 
-// Metrics has no pagination to replace (metricsAtom is always the complete
-// buffer — see stores/telemetry.ts), so unlike traces/logs there was no
-// server-vouched-id concept until this fixed a real bug: the old
-// implementation had hooks/use-metric-list-search.ts REPLACE metricsAtom
-// itself with the server's search result, so a zero-hit search wiped the
-// entire buffer (and, with it, the toolbar rendering this very search box —
-// see components/metrics/metric-list.tsx). Routing the search result through
-// serverMatchedMetricKeysAtom instead — the same server-backed-search shape
-// traces/logs use — keeps metricsAtom untouched by search.
-export const filteredMetricsAtom = createServerBackedSearchAtom(
-  metricsAtom,
-  metricSearchAtom,
-  serverMatchedMetricKeysAtom,
-  metricKeyToString,
-  (m: MetricData) => [m.name, m.serviceName ?? "", m.type, m.description ?? ""],
-);
+export const filteredMetricsAtom = atom<MetricData[]>((get) => {
+  const buffered = get(metricsAtom);
+  const search = get(metricSearchAtom);
+  if (!search) return buffered;
+
+  const q = search.toLowerCase();
+  const result = get(metricSearchResultAtom);
+  const serverItems = result.search === search ? result.items : [];
+  const bufferedByKey = new Map(buffered.map((metric) => [metricKeyToString(metric), metric]));
+  const included = new Set<string>();
+  const matches = serverItems.map((metric) => {
+    const key = metricKeyToString(metric);
+    included.add(key);
+    // A buffered row may contain newer WS-derived summary fields and loaded
+    // detail points; the server row is only needed when the bounded buffer no
+    // longer contains this retained metric.
+    return bufferedByKey.get(key) ?? metric;
+  });
+
+  for (const metric of buffered) {
+    const key = metricKeyToString(metric);
+    if (included.has(key)) continue;
+    const fields = [metric.name, metric.serviceName ?? "", metric.type, metric.description ?? ""];
+    if (fields.some((field) => field.toLowerCase().includes(q))) matches.push(metric);
+  }
+  return matches;
+});

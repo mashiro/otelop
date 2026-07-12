@@ -1,16 +1,23 @@
 import { useEffect } from "react";
-import { useSetAtom, useStore } from "jotai";
+import { useSetAtom } from "jotai";
 import { graphql } from "@/gql";
 import { gqlClient } from "@/lib/graphql";
-import { metricsAtom, serverMatchedMetricKeysAtom } from "@/stores/telemetry";
-import { metricKeyToString } from "@/stores/navigation";
+import { metricSearchResultAtom } from "@/stores/telemetry";
+import type { MetricData } from "@/types/telemetry";
 
 const MetricsListQuery = graphql(`
   query MetricsList($search: String) {
     metrics(limit: 0, search: $search) {
       items {
         name
+        description
+        unit
+        type
         serviceName
+        resource
+        receivedAt
+        pointCount
+        latestValue
       }
     }
   }
@@ -22,27 +29,25 @@ const MetricsListQuery = graphql(`
 // every metric ever seen on a zero-hit search, taking the toolbar/search box
 // down with it (components/metrics/metric-list.tsx rendered EmptyState once
 // metricsAtom went empty). Instead it only records which (serviceName, name)
-// groups the server vouches for; stores/filters.ts's filteredMetricsAtom
-// consumes that set to filter the untouched buffer.
+// matching summaries separately; stores/filters.ts combines them with the
+// untouched live buffer.
 export function useMetricListSearch(search: string): void {
-  const setMatchedKeys = useSetAtom(serverMatchedMetricKeysAtom);
-  const store = useStore();
+  const setSearchResult = useSetAtom(metricSearchResultAtom);
 
   useEffect(() => {
-    // An empty search shows the full buffer (see filteredMetricsAtom), and
-    // hooks/use-initial-load.ts already bootstraps that buffer once at
-    // mount — refetching the same unbounded list here on every metrics-tab
-    // mount is redundant. Only skip when the buffer already has something to
-    // show; an empty buffer (initial load still in flight, or failed) falls
-    // through and fetches as a fallback.
-    if (!search && store.get(metricsAtom).length > 0) return;
+    // hooks/use-initial-load.ts exclusively owns the unfiltered bootstrap.
+    // Keeping this hook search-only avoids two unbounded queries racing to
+    // initialize the same view and makes an initial-load retry a separate
+    // concern rather than a key-only fallback that cannot hydrate rows.
+    if (!search) return;
 
     let ignore = false;
     const load = async () => {
       try {
-        const data = await gqlClient.request(MetricsListQuery, { search: search || undefined });
+        const data = await gqlClient.request(MetricsListQuery, { search });
         if (ignore) return;
-        setMatchedKeys(new Set(data.metrics.items.map((m) => metricKeyToString(m))));
+        const items: MetricData[] = data.metrics.items.map((m) => ({ ...m, dataPoints: [] }));
+        setSearchResult({ search, items });
       } catch {
         // Keep the previous result; the next search edit retries.
       }
@@ -51,5 +56,5 @@ export function useMetricListSearch(search: string): void {
     return () => {
       ignore = true;
     };
-  }, [search, setMatchedKeys, store]);
+  }, [search, setSearchResult]);
 }

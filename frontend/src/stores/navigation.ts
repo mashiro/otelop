@@ -96,7 +96,7 @@ export function metricKeyEquals(a: MetricKey | null, b: MetricKey | null): boole
 }
 
 // String encoding of a MetricKey for use as a Set/Map key (e.g.
-// stores/telemetry.ts's serverMatchedMetricKeysAtom) — metrics have no single
+// stores/telemetry.ts's metricSearchResultAtom) — metrics have no single
 // id field the way traces/logs do (traceId/log id), only this compound key.
 // JSON-encoding the tuple (rather than joining with a delimiter) sidesteps
 // picking a separator that can't collide with characters serviceName/name

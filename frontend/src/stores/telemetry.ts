@@ -376,14 +376,15 @@ export const navigateToLogsAtom = atom(null, (_get, set, traceId: string) => {
 export const serverMatchedTraceIdsAtom = atom<ReadonlySet<string>>(new Set<string>());
 export const serverMatchedLogIdsAtom = atom<ReadonlySet<string>>(new Set<string>());
 
-// The (serviceName, name) keys (see navigation.ts's metricKeyToString) the
-// server returned for the currently active metrics search
-// (hooks/use-metric-list-search.ts). Unlike traces/logs, metrics has no
-// pagination to replace — metricsAtom is always the complete buffer (initial
-// load + WS merges) — but the search result still must not itself overwrite
-// that buffer (a zero-hit search would wipe every metric ever seen). This set
-// is filters.ts's filteredMetricsAtom's server-vouched membership instead.
-export const serverMatchedMetricKeysAtom = atom<ReadonlySet<string>>(new Set<string>());
+export interface MetricSearchResult {
+  search: string;
+  items: MetricData[];
+}
+
+// Full summary rows are kept separately from metricsAtom so a search can
+// surface retained groups that have fallen out of the bounded live buffer
+// without replacing that canonical initial-load + WebSocket state.
+export const metricSearchResultAtom = atom<MetricSearchResult>({ search: "", items: [] });
 
 export const setMetricsAtom = atom(null, (_get, set, metrics: MetricData[]) => {
   set(metricsAtom, metrics);

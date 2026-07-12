@@ -15,6 +15,7 @@ export function SearchFilter({
   const [lastSyncedValue, setLastSyncedValue] = useState(value);
   const [input, setInput] = useState(value);
   const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const generationRef = useRef(0);
 
   // An external write to the atom (e.g. log-list.tsx's "Show surrounding
   // logs" clearing logSearchAtom from outside this component) must reflect
@@ -27,6 +28,7 @@ export function SearchFilter({
   // component synced, so a re-render caused by typing (where value hasn't
   // changed yet) never touches input.
   if (value !== lastSyncedValue) {
+    generationRef.current += 1;
     setLastSyncedValue(value);
     setInput(value);
   }
@@ -38,7 +40,10 @@ export function SearchFilter({
       const v = e.target.value;
       setInput(v);
       clearTimeout(timerRef.current);
-      timerRef.current = setTimeout(() => setValue(v), 300);
+      const generation = generationRef.current;
+      timerRef.current = setTimeout(() => {
+        if (generation === generationRef.current) setValue(v);
+      }, 300);
     },
     [setValue],
   );
@@ -46,6 +51,7 @@ export function SearchFilter({
   const handleClear = useCallback(() => {
     setInput("");
     clearTimeout(timerRef.current);
+    generationRef.current += 1;
     setValue("");
   }, [setValue]);
 

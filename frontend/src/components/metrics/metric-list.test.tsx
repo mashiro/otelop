@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { getDefaultStore } from "jotai";
 import { render, screen, cleanup, within, waitFor, act } from "@testing-library/react";
 import { MetricList } from "./metric-list";
-import { metricsAtom, serverMatchedMetricKeysAtom } from "@/stores/telemetry";
+import { metricSearchResultAtom, metricsAtom } from "@/stores/telemetry";
 import { metricSearchAtom } from "@/stores/filters";
 import { selectedMetricKeyAtom } from "@/stores/navigation";
 import { makeMetric } from "@/test/factories";
@@ -34,11 +34,16 @@ beforeEach(() => {
   store.set(metricsAtom, []);
   store.set(metricSearchAtom, "");
   store.set(selectedMetricKeyAtom, null);
-  store.set(serverMatchedMetricKeysAtom, new Set());
+  store.set(metricSearchResultAtom, { search: "", items: [] });
   requestMock.mockReset();
   requestMock.mockResolvedValue({ metrics: { items: [] } });
 });
 afterEach(cleanup);
+
+function queryMetric(overrides = {}) {
+  const { dataPoints: _dataPoints, ...metric } = makeMetric(overrides);
+  return metric;
+}
 
 // The metrics list's initial load stopped selecting dataPoints (issue #162);
 // the "Points"/"Latest Value" columns must render from the cheap
@@ -126,6 +131,21 @@ describe("MetricList", () => {
 
     await waitFor(() => expect(requestMock).toHaveBeenCalled());
     expect(store.get(metricsAtom)).toHaveLength(2);
+  });
+
+  it("renders a server match that is no longer present in the bounded live buffer", async () => {
+    const store = getDefaultStore();
+    store.set(metricsAtom, []);
+    store.set(metricSearchAtom, "archive");
+    requestMock.mockResolvedValue({
+      metrics: { items: [queryMetric({ serviceName: "archive", name: "old.requests" })] },
+    });
+
+    render(<MetricList />);
+
+    await waitFor(() => expect(screen.getByText("old.requests")).toBeTruthy());
+    expect(store.get(metricsAtom)).toEqual([]);
+    expect(screen.getByPlaceholderText("Search metrics...")).toBeTruthy();
   });
 
   it("skips the redundant full-list fetch on mount when search is empty and the buffer already has data", async () => {

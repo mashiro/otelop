@@ -11,9 +11,8 @@ import {
   addLogAtom,
   traceListWindowAtom,
   logListWindowAtom,
-  serverMatchedMetricKeysAtom,
+  metricSearchResultAtom,
 } from "./telemetry";
-import { metricKeyToString } from "./navigation";
 import { selectedLogRangeAtom, selectedTraceRangeAtom } from "./navigation";
 import {
   traceSearchAtom,
@@ -318,28 +317,39 @@ describe("filteredMetricsAtom", () => {
     expect(store.get(filteredMetricsAtom)).toHaveLength(1);
   });
 
-  // hooks/use-metric-list-search.ts writes serverMatchedMetricKeysAtom
-  // instead of replacing metricsAtom (the blocker this whole mechanism
-  // fixes) — mirrors the trace/log server-vouched pass-through tests above.
-  it("keeps a server-vouched metric visible even when the client predicate can't match it", () => {
+  it("shows a server result that is absent from the bounded live buffer", () => {
     const store = createStore();
-    const metric = makeMetric({ serviceName: "frontend", name: "http.requests" });
-    store.set(metricsAtom, [metric]);
+    const retained = makeMetric({ serviceName: "archive", name: "old.requests" });
+    store.set(metricsAtom, []);
     store.set(metricSearchAtom, "no-client-field-contains-this");
-    store.set(serverMatchedMetricKeysAtom, new Set([metricKeyToString(metric)]));
+    store.set(metricSearchResultAtom, {
+      search: "no-client-field-contains-this",
+      items: [retained],
+    });
 
-    expect(store.get(filteredMetricsAtom)).toEqual([metric]);
+    expect(store.get(filteredMetricsAtom)).toEqual([retained]);
+  });
+
+  it("uses the buffered row for a server-matched key so loaded points and live summaries survive", () => {
+    const store = createStore();
+    const buffered = makeMetric({ name: "http.requests", pointCount: 42 });
+    const server = makeMetric({ name: "http.requests", pointCount: 40 });
+    store.set(metricsAtom, [buffered]);
+    store.set(metricSearchAtom, "http");
+    store.set(metricSearchResultAtom, { search: "http", items: [server] });
+
+    expect(store.get(filteredMetricsAtom)).toEqual([buffered]);
   });
 
   // The blocker itself: a zero-hit search must hide every row without ever
-  // touching metricsAtom — the server-matched set stays empty, it doesn't
+  // touching metricsAtom — the server result stays separate, it doesn't
   // clobber the buffer.
   it("a zero-hit search hides every metric without touching the buffer", () => {
     const store = createStore();
     const metrics = [makeMetric({ name: "http.requests" }), makeMetric({ name: "http.errors" })];
     store.set(metricsAtom, metrics);
     store.set(metricSearchAtom, "nomatch");
-    store.set(serverMatchedMetricKeysAtom, new Set());
+    store.set(metricSearchResultAtom, { search: "nomatch", items: [] });
 
     expect(store.get(filteredMetricsAtom)).toHaveLength(0);
     expect(store.get(metricsAtom)).toBe(metrics);
@@ -350,7 +360,7 @@ describe("filteredMetricsAtom", () => {
     const metrics = [makeMetric({ name: "http.requests" }), makeMetric({ name: "http.errors" })];
     store.set(metricsAtom, metrics);
     store.set(metricSearchAtom, "nomatch");
-    store.set(serverMatchedMetricKeysAtom, new Set());
+    store.set(metricSearchResultAtom, { search: "nomatch", items: [] });
     expect(store.get(filteredMetricsAtom)).toHaveLength(0);
 
     store.set(metricSearchAtom, "");
