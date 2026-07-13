@@ -5,6 +5,11 @@ import { useMetricRangePoints } from "./use-metric-range-points";
 import { makeMetric, makeDataPoint } from "@/test/factories";
 import type { MetricPointsQuery, MetricPointsQueryVariables } from "@/gql/graphql";
 import type { DataPoint, MetricData } from "@/types/telemetry";
+import type { ChartTimeRange } from "@/lib/chart-time-range";
+
+function liveWindow(range: ChartTimeRange) {
+  return { mode: "live" as const, range };
+}
 
 // MetricPointsQuery's generated type requires the nullable distribution
 // fields to be present (as `null`, not simply omitted) — unlike DataPoint,
@@ -51,13 +56,14 @@ describe("useMetricRangePoints", () => {
       dataPoints: [makeDataPoint({ id: "a" })],
     });
 
-    renderHook(() => useMetricRangePoints(metric, "all"));
+    renderHook(() => useMetricRangePoints(metric, liveWindow("all")));
 
     await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(1));
     expect(requestMock.mock.calls[0]?.[1]).toEqual({
       serviceName: "frontend",
       name: "http.requests",
       from: undefined,
+      to: undefined,
     });
   });
 
@@ -66,7 +72,7 @@ describe("useMetricRangePoints", () => {
     const metric = makeMetric({ dataPoints: [makeDataPoint({ id: "a" })] });
     const before = Temporal.Now.instant();
 
-    renderHook(() => useMetricRangePoints(metric, "5m"));
+    renderHook(() => useMetricRangePoints(metric, liveWindow("5m")));
 
     await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(1));
     const from = requestMock.mock.calls[0]?.[1]?.from;
@@ -75,6 +81,27 @@ describe("useMetricRangePoints", () => {
     const deltaMs = before.since(fromInstant).total("milliseconds");
     expect(deltaMs).toBeGreaterThan(4.9 * 60_000);
     expect(deltaMs).toBeLessThan(5.1 * 60_000);
+  });
+
+  it("queries and renders only the explicit bounds of a shifted window", async () => {
+    const inside = makeDataPoint({ id: "inside", timestamp: "2026-07-12T01:30:00Z" });
+    requestMock.mockResolvedValue({ metricPoints: [toQueryPoint(inside)] });
+    const metric = makeMetric({
+      dataPoints: [makeDataPoint({ id: "outside", timestamp: "2026-07-12T02:30:00Z" })],
+    });
+    const window = {
+      mode: "fixed" as const,
+      from: "2026-07-12T01:00:00Z",
+      to: "2026-07-12T02:00:00Z",
+    };
+
+    const { result } = renderHook(() => useMetricRangePoints(metric, window));
+
+    await waitFor(() => expect(result.current.map((point) => point.id)).toEqual(["inside"]));
+    expect(requestMock.mock.calls[0]?.[1]).toMatchObject({
+      from: window.from,
+      to: window.to,
+    });
   });
 
   it("merges the server-fetched snapshot with the live metric.dataPoints by id", async () => {
@@ -87,7 +114,7 @@ describe("useMetricRangePoints", () => {
       dataPoints: [liveOnly],
     });
 
-    const { result } = renderHook(() => useMetricRangePoints(metric, "1h"));
+    const { result } = renderHook(() => useMetricRangePoints(metric, liveWindow("1h")));
 
     await waitFor(() =>
       expect(result.current.map((p) => p.id).sort()).toEqual(["live-only", "server-only"]),
@@ -99,7 +126,7 @@ describe("useMetricRangePoints", () => {
     const live = makeDataPoint({ id: "live-1" });
     const metric = makeMetric({ dataPoints: [live] });
 
-    const { result } = renderHook(() => useMetricRangePoints(metric, "1h"));
+    const { result } = renderHook(() => useMetricRangePoints(metric, liveWindow("1h")));
 
     await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(1));
     expect(result.current.map((p) => p.id)).toEqual(["live-1"]);
@@ -109,7 +136,7 @@ describe("useMetricRangePoints", () => {
     requestMock.mockResolvedValue({ metricPoints: [] });
     const metric = makeMetric({ dataPoints: [makeDataPoint({ id: "a" })] });
 
-    const { rerender } = renderHook(({ metric: m }) => useMetricRangePoints(m, "1h"), {
+    const { rerender } = renderHook(({ metric: m }) => useMetricRangePoints(m, liveWindow("1h")), {
       initialProps: { metric },
     });
 
@@ -126,7 +153,7 @@ describe("useMetricRangePoints", () => {
     requestMock.mockResolvedValue({ metricPoints: [] });
     const metric = makeMetric({ name: "metric.a", dataPoints: [makeDataPoint({ id: "a" })] });
 
-    const { rerender } = renderHook(({ metric: m }) => useMetricRangePoints(m, "1h"), {
+    const { rerender } = renderHook(({ metric: m }) => useMetricRangePoints(m, liveWindow("1h")), {
       initialProps: { metric },
     });
 
@@ -145,7 +172,7 @@ describe("useMetricRangePoints", () => {
     const metric = makeMetric({ dataPoints: [makeDataPoint({ id: "a" })] });
 
     const { rerender } = renderHook(
-      ({ range }: { range: "1h" | "5m" }) => useMetricRangePoints(metric, range),
+      ({ range }: { range: "1h" | "5m" }) => useMetricRangePoints(metric, liveWindow(range)),
       { initialProps: { range: "1h" } },
     );
 
@@ -162,7 +189,7 @@ describe("useMetricRangePoints", () => {
     const metric = makeMetric({ serviceName: "frontend", name: "http.requests", dataPoints: [] });
 
     const { result, rerender } = renderHook(
-      ({ range }: { range: "1h" | "5m" }) => useMetricRangePoints(metric, range),
+      ({ range }: { range: "1h" | "5m" }) => useMetricRangePoints(metric, liveWindow(range)),
       { initialProps: { range: "1h" } },
     );
 
@@ -195,7 +222,7 @@ describe("useMetricRangePoints", () => {
     const metricA = makeMetric({ name: "metric.a", dataPoints: [makeDataPoint({ id: "a" })] });
 
     const { result, rerender } = renderHook(
-      ({ metric }: { metric: MetricData }) => useMetricRangePoints(metric, "1h"),
+      ({ metric }: { metric: MetricData }) => useMetricRangePoints(metric, liveWindow("1h")),
       { initialProps: { metric: metricA } },
     );
 

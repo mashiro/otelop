@@ -115,6 +115,31 @@ describe("MetricDetailBody control row", () => {
     );
   });
 
+  it("moves to the previous metric window and fetches its explicit bounds", async () => {
+    const store = getDefaultStore();
+    store.set(activeTabAtom, "metrics");
+    store.set(selectedMetricKeyAtom, { serviceName: "frontend", name: "http.requests" });
+    const metric = makeMetric({ serviceName: "frontend", name: "http.requests" });
+
+    render(<MetricDetailBody metric={metric} />);
+    fireEvent.click(screen.getByTitle("Previous window"));
+
+    expect(screen.getByTitle("Next window")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Live" }).hasAttribute("disabled")).toBe(false);
+    await waitFor(() => {
+      const rangeCalls = requestMock.mock.calls.filter(
+        (call) => (call[0] as GqlDocument).definitions[0]?.name?.value === "MetricPoints",
+      );
+      expect(rangeCalls).toHaveLength(2);
+      expect(rangeCalls[1]?.[1]).toMatchObject({
+        from: expect.any(String),
+        to: expect.any(String),
+      });
+    });
+    expect(window.location.search).toContain("from=");
+    expect(window.location.search).toContain("to=");
+  });
+
   it("fetches a server-side range backfill once per range change (shared by tiles, chart, and table)", () => {
     const metric = makeMetric({
       dataPoints: [makeDataPoint({ id: "a", timestamp: "2024-01-01T00:00:00Z", value: 1 })],

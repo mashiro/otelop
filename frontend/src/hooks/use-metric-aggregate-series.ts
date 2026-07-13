@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { graphql } from "@/gql";
 import { gqlClient } from "@/lib/graphql";
-import { rangeToFrom, bucketSecondsForRange, type ChartTimeRange } from "@/lib/chart-time-range";
+import { rangeToFrom, bucketSecondsForRange } from "@/lib/chart-time-range";
+import { eventWindowRange, type EventTimeWindow } from "@/lib/event-time-window";
 import { useStableArray } from "@/hooks/use-stable-array";
 import type { MetricFacet } from "@/lib/metric-catalog";
 import type { MetricData } from "@/types/telemetry";
@@ -13,6 +14,7 @@ const MetricAggregateQuery = graphql(`
     $groupBy: [String!]!
     $bucketSeconds: Int
     $from: Time
+    $to: Time
   ) {
     metricAggregate(
       serviceName: $serviceName
@@ -20,6 +22,7 @@ const MetricAggregateQuery = graphql(`
       groupBy: $groupBy
       bucketSeconds: $bucketSeconds
       from: $from
+      to: $to
     ) {
       groupValues
       points {
@@ -87,7 +90,7 @@ function seriesKey(s: AggregateSeriesData): string {
 export function useMetricAggregateSeries(
   metric: MetricData,
   facet: MetricFacet | null,
-  range: ChartTimeRange,
+  window: EventTimeWindow,
 ): AggregateSeriesData[] | null {
   const { serviceName, name, dataPoints } = metric;
   const metricKey = `${serviceName}::${name}`;
@@ -101,13 +104,22 @@ export function useMetricAggregateSeries(
   // attribute list's content so effects don't refire every render.
   const groupByKey = groupBy?.join("\u0000") ?? null;
   const requestIdRef = useRef(0);
+  const range = eventWindowRange(window) ?? "1h";
+  const windowMode = window.mode;
+  const fixedFrom = window.mode === "fixed" ? window.from : undefined;
+  const fixedTo = window.mode === "fixed" ? window.to : undefined;
+  const queryBounds = useMemo(
+    () => ({
+      from: windowMode === "fixed" ? fixedFrom : rangeToFrom(range),
+      to: fixedTo,
+    }),
+    [windowMode, fixedFrom, fixedTo, range],
+  );
 
   const fetchNow = useCallback(() => {
     if (!groupBy) return;
     const requestId = ++requestIdRef.current;
     const bucketSeconds = bucketSecondsForRange(range);
-    const from = rangeToFrom(range);
-
     void (async () => {
       try {
         const data = await gqlClient.request(MetricAggregateQuery, {
@@ -120,7 +132,7 @@ export function useMetricAggregateSeries(
           // explicit null that happens to behave the same today but couples
           // this call site to that coincidence.
           ...(bucketSeconds !== null ? { bucketSeconds } : {}),
-          from,
+          ...queryBounds,
         });
         if (requestIdRef.current === requestId) {
           setSnapshot({ metricKey, series: data.metricAggregate });
@@ -134,7 +146,7 @@ export function useMetricAggregateSeries(
     // groupBy's identity isn't stable across renders; groupByKey is the
     // real dependency (see above).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [serviceName, name, metricKey, groupByKey, range]);
+  }, [serviceName, name, metricKey, groupByKey, range, queryBounds]);
 
   // Immediate fetch on mount and whenever the metric/facet/range identity
   // changes. Snapshot keys invalidate another metric's data synchronously;
@@ -157,7 +169,7 @@ export function useMetricAggregateSeries(
   useEffect(() => {
     if (mountedDataPoints.current === dataPoints) return;
     mountedDataPoints.current = dataPoints;
-    if (!groupByKey) return;
+    if (!groupByKey || windowMode !== "live") return;
 
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = setTimeout(() => {
@@ -167,7 +179,7 @@ export function useMetricAggregateSeries(
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
     };
-  }, [dataPoints, groupByKey, fetchNow]);
+  }, [dataPoints, groupByKey, fetchNow, windowMode]);
 
   // A debounced live refetch or a range/facet-value change frequently comes
   // back byte-for-byte identical (no new bucket landed yet); stabilizing

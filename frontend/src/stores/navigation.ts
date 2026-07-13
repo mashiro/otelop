@@ -131,6 +131,14 @@ const selectedTraceIdBaseAtom = atom<string | null>(initialLocation.traceId);
 const selectedMetricKeyBaseAtom = atom<MetricKey | null>(initialLocation.metricKey);
 const selectedLogIdBaseAtom = atom<string | null>(initialLocation.logId);
 const selectedMetricRangeBaseAtom = atom<ChartTimeRange>(initialLocation.metricRange);
+const metricTimeWindowBaseAtom = atom<EventTimeWindow>(
+  initialLocation.tab === "metrics"
+    ? eventWindowFromLocation(
+        window.location.pathname + window.location.search,
+        initialLocation.metricRange,
+      )
+    : { mode: "live", range: initialLocation.metricRange },
+);
 const initialEventRange =
   initialLocation.tab === "logs" ? initialLocation.logRange : initialLocation.traceRange;
 const selectedEventRangeBaseAtom = atom<ChartTimeRange>(initialEventRange);
@@ -152,6 +160,14 @@ function syncLocation(get: Getter): void {
   });
   const tab = get(currentTabAtom);
   const eventWindow = get(eventTimeWindowBaseAtom);
+  const metricWindow = get(metricTimeWindowBaseAtom);
+  if (tab === "metrics" && get(selectedMetricKeyBaseAtom) && metricWindow.mode === "fixed") {
+    const url = new URL(path, "http://otelop.invalid");
+    url.searchParams.delete("range");
+    url.searchParams.set("from", metricWindow.from);
+    url.searchParams.set("to", metricWindow.to);
+    path = url.pathname + url.search;
+  }
   if ((tab === "traces" || tab === "logs") && eventWindow.mode === "fixed") {
     const url = new URL(path, "http://otelop.invalid");
     url.searchParams.delete("range");
@@ -198,7 +214,30 @@ export const selectedLogIdAtom = createSyncedAtom(selectedLogIdBaseAtom);
 // range is what a shared metric-detail link should reproduce, so it's synced
 // like the id/key atoms above. The facet breakdown is not — see
 // metric-detail.tsx's local pickedId state.
-export const selectedMetricRangeAtom = createSyncedAtom(selectedMetricRangeBaseAtom);
+export const selectedMetricRangeAtom = atom(
+  (get) => get(selectedMetricRangeBaseAtom),
+  (get, set, value: ChartTimeRange) => {
+    if (
+      get(selectedMetricRangeBaseAtom) === value &&
+      get(metricTimeWindowBaseAtom).mode === "live"
+    ) {
+      return;
+    }
+    set(selectedMetricRangeBaseAtom, value);
+    set(metricTimeWindowBaseAtom, { mode: "live", range: value });
+    syncLocation(get);
+  },
+);
+
+export const metricTimeWindowAtom = atom(
+  (get) => get(metricTimeWindowBaseAtom),
+  (get, set, value: EventTimeWindow) => {
+    if (eventWindowEquals(get(metricTimeWindowBaseAtom), value)) return;
+    set(metricTimeWindowBaseAtom, value);
+    if (value.mode === "live") set(selectedMetricRangeBaseAtom, value.range);
+    syncLocation(get);
+  },
+);
 
 // Unlike selectedMetricRangeAtom, these scope the traces/logs tab's LIST
 // view (hooks/use-trace-list-page.ts, hooks/use-log-list-page.ts) rather
@@ -250,6 +289,7 @@ export const applyLocationAtom = atom(null, (_get, set, location: string) => {
   if (parsed.tab === "metrics") {
     set(selectedMetricKeyBaseAtom, parsed.metricKey);
     set(selectedMetricRangeBaseAtom, parsed.metricRange);
+    set(metricTimeWindowBaseAtom, eventWindowFromLocation(location, parsed.metricRange));
   }
   if (parsed.tab === "logs") {
     set(selectedLogIdBaseAtom, parsed.logId);

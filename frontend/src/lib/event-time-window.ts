@@ -2,7 +2,9 @@ import { Temporal } from "temporal-polyfill";
 import {
   CHART_TIME_RANGES,
   DEFAULT_CHART_TIME_RANGE,
+  filterDataPointsInRange,
   rangeToMs,
+  timeRangeDomain,
   type ChartTimeRange,
 } from "@/lib/chart-time-range";
 
@@ -83,4 +85,28 @@ export function eventWindowEquals(a: EventTimeWindow, b: EventTimeWindow): boole
   if (a.mode !== b.mode) return false;
   if (a.mode === "live" && b.mode === "live") return a.range === b.range;
   return a.mode === "fixed" && b.mode === "fixed" && a.from === b.from && a.to === b.to;
+}
+
+export function filterPointsInEventWindow<T>(
+  points: T[],
+  window: EventTimeWindow,
+  getTimestamp: (point: T) => string,
+): T[] {
+  if (window.mode === "live") return filterDataPointsInRange(points, window.range, getTimestamp);
+  const from = Temporal.Instant.from(window.from);
+  const to = Temporal.Instant.from(window.to);
+  return points.filter((point) => {
+    const instant = Temporal.Instant.from(getTimestamp(point));
+    return (
+      Temporal.Instant.compare(instant, from) >= 0 && Temporal.Instant.compare(instant, to) <= 0
+    );
+  });
+}
+
+export function eventWindowDomain(
+  points: { time: Date }[],
+  window: EventTimeWindow,
+): [Date, Date] | null {
+  if (window.mode === "live") return timeRangeDomain(points, window.range);
+  return [new Date(window.from), new Date(window.to)];
 }

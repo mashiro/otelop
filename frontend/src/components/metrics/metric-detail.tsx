@@ -2,7 +2,7 @@ import { memo, useMemo, useState } from "react";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { X } from "lucide-react";
 import { selectedMetricAtom } from "@/stores/telemetry";
-import { selectedMetricRangeAtom } from "@/stores/navigation";
+import { metricTimeWindowAtom } from "@/stores/navigation";
 import { MetricChart } from "./metric-chart";
 import { MetricSummary } from "./metric-summary";
 import { attrKey } from "@/lib/metric-stats";
@@ -11,7 +11,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { DetailPanel } from "@/components/common/detail-panel";
 import { Pill } from "@/components/common/pill";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { TimeRangeSelect } from "@/components/common/time-range-select";
+import { TimeWindowControls } from "@/components/common/event-window-controls";
 import { KVSection } from "@/components/ui/kv-section";
 import { Field } from "@/components/common/detail-field";
 import {
@@ -23,10 +23,10 @@ import {
 } from "@/lib/metric-catalog";
 import { formatMetricValue } from "@/lib/format-metric";
 import { formatTimestamp } from "@/lib/format";
-import { filterDataPointsInRange } from "@/lib/chart-time-range";
+import { DEFAULT_CHART_TIME_RANGE } from "@/lib/chart-time-range";
+import { eventWindowRange } from "@/lib/event-time-window";
 import { useMetricRangePoints } from "@/hooks/use-metric-range-points";
 import { useMetricAggregateSeries } from "@/hooks/use-metric-aggregate-series";
-import { useStableArray } from "@/hooks/use-stable-array";
 import type { DataPoint, MetricData } from "@/types/telemetry";
 
 const ALL_FACET = "__all__";
@@ -67,15 +67,16 @@ export function MetricDetailBody({ metric }: { metric: MetricData }) {
   // recent window rather than "all": DuckDB history is fetched on demand, so
   // opening a long-lived metric shouldn't eagerly pull its full retention.
   // Synced to the URL (unlike pickedId below) so a shared/reloaded link
-  // reopens the same window — see selectedMetricRangeAtom in navigation.ts.
-  const [range, setRange] = useAtom(selectedMetricRangeAtom);
+  // reopens the same window — see metricTimeWindowAtom in navigation.ts.
+  const [window, setWindow] = useAtom(metricTimeWindowAtom);
+  const range = eventWindowRange(window) ?? DEFAULT_CHART_TIME_RANGE;
   // rangeDataPoints (the fetched-range + live-buffer merge, already stable by
   // id — see use-metric-range-points.ts) is the source of truth for
   // everything below, not metric.dataPoints: the metrics list's initial load
   // no longer populates dataPoints (issue #162), so a metric opened before
   // its first WS delivery would otherwise show no facets/table/selectable
   // rows despite its history already being fetched.
-  const rangeDataPoints = useMetricRangePoints(metric, range);
+  const rangeDataPoints = useMetricRangePoints(metric, window);
 
   const attributeCardinality = useMemo(() => {
     // Count distinct values per attribute, capping at max+1 so high-cardinality
@@ -116,16 +117,7 @@ export function MetricDetailBody({ metric }: { metric: MetricData }) {
   const tabValue =
     pickedId === ALL_FACET ? ALL_FACET : effectiveFacet ? facetId(effectiveFacet) : ALL_FACET;
 
-  const aggregatedSeries = useMetricAggregateSeries(metric, effectiveFacet, range);
-  const windowedDataPointsRaw = useMemo(
-    () => filterDataPointsInRange(rangeDataPoints, range),
-    [rangeDataPoints, range],
-  );
-  // filterDataPointsInRange always returns a new array; rangeDataPoints is
-  // already reference-stable (see use-metric-range-points.ts), but stabilize
-  // here too so DataPointsTable's memo isn't defeated by the .filter() call
-  // itself when the underlying content didn't change.
-  const windowedDataPoints = useStableArray(windowedDataPointsRaw, (dp) => dp.id);
+  const aggregatedSeries = useMetricAggregateSeries(metric, effectiveFacet, window);
 
   // MetricSummary/DataPointsTable only read a metric's identity/display
   // fields (name/type/unit/description/resource) plus their own
@@ -209,7 +201,12 @@ export function MetricDetailBody({ metric }: { metric: MetricData }) {
               </Tabs>
             </div>
 
-            <TimeRangeSelect range={range} onRangeChange={setRange} tone="metric" size="md" />
+            <TimeWindowControls
+              window={window}
+              onWindowChange={setWindow}
+              tone="metric"
+              size="md"
+            />
           </div>
 
           <MetricSummary
@@ -225,7 +222,7 @@ export function MetricDetailBody({ metric }: { metric: MetricData }) {
               <MetricChart
                 metric={stableMetric}
                 facet={effectiveFacet}
-                range={range}
+                window={window}
                 aggregatedSeries={aggregatedSeries}
               />
             </div>
@@ -234,7 +231,7 @@ export function MetricDetailBody({ metric }: { metric: MetricData }) {
           {rangeDataPoints.length > 0 && (
             <DataPointsTable
               metric={stableMetric}
-              dataPoints={windowedDataPoints}
+              dataPoints={rangeDataPoints}
               selectedId={selectedDpId}
               onSelect={setSelectedDpId}
             />
@@ -276,8 +273,8 @@ function formatDistributionCell(v: number | null | undefined, unit: string): str
   return v != null ? formatMetricValue(v, unit) : "-";
 }
 
-// Memoized so a WS delivery that doesn't move windowedDataPoints/stableMetric
-// (both kept reference-stable above — see useStableArray) skips re-rendering
+// Memoized so a WS delivery that doesn't move rangeDataPoints/stableMetric
+// (both kept reference-stable above) skips re-rendering
 // and re-reversing/re-mapping every row.
 export const DataPointsTable = memo(function DataPointsTable({
   metric,
@@ -286,9 +283,8 @@ export const DataPointsTable = memo(function DataPointsTable({
   onSelect,
 }: {
   metric: MetricData;
-  // Range-windowed rows to render — see metric-detail.tsx's windowedDataPoints
-  // (filterDataPointsInRange), so the table reflects the same scope as the
-  // tiles and chart above it.
+  // Range-windowed rows from useMetricRangePoints, so the table reflects the
+  // same scope as the tiles and chart above it.
   dataPoints: DataPoint[];
   selectedId: string | null;
   onSelect: (id: string | null) => void;

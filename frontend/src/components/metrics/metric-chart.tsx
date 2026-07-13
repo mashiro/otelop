@@ -10,7 +10,8 @@ import type { MetricData } from "@/types/telemetry";
 import { formatMetricValue } from "@/lib/format-metric";
 import { resolveMetricUnit, type MetricFacet } from "@/lib/metric-catalog";
 import { facetSeriesKey, resolveFacetGroupColorIndex } from "@/lib/metric-stats";
-import { filterPointsInDomain, timeRangeDomain, type ChartTimeRange } from "@/lib/chart-time-range";
+import { filterPointsInDomain } from "@/lib/chart-time-range";
+import { eventWindowDomain, type EventTimeWindow } from "@/lib/event-time-window";
 import type { AggregateSeriesData } from "@/hooks/use-metric-aggregate-series";
 
 const MARGIN = { top: 10, right: 20, bottom: 40, left: 72 };
@@ -60,7 +61,7 @@ interface Props {
   // Facet to group series by; when null/undefined, series are keyed by the
   // full attribute combination (the "All" view).
   facet?: MetricFacet | null;
-  range: ChartTimeRange;
+  window: EventTimeWindow;
   // Server-aggregated facet series (null when facet is null, or while a
   // fetch for the active facet/range hasn't landed yet).
   aggregatedSeries: AggregateSeriesData[] | null;
@@ -88,7 +89,7 @@ function closestPoint(points: PointData[], targetMs: number): PointData | undefi
 export const MetricChart = memo(function MetricChart({
   metric,
   facet,
-  range,
+  window,
   aggregatedSeries,
 }: Props) {
   return (
@@ -101,7 +102,7 @@ export const MetricChart = memo(function MetricChart({
                 metric={metric}
                 facet={facet}
                 aggregatedSeries={aggregatedSeries}
-                range={range}
+                window={window}
                 width={width}
                 height={height}
               />
@@ -117,14 +118,14 @@ function ChartInner({
   metric,
   facet,
   aggregatedSeries,
-  range,
+  window,
   width,
   height,
 }: {
   metric: MetricData;
   facet?: MetricFacet | null;
   aggregatedSeries: AggregateSeriesData[] | null;
-  range: ChartTimeRange;
+  window: EventTimeWindow;
   width: number;
   height: number;
 }) {
@@ -180,7 +181,7 @@ function ChartInner({
   // not the current time-range window.
   const allPoints = useMemo(() => series.flatMap((s) => s.points), [series]);
 
-  const domain = useMemo(() => timeRangeDomain(allPoints, range), [allPoints, range]);
+  const domain = useMemo(() => eventWindowDomain(allPoints, window), [allPoints, window]);
 
   const visibleSeries = useMemo(
     () =>

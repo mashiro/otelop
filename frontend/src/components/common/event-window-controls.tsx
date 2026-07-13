@@ -8,6 +8,7 @@ import {
   DEFAULT_EVENT_TIME_WINDOW,
   eventWindowRange,
   shiftEventWindow,
+  type EventTimeWindow,
 } from "@/lib/event-time-window";
 import { cn } from "@/lib/utils";
 
@@ -25,6 +26,21 @@ function formatInstant(value: string): string {
 
 export function EventWindowControls({ tone }: { tone: "trace" | "log" }) {
   const [window, setWindow] = useAtom(eventTimeWindowAtom);
+
+  return <TimeWindowControls window={window} onWindowChange={setWindow} tone={tone} />;
+}
+
+export function TimeWindowControls({
+  window,
+  onWindowChange,
+  tone,
+  size = "sm",
+}: {
+  window: EventTimeWindow;
+  onWindowChange: (window: EventTimeWindow) => void;
+  tone: "trace" | "metric" | "log";
+  size?: "sm" | "md";
+}) {
   const range = eventWindowRange(window);
   const canMove = range !== "all";
   const isLive = window.mode === "live";
@@ -40,7 +56,7 @@ export function EventWindowControls({ tone }: { tone: "trace" | "log" }) {
         type="button"
         variant="ghost"
         size="icon-sm"
-        onClick={() => setWindow(shiftEventWindow(window, -1))}
+        onClick={() => onWindowChange(shiftEventWindow(window, -1))}
         disabled={!canMove}
         title="Previous window"
       >
@@ -48,15 +64,16 @@ export function EventWindowControls({ tone }: { tone: "trace" | "log" }) {
       </Button>
       <TimeRangeSelect
         range={range}
-        onRangeChange={(nextRange) => setWindow({ mode: "live", range: nextRange })}
+        onRangeChange={(nextRange) => onWindowChange({ mode: "live", range: nextRange })}
         tone={tone}
+        size={size}
       />
       {window.mode === "fixed" && (
         <Button
           type="button"
           variant="ghost"
           size="icon-sm"
-          onClick={() => setWindow(shiftEventWindow(window, 1))}
+          onClick={() => onWindowChange(shiftEventWindow(window, 1))}
           disabled={!canMove}
           title="Next window"
         >
@@ -68,7 +85,7 @@ export function EventWindowControls({ tone }: { tone: "trace" | "log" }) {
         type="button"
         variant="ghost"
         size="sm"
-        onClick={() => setWindow(range ? { mode: "live", range } : DEFAULT_EVENT_TIME_WINDOW)}
+        onClick={() => onWindowChange(range ? { mode: "live", range } : DEFAULT_EVENT_TIME_WINDOW)}
         disabled={isLive}
         className={cn(
           "disabled:opacity-100",

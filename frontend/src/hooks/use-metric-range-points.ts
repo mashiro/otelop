@@ -2,13 +2,18 @@ import { useEffect, useMemo, useState } from "react";
 import { graphql } from "@/gql";
 import { gqlClient } from "@/lib/graphql";
 import { mergeDataPoints } from "@/stores/telemetry";
-import { rangeToFrom, type ChartTimeRange } from "@/lib/chart-time-range";
+import { rangeToFrom } from "@/lib/chart-time-range";
+import {
+  eventWindowRange,
+  filterPointsInEventWindow,
+  type EventTimeWindow,
+} from "@/lib/event-time-window";
 import { useStableArray } from "@/hooks/use-stable-array";
 import type { DataPoint, MetricData } from "@/types/telemetry";
 
 const MetricPointsQuery = graphql(`
-  query MetricPoints($serviceName: String!, $name: String!, $from: Time) {
-    metricPoints(serviceName: $serviceName, name: $name, from: $from) {
+  query MetricPoints($serviceName: String!, $name: String!, $from: Time, $to: Time) {
+    metricPoints(serviceName: $serviceName, name: $name, from: $from, to: $to) {
       id
       timestamp
       value
@@ -34,16 +39,24 @@ const MetricPointsQuery = graphql(`
 // load); WebSocket deliveries (already flowing into `metric`'s dataPoints via
 // addMetricAtom) keep layering on top without triggering a second fetch.
 //
-// Deliberately no snapshot/live branch: every CHART_TIME_RANGES option is
-// defined relative to "now" (see chart-time-range.ts), and the render-time
-// domain already anchors on the max *data* timestamp rather than the wall
-// clock, so a metric that stopped producing data naturally renders as a
-// static snapshot (nothing new to layer on top) while an actively live
-// metric's domain keeps sliding forward as WS points arrive — no extra
-// branching needed here.
-export function useMetricRangePoints(metric: MetricData, range: ChartTimeRange): DataPoint[] {
+// Live windows fetch from their relative lower bound and merge WS points;
+// fixed windows send both bounds and filter the merged live buffer to the
+// same interval. That keeps the tiles, chart, and table on one exact scope
+// while retaining the existing max-data anchoring for a stopped live metric.
+export function useMetricRangePoints(metric: MetricData, window: EventTimeWindow): DataPoint[] {
   const { serviceName, name } = metric;
   const metricKey = `${serviceName}::${name}`;
+  const range = eventWindowRange(window) ?? "1h";
+  const windowMode = window.mode;
+  const fixedFrom = window.mode === "fixed" ? window.from : undefined;
+  const fixedTo = window.mode === "fixed" ? window.to : undefined;
+  const queryBounds = useMemo(
+    () => ({
+      from: windowMode === "fixed" ? fixedFrom : rangeToFrom(range),
+      to: fixedTo,
+    }),
+    [windowMode, fixedFrom, fixedTo, range],
+  );
   const [snapshot, setSnapshot] = useState<{ metricKey: string; points: DataPoint[] } | null>(null);
   // A range-only change keeps the previous snapshot visible while the next
   // request is in flight. A metric change invalidates it immediately by key,
@@ -52,11 +65,13 @@ export function useMetricRangePoints(metric: MetricData, range: ChartTimeRange):
 
   useEffect(() => {
     let cancelled = false;
-    const from = rangeToFrom(range);
-
     const load = async () => {
       try {
-        const data = await gqlClient.request(MetricPointsQuery, { serviceName, name, from });
+        const data = await gqlClient.request(MetricPointsQuery, {
+          serviceName,
+          name,
+          ...queryBounds,
+        });
         if (!cancelled) {
           setSnapshot({ metricKey, points: data.metricPoints });
         }
@@ -71,7 +86,7 @@ export function useMetricRangePoints(metric: MetricData, range: ChartTimeRange):
     };
     // metric.dataPoints is intentionally excluded: refetch when the range or
     // selected metric changes, not on every WebSocket delivery.
-  }, [range, serviceName, name, metricKey]);
+  }, [queryBounds, serviceName, name, metricKey]);
 
   const merged = useMemo(
     () => mergeDataPoints(fetched, metric.dataPoints),
@@ -82,5 +97,9 @@ export function useMetricRangePoints(metric: MetricData, range: ChartTimeRange):
   // change; stabilizing here lets memoized consumers (MetricChart,
   // MetricSummary, DataPointsTable — driven off this hook's return value)
   // skip re-rendering when the window's actual content didn't move.
-  return useStableArray(merged, (dp) => dp.id);
+  const windowed = useMemo(
+    () => filterPointsInEventWindow(merged, window, (dp) => dp.timestamp),
+    [merged, window],
+  );
+  return useStableArray(windowed, (dp) => dp.id);
 }

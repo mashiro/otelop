@@ -3,8 +3,10 @@ import { Temporal } from "temporal-polyfill";
 import {
   eventWindowAround,
   eventWindowBounds,
+  eventWindowDomain,
   eventWindowRange,
   eventWindowWidthMs,
+  filterPointsInEventWindow,
   shiftEventWindow,
 } from "./event-time-window";
 
@@ -64,5 +66,26 @@ describe("event time window", () => {
         Temporal.Instant.from(centered.to),
       ),
     ).toBeLessThan(0);
+  });
+
+  it("uses fixed bounds for filtering and chart domains", () => {
+    const window = {
+      mode: "fixed" as const,
+      from: "2026-07-12T01:00:00Z",
+      to: "2026-07-12T02:00:00Z",
+    };
+    const points = [
+      { timestamp: "2026-07-12T00:59:59Z" },
+      { timestamp: "2026-07-12T01:30:00Z" },
+      { timestamp: "2026-07-12T02:00:01Z" },
+    ];
+
+    expect(filterPointsInEventWindow(points, window, (point) => point.timestamp)).toEqual([
+      points[1],
+    ]);
+    expect(eventWindowDomain([], window)).toEqual([
+      new Date("2026-07-12T01:00:00Z"),
+      new Date("2026-07-12T02:00:00Z"),
+    ]);
   });
 });

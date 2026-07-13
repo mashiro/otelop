@@ -6,6 +6,7 @@ import {
   applyLocationAtom,
   buildPath,
   eventTimeWindowAtom,
+  metricTimeWindowAtom,
   parsePath,
   selectedLogIdAtom,
   selectedLogRangeAtom,
@@ -727,6 +728,50 @@ describe("eventTimeWindowAtom", () => {
       from: "2026-07-12T01:00:00Z",
       to: "2026-07-12T02:00:00Z",
     });
+  });
+});
+
+describe("metricTimeWindowAtom", () => {
+  beforeEach(() => {
+    window.history.replaceState(null, "", "/metrics/svc/cpu");
+  });
+
+  it("serializes and restores a fixed metric window", () => {
+    const store = createStore();
+    store.set(activeTabAtom, "metrics");
+    store.set(selectedMetricKeyAtom, { serviceName: "svc", name: "cpu" });
+    store.set(metricTimeWindowAtom, {
+      mode: "fixed",
+      from: "2026-07-12T01:00:00Z",
+      to: "2026-07-12T02:00:00Z",
+    });
+
+    expect(window.location.pathname).toBe("/metrics/svc/cpu");
+    expect(window.location.search).toContain("from=2026-07-12T01%3A00%3A00Z");
+    expect(window.location.search).toContain("to=2026-07-12T02%3A00%3A00Z");
+
+    store.set(applyLocationAtom, window.location.pathname + window.location.search);
+    expect(store.get(metricTimeWindowAtom)).toEqual({
+      mode: "fixed",
+      from: "2026-07-12T01:00:00Z",
+      to: "2026-07-12T02:00:00Z",
+    });
+  });
+
+  it("returns to a live metric window when its range changes", () => {
+    const store = createStore();
+    store.set(activeTabAtom, "metrics");
+    store.set(selectedMetricKeyAtom, { serviceName: "svc", name: "cpu" });
+    store.set(metricTimeWindowAtom, {
+      mode: "fixed",
+      from: "2026-07-12T01:00:00Z",
+      to: "2026-07-12T02:00:00Z",
+    });
+
+    store.set(selectedMetricRangeAtom, "6h");
+
+    expect(store.get(metricTimeWindowAtom)).toEqual({ mode: "live", range: "6h" });
+    expect(window.location.pathname + window.location.search).toBe("/metrics/svc/cpu?range=6h");
   });
 });
 
