@@ -1,7 +1,7 @@
 import { memo, useMemo } from "react";
 import {
   computeStatTiles,
-  hasTotalStatTileSignal,
+  hasIncreaseStatTileSignal,
   type StatTile,
   type StatTilesInput,
 } from "@/lib/metric-stats";
@@ -36,11 +36,11 @@ export const MetricSummary = memo(function MetricSummary({
   const isDistribution = isDistributionMetric(metric.type);
   const showsLatest = metric.type === "Gauge" || isDistribution;
   const tiles = useMemo(() => {
-    // Total eligibility must read rangeDataPoints (the fetched-range + live
+    // Increase eligibility must read rangeDataPoints (the fetched-range + live
     // buffer merge), because the metrics list no longer loads point history.
     // Latest mode only needs a point and therefore applies to Gauge and
     // distribution metrics without a cumulative-family field.
-    if (!showsLatest && !hasTotalStatTileSignal(rangeDataPoints)) return [];
+    if (!showsLatest && !hasIncreaseStatTileSignal(rangeDataPoints)) return [];
     const input: StatTilesInput = facet
       ? {
           kind: "aggregate",
@@ -48,7 +48,7 @@ export const MetricSummary = memo(function MetricSummary({
           rangeDataPoints,
           facet,
           range,
-          mode: showsLatest ? "latest" : "total",
+          mode: showsLatest ? "latest" : "increase",
           includeLatestCount: isDistribution,
         }
       : {
@@ -56,7 +56,7 @@ export const MetricSummary = memo(function MetricSummary({
           rangeDataPoints,
           facet: null,
           range,
-          mode: showsLatest ? "latest" : "total",
+          mode: showsLatest ? "latest" : "increase",
           includeLatestCount: isDistribution,
         };
     return computeStatTiles(input);
@@ -74,10 +74,10 @@ export const MetricSummary = memo(function MetricSummary({
         title={
           showsLatest
             ? `Latest value in the selected ${rangeLabel(range)} window`
-            : `Sum over the selected ${rangeLabel(range)} window`
+            : `Increase over the selected ${rangeLabel(range)} window`
         }
       >
-        {showsLatest ? "Latest" : "Total"} · {rangeLabel(range)}
+        {showsLatest ? "Latest" : "Increase"} · {rangeLabel(range)}
       </div>
       <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-2">
         {tiles.map((tile) => (

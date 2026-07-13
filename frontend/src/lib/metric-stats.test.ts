@@ -3,7 +3,7 @@ import {
   computeStatTiles,
   facetGroupLabel,
   facetGroupOrder,
-  hasTotalStatTileSignal,
+  hasIncreaseStatTileSignal,
   statTileGroupsFromAggregate,
   statTileGroupsFromRawPoints,
   type StatTilesInput,
@@ -41,35 +41,35 @@ describe("facetGroupOrder", () => {
   });
 });
 
-describe("hasTotalStatTileSignal", () => {
+describe("hasIncreaseStatTileSignal", () => {
   it("is true when any point carries cumulative", () => {
-    expect(hasTotalStatTileSignal([makeDataPoint({ cumulative: 1 })])).toBe(true);
+    expect(hasIncreaseStatTileSignal([makeDataPoint({ cumulative: 1 })])).toBe(true);
   });
 
   it("is true when any point carries countCumulative/sumCumulative (distributions)", () => {
-    expect(hasTotalStatTileSignal([makeDataPoint({ countCumulative: 1, sumCumulative: 2 })])).toBe(
-      true,
-    );
+    expect(
+      hasIncreaseStatTileSignal([makeDataPoint({ countCumulative: 1, sumCumulative: 2 })]),
+    ).toBe(true);
   });
 
   it("is false for Gauge / non-monotonic Sum points (no cumulative family field)", () => {
-    expect(hasTotalStatTileSignal([makeDataPoint({ value: 1 }), makeDataPoint({ value: 2 })])).toBe(
-      false,
-    );
+    expect(
+      hasIncreaseStatTileSignal([makeDataPoint({ value: 1 }), makeDataPoint({ value: 2 })]),
+    ).toBe(false);
   });
 
   it("is false for an empty metric", () => {
-    expect(hasTotalStatTileSignal([])).toBe(false);
+    expect(hasIncreaseStatTileSignal([])).toBe(false);
   });
 });
 
-function sumInput(overrides: Partial<StatTilesInput & { kind: "raw" }> = {}): StatTilesInput {
+function increaseInput(overrides: Partial<StatTilesInput & { kind: "raw" }> = {}): StatTilesInput {
   return {
     kind: "raw",
     rangeDataPoints: [],
     facet: null,
     range: "all",
-    mode: "total",
+    mode: "increase",
     includeLatestCount: false,
     ...overrides,
   };
@@ -88,7 +88,7 @@ describe("computeStatTiles — raw (facet=All) path", () => {
       }),
     ];
 
-    const tiles = computeStatTiles(sumInput({ rangeDataPoints }));
+    const tiles = computeStatTiles(increaseInput({ rangeDataPoints }));
 
     expect(tiles.map((t) => [t.label, t.value, t.colorIndex])).toEqual([
       ['model="opus"', 3.0, 0],
@@ -108,7 +108,7 @@ describe("computeStatTiles — raw (facet=All) path", () => {
       }),
     ];
 
-    const tiles = computeStatTiles(sumInput({ rangeDataPoints }));
+    const tiles = computeStatTiles(increaseInput({ rangeDataPoints }));
 
     expect(tiles).toHaveLength(2);
     const opusA = tiles.find((t) => t.label.includes('tier="a"'));
@@ -134,7 +134,7 @@ describe("computeStatTiles — raw (facet=All) path", () => {
     ];
 
     const tiles = computeStatTiles(
-      sumInput({
+      increaseInput({
         rangeDataPoints,
         facet: MODEL_FACET,
         mode: "latest",
@@ -154,7 +154,7 @@ describe("computeStatTiles — raw (facet=All) path", () => {
   });
 
   it("returns [] for an empty metric", () => {
-    expect(computeStatTiles(sumInput())).toEqual([]);
+    expect(computeStatTiles(increaseInput())).toEqual([]);
   });
 
   it("excludes points outside a fixed range window (anchored on the max data timestamp)", () => {
@@ -166,7 +166,7 @@ describe("computeStatTiles — raw (facet=All) path", () => {
       makeDataPoint({ id: "b", timestamp: "2024-01-01T00:10:00Z", value: 2 }),
     ];
 
-    const tiles = computeStatTiles(sumInput({ rangeDataPoints, range: "1m" }));
+    const tiles = computeStatTiles(increaseInput({ rangeDataPoints, range: "1m" }));
 
     expect(tiles).toEqual([
       {
@@ -206,7 +206,7 @@ describe("computeStatTiles — aggregate (facet active) path", () => {
       rangeDataPoints,
       facet: MODEL_FACET,
       range: "all",
-      mode: "total",
+      mode: "increase",
       includeLatestCount: false,
     });
 

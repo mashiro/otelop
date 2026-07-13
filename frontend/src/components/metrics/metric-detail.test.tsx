@@ -132,17 +132,17 @@ describe("MetricDetailBody control row", () => {
 });
 
 describe("MetricDetailBody stat tiles section label", () => {
-  it("shows 'Total · <range label>' and updates when the range changes", () => {
+  it("shows 'Increase · <range label>' and updates when the range changes", () => {
     const metric = makeMetric({
       type: "Sum",
       dataPoints: [makeDataPoint({ id: "a", timestamp: "2024-01-01T00:00:00Z", cumulative: 1 })],
     });
 
     render(<MetricDetailBody metric={metric} />);
-    expect(screen.getByText("Total · 1h")).toBeTruthy();
+    expect(screen.getByText("Increase · 1h")).toBeTruthy();
 
     selectRange("All");
-    expect(screen.getByText("Total · All")).toBeTruthy();
+    expect(screen.getByText("Increase · All")).toBeTruthy();
   });
 
   it("renders the latest section for a Gauge", () => {

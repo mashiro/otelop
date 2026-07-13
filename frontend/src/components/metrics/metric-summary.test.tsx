@@ -14,7 +14,7 @@ const MODEL_FACET: MetricFacet = { attributes: ["model"], label: "Model" };
 afterEach(cleanup);
 
 describe("MetricSummary", () => {
-  it("renders 'Total · <range label>' instead of the old 'Since observing' wording", () => {
+  it("renders 'Increase · <range label>' for a monotonic sum", () => {
     const metric = makeMetric({
       type: "Sum",
       dataPoints: [makeDataPoint({ id: "a", value: 5, cumulative: 5 })],
@@ -30,7 +30,7 @@ describe("MetricSummary", () => {
       />,
     );
 
-    expect(screen.getByText("Total · 5m")).toBeTruthy();
+    expect(screen.getByText("Increase · 5m")).toBeTruthy();
     expect(screen.queryByText(/Since observing/)).toBeNull();
   });
 

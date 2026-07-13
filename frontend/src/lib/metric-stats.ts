@@ -104,9 +104,9 @@ export interface StatTile {
 // a given metric agrees), so it's checked once against the metric's raw
 // live-buffer points rather than the (possibly empty, for a narrow range)
 // range-scoped points — a metric that's eligible but has no data in the
-// selected window should render "no total" from empty math, not be
+// selected window should render "no increase" from empty math, not be
 // misclassified as ineligible.
-export function hasTotalStatTileSignal(dataPoints: DataPoint[]): boolean {
+export function hasIncreaseStatTileSignal(dataPoints: DataPoint[]): boolean {
   return dataPoints.some(
     (dp) => dp.cumulative != null || dp.countCumulative != null || dp.sumCumulative != null,
   );
@@ -125,7 +125,7 @@ interface StatTileGroup {
   points: StatTilePoint[];
 }
 
-export type StatTileMode = "total" | "latest";
+export type StatTileMode = "increase" | "latest";
 
 function latestPoint(points: StatTilePoint[]): StatTilePoint | undefined {
   let latest: StatTilePoint | undefined;
@@ -142,7 +142,7 @@ function latestPoint(points: StatTilePoint[]): StatTilePoint | undefined {
 
 // Monotonic sums show the sum of the selected range's deltas. Gauges and
 // distributions show the last observation in that same range, matching the
-// chart's right edge instead of inventing a "total" for a snapshot or mean.
+// chart's right edge instead of inventing an increase for a snapshot or mean.
 function combineStatTileGroups(
   groups: StatTileGroup[],
   mode: StatTileMode,
@@ -249,7 +249,7 @@ export type StatTilesInput =
       includeLatestCount: boolean;
     };
 
-// Range-scoped replacement for the old cumulative-based statTiles. Both total
+// Range-scoped replacement for the old cumulative-based statTiles. Both increase
 // and latest modes read the SAME range-scoped data the chart renders
 // (aggregate series when a facet is active, raw range points otherwise).
 export function computeStatTiles(input: StatTilesInput): StatTile[] {
