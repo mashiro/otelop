@@ -48,6 +48,11 @@ started or restart it without the user's permission.
   function span. Self-telemetry ingestion is deliberately not re-instrumented.
 - Recent traces or errors: `traces` with `startTime`, `hasError`, and
   `durationMs`, followed by `trace(traceId:)` for detail.
+- Missing or abruptly removed traces: search logs for
+  `dropped oversized trace`. A trace is deleted atomically when its retained
+  span count crosses 10,000; later spans for the same trace are ignored while
+  its tombstone remains live. The tombstone expires only after no spans for
+  that trace have arrived for a full retention period.
 - Logs: `logs` with a narrow time window and `search`; traverse `trace` or
   `span` when correlation matters.
 - Metric existence/list view: `metrics` with `latestValue` and `pointCount`.
@@ -91,7 +96,7 @@ Time-window semantics differ by list:
 - Metrics include a `(serviceName, name)` group when any series lifetime
   overlaps the window, and sort groups by their latest received point.
 
-`config` reports storage configuration plus logical counts: distinct traces,
+`config` reports storage configuration plus logical counts: retained traces,
 distinct `(serviceName, metric name)` groups, and log records. It does not
 report capacities. `status.dbSizeBytes`, `config.retention`, and
 `config.maxSize` describe storage pressure.
@@ -207,6 +212,9 @@ derived from retained delta history.
    `metricPoints` or server-bucketed chart data with `metricAggregate`.
 5. Report trace IDs and exact RFC3339 windows so the result is reproducible
    in the UI or another query.
+6. If an expected trace is absent or disappears while ingest is active, search
+   logs for `dropped oversized trace` and report its `trace_id`, `span_count`,
+   and `limit` attributes before attributing the loss to retention.
 
 ## Common pitfalls
 
@@ -217,6 +225,8 @@ derived from retained delta history.
   contained span.
 - `pointCount` is cardinality, not metric state; use `latestValue` or
   `metricPoints` for values.
-- Missing old data may be caused by configured retention or max-size cleanup;
-  there is no ring-buffer capacity to compare against.
+- Missing old data may be caused by configured retention or max-size cleanup.
+  A trace can also disappear when it crosses the 10,000 retained-span limit;
+  confirm this through the `dropped oversized trace` warning log. There is no
+  ring-buffer capacity to compare against.
 - `clearSignals` is destructive and has no undo.

@@ -17,6 +17,8 @@ type Query {
   List traces by trace startTime, newest-first. A trace is in range when its
   startTime (the earliest retained span start) is in [from, to); both bounds
   default to the full retention window (now - retention - 24h slack) .. (now + 24h slack).
+  Traces that exceed 10,000 retained spans are dropped atomically and are
+  therefore absent from this list.
   search, if given, case-insensitively matches a trace whose trace ID, or any
   span's name, status code, or resource service name, contains it (substring
   match; % and _ are treated literally, not as wildcards). An empty/omitted
@@ -25,7 +27,11 @@ type Query {
   """
   traces(limit: Int = 50, after: String, from: Time, to: Time, search: String): TraceConnection!
 
-  "Fetch a single trace by its hex-encoded trace ID."
+  """
+  Fetch a retained trace by its hex-encoded trace ID. Returns null when the
+  trace is not retained, including after retention/max-size cleanup or when it
+  exceeded the 10,000 retained-span limit.
+  """
   trace(traceId: ID!): Trace
 
   """

@@ -201,6 +201,16 @@ the same SQL derivation used by GraphQL. Duplicate spans from OTLP re-sends are
 filtered by the indexed candidate lookup, so a restart or a resend cannot
 inflate stored spans or summaries.
 
+A trace that crosses 10,000 retained spans is not useful as an interactive
+trace and can otherwise grow without bound. The write transaction deletes its
+spans and summary, records a `dropped_traces` tombstone, and publishes a
+`trace-deletes` WebSocket event so clients remove any stale live summary.
+Further spans for that trace refresh the tombstone and are discarded without
+touching the spans table. Retention removes a tombstone after its producer has
+stopped sending the trace for a full retention period. Existing oversized
+traces are intentionally handled only when new data for them arrives; an
+unreferenced historical trace does not add idle processing cost.
+
 Backpressure: the channel into the writer is bounded; when full, batches are
 dropped with a `slog.Warn`, the same policy the WebSocket hub applies. Crash
 safety comes from DuckDB's WAL (per-batch flush + periodic checkpoints).
