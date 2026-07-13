@@ -34,13 +34,16 @@ describe("MetricSummary", () => {
     expect(screen.queryByText(/Since observing/)).toBeNull();
   });
 
-  it("renders nothing for a Gauge (no cumulative signal on any point)", () => {
+  it("shows the latest value for a Gauge", () => {
     const metric = makeMetric({
       type: "Gauge",
-      dataPoints: [makeDataPoint({ id: "a", value: 1 }), makeDataPoint({ id: "b", value: 2 })],
+      dataPoints: [
+        makeDataPoint({ id: "a", timestamp: "2024-01-01T00:00:00Z", value: 1 }),
+        makeDataPoint({ id: "b", timestamp: "2024-01-01T00:00:30Z", value: 2 }),
+      ],
     });
 
-    const { container } = render(
+    render(
       <MetricSummary
         metric={metric}
         facet={null}
@@ -50,7 +53,8 @@ describe("MetricSummary", () => {
       />,
     );
 
-    expect(container.firstChild).toBeNull();
+    expect(screen.getByText("Latest · All")).toBeTruthy();
+    expect(screen.getByText("2")).toBeTruthy();
   });
 
   it("sums range-scoped raw point values per attribute combo for facet=All", () => {
@@ -107,10 +111,7 @@ describe("MetricSummary", () => {
     expect(screen.getByText("2")).toBeTruthy();
   });
 
-  it("shows Σsum as the main figure and Σcount below it for distribution metrics", () => {
-    // sumCumulative/countCumulative mark the metric as eligible (see
-    // hasStatTileSignal) — the actual totals below still come from the
-    // range-scoped aggregatedSeries, not these cumulative fields.
+  it("shows the latest mean and its count for distribution metrics", () => {
     const rangeDataPoints = [
       makeDataPoint({
         id: "a",
@@ -123,8 +124,8 @@ describe("MetricSummary", () => {
       makeAggregateSeries({
         groupValues: ["opus"],
         points: [
-          makeAggregatePoint({ value: 10, count: 4, sum: 40 }),
-          makeAggregatePoint({ value: 20, count: 2, sum: 40 }),
+          makeAggregatePoint({ timestamp: "2024-01-01T00:00:00Z", value: 10, count: 4 }),
+          makeAggregatePoint({ timestamp: "2024-01-01T00:00:30Z", value: 20, count: 2 }),
         ],
       }),
     ];
@@ -140,8 +141,9 @@ describe("MetricSummary", () => {
       />,
     );
 
-    expect(screen.getByText("80")).toBeTruthy();
-    expect(screen.getByText("count 6")).toBeTruthy();
+    expect(screen.getByText("Latest · All")).toBeTruthy();
+    expect(screen.getByText("20")).toBeTruthy();
+    expect(screen.getByText("count 2")).toBeTruthy();
   });
 
   it("renders the tile's main value without font-mono / tabular-nums (proportional sans figures)", () => {

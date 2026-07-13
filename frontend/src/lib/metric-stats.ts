@@ -2,6 +2,7 @@ import type { DataPoint } from "@/types/telemetry";
 import type { MetricFacet } from "@/lib/metric-catalog";
 import { type ChartTimeRange, filterDataPointsInRange } from "@/lib/chart-time-range";
 import type { AggregateSeriesData } from "@/hooks/use-metric-aggregate-series";
+import { Temporal } from "temporal-polyfill";
 
 /** Serialize attributes to a stable string key for grouping. */
 export function attrKey(attrs: Record<string, unknown>): string {
@@ -92,9 +93,8 @@ export interface StatTile {
   // Position of this series in chart order (first appearance across ALL
   // dataPoints), so tile colors match the chart lines.
   colorIndex: number;
-  total: number | null;
-  totalCount: number | null;
-  totalSum: number | null;
+  value: number | null;
+  count: number | null;
 }
 
 // Whether a metric's points carry the cumulative-family fields at all —
@@ -106,16 +106,16 @@ export interface StatTile {
 // range-scoped points — a metric that's eligible but has no data in the
 // selected window should render "no total" from empty math, not be
 // misclassified as ineligible.
-export function hasStatTileSignal(dataPoints: DataPoint[]): boolean {
+export function hasTotalStatTileSignal(dataPoints: DataPoint[]): boolean {
   return dataPoints.some(
     (dp) => dp.cumulative != null || dp.countCumulative != null || dp.sumCumulative != null,
   );
 }
 
 interface StatTilePoint {
+  timestamp: string;
   value: number;
   count?: number | null;
-  sum?: number | null;
 }
 
 interface StatTileGroup {
@@ -125,38 +125,48 @@ interface StatTileGroup {
   points: StatTilePoint[];
 }
 
-// Sums per-group points into totals. Sum/Gauge-shaped groups sum `value`
-// (already a per-window delta, whether from a raw DataPoint or a bucketed
-// AggregatePoint — see storage.MetricAggregate's doc comment); distribution
-// groups instead sum `count`/`sum`, since a distribution's `value` is a
-// per-window MEAN (sum/count), and averaging averages is not a valid total.
-function combineStatTileGroups(groups: StatTileGroup[], isDistribution: boolean): StatTile[] {
+export type StatTileMode = "total" | "latest";
+
+function latestPoint(points: StatTilePoint[]): StatTilePoint | undefined {
+  let latest: StatTilePoint | undefined;
+  let latestInstant: Temporal.Instant | undefined;
+  for (const point of points) {
+    const instant = Temporal.Instant.from(point.timestamp);
+    if (!latestInstant || Temporal.Instant.compare(instant, latestInstant) > 0) {
+      latest = point;
+      latestInstant = instant;
+    }
+  }
+  return latest;
+}
+
+// Monotonic sums show the sum of the selected range's deltas. Gauges and
+// distributions show the last observation in that same range, matching the
+// chart's right edge instead of inventing a "total" for a snapshot or mean.
+function combineStatTileGroups(
+  groups: StatTileGroup[],
+  mode: StatTileMode,
+  includeLatestCount: boolean,
+): StatTile[] {
   const tiles = groups.map((g): StatTile => {
-    if (isDistribution) {
-      let totalCount: number | null = null;
-      let totalSum: number | null = null;
-      for (const p of g.points) {
-        if (p.count != null) totalCount = (totalCount ?? 0) + p.count;
-        if (p.sum != null) totalSum = (totalSum ?? 0) + p.sum;
-      }
+    if (mode === "latest") {
+      const latest = latestPoint(g.points);
       return {
         key: g.key,
         label: g.label,
         colorIndex: g.colorIndex,
-        total: null,
-        totalCount,
-        totalSum,
+        value: latest?.value ?? null,
+        count: includeLatestCount ? (latest?.count ?? null) : null,
       };
     }
-    let total: number | null = null;
-    for (const p of g.points) total = (total ?? 0) + p.value;
+    let value: number | null = null;
+    for (const p of g.points) value = (value ?? 0) + p.value;
     return {
       key: g.key,
       label: g.label,
       colorIndex: g.colorIndex,
-      total,
-      totalCount: null,
-      totalSum: null,
+      value,
+      count: null,
     };
   });
   return tiles.sort((a, b) => a.colorIndex - b.colorIndex);
@@ -183,7 +193,11 @@ export function statTileGroupsFromAggregate(
       key: label,
       label,
       colorIndex,
-      points: windowed.map((p) => ({ value: p.value, count: p.count, sum: p.sum })),
+      points: windowed.map((p) => ({
+        timestamp: p.timestamp,
+        value: p.value,
+        count: p.count,
+      })),
     };
   });
 }
@@ -206,7 +220,7 @@ export function statTileGroupsFromRawPoints(
       group = { key, label: key || "(no attributes)", colorIndex: order.get(key) ?? 0, points: [] };
       groups.set(key, group);
     }
-    group.points.push({ value: dp.value, count: dp.count, sum: dp.sum });
+    group.points.push({ timestamp: dp.timestamp, value: dp.value, count: dp.count });
   }
   return [...groups.values()];
 }
@@ -223,23 +237,21 @@ export type StatTilesInput =
       rangeDataPoints: DataPoint[];
       facet: MetricFacet;
       range: ChartTimeRange;
-      isDistribution: boolean;
+      mode: StatTileMode;
+      includeLatestCount: boolean;
     }
   | {
       kind: "raw";
       rangeDataPoints: DataPoint[];
       facet: MetricFacet | null;
       range: ChartTimeRange;
-      isDistribution: boolean;
+      mode: StatTileMode;
+      includeLatestCount: boolean;
     };
 
-// Range-scoped replacement for the old cumulative-based statTiles: totals now
-// come from summing the SAME range-scoped data the chart renders (aggregate
-// series when a facet is active, raw range points otherwise) rather than
-// reading the backend's "since observing" running totals. The single caller
-// (MetricSummary) gates on hasStatTileSignal itself before calling this —
-// see its Gauge/non-monotonic-Sum exclusion — so this function doesn't need
-// its own eligibility flag.
+// Range-scoped replacement for the old cumulative-based statTiles. Both total
+// and latest modes read the SAME range-scoped data the chart renders
+// (aggregate series when a facet is active, raw range points otherwise).
 export function computeStatTiles(input: StatTilesInput): StatTile[] {
   const groups =
     input.kind === "aggregate"
@@ -250,5 +262,5 @@ export function computeStatTiles(input: StatTilesInput): StatTile[] {
           input.range,
         )
       : statTileGroupsFromRawPoints(input.rangeDataPoints, input.facet, input.range);
-  return combineStatTileGroups(groups, input.isDistribution);
+  return combineStatTileGroups(groups, input.mode, input.includeLatestCount);
 }

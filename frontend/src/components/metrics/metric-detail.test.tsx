@@ -145,7 +145,7 @@ describe("MetricDetailBody stat tiles section label", () => {
     expect(screen.getByText("Total · All")).toBeTruthy();
   });
 
-  it("renders no tiles section for a Gauge (no cumulative signal)", () => {
+  it("renders the latest section for a Gauge", () => {
     const metric = makeMetric({
       type: "Gauge",
       dataPoints: [makeDataPoint({ id: "a", value: 1 }), makeDataPoint({ id: "b", value: 2 })],
@@ -153,7 +153,7 @@ describe("MetricDetailBody stat tiles section label", () => {
 
     render(<MetricDetailBody metric={metric} />);
 
-    expect(screen.queryByText(/^Total ·/)).toBeNull();
+    expect(screen.getByText("Latest · 1h")).toBeTruthy();
   });
 });
 

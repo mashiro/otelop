@@ -1,7 +1,7 @@
 import { memo, useMemo } from "react";
 import {
   computeStatTiles,
-  hasStatTileSignal,
+  hasTotalStatTileSignal,
   type StatTile,
   type StatTilesInput,
 } from "@/lib/metric-stats";
@@ -34,14 +34,13 @@ export const MetricSummary = memo(function MetricSummary({
   aggregatedSeries: AggregateSeriesData[] | null;
 }) {
   const isDistribution = isDistributionMetric(metric.type);
+  const showsLatest = metric.type === "Gauge" || isDistribution;
   const tiles = useMemo(() => {
-    // hasStatTileSignal must read rangeDataPoints (the fetched-range +
-    // live-buffer merge — see use-metric-range-points.ts), not metric.
-    // dataPoints: the metrics list's initial load no longer populates
-    // dataPoints (issue #162), so a metric opened before its first WS
-    // delivery would otherwise look ineligible for stat tiles even though
-    // its fetched history already has cumulative/count/sum signal.
-    if (!hasStatTileSignal(rangeDataPoints)) return [];
+    // Total eligibility must read rangeDataPoints (the fetched-range + live
+    // buffer merge), because the metrics list no longer loads point history.
+    // Latest mode only needs a point and therefore applies to Gauge and
+    // distribution metrics without a cumulative-family field.
+    if (!showsLatest && !hasTotalStatTileSignal(rangeDataPoints)) return [];
     const input: StatTilesInput = facet
       ? {
           kind: "aggregate",
@@ -49,11 +48,19 @@ export const MetricSummary = memo(function MetricSummary({
           rangeDataPoints,
           facet,
           range,
-          isDistribution,
+          mode: showsLatest ? "latest" : "total",
+          includeLatestCount: isDistribution,
         }
-      : { kind: "raw", rangeDataPoints, facet: null, range, isDistribution };
+      : {
+          kind: "raw",
+          rangeDataPoints,
+          facet: null,
+          range,
+          mode: showsLatest ? "latest" : "total",
+          includeLatestCount: isDistribution,
+        };
     return computeStatTiles(input);
-  }, [facet, aggregatedSeries, rangeDataPoints, range, isDistribution]);
+  }, [facet, aggregatedSeries, rangeDataPoints, range, isDistribution, showsLatest]);
 
   if (tiles.length === 0) return null;
 
@@ -64,9 +71,13 @@ export const MetricSummary = memo(function MetricSummary({
     <div className="mb-4">
       <div
         className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground"
-        title={`Sum over the selected ${rangeLabel(range)} window`}
+        title={
+          showsLatest
+            ? `Latest value in the selected ${rangeLabel(range)} window`
+            : `Sum over the selected ${rangeLabel(range)} window`
+        }
       >
-        Total · {rangeLabel(range)}
+        {showsLatest ? "Latest" : "Total"} · {rangeLabel(range)}
       </div>
       <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-2">
         {tiles.map((tile) => (
@@ -83,13 +94,8 @@ export const MetricSummary = memo(function MetricSummary({
   );
 });
 
-function mainText(tile: StatTile, unit: string, isDistribution: boolean): string {
-  if (isDistribution) {
-    if (tile.totalSum != null) return formatMetricValue(tile.totalSum, unit);
-    if (tile.totalCount != null) return tile.totalCount.toLocaleString();
-    return "-";
-  }
-  return tile.total != null ? formatMetricValue(tile.total, unit) : "-";
+function mainText(tile: StatTile, unit: string): string {
+  return tile.value != null ? formatMetricValue(tile.value, unit) : "-";
 }
 
 function Tile({
@@ -104,11 +110,8 @@ function Tile({
   showLabel: boolean;
 }) {
   const color = SERIES_COLORS[tile.colorIndex % SERIES_COLORS.length];
-  const main = mainText(tile, unit, isDistribution);
-  const count =
-    isDistribution && tile.totalSum != null && tile.totalCount != null
-      ? tile.totalCount.toLocaleString()
-      : null;
+  const main = mainText(tile, unit);
+  const count = isDistribution && tile.count != null ? tile.count.toLocaleString() : null;
 
   return (
     <div className="rounded-lg border border-border/30 bg-muted/50 p-3">
@@ -121,7 +124,7 @@ function Tile({
         </div>
       )}
       <div className="text-2xl font-semibold text-foreground">{main}</div>
-      {count && <div className="mt-0.5 text-xs text-muted-foreground">count {count}</div>}
+      {count !== null && <div className="mt-0.5 text-xs text-muted-foreground">count {count}</div>}
     </div>
   );
 }

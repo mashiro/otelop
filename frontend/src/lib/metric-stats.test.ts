@@ -3,7 +3,7 @@ import {
   computeStatTiles,
   facetGroupLabel,
   facetGroupOrder,
-  hasStatTileSignal,
+  hasTotalStatTileSignal,
   statTileGroupsFromAggregate,
   statTileGroupsFromRawPoints,
   type StatTilesInput,
@@ -41,23 +41,25 @@ describe("facetGroupOrder", () => {
   });
 });
 
-describe("hasStatTileSignal", () => {
+describe("hasTotalStatTileSignal", () => {
   it("is true when any point carries cumulative", () => {
-    expect(hasStatTileSignal([makeDataPoint({ cumulative: 1 })])).toBe(true);
+    expect(hasTotalStatTileSignal([makeDataPoint({ cumulative: 1 })])).toBe(true);
   });
 
   it("is true when any point carries countCumulative/sumCumulative (distributions)", () => {
-    expect(hasStatTileSignal([makeDataPoint({ countCumulative: 1, sumCumulative: 2 })])).toBe(true);
+    expect(hasTotalStatTileSignal([makeDataPoint({ countCumulative: 1, sumCumulative: 2 })])).toBe(
+      true,
+    );
   });
 
   it("is false for Gauge / non-monotonic Sum points (no cumulative family field)", () => {
-    expect(hasStatTileSignal([makeDataPoint({ value: 1 }), makeDataPoint({ value: 2 })])).toBe(
+    expect(hasTotalStatTileSignal([makeDataPoint({ value: 1 }), makeDataPoint({ value: 2 })])).toBe(
       false,
     );
   });
 
   it("is false for an empty metric", () => {
-    expect(hasStatTileSignal([])).toBe(false);
+    expect(hasTotalStatTileSignal([])).toBe(false);
   });
 });
 
@@ -67,7 +69,8 @@ function sumInput(overrides: Partial<StatTilesInput & { kind: "raw" }> = {}): St
     rangeDataPoints: [],
     facet: null,
     range: "all",
-    isDistribution: false,
+    mode: "total",
+    includeLatestCount: false,
     ...overrides,
   };
 }
@@ -87,7 +90,7 @@ describe("computeStatTiles — raw (facet=All) path", () => {
 
     const tiles = computeStatTiles(sumInput({ rangeDataPoints }));
 
-    expect(tiles.map((t) => [t.label, t.total, t.colorIndex])).toEqual([
+    expect(tiles.map((t) => [t.label, t.value, t.colorIndex])).toEqual([
       ['model="opus"', 3.0, 0],
       ['model="haiku"', 0.5, 1],
     ]);
@@ -109,17 +112,34 @@ describe("computeStatTiles — raw (facet=All) path", () => {
 
     expect(tiles).toHaveLength(2);
     const opusA = tiles.find((t) => t.label.includes('tier="a"'));
-    expect(opusA?.total).toBe(3.0);
+    expect(opusA?.value).toBe(3.0);
   });
 
-  it("sums count/sum (not value) for distribution metrics", () => {
+  it("uses the latest value and count for distribution metrics", () => {
     const rangeDataPoints = [
-      makeDataPoint({ id: "a", attributes: { model: "opus" }, value: 1, count: 480, sum: 3.1 }),
-      makeDataPoint({ id: "b", attributes: { model: "opus" }, value: 1, count: 20, sum: 0.4 }),
+      makeDataPoint({
+        id: "b",
+        timestamp: "2024-01-01T00:00:30Z",
+        attributes: { model: "opus" },
+        value: 2,
+        count: 20,
+      }),
+      makeDataPoint({
+        id: "a",
+        timestamp: "2024-01-01T00:00:00Z",
+        attributes: { model: "opus" },
+        value: 1,
+        count: 480,
+      }),
     ];
 
     const tiles = computeStatTiles(
-      sumInput({ rangeDataPoints, facet: MODEL_FACET, isDistribution: true }),
+      sumInput({
+        rangeDataPoints,
+        facet: MODEL_FACET,
+        mode: "latest",
+        includeLatestCount: true,
+      }),
     );
 
     expect(tiles).toEqual([
@@ -127,9 +147,8 @@ describe("computeStatTiles — raw (facet=All) path", () => {
         key: "opus",
         label: "opus",
         colorIndex: 0,
-        total: null,
-        totalCount: 500,
-        totalSum: 3.5,
+        value: 2,
+        count: 20,
       },
     ]);
   });
@@ -154,9 +173,8 @@ describe("computeStatTiles — raw (facet=All) path", () => {
         key: "",
         label: "(no attributes)",
         colorIndex: 0,
-        total: 2,
-        totalCount: null,
-        totalSum: null,
+        value: 2,
+        count: null,
       },
     ]);
   });
@@ -188,16 +206,17 @@ describe("computeStatTiles — aggregate (facet active) path", () => {
       rangeDataPoints,
       facet: MODEL_FACET,
       range: "all",
-      isDistribution: false,
+      mode: "total",
+      includeLatestCount: false,
     });
 
     expect(tiles).toEqual([
-      { key: "opus", label: "opus", colorIndex: 0, total: 5, totalCount: null, totalSum: null },
-      { key: "haiku", label: "haiku", colorIndex: 1, total: 1, totalCount: null, totalSum: null },
+      { key: "opus", label: "opus", colorIndex: 0, value: 5, count: null },
+      { key: "haiku", label: "haiku", colorIndex: 1, value: 1, count: null },
     ]);
   });
 
-  it("sums count and sum (not the per-bucket mean value) for distribution metrics", () => {
+  it("uses the latest bucket value and count for distribution metrics", () => {
     const aggregatedSeries = [
       makeAggregateSeries({
         groupValues: ["opus"],
@@ -214,12 +233,11 @@ describe("computeStatTiles — aggregate (facet active) path", () => {
       rangeDataPoints: [makeDataPoint({ id: "a", attributes: { model: "opus" } })],
       facet: MODEL_FACET,
       range: "all",
-      isDistribution: true,
+      mode: "latest",
+      includeLatestCount: true,
     });
 
-    expect(tiles).toEqual([
-      { key: "opus", label: "opus", colorIndex: 0, total: null, totalCount: 6, totalSum: 80 },
-    ]);
+    expect(tiles).toEqual([{ key: "opus", label: "opus", colorIndex: 0, value: 20, count: 2 }]);
   });
 
   it("assigns colorIndex from first-appearance order in the raw range points, matching the chart", () => {
@@ -263,7 +281,9 @@ describe("computeStatTiles — aggregate (facet active) path", () => {
       "1m",
     );
 
-    expect(groups[0]?.points).toEqual([{ value: 5, count: null, sum: null }]);
+    expect(groups[0]?.points).toEqual([
+      { timestamp: "2024-01-01T00:10:00Z", value: 5, count: null },
+    ]);
   });
 });
 
