@@ -15,14 +15,17 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	duckdb "github.com/duckdb/duckdb-go/v2"
+	"github.com/mashiro/otelop/internal/selftelemetry"
 	"go.opentelemetry.io/collector/pdata/plog"
 	"go.opentelemetry.io/collector/pdata/pmetric"
 	"go.opentelemetry.io/collector/pdata/ptrace"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 const (
@@ -42,10 +45,6 @@ const (
 	// INSERT ... ON CONFLICT DO NOTHING round trip.
 	resourceCacheCap = 10_000
 
-	// spanDedupCap bounds the in-writer LRU of recently-appended
-	// (trace_id, span_id) pairs used to drop duplicate re-sends.
-	spanDedupCap = 200_000
-
 	// commitQueueSize bounds the channel handing CommitEvents from the
 	// writer goroutine to the dedicated OnCommit-delivery goroutine (see
 	// Options.OnCommit). Sized the same as writeQueueSize and for the same
@@ -63,6 +62,11 @@ const (
 	// can't spin forever; the sweep just logs a warning and gives up for
 	// this pass, trying again next hour.
 	maxSizeSweepIterations = 60
+
+	// New Relic caps a trace view at 10,000 spans. Traces larger than that
+	// are not useful to otelop's trace UI and make every live summary update
+	// progressively more expensive, so ingestion drops and tombstones them.
+	maxSpansPerTrace = 10_000
 )
 
 // Options configures Open.
@@ -83,7 +87,7 @@ type Options struct {
 	// the previous store's contract"). Unlike a direct call from the writer
 	// goroutine, delivery runs on its own dedicated goroutine (started by
 	// Open) reached through a bounded channel (commitQueueSize): a slow
-	// listener (e.g. internal/broadcast's DB read-backs + hub fan-out) never
+	// listener (e.g. internal/broadcast's conversion + hub fan-out) never
 	// blocks subsequent ingest. Events are delivered in commit order; if the
 	// listener falls behind enough to fill the channel, the newest event is
 	// dropped with a logged warning — the same drop-on-full policy the write
@@ -106,7 +110,8 @@ const (
 // re-deriving it from raw rows itself.
 type CommitEvent struct {
 	Kind SignalKind
-	// Traces is populated (only the newly-appended, deduped spans) when Kind == KindTraces.
+	// Traces contains the newly-appended, deduped spans plus their committed
+	// summaries when Kind == KindTraces.
 	Traces TraceBatch
 	// Metrics is populated (series metadata for every series referenced by
 	// Points, plus the newly-appended points) when Kind == KindMetrics.
@@ -123,14 +128,10 @@ type OnCommitFunc func(ctx context.Context, ev CommitEvent)
 // awaitCommitDrain uses (Sync's synchronization with the delivery
 // goroutine); ev is meaningless in that case and is left zero-valued.
 type commitJob struct {
-	ev      CommitEvent
-	barrier chan struct{}
-}
-
-// spanKey identifies a span for dedup purposes.
-type spanKey struct {
-	traceID string
-	spanID  string
+	ctx        context.Context
+	enqueuedAt time.Time
+	ev         CommitEvent
+	barrier    chan struct{}
 }
 
 // writerMsgKind tags a message sent to the writer goroutine.
@@ -149,11 +150,13 @@ const (
 // and Sweep set done so the caller can block until the writer has processed
 // (or, for Sweep, actually run) the request; AddX messages leave done nil.
 type writerMsg struct {
-	kind    writerMsgKind
-	traces  TraceBatch
-	metrics MetricBatch
-	logs    LogBatch
-	done    chan error
+	ctx        context.Context
+	enqueuedAt time.Time
+	kind       writerMsgKind
+	traces     TraceBatch
+	metrics    MetricBatch
+	logs       LogBatch
+	done       chan error
 }
 
 // Storage is the DuckDB-backed telemetry store. A single writer goroutine
@@ -178,13 +181,8 @@ type Storage struct {
 	queue  chan writerMsg
 	wg     sync.WaitGroup
 
-	// resourceCache and spanDedup are pure caches: a miss just means the
-	// slow path runs (an INSERT ... ON CONFLICT DO NOTHING, or appending a
-	// row a dedup read query would have collapsed anyway), so eviction can
-	// never corrupt results — only cost an extra round trip or a rare
-	// duplicate fact row.
+	// resourceCache is a pure cache: a miss repeats an idempotent upsert.
 	resourceCache *lruSet[uint64]
-	spanDedup     *lruSet[spanKey]
 
 	sweepTicker *time.Ticker
 	sweepStop   chan struct{}
@@ -241,7 +239,6 @@ func Open(ctx context.Context, opts Options) (*Storage, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("storage: reserve writer connection: %w", err)
 	}
-
 	s := &Storage{
 		opts:          opts,
 		connector:     connector,
@@ -249,7 +246,6 @@ func Open(ctx context.Context, opts Options) (*Storage, error) {
 		writer:        writerConn,
 		queue:         make(chan writerMsg, writeQueueSize),
 		resourceCache: newLRUSet[uint64](resourceCacheCap),
-		spanDedup:     newLRUSet[spanKey](spanDedupCap),
 		sweepStop:     make(chan struct{}),
 	}
 	s.sizeFn = s.fileSize
@@ -279,29 +275,53 @@ func (s *Storage) DB() *sql.DB { return s.db }
 // the writer goroutine keeps pdata processing (which can run concurrently
 // with other batches) off the single serialized write path.
 func (s *Storage) AddTraces(ctx context.Context, td ptrace.Traces) {
+	if selftelemetry.TracesAreInternal(td) {
+		ctx = suppressTracing(ctx)
+	}
+	ctx, span := startStorageSpan(ctx, "storage.AddTraces")
+	defer span.End()
+	_, convertSpan := startStorageSpan(ctx, "storage.ConvertTraces")
 	batch := ConvertTraces(td)
+	convertSpan.SetAttributes(attribute.Int("storage.batch.resources", len(batch.Resources)), attribute.Int("storage.batch.rows", len(batch.Spans)))
+	convertSpan.End()
 	if len(batch.Resources) == 0 && len(batch.Spans) == 0 {
 		return
 	}
-	s.enqueue(writerMsg{kind: msgTraces, traces: batch}, "traces")
+	s.enqueue(writerMsg{ctx: context.WithoutCancel(ctx), enqueuedAt: time.Now(), kind: msgTraces, traces: batch}, "traces")
 }
 
 // AddMetrics converts md and enqueues it for the writer.
 func (s *Storage) AddMetrics(ctx context.Context, md pmetric.Metrics) {
+	if selftelemetry.MetricsAreInternal(md) {
+		ctx = suppressTracing(ctx)
+	}
+	ctx, span := startStorageSpan(ctx, "storage.AddMetrics")
+	defer span.End()
+	_, convertSpan := startStorageSpan(ctx, "storage.ConvertMetrics")
 	batch := ConvertMetrics(md)
+	convertSpan.SetAttributes(attribute.Int("storage.batch.resources", len(batch.Resources)), attribute.Int("storage.batch.series", len(batch.Series)), attribute.Int("storage.batch.rows", len(batch.Points)))
+	convertSpan.End()
 	if len(batch.Series) == 0 && len(batch.Points) == 0 {
 		return
 	}
-	s.enqueue(writerMsg{kind: msgMetrics, metrics: batch}, "metrics")
+	s.enqueue(writerMsg{ctx: context.WithoutCancel(ctx), enqueuedAt: time.Now(), kind: msgMetrics, metrics: batch}, "metrics")
 }
 
 // AddLogs converts ld and enqueues it for the writer.
 func (s *Storage) AddLogs(ctx context.Context, ld plog.Logs) {
+	if selftelemetry.LogsAreInternal(ld) {
+		ctx = suppressTracing(ctx)
+	}
+	ctx, span := startStorageSpan(ctx, "storage.AddLogs")
+	defer span.End()
+	_, convertSpan := startStorageSpan(ctx, "storage.ConvertLogs")
 	batch := ConvertLogs(ld)
+	convertSpan.SetAttributes(attribute.Int("storage.batch.resources", len(batch.Resources)), attribute.Int("storage.batch.rows", len(batch.Logs)))
+	convertSpan.End()
 	if len(batch.Resources) == 0 && len(batch.Logs) == 0 {
 		return
 	}
-	s.enqueue(writerMsg{kind: msgLogs, logs: batch}, "logs")
+	s.enqueue(writerMsg{ctx: context.WithoutCancel(ctx), enqueuedAt: time.Now(), kind: msgLogs, logs: batch}, "logs")
 }
 
 // enqueue submits msg to the writer, dropping it (with a warning) if the
@@ -327,6 +347,12 @@ func (s *Storage) enqueue(msg writerMsg, what string) {
 // msg.done. It still respects the closed flag so a call racing Close is a
 // safe no-op rather than a send on a soon-to-be-closed channel.
 func (s *Storage) enqueueBlocking(msg writerMsg) bool {
+	if msg.ctx == nil {
+		msg.ctx = context.Background()
+	}
+	if msg.enqueuedAt.IsZero() {
+		msg.enqueuedAt = time.Now()
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if s.closed {
@@ -428,8 +454,17 @@ func (s *Storage) Close() error {
 // is naturally serialized without extra locking.
 func (s *Storage) run() {
 	defer s.wg.Done()
-	ctx := context.Background()
 	for msg := range s.queue {
+		ctx := msg.ctx
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		if msg.kind == msgTraces || msg.kind == msgMetrics || msg.kind == msgLogs {
+			_, queueSpan := startStorageSpan(ctx, "storage.queue.wait",
+				attribute.String("storage.signal", writerMsgSignal(msg.kind)),
+				attribute.Float64("storage.queue.wait_ms", float64(time.Since(msg.enqueuedAt).Microseconds())/1000))
+			queueSpan.End()
+		}
 		switch msg.kind {
 		case msgTraces:
 			s.writeTraces(ctx, msg.traces)
@@ -465,7 +500,7 @@ func (s *Storage) awaitCommitDrain() {
 		return
 	}
 	barrier := make(chan struct{})
-	s.commitCh <- commitJob{barrier: barrier}
+	s.commitCh <- commitJob{ctx: context.Background(), barrier: barrier}
 	<-barrier
 }
 
@@ -474,12 +509,12 @@ func (s *Storage) awaitCommitDrain() {
 // far enough behind to fill commitCh — the same drop-on-full policy enqueue
 // applies to the write queue — rather than blocking the writer goroutine on
 // a slow listener.
-func (s *Storage) dispatchCommit(ev CommitEvent) {
+func (s *Storage) dispatchCommit(ctx context.Context, ev CommitEvent) {
 	if s.commitCh == nil {
 		return
 	}
 	select {
-	case s.commitCh <- commitJob{ev: ev}:
+	case s.commitCh <- commitJob{ctx: ctx, enqueuedAt: time.Now(), ev: ev}:
 	default:
 		s.recordQueueDrop(context.Background(), "commit", signalKindName(ev.Kind))
 		slog.Warn("storage: commit event queue full, dropping broadcast", "kind", ev.Kind)
@@ -494,15 +529,22 @@ func (s *Storage) dispatchCommit(ev CommitEvent) {
 // barrier trick work.
 func (s *Storage) runCommits() {
 	defer s.commitWG.Done()
-	ctx := context.Background()
 	for job := range s.commitCh {
 		if job.barrier != nil {
 			close(job.barrier)
 			continue
 		}
+		ctx := job.ctx
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		ctx, span := startStorageSpan(ctx, "storage.deliverCommit",
+			attribute.String("storage.signal", signalKindName(job.ev.Kind)),
+			attribute.Float64("storage.queue.wait_ms", float64(time.Since(job.enqueuedAt).Microseconds())/1000))
 		started := time.Now()
 		s.opts.OnCommit(ctx, job.ev)
 		s.recordCommit(ctx, signalKindName(job.ev.Kind), started)
+		span.End()
 	}
 }
 
@@ -524,9 +566,13 @@ func (s *Storage) sweepLoop() {
 	}
 }
 
-// writeTraces upserts the batch's resource rows, drops spans already seen
-// via spanDedup, and appends the rest.
+// writeTraces upserts the batch's resource rows, filters recently seen spans,
+// and atomically merges new spans with their derived trace summaries.
 func (s *Storage) writeTraces(ctx context.Context, batch TraceBatch) {
+	ctx, span := startStorageSpan(ctx, "storage.writeTraces",
+		attribute.Int("storage.batch.rows", len(batch.Spans)),
+		attribute.Int("storage.batch.resources", len(batch.Resources)))
+	defer span.End()
 	started := time.Now()
 	var written int64
 	defer func() { s.recordWrite(ctx, "traces", started, written) }()
@@ -535,59 +581,102 @@ func (s *Storage) writeTraces(ctx context.Context, batch TraceBatch) {
 		slog.Error("storage: upsert resources failed", "error", err)
 		return
 	}
-
-	kept := make([]SpanRow, 0, len(batch.Spans))
-	for _, sp := range batch.Spans {
-		key := spanKey{traceID: sp.TraceID, spanID: sp.SpanID}
-		if s.spanDedup.ContainsOrAdd(key) {
-			continue
-		}
-		kept = append(kept, sp)
+	rows, err := s.filterDroppedTraceRows(ctx, batch.Spans)
+	if err != nil {
+		slog.Error("storage: filter dropped traces failed", "error", err)
+		return
 	}
-	if len(kept) == 0 {
+	if len(rows) == 0 {
 		return
 	}
 
 	now := time.Now()
-	err := s.writer.Raw(func(driverConn any) error {
-		appender, err := duckdb.NewAppenderFromConn(driverConn.(driver.Conn), "", "spans")
-		if err != nil {
-			return err
-		}
-		defer func() { _ = appender.Close() }()
-
-		for _, sp := range kept {
-			if err := appender.AppendRow(
-				sp.TraceID,
-				sp.SpanID,
-				sp.ParentSpanID,
-				sp.Name,
-				sp.Kind,
-				sp.StartTS,
-				sp.EndTS,
-				sp.StatusCode,
-				sp.StatusMessage,
-				sp.Attributes,
-				spanEventsArg(sp.Events),
-				sp.ResourceHash,
-				now,
-			); err != nil {
-				return err
-			}
-		}
-		return appender.Flush()
-	})
+	_, persistSpan := startStorageSpan(ctx, "storage.persistTraceBatch", attribute.Int("db.rows", len(rows)))
+	kept, summaries, droppedTraceIDs, err := s.writeTraceRowsTransaction(ctx, rows, now)
+	endStorageSpan(persistSpan, err)
 	if err != nil {
-		slog.Error("storage: append spans failed", "error", err)
+		slog.Error("storage: persist trace batch failed", "error", err)
 		return
 	}
 	written = int64(len(kept))
-	s.dispatchCommit(CommitEvent{Kind: KindTraces, Traces: TraceBatch{Spans: kept}})
+	s.dispatchCommit(ctx, CommitEvent{Kind: KindTraces, Traces: TraceBatch{
+		Resources: batch.Resources, Spans: kept, Summaries: summaries, DroppedTraceIDs: droppedTraceIDs,
+	}})
+}
+
+// filterDroppedTraceRows is deliberately before span-ID cache loading.
+// Tombstoned traces must not spend an indexed lookup or occupy a cache entry.
+func (s *Storage) filterDroppedTraceRows(ctx context.Context, rows []SpanRow) ([]SpanRow, error) {
+	if len(rows) == 0 {
+		return rows, nil
+	}
+	traceIDs := distinctTraceIDsForRows(rows)
+	marks := strings.TrimSuffix(strings.Repeat("?,", len(traceIDs)), ",")
+	traceArgs := make([]any, len(traceIDs))
+	for i, traceID := range traceIDs {
+		traceArgs[i] = traceID
+	}
+
+	tombstoned := make(map[string]struct{})
+	droppedRows, err := s.writer.QueryContext(ctx,
+		`SELECT trace_id FROM dropped_traces WHERE trace_id IN (`+marks+`)`, traceArgs...)
+	if err != nil {
+		return nil, fmt.Errorf("storage: query dropped traces: %w", err)
+	}
+	for droppedRows.Next() {
+		var traceID string
+		if err := droppedRows.Scan(&traceID); err != nil {
+			_ = droppedRows.Close()
+			return nil, fmt.Errorf("storage: scan dropped trace: %w", err)
+		}
+		tombstoned[traceID] = struct{}{}
+	}
+	if err := droppedRows.Err(); err != nil {
+		_ = droppedRows.Close()
+		return nil, fmt.Errorf("storage: iterate dropped traces: %w", err)
+	}
+	if err := droppedRows.Close(); err != nil {
+		return nil, fmt.Errorf("storage: close dropped traces: %w", err)
+	}
+	if len(tombstoned) == 0 {
+		return rows, nil
+	}
+
+	if _, err := s.writer.ExecContext(ctx,
+		`UPDATE dropped_traces SET last_seen = ? WHERE trace_id IN (`+marks+`)`,
+		append([]any{time.Now()}, traceArgs...)...); err != nil {
+		return nil, fmt.Errorf("storage: refresh dropped traces: %w", err)
+	}
+	result := make([]SpanRow, 0, len(rows))
+	for _, row := range rows {
+		if _, dropped := tombstoned[row.TraceID]; !dropped {
+			result = append(result, row)
+		}
+	}
+	return result, nil
+}
+
+func distinctTraceIDsForRows(rows []SpanRow) []string {
+	seen := make(map[string]struct{}, len(rows))
+	result := make([]string, 0, len(rows))
+	for _, row := range rows {
+		if _, found := seen[row.TraceID]; found {
+			continue
+		}
+		seen[row.TraceID] = struct{}{}
+		result = append(result, row.TraceID)
+	}
+	return result
 }
 
 // writeMetrics upserts the batch's resource rows and series metadata, then
 // appends every point.
 func (s *Storage) writeMetrics(ctx context.Context, batch MetricBatch) {
+	ctx, span := startStorageSpan(ctx, "storage.writeMetrics",
+		attribute.Int("storage.batch.rows", len(batch.Points)),
+		attribute.Int("storage.batch.series", len(batch.Series)),
+		attribute.Int("storage.batch.resources", len(batch.Resources)))
+	defer span.End()
 	started := time.Now()
 	var written int64
 	defer func() { s.recordWrite(ctx, "metrics", started, written) }()
@@ -604,6 +693,7 @@ func (s *Storage) writeMetrics(ctx context.Context, batch MetricBatch) {
 		return
 	}
 
+	_, appendSpan := startStorageSpan(ctx, "storage.appendMetricPoints", attribute.Int("db.rows", len(batch.Points)))
 	err := s.writer.Raw(func(driverConn any) error {
 		appender, err := duckdb.NewAppenderFromConn(driverConn.(driver.Conn), "", "metric_points")
 		if err != nil {
@@ -628,16 +718,21 @@ func (s *Storage) writeMetrics(ctx context.Context, batch MetricBatch) {
 		}
 		return appender.Flush()
 	})
+	endStorageSpan(appendSpan, err)
 	if err != nil {
 		slog.Error("storage: append metric points failed", "error", err)
 		return
 	}
 	written = int64(len(batch.Points))
-	s.dispatchCommit(CommitEvent{Kind: KindMetrics, Metrics: batch})
+	s.dispatchCommit(ctx, CommitEvent{Kind: KindMetrics, Metrics: batch})
 }
 
 // writeLogs upserts the batch's resource rows, then appends every log.
 func (s *Storage) writeLogs(ctx context.Context, batch LogBatch) {
+	ctx, span := startStorageSpan(ctx, "storage.writeLogs",
+		attribute.Int("storage.batch.rows", len(batch.Logs)),
+		attribute.Int("storage.batch.resources", len(batch.Resources)))
+	defer span.End()
 	started := time.Now()
 	var written int64
 	defer func() { s.recordWrite(ctx, "logs", started, written) }()
@@ -651,6 +746,7 @@ func (s *Storage) writeLogs(ctx context.Context, batch LogBatch) {
 	}
 
 	now := time.Now()
+	_, appendSpan := startStorageSpan(ctx, "storage.appendLogs", attribute.Int("db.rows", len(batch.Logs)))
 	err := s.writer.Raw(func(driverConn any) error {
 		appender, err := duckdb.NewAppenderFromConn(driverConn.(driver.Conn), "", "logs")
 		if err != nil {
@@ -677,12 +773,13 @@ func (s *Storage) writeLogs(ctx context.Context, batch LogBatch) {
 		}
 		return appender.Flush()
 	})
+	endStorageSpan(appendSpan, err)
 	if err != nil {
 		slog.Error("storage: append logs failed", "error", err)
 		return
 	}
 	written = int64(len(batch.Logs))
-	s.dispatchCommit(CommitEvent{Kind: KindLogs, Logs: LogBatch{Resources: batch.Resources, Logs: batch.Logs}})
+	s.dispatchCommit(ctx, CommitEvent{Kind: KindLogs, Logs: LogBatch{Resources: batch.Resources, Logs: batch.Logs}})
 }
 
 func signalKindName(kind SignalKind) string {
@@ -698,11 +795,32 @@ func signalKindName(kind SignalKind) string {
 	}
 }
 
+func writerMsgSignal(kind writerMsgKind) string {
+	switch kind {
+	case msgTraces:
+		return "traces"
+	case msgMetrics:
+		return "metrics"
+	case msgLogs:
+		return "logs"
+	case msgSync:
+		return "sync"
+	case msgSweep:
+		return "sweep"
+	case msgClear:
+		return "clear"
+	default:
+		return "unknown"
+	}
+}
+
 // upsertResources inserts resource dimension rows not already known to
 // resourceCache. Resources never change after first insert (the hash is
 // over their whole attribute set), so a cache hit safely skips the round
 // trip entirely — unlike metric_series, nothing here ever needs refreshing.
-func (s *Storage) upsertResources(ctx context.Context, rows []ResourceRow) error {
+func (s *Storage) upsertResources(ctx context.Context, rows []ResourceRow) (err error) {
+	ctx, span := startStorageSpan(ctx, "storage.upsertResources", attribute.Int("db.rows", len(rows)))
+	defer func() { endStorageSpan(span, err) }()
 	for _, r := range rows {
 		if s.resourceCache.Contains(r.ResourceHash) {
 			continue
@@ -729,7 +847,9 @@ func (s *Storage) upsertResources(ctx context.Context, rows []ResourceRow) error
 // stay current for retention/staleness purposes, and ConvertMetrics already
 // deduplicates a series repeated within one batch, so this is at most one
 // statement per distinct series per AddMetrics call.
-func (s *Storage) upsertSeries(ctx context.Context, rows []MetricSeriesRow) error {
+func (s *Storage) upsertSeries(ctx context.Context, rows []MetricSeriesRow) (err error) {
+	ctx, span := startStorageSpan(ctx, "storage.upsertSeries", attribute.Int("db.rows", len(rows)))
+	defer func() { endStorageSpan(span, err) }()
 	if len(rows) == 0 {
 		return nil
 	}
@@ -764,7 +884,9 @@ func (s *Storage) upsertSeries(ctx context.Context, rows []MetricSeriesRow) erro
 // performSweep runs one retention+max_size pass: delete expired fact rows,
 // prune orphaned dimension rows, checkpoint, then (file-backed databases
 // only) trim the oldest data repeatedly until under MaxSize.
-func (s *Storage) performSweep(ctx context.Context) error {
+func (s *Storage) performSweep(ctx context.Context) (err error) {
+	ctx, span := startStorageSpan(ctx, "storage.performSweep")
+	defer func() { endStorageSpan(span, err) }()
 	cutoff := time.Now().Add(-s.opts.Retention)
 
 	if err := s.deleteFactsBefore(ctx, cutoff); err != nil {
@@ -783,9 +905,29 @@ func (s *Storage) performSweep(ctx context.Context) error {
 	return s.enforceMaxSize(ctx)
 }
 
-func (s *Storage) deleteFactsBefore(ctx context.Context, cutoff time.Time) error {
+func (s *Storage) deleteFactsBefore(ctx context.Context, cutoff time.Time) (err error) {
+	ctx, span := startStorageSpan(ctx, "storage.deleteFactsBefore")
+	defer func() { endStorageSpan(span, err) }()
+	if _, err := s.writer.ExecContext(ctx, `BEGIN TRANSACTION`); err != nil {
+		return fmt.Errorf("storage: begin fact deletion: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_, _ = s.writer.ExecContext(context.Background(), `ROLLBACK`)
+		}
+	}()
+	if _, err := s.writer.ExecContext(ctx, `
+		CREATE OR REPLACE TEMP TABLE affected_traces AS
+		SELECT DISTINCT trace_id FROM spans WHERE start_ts < ?
+	`, cutoff); err != nil {
+		return fmt.Errorf("storage: collect traces affected by sweep: %w", err)
+	}
 	if _, err := s.writer.ExecContext(ctx, `DELETE FROM spans WHERE start_ts < ?`, cutoff); err != nil {
 		return fmt.Errorf("storage: sweep spans: %w", err)
+	}
+	if err := s.rebuildAffectedTraceSummaries(ctx); err != nil {
+		return err
 	}
 	if _, err := s.writer.ExecContext(ctx, `DELETE FROM metric_points WHERE ts < ?`, cutoff); err != nil {
 		return fmt.Errorf("storage: sweep metric_points: %w", err)
@@ -793,6 +935,13 @@ func (s *Storage) deleteFactsBefore(ctx context.Context, cutoff time.Time) error
 	if _, err := s.writer.ExecContext(ctx, `DELETE FROM logs WHERE ts < ?`, cutoff); err != nil {
 		return fmt.Errorf("storage: sweep logs: %w", err)
 	}
+	if _, err := s.writer.ExecContext(ctx, `DELETE FROM dropped_traces WHERE last_seen < ?`, cutoff); err != nil {
+		return fmt.Errorf("storage: sweep dropped traces: %w", err)
+	}
+	if _, err := s.writer.ExecContext(ctx, `COMMIT`); err != nil {
+		return fmt.Errorf("storage: commit fact deletion: %w", err)
+	}
+	committed = true
 	return nil
 }
 
@@ -806,8 +955,10 @@ func (s *Storage) deleteFactsBefore(ctx context.Context, cutoff time.Time) error
 // metric_series prunes first: a series orphaned this pass must release its
 // resource reference before the resources prune decides what is still live —
 // otherwise the resource lingers until the next sweep.
-func (s *Storage) pruneDimensions(ctx context.Context) error {
-	_, err := s.writer.ExecContext(ctx, `
+func (s *Storage) pruneDimensions(ctx context.Context) (err error) {
+	ctx, span := startStorageSpan(ctx, "storage.pruneDimensions")
+	defer func() { endStorageSpan(span, err) }()
+	_, err = s.writer.ExecContext(ctx, `
 		DELETE FROM metric_series
 		WHERE series_key NOT IN (SELECT series_key FROM metric_points)
 	`)
@@ -838,7 +989,9 @@ func (s *Storage) pruneDimensions(ctx context.Context) error {
 // future writes rather than returned to the OS. So this loop may run to
 // maxSizeSweepIterations without ever observing size drop under MaxSize;
 // that's an expected, logged outcome (see the warning below), not a bug.
-func (s *Storage) enforceMaxSize(ctx context.Context) error {
+func (s *Storage) enforceMaxSize(ctx context.Context) (err error) {
+	ctx, span := startStorageSpan(ctx, "storage.enforceMaxSize")
+	defer func() { endStorageSpan(span, err) }()
 	for i := 0; i < maxSizeSweepIterations; i++ {
 		size, err := s.sizeFn()
 		if err != nil {
@@ -874,11 +1027,12 @@ func (s *Storage) enforceMaxSize(ctx context.Context) error {
 }
 
 // performClear deletes every row from every table and checkpoints, then
-// resets the in-writer caches — a stale resourceCache/spanDedup entry after
-// a full wipe would otherwise skip re-inserting a resource or re-appending a
-// span that legitimately needs to exist again.
-func (s *Storage) performClear(ctx context.Context) error {
-	for _, table := range []string{"spans", "metric_points", "logs", "metric_series", "resources"} {
+// resets the in-writer resource cache so a full wipe cannot suppress a
+// resource row that needs to be inserted again.
+func (s *Storage) performClear(ctx context.Context) (err error) {
+	ctx, span := startStorageSpan(ctx, "storage.performClear")
+	defer func() { endStorageSpan(span, err) }()
+	for _, table := range []string{"spans", "trace_summaries", "metric_points", "logs", "metric_series", "resources", "dropped_traces"} {
 		if _, err := s.writer.ExecContext(ctx, `DELETE FROM `+table); err != nil { //nolint:gosec // table is a fixed internal identifier, never user input
 			return fmt.Errorf("storage: clear %s: %w", table, err)
 		}
@@ -887,7 +1041,6 @@ func (s *Storage) performClear(ctx context.Context) error {
 		return fmt.Errorf("storage: checkpoint: %w", err)
 	}
 	s.resourceCache = newLRUSet[uint64](resourceCacheCap)
-	s.spanDedup = newLRUSet[spanKey](spanDedupCap)
 	return nil
 }
 

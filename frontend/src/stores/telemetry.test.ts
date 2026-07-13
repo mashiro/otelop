@@ -4,6 +4,7 @@ import {
   metricsAtom,
   addMetricAtom,
   addTraceAtom,
+  removeTraceAtom,
   addLogAtom,
   bufferCapsAtom,
   tracesAtom,
@@ -15,6 +16,7 @@ import {
   totalMetricCountAtom,
   totalLogCountAtom,
   newTraceCountAtom,
+  removedTraceCountAtom,
   newMetricCountAtom,
   newLogCountAtom,
   setTotalCountsAtom,
@@ -157,6 +159,21 @@ describe("header badge totals (traceCountAtom/metricCountAtom/logCountAtom)", ()
 
     expect(store.get(newTraceCountAtom)).toBe(1);
     expect(store.get(traceCountAtom)).toBe(301);
+  });
+
+  it("an oversized-trace deletion removes stale UI state and decrements the badge", () => {
+    const store = createStore();
+    store.set(setTotalCountsAtom, { traceCount: 300, metricCount: 0, logCount: 0 });
+    const trace = makeTrace({ traceId: "oversized" });
+    store.set(tracesAtom, [trace]);
+    store.set(selectedTraceAtom, trace);
+
+    store.set(removeTraceAtom, trace.traceId);
+
+    expect(store.get(tracesAtom)).toEqual([]);
+    expect(store.get(selectedTraceIdAtom)).toBeNull();
+    expect(store.get(removedTraceCountAtom)).toBe(1);
+    expect(store.get(traceCountAtom)).toBe(299);
   });
 
   it("a WS delivery that merges into an existing trace does not increment the badge", () => {

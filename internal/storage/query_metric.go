@@ -10,6 +10,7 @@ import (
 
 	duckdb "github.com/duckdb/duckdb-go/v2"
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 // MetricSummary is one (service_name, metric_name) group — the same
@@ -158,6 +159,8 @@ func (s *Storage) MetricsPage(ctx context.Context, from, to time.Time, after *Me
 // MetricsPageSearch is MetricsPage with a case-insensitive substring search
 // over the fields rendered by the metrics list.
 func (s *Storage) MetricsPageSearch(ctx context.Context, from, to time.Time, after *MetricCursor, limit int, search string) (items []MetricSummary, hasNextPage bool, err error) {
+	ctx, span := startStorageSpan(ctx, "storage.MetricsPage", attribute.Int("db.limit", limit))
+	defer func() { endStorageSpan(span, err) }()
 	started := time.Now()
 	defer func() { s.recordQuery(ctx, "query_metrics", started, err) }()
 	pattern := likePattern(search)
@@ -215,6 +218,8 @@ func metricCursorArgs(after *MetricCursor) (bool, time.Time, string, string) {
 // two page-wide queries. This keeps Query.metrics at a constant number of SQL
 // round trips instead of resolving pointCount and latestValue once per item.
 func (s *Storage) populateMetricSummaryStats(ctx context.Context, items []MetricSummary, from, to time.Time) (err error) {
+	ctx, span := startStorageSpan(ctx, "storage.populateMetricSummaryStats", attribute.Int("db.rows", len(items)))
+	defer func() { endStorageSpan(span, err) }()
 	started := time.Now()
 	defer func() { s.recordQuery(ctx, "query_metric_summary_stats", started, err) }()
 	if len(items) == 0 {
@@ -583,6 +588,8 @@ type MetricPointWindow struct {
 // (serviceName, metricName) pair within [from, to), ordered by timestamp,
 // with cumulative/delta values derived at query time.
 func (s *Storage) MetricPoints(ctx context.Context, serviceName, metricName string, from, to time.Time) (points []DerivedPoint, err error) {
+	ctx, span := startStorageSpan(ctx, "storage.MetricPoints")
+	defer func() { endStorageSpan(span, err) }()
 	started := time.Now()
 	defer func() { s.recordQuery(ctx, "query_metric_points", started, err) }()
 	return s.queryMetricPoints(ctx, metricPointsQuery, serviceName, metricName, from, to)
@@ -591,6 +598,8 @@ func (s *Storage) MetricPoints(ctx context.Context, serviceName, metricName stri
 // MetricPointsWithPredecessors returns the requested points plus at most one
 // older point per series so cumulative values in the window can be derived.
 func (s *Storage) MetricPointsWithPredecessors(ctx context.Context, serviceName, metricName string, from, to time.Time) (points []DerivedPoint, err error) {
+	ctx, span := startStorageSpan(ctx, "storage.MetricPointsWithPredecessors")
+	defer func() { endStorageSpan(span, err) }()
 	started := time.Now()
 	defer func() { s.recordQuery(ctx, "query_metric_points", started, err) }()
 	return s.queryMetricPoints(ctx, metricPointsWithPredecessorsQuery, serviceName, metricName, from, to, from)
@@ -602,6 +611,8 @@ func (s *Storage) MetricPointsWithPredecessorsBatch(ctx context.Context, windows
 	if len(windows) == 0 {
 		return [][]DerivedPoint{}, nil
 	}
+	ctx, span := startStorageSpan(ctx, "storage.MetricPointsWithPredecessorsBatch", attribute.Int("storage.batch.metric_count", len(windows)))
+	defer func() { endStorageSpan(span, err) }()
 	started := time.Now()
 	defer func() { s.recordQuery(ctx, "query_metric_points_batch", started, err) }()
 
@@ -747,6 +758,8 @@ LIMIT 1
 // latest observation has no meaningful value yet (see metricLatestValueQuery's
 // doc comment).
 func (s *Storage) LatestValue(ctx context.Context, serviceName, metricName string) (value *float64, err error) {
+	ctx, span := startStorageSpan(ctx, "storage.LatestValue")
+	defer func() { endStorageSpan(span, err) }()
 	started := time.Now()
 	defer func() { s.recordQuery(ctx, "query_metric_latest_value", started, err) }()
 	var latest sql.NullFloat64

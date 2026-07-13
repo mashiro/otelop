@@ -11,7 +11,11 @@ import (
 	"go.opentelemetry.io/collector/pdata/plog"
 	"go.opentelemetry.io/collector/pdata/pmetric"
 	"go.opentelemetry.io/collector/pdata/ptrace"
+	"go.opentelemetry.io/otel"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 
+	"github.com/mashiro/otelop/internal/selftelemetry"
 	"github.com/mashiro/otelop/internal/storage"
 )
 
@@ -19,10 +23,79 @@ import (
 // type, so assertions can inspect the exact JSON the WebSocket hub would
 // have sent to the frontend.
 type captured struct {
-	mu      sync.Mutex
-	traces  []*TraceData
-	metrics []*MetricData
-	logs    []*LogData
+	mu           sync.Mutex
+	traces       []*TraceData
+	traceDeletes []*TraceDeleteData
+	metrics      []*MetricData
+	logs         []*LogData
+}
+
+func TestBroadcast_OversizedTraceDeletion(t *testing.T) {
+	rec := &captured{}
+	broadcastTraces(context.Background(), storage.TraceBatch{
+		DroppedTraceIDs: []string{"oversized"},
+	}, rec.onAdd)
+
+	if len(rec.traceDeletes) != 1 || rec.traceDeletes[0].TraceID != "oversized" {
+		t.Fatalf("trace deletes = %+v, want oversized", rec.traceDeletes)
+	}
+}
+
+func TestBroadcast_UsesCommittedTraceSummary(t *testing.T) {
+	rec := &captured{}
+	broadcastTraces(context.Background(), storage.TraceBatch{
+		Resources: []storage.ResourceRow{{ResourceHash: 1, ServiceName: "svc"}},
+		Spans: []storage.SpanRow{{
+			TraceID: "trace", SpanID: "span", Name: "operation", StatusCode: "Ok", ResourceHash: 1,
+		}},
+		Summaries: []storage.TraceSummary{{
+			TraceID: "trace", SpanCount: 42, ServiceName: "svc", StartTime: time.Unix(1, 0),
+		}},
+	}, rec.onAdd)
+
+	if len(rec.traces) != 1 || rec.traces[0].SpanCount != 42 {
+		t.Fatalf("traces = %+v, want precomputed 42-span summary", rec.traces)
+	}
+}
+
+func TestBroadcast_InternalTraceBatchDoesNotAmplifySelfTelemetry(t *testing.T) {
+	recorder := tracetest.NewSpanRecorder()
+	provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+	previous := otel.GetTracerProvider()
+	otel.SetTracerProvider(provider)
+	t.Cleanup(func() {
+		otel.SetTracerProvider(previous)
+		_ = provider.Shutdown(context.Background())
+	})
+
+	rec := &captured{}
+	s := openTestStorage(t, rec)
+	td := ptrace.NewTraces()
+	rs := td.ResourceSpans().AppendEmpty()
+	rs.Resource().Attributes().PutStr("service.name", "otelop")
+	rs.Resource().Attributes().PutBool(selftelemetry.InternalResourceAttribute, true)
+	sp := rs.ScopeSpans().AppendEmpty().Spans().AppendEmpty()
+	sp.SetTraceID(pcommon.TraceID([16]byte{9}))
+	sp.SetSpanID(pcommon.SpanID([8]byte{9}))
+	sp.SetName("storage.writeTraces")
+	sp.SetStartTimestamp(pcommon.NewTimestampFromTime(time.Now()))
+	sp.SetEndTimestamp(pcommon.NewTimestampFromTime(time.Now().Add(time.Millisecond)))
+
+	s.AddTraces(context.Background(), td)
+	s.Sync()
+
+	if got := len(recorder.Ended()); got != 0 {
+		names := make([]string, got)
+		for i, span := range recorder.Ended() {
+			names[i] = span.Name()
+		}
+		t.Fatalf("internal trace ingestion emitted %d spans (%v), want none", got, names)
+	}
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+	if len(rec.traces) != 1 {
+		t.Fatalf("internal trace still must be stored/broadcast; got %d broadcasts", len(rec.traces))
+	}
 }
 
 func (c *captured) onAdd(_ context.Context, signalType SignalType, data any) {
@@ -31,6 +104,8 @@ func (c *captured) onAdd(_ context.Context, signalType SignalType, data any) {
 	switch signalType {
 	case SignalTraces:
 		c.traces = append(c.traces, data.(*TraceData))
+	case SignalTraceDeletes:
+		c.traceDeletes = append(c.traceDeletes, data.(*TraceDeleteData))
 	case SignalMetrics:
 		c.metrics = append(c.metrics, data.(*MetricData))
 	case SignalLogs:

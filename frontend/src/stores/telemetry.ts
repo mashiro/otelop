@@ -275,6 +275,7 @@ export const totalLogCountAtom = atom(0);
 // neither of those — nor setTracesAtom/setMetricsAtom/setLogsAtom's initial
 // page-1 replace — touches these.
 export const newTraceCountAtom = atom(0);
+export const removedTraceCountAtom = atom(0);
 export const newMetricCountAtom = atom(0);
 export const newLogCountAtom = atom(0);
 
@@ -290,6 +291,18 @@ export const setTotalCountsAtom = atom(null, (_get, set, totals: SignalTotals) =
   set(totalTraceCountAtom, totals.traceCount);
   set(totalMetricCountAtom, totals.metricCount);
   set(totalLogCountAtom, totals.logCount);
+  set(removedTraceCountAtom, 0);
+});
+
+// A trace that crosses the ingestion span limit is deleted server-side. The
+// matching WebSocket event removes its stale live summary immediately so the
+// UI cannot navigate to a trace that no longer exists.
+export const removeTraceAtom = atom(null, (get, set, traceId: string) => {
+  set(tracesAtom, (traces) => traces.filter((trace) => trace.traceId !== traceId));
+  if (get(selectedTraceIdAtom) === traceId) {
+    set(selectedTraceIdAtom, null);
+  }
+  set(removedTraceCountAtom, (count) => count + 1);
 });
 
 // Header badge totals: server-reported total (as of load) plus every
@@ -298,7 +311,9 @@ export const setTotalCountsAtom = atom(null, (_get, set, totals: SignalTotals) =
 // that drift is accepted rather than reconciled — a live tab badge running
 // slightly high until the next full reload re-seeds it is preferable to
 // re-querying config on every tick just to catch a rare sweep.
-export const traceCountAtom = atom((get) => get(totalTraceCountAtom) + get(newTraceCountAtom));
+export const traceCountAtom = atom((get) =>
+  Math.max(0, get(totalTraceCountAtom) + get(newTraceCountAtom) - get(removedTraceCountAtom)),
+);
 export const metricCountAtom = atom((get) => get(totalMetricCountAtom) + get(newMetricCountAtom));
 export const logCountAtom = atom((get) => get(totalLogCountAtom) + get(newLogCountAtom));
 

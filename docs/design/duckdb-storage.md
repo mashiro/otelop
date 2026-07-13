@@ -29,8 +29,9 @@ explicitly out of scope — that is what LGTM-stack deployments are for.
 ```
 OTLP receiver → exporter → convert (pure functions) → writer goroutine (single)
                                                         ├─ Appender: spans / metric_points / logs
+                                                        ├─ update: trace_summaries
                                                         ├─ upsert: resources / metric_series
-                                                        └─ flush per OTLP batch → commit event → WebSocket broadcast
+                                                        └─ commit per OTLP batch → WebSocket broadcast
 GraphQL resolvers ──────────────────────────────────────→ read-only SQL (separate connection)
 ```
 
@@ -38,9 +39,9 @@ Key decisions:
 
 1. **DuckDB is the primary store.** There is no in-memory buffer layer. Every
    read is SQL; the "latest N" view is a tail query. In-memory state is
-   limited to pure caches such as known dimension hashes and recent span IDs.
-   A cache miss only repeats an idempotent write or leaves read-time dedup to
-   SQL, so eviction can never corrupt results.
+   limited to pure caches such as known dimension hashes. A cache miss only
+   repeats an idempotent write, so eviction can never corrupt results. Span
+   identity is checked directly against DuckDB rather than cached.
 2. **Ingest is stateless.** Metric points are stored with their *raw* OTLP
    values plus temporality/monotonicity metadata. Delta-ization of cumulative
    inputs and accumulation of delta inputs both move to query time
@@ -52,10 +53,11 @@ Key decisions:
    DuckDB zonemaps (data arrives roughly time-ordered) keeps queries pruned.
    The frontend defaults to a recent window; live updates continue to arrive
    over WebSocket.
-4. **Trace summaries are derived, not stored.** `TraceData` was a materialized
-   aggregate over spans (`Merge` maintained it imperatively). It becomes a
-   `GROUP BY trace_id` with the root span selected by window function —
-   the declarative equivalent of the old merge logic.
+4. **Trace summaries are derived and persisted.** Spans remain the source of
+   truth, but the hot list path reads one narrow `trace_summaries` row per
+   trace instead of regrouping every retained span on every request. Ingest
+   updates only summaries for traces that received a new `(trace_id, span_id)`;
+   retention rebuilds only summaries whose spans were deleted.
 
 ## Schema
 
@@ -108,6 +110,31 @@ CREATE TABLE spans (
 );
 CREATE INDEX idx_spans_trace ON spans (trace_id);
 
+-- derived from spans; rebuildable without information loss
+CREATE TABLE trace_summaries (
+  trace_id               VARCHAR PRIMARY KEY,
+  start_ts               TIMESTAMP_NS NOT NULL,
+  end_ts                 TIMESTAMP_NS NOT NULL,
+  span_count             BIGINT NOT NULL,
+  has_error              BOOLEAN NOT NULL,
+  first_seen             TIMESTAMP_NS NOT NULL,
+  root_span_id           VARCHAR,
+  root_name              VARCHAR,
+  root_kind              VARCHAR,
+  root_status_code       VARCHAR,
+  root_start_ts          TIMESTAMP_NS,
+  root_end_ts            TIMESTAMP_NS,
+  root_resource_hash     UBIGINT,
+  earliest_span_id       VARCHAR NOT NULL,
+  earliest_resource_hash UBIGINT NOT NULL
+);
+
+CREATE TABLE dropped_traces (
+  trace_id   VARCHAR PRIMARY KEY,
+  last_seen  TIMESTAMP_NS NOT NULL,
+  span_count BIGINT NOT NULL
+);
+
 CREATE TABLE metric_points (
   id         UUID NOT NULL,            -- UUIDv7 minted at ingest (stable client key)
   series_key UBIGINT NOT NULL,
@@ -142,8 +169,9 @@ Notes:
 
 - `TIMESTAMP_NS` everywhere — OTel emits nanosecond precision and the frontend
   relies on it (`Temporal.Instant`). DuckDB's default `TIMESTAMP` is µs.
-- Only two ART indexes (`trace_id` on spans and logs) for point lookups.
-  Everything else relies on zonemap pruning over time-ordered data.
+- The explicit ART indexes are limited to `trace_id` on spans and logs.
+  `trace_summaries.trace_id` and dimension hashes use narrow primary-key ART
+  indexes for conflict lookup; time-range scans rely on zonemap pruning.
 - Attribute maps stay `JSON`: variable keys need no schema and remain
   queryable (`attributes->>'http.method'`).
 
@@ -155,16 +183,23 @@ A single writer goroutine owns the write connection. Per OTLP batch:
 2. Insert unseen `resources` and upsert `metric_series` metadata (including
    `last_seen`). An LRU of known resource hashes skips redundant writes; the
    LRU is only a cache.
-3. Append fact rows through DuckDB Appenders, then flush.
-4. After flush, invoke `onAdd` (outside any lock) to feed the WebSocket hub,
-   mirroring the previous store's contract.
+3. For traces already present in `trace_summaries`, query only the incoming
+   candidate span IDs through `idx_spans_trace`; new traces need no fact-table
+   lookup. Rows not already present append to spans and update only their trace
+   summaries. The lookup, append, summary upsert, oversize-trace tombstone, and
+   deletion share one transaction. This keeps duplicate handling independent
+   of arrival order and process-local caches.
+4. Append metric/log facts through DuckDB Appenders and flush.
+5. After commit, invoke `onAdd` (outside any lock) to feed the WebSocket hub,
+   mirroring the previous store's contract. Trace broadcasts reuse the
+   summaries produced by the write transaction.
 
 WebSocket payloads still carry per-point deltas for live charts. After a
 metric batch commits, the broadcast adapter queries the committed points plus
 the immediately preceding observation for each represented series and applies
 the same SQL derivation used by GraphQL. Duplicate spans from OTLP re-sends are
-filtered by a bounded LRU of recent `(trace_id, span_id)`; read queries also
-deduplicate by span identity with `QUALIFY row_number() OVER (...) = 1`.
+filtered by the indexed candidate lookup, so a restart or a resend cannot
+inflate stored spans or summaries.
 
 Backpressure: the channel into the writer is bounded; when full, batches are
 dropped with a `slog.Warn`, the same policy the WebSocket hub applies. Crash
@@ -172,27 +207,17 @@ safety comes from DuckDB's WAL (per-batch flush + periodic checkpoints).
 
 ## Reads
 
-Trace list — the declarative replacement for the old `TraceData.Merge`:
+Trace list reads the incrementally maintained rows directly. Search still uses
+an `EXISTS` over spans because non-root span names and services are searchable:
 
 ```sql
-WITH deduped AS (
-  SELECT * FROM spans
-  WHERE start_ts >= $from AND start_ts < $to
-  QUALIFY row_number() OVER (PARTITION BY trace_id, span_id ORDER BY ingested_at) = 1
-)
 SELECT
-  trace_id,
-  min(start_ts)                                        AS start_time,
-  max(end_ts) - min(start_ts)                          AS duration,
-  count(*)                                             AS span_count,
-  bool_or(status_code = 'Error')                       AS has_error,
-  min(ingested_at)                                     AS first_seen,
-  -- root span: parentless with the longest duration (ties broken arbitrarily)
-  arg_max(name, CASE WHEN parent_span_id = '' THEN end_ts - start_ts END) AS root_name
-FROM deduped
-GROUP BY trace_id
-ORDER BY first_seen DESC
-LIMIT $limit OFFSET $offset;
+  trace_id, start_ts, end_ts - start_ts AS duration,
+  span_count, has_error, first_seen, root_name
+FROM trace_summaries
+WHERE start_ts >= $from AND start_ts < $to
+ORDER BY start_ts DESC, first_seen DESC, trace_id DESC
+LIMIT $limit;
 ```
 
 Metric chart — delta/cumulative derived per series:
@@ -222,7 +247,8 @@ while keeping the raw row.
 - `retention` (default `"7d"`): an hourly sweep runs
   `DELETE ... WHERE ts < now() - retention` followed by `CHECKPOINT`. Because
   rows arrive roughly time-ordered, old row groups delete wholesale and their
-  space is reused in-file.
+  space is reused in-file. Trace summaries touched by deleted spans are rebuilt
+  in the same transaction; unaffected traces are not scanned.
 - `max_size` (default `"4GB"`): if the database file exceeds the ceiling, the
   sweep trims the oldest day repeatedly until under it. Users are protected by
   whichever bound is tighter.

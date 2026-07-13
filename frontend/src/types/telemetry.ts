@@ -122,6 +122,10 @@ export interface LogData {
 }
 
 export interface WsMessage {
-  type: "traces" | "metrics" | "logs";
-  data: TraceData | MetricData | LogData;
+  type: "traces" | "trace-deletes" | "metrics" | "logs";
+  data: TraceData | TraceDeleteData | MetricData | LogData;
+}
+
+export interface TraceDeleteData {
+  traceId: string;
 }

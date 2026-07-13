@@ -12,7 +12,11 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/mashiro/otelop/internal/selftelemetry"
 	"github.com/mashiro/otelop/internal/storage"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // metricLeadMargin nudges the query's exclusive upper bound past the
@@ -28,7 +32,7 @@ func New(s *storage.Storage, onAdd OnAddFunc) storage.OnCommitFunc {
 	return func(ctx context.Context, ev storage.CommitEvent) {
 		switch ev.Kind {
 		case storage.KindTraces:
-			broadcastTraces(ctx, s, ev.Traces, onAdd)
+			broadcastTraces(ctx, ev.Traces, onAdd)
 		case storage.KindMetrics:
 			broadcastMetrics(ctx, s, ev.Metrics, onAdd)
 		case storage.KindLogs:
@@ -37,16 +41,16 @@ func New(s *storage.Storage, onAdd OnAddFunc) storage.OnCommitFunc {
 	}
 }
 
-func broadcastTraces(ctx context.Context, s *storage.Storage, batch storage.TraceBatch, onAdd OnAddFunc) {
-	ids := distinctTraceIDs(batch.Spans)
-	searchValues := traceSearchValues(batch)
-	summaries, err := s.TraceSummariesByIDs(ctx, ids)
-	if err != nil {
-		slog.Error("broadcast: trace summaries lookup failed", "trace_count", len(ids), "error", err)
-		return
+func broadcastTraces(ctx context.Context, batch storage.TraceBatch, onAdd OnAddFunc) {
+	for _, traceID := range batch.DroppedTraceIDs {
+		onAdd(ctx, SignalTraceDeletes, &TraceDeleteData{TraceID: traceID})
 	}
-	for i := range summaries {
-		onAdd(ctx, SignalTraces, traceSummaryToTraceData(&summaries[i], searchValues[summaries[i].TraceID]))
+	ctx, span := startBroadcastSpan(ctx, "broadcast.broadcastTraces")
+	span.SetAttributes(attribute.Int("storage.batch.rows", len(batch.Spans)), attribute.Int("storage.batch.trace_count", len(batch.Summaries)))
+	defer span.End()
+	searchValues := traceSearchValues(batch)
+	for i := range batch.Summaries {
+		onAdd(ctx, SignalTraces, traceSummaryToTraceData(&batch.Summaries[i], searchValues[batch.Summaries[i].TraceID]))
 	}
 }
 
@@ -60,19 +64,6 @@ func traceSearchValues(batch storage.TraceBatch) map[string][]string {
 		values[span.TraceID] = append(values[span.TraceID], span.Name, span.StatusCode, serviceByHash[span.ResourceHash])
 	}
 	return values
-}
-
-func distinctTraceIDs(spans []storage.SpanRow) []string {
-	seen := make(map[string]struct{}, len(spans))
-	ids := make([]string, 0, len(spans))
-	for _, sp := range spans {
-		if _, ok := seen[sp.TraceID]; ok {
-			continue
-		}
-		seen[sp.TraceID] = struct{}{}
-		ids = append(ids, sp.TraceID)
-	}
-	return ids
 }
 
 func traceSummaryToTraceData(s *storage.TraceSummary, searchValues []string) *TraceData {
@@ -108,6 +99,9 @@ func broadcastMetrics(ctx context.Context, s *storage.Storage, batch storage.Met
 	if len(batch.Points) == 0 {
 		return
 	}
+	ctx, span := startBroadcastSpan(ctx, "broadcast.broadcastMetrics")
+	span.SetAttributes(attribute.Int("storage.batch.rows", len(batch.Points)), attribute.Int("storage.batch.series", len(batch.Series)))
+	defer span.End()
 
 	// ConvertMetrics (internal/storage/convert.go) always includes a
 	// MetricSeriesRow for every series referenced by Points in this same
@@ -227,6 +221,9 @@ func seriesRowFor(seriesInfo map[uint64]storage.MetricSeriesRow, k metricKey) st
 type uuidKey [16]byte
 
 func broadcastLogs(ctx context.Context, batch storage.LogBatch, onAdd OnAddFunc) {
+	ctx, span := startBroadcastSpan(ctx, "broadcast.broadcastLogs")
+	span.SetAttributes(attribute.Int("storage.batch.rows", len(batch.Logs)))
+	defer span.End()
 	resourceByHash := make(map[uint64]storage.ResourceRow, len(batch.Resources))
 	for _, r := range batch.Resources {
 		resourceByHash[r.ResourceHash] = r
@@ -247,4 +244,11 @@ func broadcastLogs(ctx context.Context, batch storage.LogBatch, onAdd OnAddFunc)
 			Resource:          res.Attributes,
 		})
 	}
+}
+
+func startBroadcastSpan(ctx context.Context, name string) (context.Context, trace.Span) {
+	if selftelemetry.TracingSuppressed(ctx) {
+		return ctx, trace.SpanFromContext(context.Background())
+	}
+	return otel.Tracer("otelop/broadcast").Start(ctx, name)
 }

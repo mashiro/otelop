@@ -44,11 +44,15 @@ type SpanRow struct {
 	ResourceHash  uint64
 }
 
-// TraceBatch is the converted output of one AddTraces call, ready to be
-// enqueued to the writer.
+// TraceBatch carries converted trace rows through the write path. Storage
+// fills Summaries from the transactionally updated derived table and exposes
+// them to the broadcast path only after the span write commits. ConvertTraces
+// leaves them empty.
 type TraceBatch struct {
-	Resources []ResourceRow
-	Spans     []SpanRow
+	Resources       []ResourceRow
+	Spans           []SpanRow
+	Summaries       []TraceSummary
+	DroppedTraceIDs []string
 }
 
 // MetricSeriesRow is one row of the metric_series dimension table —

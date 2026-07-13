@@ -2,12 +2,8 @@ package storage
 
 import "container/list"
 
-// lruSet is a bounded set of recently-seen keys used purely to skip redundant
-// round trips (a known dimension hash, a known (trace_id, span_id) pair). It
-// is never consulted for correctness: a miss just takes the slow path (an
-// INSERT ... ON CONFLICT DO NOTHING, or — for span dedup — appending a row
-// that a QUALIFY row_number() read query would have deduplicated anyway), so
-// eviction can never corrupt results, only cost an extra round trip.
+// lruSet is a bounded set of recently-seen dimension keys used purely to skip
+// redundant idempotent upserts. Eviction only costs an extra round trip.
 type lruSet[K comparable] struct {
 	cap   int
 	ll    *list.List
@@ -49,17 +45,4 @@ func (c *lruSet[K]) Add(key K) {
 			delete(c.items, oldest.Value.(K))
 		}
 	}
-}
-
-// ContainsOrAdd reports whether key was already seen and records it as seen
-// either way, in one map lookup instead of a separate Contains+Add pair —
-// the span-dedup path (writeTraces) calls this once per span rather than
-// probing then inserting.
-func (c *lruSet[K]) ContainsOrAdd(key K) bool {
-	if el, ok := c.items[key]; ok {
-		c.ll.MoveToFront(el)
-		return true
-	}
-	c.Add(key)
-	return false
 }

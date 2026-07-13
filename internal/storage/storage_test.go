@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"slices"
 	"sync"
@@ -13,6 +14,61 @@ import (
 	"go.opentelemetry.io/collector/pdata/pmetric"
 	"go.opentelemetry.io/collector/pdata/ptrace"
 )
+
+func TestStorage_DropsAndTombstonesOversizedTrace(t *testing.T) {
+	s := openTestStorage(t, Options{})
+	ctx := context.Background()
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	const oversizedTraceID = "11111111111111111111111111111111"
+	const normalTraceID = "22222222222222222222222222222222"
+
+	spans := make([]SpanRow, maxSpansPerTrace)
+	for i := range spans {
+		spans[i] = SpanRow{
+			TraceID: oversizedTraceID, SpanID: fmt.Sprintf("%016x", i),
+			Name: "background", StartTS: base, EndTS: base.Add(time.Millisecond), ResourceHash: 1,
+		}
+	}
+	resource := ResourceRow{ResourceHash: 1, ServiceName: "svc", Attributes: map[string]any{"service.name": "svc"}}
+	s.writeTraces(ctx, TraceBatch{Resources: []ResourceRow{resource}, Spans: spans})
+
+	s.writeTraces(ctx, TraceBatch{Resources: []ResourceRow{resource}, Spans: []SpanRow{
+		{TraceID: oversizedTraceID, SpanID: "ffffffffffffffff", Name: "overflow", StartTS: base, EndTS: base.Add(time.Millisecond), ResourceHash: 1},
+		{TraceID: normalTraceID, SpanID: "0000000000000001", Name: "normal", StartTS: base, EndTS: base.Add(time.Millisecond), ResourceHash: 1},
+	}})
+
+	var oversizedCount, normalCount, tombstones, oversizedSummaries, normalSummaries int
+	if err := s.DB().QueryRowContext(ctx, `SELECT count(*) FROM spans WHERE trace_id = ?`, oversizedTraceID).Scan(&oversizedCount); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DB().QueryRowContext(ctx, `SELECT count(*) FROM spans WHERE trace_id = ?`, normalTraceID).Scan(&normalCount); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DB().QueryRowContext(ctx, `SELECT count(*) FROM dropped_traces WHERE trace_id = ?`, oversizedTraceID).Scan(&tombstones); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DB().QueryRowContext(ctx, `SELECT count(*) FROM trace_summaries WHERE trace_id = ?`, oversizedTraceID).Scan(&oversizedSummaries); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DB().QueryRowContext(ctx, `SELECT count(*) FROM trace_summaries WHERE trace_id = ?`, normalTraceID).Scan(&normalSummaries); err != nil {
+		t.Fatal(err)
+	}
+	if oversizedCount != 0 || normalCount != 1 || tombstones != 1 || oversizedSummaries != 0 || normalSummaries != 1 {
+		t.Fatalf("counts after overflow = spans oversized:%d normal:%d summaries oversized:%d normal:%d tombstones:%d",
+			oversizedCount, normalCount, oversizedSummaries, normalSummaries, tombstones)
+	}
+
+	// Later fragments with the same trace ID must not recreate the trace.
+	s.writeTraces(ctx, TraceBatch{Resources: []ResourceRow{resource}, Spans: []SpanRow{{
+		TraceID: oversizedTraceID, SpanID: "eeeeeeeeeeeeeeee", Name: "late", StartTS: base, EndTS: base.Add(time.Millisecond), ResourceHash: 1,
+	}}})
+	if err := s.DB().QueryRowContext(ctx, `SELECT count(*) FROM spans WHERE trace_id = ?`, oversizedTraceID).Scan(&oversizedCount); err != nil {
+		t.Fatal(err)
+	}
+	if oversizedCount != 0 {
+		t.Fatalf("oversized trace recreated with %d spans", oversizedCount)
+	}
+}
 
 func openTestStorage(t *testing.T, opts Options) *Storage {
 	t.Helper()
@@ -605,6 +661,9 @@ func TestStorage_OnCommit_FiresPerSignalAfterFlush(t *testing.T) {
 	}
 	if len(events[0].Traces.Spans) != 1 || events[0].Traces.Spans[0].Name != "op-commit" {
 		t.Errorf("events[0].Traces.Spans = %+v, want 1 span named op-commit", events[0].Traces.Spans)
+	}
+	if len(events[0].Traces.Summaries) != 1 || events[0].Traces.Summaries[0].SpanCount != 1 {
+		t.Errorf("events[0].Traces.Summaries = %+v, want committed one-span summary", events[0].Traces.Summaries)
 	}
 	if events[1].Kind != KindLogs {
 		t.Errorf("events[1].Kind = %v, want KindLogs", events[1].Kind)

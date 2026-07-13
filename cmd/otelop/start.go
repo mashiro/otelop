@@ -266,7 +266,7 @@ func bootstrap(ctx context.Context, opts startOptions) (*runtime, error) {
 	// the writer goroutine, once st is already assigned.
 	var st *storage.Storage
 	onAdd := func(ctx context.Context, sig broadcast.SignalType, data any) {
-		rt.hub.Broadcast(ws.Message{Type: sig, Data: data})
+		rt.hub.BroadcastContext(ctx, ws.Message{Type: sig, Data: data})
 	}
 	st, err = storage.Open(ctx, storage.Options{
 		Path:      storagePath,

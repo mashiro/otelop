@@ -21,10 +21,15 @@ import (
 type SignalType string
 
 const (
-	SignalTraces  SignalType = "traces"
-	SignalMetrics SignalType = "metrics"
-	SignalLogs    SignalType = "logs"
+	SignalTraces       SignalType = "traces"
+	SignalTraceDeletes SignalType = "trace-deletes"
+	SignalMetrics      SignalType = "metrics"
+	SignalLogs         SignalType = "logs"
 )
+
+type TraceDeleteData struct {
+	TraceID string `json:"traceId"`
+}
 
 // OnAddFunc is called once per logical record (one distinct trace, one
 // distinct (service, metric) pair, one log) as it is committed to storage.

@@ -3,9 +3,13 @@ package exporter
 import (
 	"context"
 
+	"github.com/mashiro/otelop/internal/selftelemetry"
 	"go.opentelemetry.io/collector/pdata/plog"
 	"go.opentelemetry.io/collector/pdata/pmetric"
 	"go.opentelemetry.io/collector/pdata/ptrace"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // Sink is the set of ingest methods the exporter needs. internal/storage.Storage
@@ -28,16 +32,38 @@ func newExporter(s Sink) *otelopExporter {
 }
 
 func (e *otelopExporter) pushTraces(ctx context.Context, td ptrace.Traces) error {
+	if selftelemetry.TracesAreInternal(td) {
+		ctx = selftelemetry.SuppressTracing(ctx)
+	}
+	ctx, span := startExporterSpan(ctx, "exporter.pushTraces", attribute.Int("storage.batch.rows", td.SpanCount()))
+	defer span.End()
 	e.sink.AddTraces(ctx, td)
 	return nil
 }
 
 func (e *otelopExporter) pushMetrics(ctx context.Context, md pmetric.Metrics) error {
+	if selftelemetry.MetricsAreInternal(md) {
+		ctx = selftelemetry.SuppressTracing(ctx)
+	}
+	ctx, span := startExporterSpan(ctx, "exporter.pushMetrics", attribute.Int("storage.batch.rows", md.DataPointCount()))
+	defer span.End()
 	e.sink.AddMetrics(ctx, md)
 	return nil
 }
 
 func (e *otelopExporter) pushLogs(ctx context.Context, ld plog.Logs) error {
+	if selftelemetry.LogsAreInternal(ld) {
+		ctx = selftelemetry.SuppressTracing(ctx)
+	}
+	ctx, span := startExporterSpan(ctx, "exporter.pushLogs", attribute.Int("storage.batch.rows", ld.LogRecordCount()))
+	defer span.End()
 	e.sink.AddLogs(ctx, ld)
 	return nil
+}
+
+func startExporterSpan(ctx context.Context, name string, attrs ...attribute.KeyValue) (context.Context, trace.Span) {
+	if selftelemetry.TracingSuppressed(ctx) {
+		return ctx, trace.SpanFromContext(context.Background())
+	}
+	return otel.Tracer("otelop/exporter").Start(ctx, name, trace.WithAttributes(attrs...))
 }

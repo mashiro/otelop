@@ -20,6 +20,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"go.opentelemetry.io/otel/attribute"
 )
 
 // decodeAttrs decodes a JSON-object column (cast to VARCHAR in SQL) into an
@@ -81,8 +83,9 @@ func tableCount(ctx context.Context, s *Storage, table string) (int64, error) {
 
 // DBStats reports per-table row counts and, for a file-backed database, the
 // on-disk file size.
-func (s *Storage) DBStats(ctx context.Context) (DBStats, error) {
-	var stats DBStats
+func (s *Storage) DBStats(ctx context.Context) (stats DBStats, err error) {
+	ctx, span := startStorageSpan(ctx, "storage.DBStats")
+	defer func() { endStorageSpan(span, err) }()
 	for table, dst := range map[string]*int64{
 		"resources":     &stats.Resources,
 		"metric_series": &stats.MetricSeries,
@@ -115,7 +118,9 @@ func (s *Storage) DBStats(ctx context.Context) (DBStats, error) {
 // and raw log rows. These are logical UI item counts, not fact-table row
 // counts, so spans and metric points do not inflate their respective totals.
 func (s *Storage) Counts(ctx context.Context) (traces, metrics, logs int, err error) {
-	if err := s.DB().QueryRowContext(ctx, `SELECT count(DISTINCT trace_id) FROM spans`).Scan(&traces); err != nil {
+	ctx, span := startStorageSpan(ctx, "storage.Counts", attribute.Bool("db.full_scan", true))
+	defer func() { endStorageSpan(span, err) }()
+	if err := s.DB().QueryRowContext(ctx, `SELECT count(*) FROM trace_summaries`).Scan(&traces); err != nil {
 		return 0, 0, 0, fmt.Errorf("storage: count traces: %w", err)
 	}
 	err = s.DB().QueryRowContext(ctx, `

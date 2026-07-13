@@ -6,6 +6,9 @@ import (
 	"time"
 
 	"github.com/mashiro/otelop/internal/broadcast"
+	"go.opentelemetry.io/otel"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 )
 
 func TestHub_RegisterUnregister(t *testing.T) {
@@ -147,5 +150,53 @@ func TestHub_BroadcastWithNoClients_IsNoop(t *testing.T) {
 	time.Sleep(10 * time.Millisecond)
 	if hub.ClientCount() != 0 {
 		t.Errorf("ClientCount = %d, want 0", hub.ClientCount())
+	}
+}
+
+func TestHub_BroadcastContextTracesQueueAndDispatch(t *testing.T) {
+	recorder := tracetest.NewSpanRecorder()
+	provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+	previous := otel.GetTracerProvider()
+	otel.SetTracerProvider(provider)
+	t.Cleanup(func() {
+		otel.SetTracerProvider(previous)
+		_ = provider.Shutdown(context.Background())
+	})
+
+	hub := NewHub()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go hub.Run(ctx)
+	client := &Client{hub: hub, send: make(chan []byte, 1)}
+	hub.Register(client)
+	time.Sleep(10 * time.Millisecond)
+
+	traceCtx, root := otel.Tracer("test").Start(context.Background(), "root")
+	hub.BroadcastContext(traceCtx, Message{Type: broadcast.SignalTraces, Data: "x"})
+	select {
+	case <-client.send:
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("client did not receive message")
+	}
+	root.End()
+
+	var traceID string
+	want := map[string]bool{"websocket.Broadcast": false, "websocket.dispatch": false}
+	for _, span := range recorder.Ended() {
+		if _, ok := want[span.Name()]; !ok {
+			continue
+		}
+		want[span.Name()] = true
+		got := span.SpanContext().TraceID().String()
+		if traceID == "" {
+			traceID = got
+		} else if got != traceID {
+			t.Errorf("span %s trace ID = %s, want %s", span.Name(), got, traceID)
+		}
+	}
+	for name, seen := range want {
+		if !seen {
+			t.Errorf("missing span %s", name)
+		}
 	}
 }

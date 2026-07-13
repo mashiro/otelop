@@ -196,10 +196,11 @@ func (s *Storage) recordQueueDrop(ctx context.Context, queue, signal string) {
 	))
 }
 
-func (s *Storage) duckDBStats(ctx context.Context) (duckDBStats, error) {
-	var stats duckDBStats
+func (s *Storage) duckDBStats(ctx context.Context) (stats duckDBStats, err error) {
+	ctx, span := startStorageSpan(ctx, "storage.duckDBStats")
+	defer func() { endStorageSpan(span, err) }()
 	var blockSize int64
-	err := s.db.QueryRowContext(ctx, `
+	err = s.db.QueryRowContext(ctx, `
 		SELECT block_size, total_blocks, used_blocks, free_blocks
 		FROM pragma_database_size()
 		WHERE database_name = current_database()

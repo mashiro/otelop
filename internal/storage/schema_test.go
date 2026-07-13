@@ -30,7 +30,7 @@ func TestMigrate_CreatesAllTablesAndIndexes(t *testing.T) {
 		t.Fatalf("migrate: %v", err)
 	}
 
-	tables := []string{"resources", "metric_series", "spans", "metric_points", "logs", "schema_meta"}
+	tables := []string{"resources", "metric_series", "spans", "trace_summaries", "metric_points", "logs", "dropped_traces", "schema_meta"}
 	for _, table := range tables {
 		var name string
 		err := db.QueryRowContext(ctx, `SELECT table_name FROM information_schema.tables WHERE table_name = ?`, table).Scan(&name)

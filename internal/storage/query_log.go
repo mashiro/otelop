@@ -7,6 +7,7 @@ import (
 
 	duckdb "github.com/duckdb/duckdb-go/v2"
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 // LogDetail is one log record joined with its resource.
@@ -61,6 +62,8 @@ LIMIT ?
 // search is non-empty, also match it (see searchPredicate). It fetches one
 // extra row to report whether another page exists without counting all matches.
 func (s *Storage) LogsPage(ctx context.Context, from, to time.Time, after *LogCursor, limit int, search string) (items []LogDetail, hasNextPage bool, err error) {
+	ctx, span := startStorageSpan(ctx, "storage.LogsPage", attribute.Int("db.limit", limit))
+	defer func() { endStorageSpan(span, err) }()
 	started := time.Now()
 	defer func() { s.recordQuery(ctx, "query_logs", started, err) }()
 	pattern := likePattern(search)
@@ -103,6 +106,8 @@ LIMIT ?
 // the old store package's GetLogsPageByTraceID, which looks up its secondary index
 // by trace_id alone regardless of when the logs arrived.
 func (s *Storage) LogsPageByTraceID(ctx context.Context, traceID string, after *LogCursor, limit int) (items []LogDetail, hasNextPage bool, err error) {
+	ctx, span := startStorageSpan(ctx, "storage.LogsPageByTraceID", attribute.Int("db.limit", limit))
+	defer func() { endStorageSpan(span, err) }()
 	started := time.Now()
 	defer func() { s.recordQuery(ctx, "query_logs_by_trace", started, err) }()
 	queryLimit := pageLimit(limit)

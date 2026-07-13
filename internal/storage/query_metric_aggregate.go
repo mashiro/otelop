@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"go.opentelemetry.io/otel/attribute"
 )
 
 // AggregatePoint is one time-bucketed, cross-series-summed observation —
@@ -71,6 +73,9 @@ const metricAggregateTargetBuckets = 150
 // observation still has a real min/max worth keeping even though it has no
 // delta yet.
 func (s *Storage) MetricAggregate(ctx context.Context, serviceName, metricName string, groupBy []string, bucket time.Duration, from, to time.Time) (series []AggregateSeries, err error) {
+	ctx, span := startStorageSpan(ctx, "storage.MetricAggregate",
+		attribute.Int("metric.group_by.count", len(groupBy)), attribute.Int64("metric.bucket_ms", bucket.Milliseconds()))
+	defer func() { endStorageSpan(span, err) }()
 	started := time.Now()
 	defer func() { s.recordQuery(ctx, "query_metric_aggregate", started, err) }()
 	if len(groupBy) == 0 {

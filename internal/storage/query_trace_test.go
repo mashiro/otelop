@@ -369,6 +369,58 @@ func TestTraceSummariesByIDs_BatchesAndIgnoresMissingIDs(t *testing.T) {
 	}
 }
 
+func TestTraceSummariesWithRows_IncludesPendingRowsWithoutPersistingThem(t *testing.T) {
+	s := openTestStorage(t, Options{})
+	ctx := context.Background()
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	traceID := pcommon.TraceID([16]byte{22}).String()
+	rootID := pcommon.SpanID([8]byte{1}).String()
+
+	s.AddTraces(ctx, buildTracesMulti(spanSpec{
+		traceID: [16]byte{22}, spanID: [8]byte{1}, name: "root",
+		start: base, end: base.Add(5 * time.Millisecond), service: "svc",
+	}))
+	s.Sync()
+
+	var resourceHash uint64
+	if err := s.writer.QueryRowContext(ctx, `SELECT resource_hash FROM spans WHERE trace_id = ?`, traceID).Scan(&resourceHash); err != nil {
+		t.Fatal(err)
+	}
+	pendingAt := time.Now()
+	items, err := s.traceSummariesWithRows(ctx, s.writer, []SpanRow{
+		{
+			TraceID: traceID, SpanID: rootID, Name: "duplicate root",
+			StartTS: base, EndTS: base.Add(time.Second), ResourceHash: resourceHash,
+		},
+		{
+			TraceID: traceID, SpanID: pcommon.SpanID([8]byte{2}).String(), ParentSpanID: rootID,
+			Name: "pending child", StartTS: base.Add(-time.Millisecond), EndTS: base.Add(10 * time.Millisecond),
+			StatusCode: "Error", ResourceHash: resourceHash,
+		},
+	}, pendingAt)
+	if err != nil {
+		t.Fatalf("traceSummariesWithRows: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("summaries = %d, want 1", len(items))
+	}
+	got := items[0]
+	if got.SpanCount != 2 || !got.HasError || got.RootName != "root" || got.ServiceName != "svc" {
+		t.Errorf("summary = %+v", got)
+	}
+	if got.StartTime != base.Add(-time.Millisecond) || got.Duration != 11*time.Millisecond {
+		t.Errorf("range = %v + %v, want %v + 11ms", got.StartTime, got.Duration, base.Add(-time.Millisecond))
+	}
+
+	var persisted int
+	if err := s.writer.QueryRowContext(ctx, `SELECT count(*) FROM spans WHERE trace_id = ?`, traceID).Scan(&persisted); err != nil {
+		t.Fatal(err)
+	}
+	if persisted != 1 {
+		t.Fatalf("persisted spans = %d, pending rows became visible", persisted)
+	}
+}
+
 func TestTraceByID_ReturnsAllSpansAndMatchesSummary(t *testing.T) {
 	s := openTestStorage(t, Options{})
 	ctx := context.Background()

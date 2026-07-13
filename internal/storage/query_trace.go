@@ -5,14 +5,21 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
+
+	duckdb "github.com/duckdb/duckdb-go/v2"
+	"go.opentelemetry.io/otel/attribute"
 )
 
-// TraceSummary is the aggregated view of one trace — the declarative
-// equivalent of the old store package's TraceData.Merge: span dedup, root
-// selection, and the full-range Duration are all recomputed from the spans
-// table rather than maintained incrementally.
+type queryContexter interface {
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+}
+
+// TraceSummary is the derived view of one trace — the equivalent of the old
+// store package's TraceData.Merge. The write path maintains it incrementally;
+// spans remain the source of truth for repair and retention rebuilds.
 type TraceSummary struct {
 	TraceID     string
 	StartTime   time.Time
@@ -71,8 +78,8 @@ type TraceDetail struct {
 // used by tracesPageQuery's search_ids CTE: trace_id, span name, status code, or resource
 // service name — the same field set the frontend's pre-#161 client-side
 // filter searched (status included: searching "error" surfaces error
-// traces). An empty search's "%%" pattern (see likePattern) matches
-// unconditionally, making this a no-op filter.
+// traces). Empty search bypasses this predicate through the dedicated
+// tracesPageNoSearchQuery.
 const traceSearchPredicate = `
 (
 	s.trace_id ILIKE ? ESCAPE '\' OR
@@ -82,121 +89,63 @@ const traceSearchPredicate = `
 )
 `
 
-// tracesPageQuery scopes the trace list by each trace's start time (the
-// earliest span start), matching the timestamp rendered for that trace in
-// the UI. Every later CTE still aggregates over the full deduped span set.
-//
-// search_ids narrows matching_ids further by traceSearchPredicate: a trace
-// matches if ANY of its spans (regardless of whether that particular span
-// itself falls in [from, to) — same full-span-set philosophy as the
-// straddling-range case above) matches. It's a separate CTE (rather than
-// folding the predicate into matching_ids) so the search join only runs over
-// the already time-bounded trace_id set, not every span in the table.
-//
-// Root selection (root_candidates/roots) and the rootless fallback
-// (earliest_candidates/earliest) are separate CTEs — each producing exactly
-// one row per trace_id via row_number() — rather than several independent
-// arg_max() calls, because arg_max() breaks ties independently per call and
-// could pick fields from two different "longest root" spans when durations
-// tie. row_number() with an explicit, deterministic tiebreak (span_id)
-// guarantees every Root* field comes from the same chosen row.
-//
-// page_ids applies keyset pagination before the expensive dedupe, summary, and
-// root-selection work. It requests limit+1 IDs; the extra row becomes
-// hasNextPage and is not returned. This keeps an All-window page bounded
-// even when tens of thousands of traces match.
-const tracesPageQuery = `
-WITH trace_starts AS (
-	SELECT trace_id, min(start_ts) AS start_time, min(ingested_at) AS first_seen
-	FROM spans
-	GROUP BY trace_id
-),
-matching_ids AS (
-	SELECT trace_id, start_time, first_seen
-	FROM trace_starts WHERE start_time >= ? AND start_time < ?
-),
-search_ids AS (
-	SELECT DISTINCT m.trace_id, m.start_time, m.first_seen
-	FROM spans s
-	JOIN matching_ids m ON m.trace_id = s.trace_id
-	JOIN resources r ON r.resource_hash = s.resource_hash
-	WHERE ` + traceSearchPredicate + `
+const tracesPageResultQuery = `
+SELECT
+	p.trace_id, p.start_ts, p.end_ts, p.span_count, p.has_error, p.first_seen,
+	COALESCE(root_res.service_name, earliest_res.service_name) AS service_name,
+	p.root_name, p.root_kind, p.root_status_code, p.root_start_ts, p.root_end_ts
+FROM page_ids p
+LEFT JOIN resources root_res ON root_res.resource_hash = p.root_resource_hash
+LEFT JOIN resources earliest_res ON earliest_res.resource_hash = p.earliest_resource_hash
+ORDER BY p.start_ts DESC, p.first_seen DESC, p.trace_id DESC
+`
+
+// The empty-search path deliberately has no EXISTS branch. DuckDB does not
+// eliminate a parameterized `true OR EXISTS (...)` during planning, so keeping
+// it in one query would still scan spans for every ordinary list refresh.
+const tracesPageNoSearchQuery = `
+WITH page_ids AS (
+	SELECT * FROM trace_summaries
+	WHERE start_ts >= ? AND start_ts < ?
+	  AND (CAST(? AS BOOLEAN) OR start_ts < ?
+		OR (start_ts = ? AND first_seen < ?)
+		OR (start_ts = ? AND first_seen = ? AND trace_id < ?))
+	ORDER BY start_ts DESC, first_seen DESC, trace_id DESC
+	LIMIT ?
+)
+` + tracesPageResultQuery
+
+// Search inspects every retained span of a time-matched trace because the
+// public contract includes non-root span names, status, and service.
+const tracesPageSearchQuery = `
+WITH matching_ids AS (
+	SELECT t.*
+	FROM trace_summaries t
+	WHERE t.start_ts >= ? AND t.start_ts < ?
+	  AND EXISTS (
+			SELECT 1
+			FROM spans s
+			JOIN resources r ON r.resource_hash = s.resource_hash
+			WHERE s.trace_id = t.trace_id AND ` + traceSearchPredicate + `
+	  )
 ),
 page_ids AS (
-	SELECT trace_id, start_time, first_seen
-	FROM search_ids
-	WHERE (CAST(? AS BOOLEAN) OR start_time < ?
-		OR (start_time = ? AND first_seen < ?)
-		OR (start_time = ? AND first_seen = ? AND trace_id < ?))
-	ORDER BY start_time DESC, first_seen DESC, trace_id DESC
+	SELECT * FROM matching_ids
+	WHERE (CAST(? AS BOOLEAN) OR start_ts < ?
+		OR (start_ts = ? AND first_seen < ?)
+		OR (start_ts = ? AND first_seen = ? AND trace_id < ?))
+	ORDER BY start_ts DESC, first_seen DESC, trace_id DESC
 	LIMIT ?
-),
-deduped AS (
-	SELECT * FROM spans
-	WHERE trace_id IN (SELECT trace_id FROM page_ids)
-	QUALIFY row_number() OVER (PARTITION BY trace_id, span_id ORDER BY ingested_at) = 1
-),
-agg AS (
-	SELECT
-		trace_id,
-		min(start_ts)                  AS start_time,
-		max(end_ts)                    AS end_time,
-		count(*)                       AS span_count,
-		bool_or(status_code = 'Error') AS has_error,
-		min(ingested_at)               AS first_seen
-	FROM deduped
-	GROUP BY trace_id
-),
-root_candidates AS (
-	SELECT
-		trace_id, name, kind, status_code, start_ts, end_ts, resource_hash,
-		row_number() OVER (
-			PARTITION BY trace_id ORDER BY (end_ts - start_ts) DESC, span_id
-		) AS rn
-	FROM deduped
-	WHERE parent_span_id = ''
-),
-roots AS (
-	SELECT
-		trace_id,
-		name          AS root_name,
-		kind          AS root_kind,
-		status_code   AS root_status_code,
-		start_ts      AS root_start_ts,
-		end_ts        AS root_end_ts,
-		resource_hash AS root_resource_hash
-	FROM root_candidates
-	WHERE rn = 1
-),
-earliest_candidates AS (
-	SELECT
-		trace_id, resource_hash,
-		row_number() OVER (PARTITION BY trace_id ORDER BY start_ts, span_id) AS rn
-	FROM deduped
-),
-earliest AS (
-	SELECT trace_id, resource_hash AS earliest_resource_hash
-	FROM earliest_candidates
-	WHERE rn = 1
 )
-SELECT
-	agg.trace_id, agg.start_time, agg.end_time, agg.span_count, agg.has_error, agg.first_seen,
-	COALESCE(root_res.service_name, earliest_res.service_name) AS service_name,
-	roots.root_name, roots.root_kind, roots.root_status_code, roots.root_start_ts, roots.root_end_ts
-FROM agg
-LEFT JOIN roots USING (trace_id)
-LEFT JOIN earliest USING (trace_id)
-LEFT JOIN resources root_res ON root_res.resource_hash = roots.root_resource_hash
-LEFT JOIN resources earliest_res ON earliest_res.resource_hash = earliest.earliest_resource_hash
-ORDER BY agg.start_time DESC, agg.first_seen DESC, agg.trace_id DESC
-`
+` + tracesPageResultQuery
 
 // TracesPage returns a newest-first (by trace start time) page of trace
 // summaries whose start time is within [from, to) and, when search is
-// non-empty, matches it (see tracesPageQuery's search_ids doc comment),
-// plus whether another page exists. At most limit+1 traces receive full
-// summary/root aggregation; the extra row is removed before returning.
+// non-empty, matches it (see tracesPageSearchQuery), plus whether another page
+// exists. The extra limit+1 summary row is removed before returning.
 func (s *Storage) TracesPage(ctx context.Context, from, to time.Time, after *TraceCursor, limit int, search string) (items []TraceSummary, hasNextPage bool, err error) {
+	ctx, span := startStorageSpan(ctx, "storage.TracesPage", attribute.Int("db.limit", limit))
+	defer func() { endStorageSpan(span, err) }()
 	started := time.Now()
 	defer func() { s.recordQuery(ctx, "query_traces", started, err) }()
 	pattern := likePattern(search)
@@ -206,8 +155,14 @@ func (s *Storage) TracesPage(ctx context.Context, from, to time.Time, after *Tra
 		queryLimit++
 	}
 	firstPage, cursorStart, cursorSeen, cursorID := traceCursorArgs(after)
-	rows, err := s.DB().QueryContext(ctx, tracesPageQuery, from, to, pattern, pattern, pattern, pattern,
-		firstPage, cursorStart, cursorStart, cursorSeen, cursorStart, cursorSeen, cursorID, queryLimit)
+	query := tracesPageNoSearchQuery
+	args := []any{from, to, firstPage, cursorStart, cursorStart, cursorSeen, cursorStart, cursorSeen, cursorID, queryLimit}
+	if search != "" {
+		query = tracesPageSearchQuery
+		args = []any{from, to, pattern, pattern, pattern, pattern,
+			firstPage, cursorStart, cursorStart, cursorSeen, cursorStart, cursorSeen, cursorID, queryLimit}
+	}
+	rows, err := s.DB().QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, false, fmt.Errorf("storage: query traces page: %w", err)
 	}
@@ -255,14 +210,7 @@ func traceCursorArgs(after *TraceCursor) (bool, time.Time, time.Time, string) {
 	return false, after.StartTime, after.FirstSeen, after.TraceID
 }
 
-const traceSummariesByIDsQuery = `
-WITH requested(trace_id) AS (VALUES %s),
-deduped AS (
-	SELECT s.*
-	FROM spans s
-	JOIN requested r USING (trace_id)
-	QUALIFY row_number() OVER (PARTITION BY s.trace_id, s.span_id ORDER BY s.ingested_at) = 1
-),
+const traceSummaryAggregationQuery = `
 agg AS (
 	SELECT
 		trace_id,
@@ -316,13 +264,57 @@ LEFT JOIN resources root_res ON root_res.resource_hash = roots.root_resource_has
 LEFT JOIN resources earliest_res ON earliest_res.resource_hash = earliest.earliest_resource_hash
 `
 
+const traceSummariesByIDsQuery = `
+WITH requested(trace_id) AS (VALUES %s),
+deduped AS (
+	SELECT s.*
+	FROM spans s
+	JOIN requested r USING (trace_id)
+	QUALIFY row_number() OVER (PARTITION BY s.trace_id, s.span_id ORDER BY s.ingested_at) = 1
+),
+` + traceSummaryAggregationQuery
+
+const traceSummariesWithRowsQuery = `
+WITH incoming(
+	trace_id, span_id, parent_span_id, name, kind, start_ts, end_ts,
+	status_code, resource_hash, ingested_at
+) AS (VALUES %s),
+requested AS (
+	SELECT DISTINCT trace_id FROM incoming
+),
+combined AS (
+	SELECT
+		s.trace_id, s.span_id, s.parent_span_id, s.name, s.kind, s.start_ts,
+		s.end_ts, s.status_code, s.resource_hash, s.ingested_at
+	FROM spans s
+	JOIN requested r USING (trace_id)
+	UNION ALL
+	SELECT * FROM incoming
+),
+deduped AS (
+	SELECT * FROM combined
+	QUALIFY row_number() OVER (PARTITION BY trace_id, span_id ORDER BY ingested_at) = 1
+),
+` + traceSummaryAggregationQuery
+
 // TraceSummariesByIDs returns current summaries for all requested traces in a
-// single SQL round trip. Broadcast uses this after a commit: list updates need
-// aggregate fields, not every span's JSON-heavy detail.
+// single SQL round trip.
 func (s *Storage) TraceSummariesByIDs(ctx context.Context, traceIDs []string) (items []TraceSummary, err error) {
+	ctx, span := startStorageSpan(ctx, "storage.TraceSummariesByIDs", attribute.Int("storage.batch.trace_count", len(traceIDs)))
+	defer func() { endStorageSpan(span, err) }()
+	started := time.Now()
+	defer func() { s.recordQuery(ctx, "query_trace_summaries", started, err) }()
+	return s.traceSummariesFromTable(ctx, s.DB(), traceIDs)
+}
+
+// aggregateTraceSummariesByIDs is the full-span oracle used by rebuilds and
+// parity tests. The hot read and write paths use trace_summaries instead.
+func (s *Storage) aggregateTraceSummariesByIDs(ctx context.Context, q queryContexter, traceIDs []string) (items []TraceSummary, err error) {
 	if len(traceIDs) == 0 {
 		return []TraceSummary{}, nil
 	}
+	ctx, span := startStorageSpan(ctx, "storage.aggregateTraceSummariesByIDs", attribute.Int("storage.batch.trace_count", len(traceIDs)))
+	defer func() { endStorageSpan(span, err) }()
 	started := time.Now()
 	defer func() { s.recordQuery(ctx, "query_trace_summaries", started, err) }()
 
@@ -333,13 +325,51 @@ func (s *Storage) TraceSummariesByIDs(ctx context.Context, traceIDs []string) (i
 		args[i] = id
 	}
 	query := fmt.Sprintf(traceSummariesByIDsQuery, strings.Join(values, ","))
-	rows, err := s.DB().QueryContext(ctx, query, args...)
+	rows, err := q.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("storage: query trace summaries: %w", err)
 	}
+	return scanTraceSummaries(rows, len(traceIDs))
+}
+
+// traceSummariesWithRows is the full-span oracle for testing the incremental
+// summary path against a prospective batch. It is not used by ingestion.
+func (s *Storage) traceSummariesWithRows(ctx context.Context, q queryContexter, incoming []SpanRow, ingestedAt time.Time) (items []TraceSummary, err error) {
+	if len(incoming) == 0 {
+		return []TraceSummary{}, nil
+	}
+	traceCount := len(distinctTraceIDsForRows(incoming))
+	ctx, span := startStorageSpan(ctx, "storage.summarizeTraceBatch",
+		attribute.Int("storage.batch.rows", len(incoming)),
+		attribute.Int("storage.batch.trace_count", traceCount))
+	defer func() { endStorageSpan(span, err) }()
+	started := time.Now()
+	defer func() { s.recordQuery(ctx, "query_trace_summaries", started, err) }()
+
+	values := make([]string, len(incoming))
+	args := make([]any, 0, len(incoming)*10)
+	for i, row := range incoming {
+		values[i] = "(?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS UBIGINT), ?)"
+		args = append(args,
+			row.TraceID, row.SpanID, row.ParentSpanID, row.Name, row.Kind,
+			duckdb.Typed(row.StartTS, duckdb.TYPE_TIMESTAMP_NS),
+			duckdb.Typed(row.EndTS, duckdb.TYPE_TIMESTAMP_NS),
+			row.StatusCode, strconv.FormatUint(row.ResourceHash, 10),
+			duckdb.Typed(ingestedAt, duckdb.TYPE_TIMESTAMP_NS),
+		)
+	}
+	query := fmt.Sprintf(traceSummariesWithRowsQuery, strings.Join(values, ","))
+	rows, err := q.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("storage: summarize traces with incoming rows: %w", err)
+	}
+	return scanTraceSummaries(rows, traceCount)
+}
+
+func scanTraceSummaries(rows *sql.Rows, capacity int) ([]TraceSummary, error) {
 	defer func() { _ = rows.Close() }()
 
-	items = make([]TraceSummary, 0, len(traceIDs))
+	items := make([]TraceSummary, 0, capacity)
 	for rows.Next() {
 		var (
 			t                                  TraceSummary
@@ -388,6 +418,8 @@ ORDER BY d.start_ts
 // time, plus the same summary fields TracesPage computes. ok is false when
 // no spans exist for traceID.
 func (s *Storage) TraceByID(ctx context.Context, traceID string) (detail *TraceDetail, found bool, err error) {
+	ctx, span := startStorageSpan(ctx, "storage.TraceByID")
+	defer func() { endStorageSpan(span, err) }()
 	started := time.Now()
 	defer func() { s.recordQuery(ctx, "query_trace", started, err) }()
 	s.traceByIDCalls.Add(1)
@@ -484,7 +516,8 @@ func summarizeSpans(traceID string, spans []SpanDetail) TraceSummary {
 		if sp.StatusCode == "Error" {
 			t.HasError = true
 		}
-		if sp.ParentSpanID == "" && (root == nil || sp.Duration > root.Duration) {
+		if sp.ParentSpanID == "" && (root == nil || sp.Duration > root.Duration ||
+			(sp.Duration == root.Duration && sp.SpanID < root.SpanID)) {
 			root = sp
 		}
 	}
@@ -504,7 +537,8 @@ func summarizeSpans(traceID string, spans []SpanDetail) TraceSummary {
 	// the old store package's trace.go rootless rule (trace.go:210).
 	earliest := &spans[0]
 	for i := range spans {
-		if spans[i].StartTS.Before(earliest.StartTS) {
+		if spans[i].StartTS.Before(earliest.StartTS) ||
+			(spans[i].StartTS.Equal(earliest.StartTS) && spans[i].SpanID < earliest.SpanID) {
 			earliest = &spans[i]
 		}
 	}
@@ -512,8 +546,8 @@ func summarizeSpans(traceID string, spans []SpanDetail) TraceSummary {
 	return t
 }
 
-// PickRootSpan reproduces the old store package's isBetterRoot rule: the
-// parentless span with the longest duration represents the trace. Shared by
+// PickRootSpan selects the longest parentless span, breaking equal-duration
+// ties by span ID so SQL, incremental summaries, and detail agree. Shared by
 // internal/broadcast (translating a commit into the WebSocket wire shape)
 // and internal/graphql (resolving a TraceResolver's rootSpan field), which
 // both need "the" root span of an already-fetched span set without
@@ -525,7 +559,8 @@ func PickRootSpan(spans []SpanDetail) *SpanDetail {
 		if sp.ParentSpanID != "" {
 			continue
 		}
-		if root == nil || sp.Duration > root.Duration {
+		if root == nil || sp.Duration > root.Duration ||
+			(sp.Duration == root.Duration && sp.SpanID < root.SpanID) {
 			root = sp
 		}
 	}

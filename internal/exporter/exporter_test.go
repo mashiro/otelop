@@ -4,9 +4,14 @@ import (
 	"context"
 	"testing"
 
+	"github.com/mashiro/otelop/internal/selftelemetry"
+	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/plog"
 	"go.opentelemetry.io/collector/pdata/pmetric"
 	"go.opentelemetry.io/collector/pdata/ptrace"
+	"go.opentelemetry.io/otel"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 )
 
 // fakeSink is a Sink test double so exporter behavior can be verified
@@ -51,5 +56,34 @@ func TestExporter_PushLogs_ForwardsToSink(t *testing.T) {
 	}
 	if sink.logs != 1 {
 		t.Errorf("sink.logs = %d, want 1", sink.logs)
+	}
+}
+
+func TestExporter_InternalTraceBatchDoesNotEmitAnotherSpan(t *testing.T) {
+	recorder := tracetest.NewSpanRecorder()
+	provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+	previous := otel.GetTracerProvider()
+	otel.SetTracerProvider(provider)
+	t.Cleanup(func() {
+		otel.SetTracerProvider(previous)
+		_ = provider.Shutdown(context.Background())
+	})
+
+	td := ptrace.NewTraces()
+	resourceSpans := td.ResourceSpans().AppendEmpty()
+	resourceSpans.Resource().Attributes().PutBool(selftelemetry.InternalResourceAttribute, true)
+	span := resourceSpans.ScopeSpans().AppendEmpty().Spans().AppendEmpty()
+	span.SetTraceID(pcommon.TraceID([16]byte{1}))
+	span.SetSpanID(pcommon.SpanID([8]byte{1}))
+
+	sink := &fakeSink{}
+	if err := newExporter(sink).pushTraces(context.Background(), td); err != nil {
+		t.Fatalf("pushTraces: %v", err)
+	}
+	if got := len(recorder.Ended()); got != 0 {
+		t.Fatalf("internal exporter batch emitted %d spans, want none", got)
+	}
+	if sink.traces != 1 {
+		t.Fatalf("internal batch forwards = %d, want 1", sink.traces)
 	}
 }

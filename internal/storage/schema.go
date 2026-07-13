@@ -58,6 +58,30 @@ CREATE TABLE spans (
 );
 CREATE INDEX idx_spans_trace ON spans (trace_id);
 
+CREATE TABLE trace_summaries (
+  trace_id               VARCHAR PRIMARY KEY,
+  start_ts               TIMESTAMP_NS NOT NULL,
+  end_ts                 TIMESTAMP_NS NOT NULL,
+  span_count             BIGINT NOT NULL,
+  has_error              BOOLEAN NOT NULL,
+  first_seen             TIMESTAMP_NS NOT NULL,
+  root_span_id           VARCHAR,
+  root_name              VARCHAR,
+  root_kind              VARCHAR,
+  root_status_code       VARCHAR,
+  root_start_ts          TIMESTAMP_NS,
+  root_end_ts            TIMESTAMP_NS,
+  root_resource_hash     UBIGINT,
+  earliest_span_id       VARCHAR NOT NULL,
+  earliest_resource_hash UBIGINT NOT NULL
+);
+
+CREATE TABLE dropped_traces (
+  trace_id   VARCHAR PRIMARY KEY,
+  last_seen TIMESTAMP_NS NOT NULL,
+  span_count BIGINT NOT NULL
+);
+
 CREATE TABLE metric_points (
   id         UUID NOT NULL,
   series_key UBIGINT NOT NULL,

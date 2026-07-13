@@ -39,6 +39,13 @@ started or restart it without the user's permission.
   `otelop.storage.queue.dropped`. Query metrics use the `operation` attribute;
   write/commit metrics use `signal`; queue metrics use `queue` and, for drops,
   `signal`.
+- Storage pipeline detail: search recent traces for `storage.writeTraces`,
+  `storage.writeMetrics`, or `storage.writeLogs`, then fetch the selected trace's
+  spans. The trace connects `exporter.push*`, conversion, writer queue wait,
+  upsert/dedup/append, commit queue wait, read-back queries, broadcast, and
+  WebSocket queue/dispatch. Compare `storage.queue.wait_ms` on
+  `storage.queue.wait` and `storage.deliverCommit`, then inspect the longest
+  function span. Self-telemetry ingestion is deliberately not re-instrumented.
 - Recent traces or errors: `traces` with `startTime`, `hasError`, and
   `durationMs`, followed by `trace(traceId:)` for detail.
 - Logs: `logs` with a narrow time window and `search`; traverse `trace` or
