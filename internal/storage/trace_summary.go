@@ -37,6 +37,21 @@ type traceSummaryState struct {
 	EarliestResourceHash uint64
 }
 
+func (s *Storage) traceServiceName(ctx context.Context, state *traceSummaryState) (string, error) {
+	resourceHash := state.EarliestResourceHash
+	if state.HasRoot {
+		resourceHash = state.RootResourceHash
+	}
+	var serviceName string
+	if err := s.writer.QueryRowContext(ctx,
+		`SELECT service_name FROM resources WHERE resource_hash = ?`,
+		duckdb.Typed(resourceHash, duckdb.TYPE_UBIGINT),
+	).Scan(&serviceName); err != nil {
+		return "", fmt.Errorf("lookup trace service name: %w", err)
+	}
+	return serviceName, nil
+}
+
 func (state *traceSummaryState) mergeSpan(row SpanRow, ingestedAt time.Time) {
 	if state.SpanCount == 0 {
 		state.TraceID = row.TraceID
@@ -497,6 +512,7 @@ func (s *Storage) writeTraceRowsTransaction(ctx context.Context, rows []SpanRow,
 		if state.SpanCount <= maxSpansPerTrace {
 			continue
 		}
+		serviceName, metadataErr := s.traceServiceName(ctx, state)
 		if _, err := s.writer.ExecContext(ctx, `DELETE FROM spans WHERE trace_id = ?`, traceID); err != nil {
 			return nil, nil, nil, fmt.Errorf("storage: delete oversized trace: %w", err)
 		}
@@ -512,7 +528,23 @@ func (s *Storage) writeTraceRowsTransaction(ctx context.Context, rows []SpanRow,
 		dropped[traceID] = struct{}{}
 		droppedTraceIDs = append(droppedTraceIDs, traceID)
 		delete(states, traceID)
-		slog.Warn("storage: dropped oversized trace", "trace_id", traceID, "span_count", state.SpanCount, "limit", maxSpansPerTrace)
+		logAttrs := []any{
+			"trace_id", traceID,
+			"span_count", state.SpanCount,
+			"limit", maxSpansPerTrace,
+			"trace_service_name", serviceName,
+			"trace_start_time", state.StartTime.UTC().Format(time.RFC3339Nano),
+			"trace_end_time", state.EndTime.UTC().Format(time.RFC3339Nano),
+			"trace_duration_ms", float64(state.EndTime.Sub(state.StartTime).Microseconds()) / 1000,
+			"trace_has_root", state.HasRoot,
+		}
+		if state.HasRoot {
+			logAttrs = append(logAttrs, "trace_root_span_name", state.RootName)
+		}
+		if metadataErr != nil {
+			logAttrs = append(logAttrs, "trace_metadata_error", metadataErr)
+		}
+		slog.Warn("storage: dropped oversized trace", logAttrs...)
 	}
 	if err := s.upsertTraceSummaryStates(ctx, states); err != nil {
 		return nil, nil, nil, err

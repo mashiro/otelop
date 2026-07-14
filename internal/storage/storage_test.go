@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"log/slog"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -17,6 +19,11 @@ import (
 )
 
 func TestStorage_DropsAndTombstonesOversizedTrace(t *testing.T) {
+	var logs bytes.Buffer
+	originalLogger := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	t.Cleanup(func() { slog.SetDefault(originalLogger) })
+
 	s := openTestStorage(t, Options{})
 	ctx := context.Background()
 	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -27,14 +34,15 @@ func TestStorage_DropsAndTombstonesOversizedTrace(t *testing.T) {
 	for i := range spans {
 		spans[i] = SpanRow{
 			TraceID: oversizedTraceID, SpanID: fmt.Sprintf("%016x", i),
-			Name: "background", StartTS: base, EndTS: base.Add(time.Millisecond), ResourceHash: 1,
+			ParentSpanID: "missing-parent", Name: "background",
+			StartTS: base, EndTS: base.Add(time.Millisecond), ResourceHash: 1,
 		}
 	}
 	resource := ResourceRow{ResourceHash: 1, ServiceName: "svc", Attributes: map[string]any{"service.name": "svc"}}
 	s.writeTraces(ctx, TraceBatch{Resources: []ResourceRow{resource}, Spans: spans})
 
 	s.writeTraces(ctx, TraceBatch{Resources: []ResourceRow{resource}, Spans: []SpanRow{
-		{TraceID: oversizedTraceID, SpanID: "ffffffffffffffff", Name: "overflow", StartTS: base, EndTS: base.Add(time.Millisecond), ResourceHash: 1},
+		{TraceID: oversizedTraceID, SpanID: "ffffffffffffffff", ParentSpanID: "missing-parent", Name: "overflow", StartTS: base, EndTS: base.Add(time.Millisecond), ResourceHash: 1},
 		{TraceID: normalTraceID, SpanID: "0000000000000001", Name: "normal", StartTS: base, EndTS: base.Add(time.Millisecond), ResourceHash: 1},
 	}})
 
@@ -57,6 +65,23 @@ func TestStorage_DropsAndTombstonesOversizedTrace(t *testing.T) {
 	if oversizedCount != 0 || normalCount != 1 || tombstones != 1 || oversizedSummaries != 0 || normalSummaries != 1 {
 		t.Fatalf("counts after overflow = spans oversized:%d normal:%d summaries oversized:%d normal:%d tombstones:%d",
 			oversizedCount, normalCount, oversizedSummaries, normalSummaries, tombstones)
+	}
+	for _, want := range []string{
+		"trace_id=" + oversizedTraceID,
+		"span_count=10001",
+		"limit=10000",
+		"trace_service_name=svc",
+		"trace_start_time=2026-01-01T00:00:00Z",
+		"trace_end_time=2026-01-01T00:00:00.001Z",
+		"trace_duration_ms=1",
+		"trace_has_root=false",
+	} {
+		if !strings.Contains(logs.String(), want) {
+			t.Errorf("oversized trace warning missing %q: %s", want, logs.String())
+		}
+	}
+	if strings.Contains(logs.String(), "trace_root_span_name") {
+		t.Errorf("rootless oversized trace warning unexpectedly includes a root span: %s", logs.String())
 	}
 
 	// Later fragments with the same trace ID must not recreate the trace.
