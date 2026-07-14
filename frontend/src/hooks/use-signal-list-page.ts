@@ -45,6 +45,7 @@ interface SignalListPageOptions<T> {
   replacePage: (page: ReplacementPage<T>) => void;
   onAppend: (items: T[]) => void;
   loadOlderBeyondWindow?: boolean;
+  hasItemsBefore?: (before: string) => Promise<boolean>;
   retainedHistory?: boolean;
 }
 
@@ -77,6 +78,7 @@ export function useSignalListPage<T>({
   replacePage,
   onAppend,
   loadOlderBeyondWindow = false,
+  hasItemsBefore,
   retainedHistory = false,
 }: SignalListPageOptions<T>): SignalListPage {
   const [state, setState] = useState({ hasMore: false, loadingMore: false });
@@ -119,10 +121,12 @@ export function useSignalListPage<T>({
         if (ignore) return;
         replacePage({ items, idsBeforeRequest, window });
         session.endCursor = endCursor;
-        setState({
-          hasMore: hasNextPage || (loadOlderBeyondWindow && session.from !== undefined),
-          loadingMore: false,
-        });
+        const hasOlder =
+          !hasNextPage && loadOlderBeyondWindow && session.from !== undefined && hasItemsBefore
+            ? await hasItemsBefore(session.from).catch(() => true)
+            : false;
+        if (ignore) return;
+        setState({ hasMore: hasNextPage || hasOlder, loadingMore: false });
       } catch {
         // Leave whatever was showing before (the previous range's page, or
         // just the live buffer) — the next range/search/tab activation retries.
@@ -136,7 +140,15 @@ export function useSignalListPage<T>({
     // fetchPage/replacePage/onAppend must be reference-stable across renders
     // (callers wrap them in useCallback or use Jotai setters) so this effect
     // only reruns on a genuine window or search change, not on every render.
-  }, [requestKey, fetchPage, getCurrentIds, replacePage, loadOlderBeyondWindow, retainedHistory]);
+  }, [
+    requestKey,
+    fetchPage,
+    getCurrentIds,
+    replacePage,
+    loadOlderBeyondWindow,
+    hasItemsBefore,
+    retainedHistory,
+  ]);
 
   const loadMore = useCallback(() => {
     const session = sessionRef.current;

@@ -3,7 +3,7 @@ import type { SignalListPage } from "@/hooks/use-signal-list-page";
 
 // Shared by trace-list.tsx and log-list.tsx: both mount a SignalListPage
 // pagination hook (use-trace-list-page.ts / use-log-list-page.ts) and want an
-// identical Load more footer once the range holds another page.
+// identical Load more footer when retained history has another page.
 export function LoadMoreRow({ hasMore, loadingMore, loadMore }: SignalListPage) {
   if (!hasMore) return null;
 

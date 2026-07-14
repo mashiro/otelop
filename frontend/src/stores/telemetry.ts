@@ -406,9 +406,10 @@ export const navigateToLogsAtom = atom(null, (_get, set, traceId: string) => {
 // non-root span-name/status match client-side.
 export const serverMatchedTraceIdsAtom = atom<ReadonlySet<string>>(new Set<string>());
 export const serverMatchedLogIdsAtom = atom<ReadonlySet<string>>(new Set<string>());
-// Log IDs appended after the initial time-window page. Unlike
-// serverMatchedLogIdsAtom (which also vouches for search matches), this set
-// only exempts explicitly loaded history from the rolling range filter.
+// IDs appended after the initial time-window page. Unlike the server-matched
+// sets (which also vouch for search matches), these only exempt explicitly
+// loaded browsing history from the rolling range filters.
+export const loadedOlderTraceIdsAtom = atom<ReadonlySet<string>>(new Set<string>());
 export const loadedOlderLogIdsAtom = atom<ReadonlySet<string>>(new Set<string>());
 
 export interface MetricSearchResult {
@@ -501,9 +502,25 @@ const traceList = createPaginatedListAtoms(
   (caps) => caps.traceCap,
   newestTraceStartFirst,
 );
-export const setTracesAtom = traceList.set;
-export const replaceTracePageAtom = traceList.replacePage;
-export const appendTracesAtom = traceList.append;
+export const setTracesAtom = atom(null, (_get, set, traces: TraceData[]) => {
+  set(loadedOlderTraceIdsAtom, new Set());
+  set(traceList.set, traces);
+});
+export const replaceTracePageAtom = atom(null, (_get, set, page: ReplacementPage<TraceData>) => {
+  set(loadedOlderTraceIdsAtom, new Set());
+  set(traceList.replacePage, page);
+});
+export const appendTracesAtom = atom(null, (_get, set, traces: TraceData[]) => {
+  set(
+    loadedOlderTraceIdsAtom,
+    (previous) => new Set([...previous, ...traces.map((trace) => trace.traceId)]),
+  );
+  set(traceList.append, traces);
+});
+// Search pages already span retained history. Appending them must not mark
+// their rows as manually paged browsing history, or clearing the search could
+// leak out-of-window traces into the list.
+export const appendTraceSearchResultsAtom = traceList.append;
 
 const logList = createPaginatedListAtoms(
   logsAtom,

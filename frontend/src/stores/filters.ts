@@ -10,6 +10,7 @@ import {
   logTraceFilterAtom,
   serverMatchedTraceIdsAtom,
   serverMatchedLogIdsAtom,
+  loadedOlderTraceIdsAtom,
   loadedOlderLogIdsAtom,
   metricSearchResultAtom,
   traceListWindowAtom,
@@ -73,11 +74,23 @@ function inEventWindow(timestamp: string, from: string | undefined, to: string):
 
 const rangeFilteredTracesAtom = atom((get) => {
   const window = get(traceListWindowAtom);
+  const traces = get(tracesAtom);
+  const loadedOlderIds = get(loadedOlderTraceIdsAtom);
   if (window.mode === "live") {
-    return filterDataPointsInRange(get(tracesAtom), window.range, (trace) => trace.startTime);
+    if (window.range === "all") return traces;
+    const inRangeIds = new Set(
+      filterDataPointsInRange(traces, window.range, (trace) => trace.startTime).map(
+        (trace) => trace.traceId,
+      ),
+    );
+    return traces.filter(
+      (trace) => loadedOlderIds.has(trace.traceId) || inRangeIds.has(trace.traceId),
+    );
   }
   const { from, to } = eventWindowBounds(window);
-  return get(tracesAtom).filter((trace) => inEventWindow(trace.startTime, from, to));
+  return traces.filter(
+    (trace) => loadedOlderIds.has(trace.traceId) || inEventWindow(trace.startTime, from, to),
+  );
 });
 
 // The client-side predicate (live WS rows only — see

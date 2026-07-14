@@ -52,13 +52,18 @@ function renderWithStore(range: ChartTimeRange, search = "") {
 }
 
 describe("useTraceListPage", () => {
-  it("fetches page 1 with empty cursor / limit 100 and a range-derived `from`", async () => {
-    requestMock.mockResolvedValue({ traces: { items: [], hasNextPage: false, endCursor: null } });
+  it("checks for an older retained trace when page 1 has no next page", async () => {
+    requestMock.mockResolvedValueOnce({
+      traces: { items: [queryTrace("recent")], hasNextPage: false, endCursor: "recent-cursor" },
+    });
+    requestMock.mockResolvedValueOnce({
+      traces: { items: [], hasNextPage: false, endCursor: null },
+    });
     const before = Temporal.Now.instant();
 
-    renderWithStore("5m");
+    const { result } = renderWithStore("5m");
 
-    await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(2));
     const vars = requestMock.mock.calls[0]?.[1];
     expect(vars?.after).toBeNull();
     expect(vars?.limit).toBe(100);
@@ -66,6 +71,13 @@ describe("useTraceListPage", () => {
     const deltaMs = before.since(fromInstant).total("milliseconds");
     expect(deltaMs).toBeGreaterThan(4.9 * 60_000);
     expect(deltaMs).toBeLessThan(5.1 * 60_000);
+    expect(requestMock.mock.calls[1]?.[1]).toMatchObject({
+      from: undefined,
+      to: vars?.from,
+      after: null,
+      limit: 1,
+    });
+    expect(result.current.hasMore).toBe(false);
   });
 
   it("omits `from` for the all range", async () => {
@@ -111,6 +123,7 @@ describe("useTraceListPage", () => {
     await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(2));
     const secondVars = requestMock.mock.calls[1]?.[1];
     expect(secondVars?.after).toBe("cursor-1");
+    expect(secondVars?.from).toBeUndefined();
     expect(secondVars?.limit).toBe(100);
     await waitFor(() =>
       expect(store.get(tracesAtom).map((t) => t.traceId)).toEqual(["a", "b", "c", "d"]),
@@ -118,20 +131,47 @@ describe("useTraceListPage", () => {
     expect(result.current.hasMore).toBe(false);
   });
 
-  it("reuses the same `from` and `to` bounds across load-more calls within one range", async () => {
+  it("continues past the window lower bound from the returned cursor", async () => {
     requestMock.mockResolvedValue({
       traces: { items: [queryTrace("a")], hasNextPage: true, endCursor: "cursor-1" },
     });
     const { result } = renderWithStore("1h");
     await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(1));
-    const firstFrom = requestMock.mock.calls[0]?.[1]?.from;
     const firstTo = requestMock.mock.calls[0]?.[1]?.to;
     expect(firstTo).toBeDefined();
 
     act(() => result.current.loadMore());
     await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(2));
-    expect(requestMock.mock.calls[1]?.[1]?.from).toBe(firstFrom);
+    expect(requestMock.mock.calls[1]?.[1]?.from).toBeUndefined();
     expect(requestMock.mock.calls[1]?.[1]?.to).toBe(firstTo);
+  });
+
+  it("loads the next older page when the selected window is empty", async () => {
+    requestMock.mockResolvedValueOnce({
+      traces: { items: [], hasNextPage: false, endCursor: null },
+    });
+    requestMock.mockResolvedValueOnce({
+      traces: { items: [queryTrace("probe")], hasNextPage: false, endCursor: null },
+    });
+    const { store, result } = renderWithStore("1m");
+    await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(2));
+    const firstFrom = requestMock.mock.calls[0]?.[1]?.from;
+    await waitFor(() => expect(result.current.hasMore).toBe(true));
+
+    requestMock.mockResolvedValueOnce({
+      traces: { items: [queryTrace("older")], hasNextPage: false, endCursor: null },
+    });
+    act(() => result.current.loadMore());
+
+    await waitFor(() =>
+      expect(store.get(tracesAtom).map((trace) => trace.traceId)).toEqual(["older"]),
+    );
+    expect(requestMock.mock.calls[2]?.[1]).toMatchObject({
+      from: undefined,
+      to: firstFrom,
+      after: null,
+    });
+    expect(result.current.hasMore).toBe(false);
   });
 
   it("ignores a load-more response from a previous search session", async () => {
@@ -189,7 +229,7 @@ describe("useTraceListPage", () => {
 
   it("resets pagination and refetches page 1 on a range change, keeping the previous page visible while in flight", async () => {
     requestMock.mockResolvedValueOnce({
-      traces: { items: [queryTrace("a")], hasNextPage: false, endCursor: null },
+      traces: { items: [queryTrace("a")], hasNextPage: true, endCursor: "cursor-1" },
     });
     const { store, rerender } = renderWithStore("1h");
     await waitFor(() => expect(store.get(tracesAtom)).toHaveLength(1));
@@ -220,7 +260,7 @@ describe("useTraceListPage", () => {
 
   it("keeps showing the previous page when a range-change fetch rejects", async () => {
     requestMock.mockResolvedValueOnce({
-      traces: { items: [queryTrace("a")], hasNextPage: false, endCursor: null },
+      traces: { items: [queryTrace("a")], hasNextPage: true, endCursor: "cursor-1" },
     });
     const { store, rerender } = renderWithStore("1h");
     await waitFor(() => expect(store.get(tracesAtom)).toHaveLength(1));
@@ -257,7 +297,7 @@ describe("useTraceListPage", () => {
 
   it("resets pagination and refetches page 1 on a search change, keeping the previous page visible while in flight", async () => {
     requestMock.mockResolvedValueOnce({
-      traces: { items: [queryTrace("a")], hasNextPage: false, endCursor: null },
+      traces: { items: [queryTrace("a")], hasNextPage: true, endCursor: "cursor-1" },
     });
     const { store, rerender } = renderWithStore("1h", "");
     await waitFor(() => expect(store.get(tracesAtom)).toHaveLength(1));
@@ -304,7 +344,7 @@ describe("useTraceListPage", () => {
     await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(1));
 
     rerender({ range: "5m", search: "" });
-    await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(3));
 
     expect(requestMock.mock.calls[1]?.[1]?.from).toBeDefined();
     expect(requestMock.mock.calls[1]?.[1]?.to).toBeDefined();

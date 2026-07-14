@@ -38,13 +38,18 @@ function renderWithStore(range: ChartTimeRange, search = "") {
 }
 
 describe("useLogListPage", () => {
-  it("fetches page 1 with empty cursor / limit 100 and a range-derived `from`", async () => {
-    requestMock.mockResolvedValue({ logs: { items: [], hasNextPage: false, endCursor: null } });
+  it("checks for an older retained log when page 1 has no next page", async () => {
+    requestMock.mockResolvedValueOnce({
+      logs: { items: [queryLog("recent")], hasNextPage: false, endCursor: "recent-cursor" },
+    });
+    requestMock.mockResolvedValueOnce({
+      logs: { items: [], hasNextPage: false, endCursor: null },
+    });
     const before = Temporal.Now.instant();
 
-    renderWithStore("15m");
+    const { result } = renderWithStore("15m");
 
-    await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(2));
     const vars = requestMock.mock.calls[0]?.[1];
     expect(vars?.after).toBeNull();
     expect(vars?.limit).toBe(100);
@@ -52,6 +57,13 @@ describe("useLogListPage", () => {
     const deltaMs = before.since(fromInstant).total("milliseconds");
     expect(deltaMs).toBeGreaterThan(14.9 * 60_000);
     expect(deltaMs).toBeLessThan(15.1 * 60_000);
+    expect(requestMock.mock.calls[1]?.[1]).toMatchObject({
+      from: undefined,
+      to: vars?.from,
+      after: null,
+      limit: 1,
+    });
+    expect(result.current.hasMore).toBe(false);
   });
 
   it("omits `from` for the all range", async () => {
@@ -98,8 +110,11 @@ describe("useLogListPage", () => {
     requestMock.mockResolvedValueOnce({
       logs: { items: [], hasNextPage: false, endCursor: null },
     });
+    requestMock.mockResolvedValueOnce({
+      logs: { items: [queryLog("probe")], hasNextPage: false, endCursor: null },
+    });
     const { store, result } = renderWithStore("1m");
-    await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(2));
     const firstFrom = requestMock.mock.calls[0]?.[1]?.from;
     await waitFor(() => expect(result.current.hasMore).toBe(true));
 
@@ -109,10 +124,10 @@ describe("useLogListPage", () => {
     act(() => result.current.loadMore());
 
     await waitFor(() => expect(store.get(logsAtom).map((log) => log.id)).toEqual(["older"]));
-    const secondVars = requestMock.mock.calls[1]?.[1];
-    expect(secondVars?.from).toBeUndefined();
-    expect(secondVars?.to).toBe(firstFrom);
-    expect(secondVars?.after).toBeNull();
+    const loadMoreVars = requestMock.mock.calls[2]?.[1];
+    expect(loadMoreVars?.from).toBeUndefined();
+    expect(loadMoreVars?.to).toBe(firstFrom);
+    expect(loadMoreVars?.after).toBeNull();
     expect(result.current.hasMore).toBe(false);
   });
 
@@ -127,7 +142,7 @@ describe("useLogListPage", () => {
 
   it("resets pagination and refetches page 1 on a range change, keeping the previous page visible while in flight", async () => {
     requestMock.mockResolvedValueOnce({
-      logs: { items: [queryLog("a")], hasNextPage: false, endCursor: null },
+      logs: { items: [queryLog("a")], hasNextPage: true, endCursor: "cursor-1" },
     });
     const { store, rerender } = renderWithStore("1h");
     await waitFor(() => expect(store.get(logsAtom)).toHaveLength(1));
@@ -147,8 +162,8 @@ describe("useLogListPage", () => {
     });
     await waitFor(() => expect(store.get(logsAtom).map((l) => l.id)).toEqual(["b", "c"]));
 
-    const secondVars = requestMock.mock.calls[1]?.[1];
-    expect(secondVars?.after).toBeNull();
+    const nextPageVars = requestMock.mock.calls[1]?.[1];
+    expect(nextPageVars?.after).toBeNull();
   });
 
   it("passes search through to the query", async () => {
@@ -196,7 +211,7 @@ describe("useLogListPage", () => {
 
   it("resets pagination and refetches page 1 on a search change, keeping the previous page visible while in flight", async () => {
     requestMock.mockResolvedValueOnce({
-      logs: { items: [queryLog("a")], hasNextPage: false, endCursor: null },
+      logs: { items: [queryLog("a")], hasNextPage: true, endCursor: "cursor-1" },
     });
     const { store, rerender } = renderWithStore("1h", "");
     await waitFor(() => expect(store.get(logsAtom)).toHaveLength(1));
@@ -243,7 +258,7 @@ describe("useLogListPage", () => {
     await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(1));
 
     rerender({ range: "5m", search: "" });
-    await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(3));
 
     expect(requestMock.mock.calls[1]?.[1]?.from).toBeDefined();
     expect(requestMock.mock.calls[1]?.[1]?.to).toBeDefined();

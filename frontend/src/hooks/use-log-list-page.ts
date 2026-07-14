@@ -49,12 +49,12 @@ const LogsPageQuery = graphql(`
   }
 `);
 
-// Fetches the logs tab page-by-page: browsing is bounded by `range`, while
-// search and trace correlation span all retained history. This replaces
-// hooks/use-initial-load.ts's old unbounded `logs(limit: 0)` fetch. Mount this once from
+// Fetches the logs tab page-by-page: browsing starts within `range`, then
+// Load more can continue into older retained history. Search and trace
+// correlation span all retained history from page 1. Mount this once from
 // components/logs/log-list.tsx; base-ui's Tabs unmounts an inactive tab's
-// panel (see App.tsx), so switching tabs and back naturally resets
-// pagination the same way a range change does.
+// panel (see App.tsx), so switching tabs and back naturally resets pagination
+// the same way a range change does.
 export function useLogListPage(
   window: EventTimeWindow,
   search: string,
@@ -83,6 +83,17 @@ export function useLogListPage(
     },
     [traceId],
   );
+  const hasLogsBefore = useCallback(async (before: string) => {
+    const data = await gqlClient.request(LogsPageQuery, {
+      from: undefined,
+      to: before,
+      after: null,
+      limit: 1,
+      search: "",
+      traceId: null,
+    });
+    return data.logs.items.length > 0;
+  }, []);
   const getCurrentIds = useCallback(
     () => new Set(store.get(logsAtom).map((log) => log.id)),
     [store],
@@ -107,6 +118,7 @@ export function useLogListPage(
     replacePage,
     onAppend: appendPage,
     loadOlderBeyondWindow: !traceId,
+    hasItemsBefore: traceId ? undefined : hasLogsBefore,
     retainedHistory: Boolean(traceId),
   });
 }

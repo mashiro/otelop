@@ -3,7 +3,12 @@ import { useSetAtom, useStore } from "jotai";
 import { graphql } from "@/gql";
 import type { TracesPageQuery as TracesPageQueryType } from "@/gql/graphql";
 import { gqlClient } from "@/lib/graphql";
-import { replaceTracePageAtom, appendTracesAtom, tracesAtom } from "@/stores/telemetry";
+import {
+  replaceTracePageAtom,
+  appendTracesAtom,
+  appendTraceSearchResultsAtom,
+  tracesAtom,
+} from "@/stores/telemetry";
 import type { EventTimeWindow } from "@/lib/event-time-window";
 import type { TraceData, SpanStatus } from "@/types/telemetry";
 import { MS_TO_NS } from "@/lib/span-mapping";
@@ -62,15 +67,16 @@ function toTraceData({
   };
 }
 
-// Fetches the traces tab page-by-page: browsing is bounded by `range`, while
-// search spans all retained history. This replaces hooks/use-initial-load.ts's
-// old unbounded `traces(limit: 0)` fetch (issue #160). Mount this once from
-// components/traces/trace-list.tsx; base-ui's Tabs unmounts an inactive
-// tab's panel (see App.tsx), so switching tabs and back naturally resets
-// pagination the same way a range change does.
+// Fetches the traces tab page-by-page: browsing starts within `range`, then
+// Load more can continue into older retained history. Search spans all
+// retained history from page 1. Mount this once from
+// components/traces/trace-list.tsx; base-ui's Tabs unmounts an inactive tab's
+// panel (see App.tsx), so switching tabs and back naturally resets pagination
+// the same way a range change does.
 export function useTraceListPage(window: EventTimeWindow, search: string): SignalListPage {
   const replaceTracePage = useSetAtom(replaceTracePageAtom);
   const appendTraces = useSetAtom(appendTracesAtom);
+  const appendSearchResults = useSetAtom(appendTraceSearchResultsAtom);
   const store = useStore();
 
   const fetchPage = useCallback(async ({ from, to, after, limit, search }: FetchPageArgs) => {
@@ -81,6 +87,16 @@ export function useTraceListPage(window: EventTimeWindow, search: string): Signa
       endCursor: data.traces.endCursor ?? null,
     };
   }, []);
+  const hasTracesBefore = useCallback(async (before: string) => {
+    const data = await gqlClient.request(TracesPageQuery, {
+      from: undefined,
+      to: before,
+      after: null,
+      limit: 1,
+      search: "",
+    });
+    return data.traces.items.length > 0;
+  }, []);
   const getCurrentIds = useCallback(
     () => new Set(store.get(tracesAtom).map((trace) => trace.traceId)),
     [store],
@@ -89,6 +105,13 @@ export function useTraceListPage(window: EventTimeWindow, search: string): Signa
     (page: ReplacementPage<TraceData>) => replaceTracePage(page),
     [replaceTracePage],
   );
+  const appendPage = useCallback(
+    (items: TraceData[]) => {
+      if (search.trim()) appendSearchResults(items);
+      else appendTraces(items);
+    },
+    [appendTraces, appendSearchResults, search],
+  );
 
   return useSignalListPage({
     window,
@@ -96,6 +119,8 @@ export function useTraceListPage(window: EventTimeWindow, search: string): Signa
     fetchPage,
     getCurrentIds,
     replacePage,
-    onAppend: appendTraces,
+    onAppend: appendPage,
+    loadOlderBeyondWindow: true,
+    hasItemsBefore: hasTracesBefore,
   });
 }

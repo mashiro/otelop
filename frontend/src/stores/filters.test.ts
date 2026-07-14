@@ -7,6 +7,7 @@ import {
   logTraceFilterAtom,
   setTracesAtom,
   setLogsAtom,
+  appendTracesAtom,
   appendLogsAtom,
   addTraceAtom,
   addLogAtom,
@@ -46,6 +47,23 @@ describe("filteredTracesAtom", () => {
     store.set(traceListWindowAtom, { mode: "live", range: "5m" });
 
     expect(store.get(filteredTracesAtom).map((t) => t.traceId)).toEqual(["new"]);
+  });
+
+  it("keeps explicitly loaded older traces visible beyond the selected range", () => {
+    const store = createStore();
+    store.set(traceListWindowAtom, { mode: "live", range: "1m" });
+    store.set(setTracesAtom, [
+      makeTrace({ traceId: "current", startTime: "2024-01-01T00:02:00Z" }),
+    ]);
+
+    store.set(appendTracesAtom, [
+      makeTrace({ traceId: "older", startTime: "2024-01-01T00:00:00Z" }),
+    ]);
+
+    expect(store.get(filteredTracesAtom).map((trace) => trace.traceId)).toEqual([
+      "current",
+      "older",
+    ]);
   });
 
   it("filters by service name", () => {
