@@ -17,6 +17,7 @@ import (
 	"go.opentelemetry.io/otel/propagation"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
@@ -27,6 +28,11 @@ import (
 // traces, preventing storage spans from recursively generating more storage
 // spans forever.
 const InternalResourceAttribute = "otelop.telemetry.internal"
+
+const (
+	durationHistogramMaxSize  = 160
+	durationHistogramMaxScale = 20
+)
 
 type suppressTracingKey struct{}
 
@@ -127,6 +133,7 @@ func Setup(ctx context.Context, endpoint string) (*Result, error) {
 	metricExp, err := otlpmetricgrpc.New(ctx,
 		otlpmetricgrpc.WithEndpoint(endpoint),
 		otlpmetricgrpc.WithInsecure(),
+		otlpmetricgrpc.WithTemporalitySelector(selfTelemetryTemporality),
 	)
 	if err != nil {
 		return nil, err
@@ -137,6 +144,7 @@ func Setup(ctx context.Context, endpoint string) (*Result, error) {
 			sdkmetric.WithInterval(10*time.Second),
 		)),
 		sdkmetric.WithResource(res),
+		sdkmetric.WithView(durationHistogramView()),
 	)
 	otel.SetMeterProvider(mp)
 
@@ -165,6 +173,37 @@ func Setup(ctx context.Context, endpoint string) (*Result, error) {
 			return errors.Join(tp.Shutdown(ctx), mp.Shutdown(ctx), lp.Shutdown(ctx))
 		},
 	}, nil
+}
+
+// selfTelemetryTemporality exports duration histograms as independent
+// collection intervals. This avoids deriving deltas from cumulative
+// exponential histograms whose scale can change as their value range grows.
+// Other instrument kinds retain the SDK's cumulative default.
+func selfTelemetryTemporality(kind sdkmetric.InstrumentKind) metricdata.Temporality {
+	if kind == sdkmetric.InstrumentKindHistogram {
+		return metricdata.DeltaTemporality
+	}
+	return sdkmetric.DefaultTemporalitySelector(kind)
+}
+
+// durationHistogramView keeps latency resolution proportional across values
+// from sub-millisecond queries through multi-second storage work. The SDK's
+// default explicit boundaries are unit-agnostic, so a seconds instrument
+// would otherwise put every value below five seconds into one bucket.
+func durationHistogramView() sdkmetric.View {
+	return sdkmetric.NewView(
+		sdkmetric.Instrument{
+			Name: "otelop.*.duration",
+			Kind: sdkmetric.InstrumentKindHistogram,
+			Unit: "s",
+		},
+		sdkmetric.Stream{
+			Aggregation: sdkmetric.AggregationBase2ExponentialHistogram{
+				MaxSize:  durationHistogramMaxSize,
+				MaxScale: durationHistogramMaxScale,
+			},
+		},
+	)
 }
 
 func newResource(ctx context.Context) (*resource.Resource, error) {

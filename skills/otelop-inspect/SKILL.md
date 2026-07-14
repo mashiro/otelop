@@ -58,6 +58,8 @@ started or restart it without the user's permission.
 - Metric existence/list view: `metrics` with `latestValue` and `pointCount`.
 - Exact metric history: `metricPoints(serviceName:, name:, from:, to:)`.
 - Chart/facet data: `metricAggregate(serviceName:, name:, groupBy:, ...)`.
+- Histogram window statistics: `metricDistributionStats(serviceName:, name:,
+  groupBy:, from:, to:)`.
 
 Request only the fields needed. Avoid `Metric.dataPoints` on every item in a
 large metrics page; use `metricPoints` after choosing one metric.
@@ -79,6 +81,7 @@ Top-level queries:
 - `metrics(limit: 50, after: String, from: Time, to: Time, search: String)`
 - `metricPoints(serviceName: String!, name: String!, from: Time, to: Time)`
 - `metricAggregate(serviceName: String!, name: String!, groupBy: [String!]!, bucketSeconds: Int, from: Time, to: Time)`
+- `metricDistributionStats(serviceName: String!, name: String!, groupBy: [String!], from: Time, to: Time)`
 - `logs(limit: 50, after: String, traceId: String, from: Time, to: Time, search: String)`
 
 All three signal connections return `items`, `hasNextPage`, `endCursor`, and
@@ -214,6 +217,12 @@ group by each complete point-attribute map, reproducing the UI's `All` view.
 Each underlying series is delta-derived before its buckets are merged into a
 returned group. `min` and `max` instead reduce the optional values carried by
 the selected points and are not delta-derived for cumulative histograms.
+Percentiles are estimates interpolated from the sender's retained bucket
+boundaries. If the boundaries are much wider than the observed values, the
+reported percentiles will be correspondingly coarse and can fall outside the
+independently reduced point `min`/`max`. Compare `mean`, `min`, and `max` with
+`metricPoints` before treating an implausible percentile as storage
+corruption; the instrument's histogram boundaries may need adjustment.
 
 Data points are ordered oldest-first. One metric group can contain multiple
 attribute series, so group points by `attributes` before reporting a latest
@@ -252,6 +261,11 @@ derived from retained delta history.
   contained span.
 - `pointCount` is cardinality, not metric state; use `latestValue` or
   `metricPoints` for values.
+- Histogram percentile accuracy is bounded by the sender's bucket layout. A
+  duration Histogram recorded in seconds with broad default boundaries can
+  legitimately return multi-second bucket estimates for millisecond-scale
+  observations; inspect `metricPoints` and the metric unit when results look
+  implausible.
 - Missing old data may be caused by configured retention or max-size cleanup.
   A trace can also disappear when it crosses the 10,000 retained-span limit;
   confirm this through the `dropped oversized trace` warning log. There is no
