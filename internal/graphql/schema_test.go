@@ -345,12 +345,11 @@ func TestLogs_SearchArgFiltersAndPagination(t *testing.T) {
 		t.Errorf("no-match connection = %v", empty)
 	}
 
-	// traceId given: search is ignored, same as from/to (see resolver.go's
-	// Logs — the trace-correlation branch never consults search).
+	// traceId is an independent filter and composes with search.
 	data = exec(t, s, `{ logs(traceId: "02000000000000000000000000000000", search: "no-such-log") { hasNextPage items { id } } }`, nil)
 	byTrace := data["logs"].(map[string]any)
-	if byTrace["hasNextPage"].(bool) || len(byTrace["items"].([]any)) != 1 {
-		t.Errorf("traceId-filtered connection = %v, want one item", byTrace)
+	if byTrace["hasNextPage"].(bool) || len(byTrace["items"].([]any)) != 0 {
+		t.Errorf("traceId + search connection = %v, want no items", byTrace)
 	}
 }
 

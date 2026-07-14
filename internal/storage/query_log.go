@@ -96,16 +96,17 @@ SELECT ` + logSelectColumns + `
 FROM logs l
 JOIN resources r ON r.resource_hash = l.resource_hash
 WHERE l.trace_id = ?
+AND ` + searchPredicate + `
 AND (CAST(? AS BOOLEAN) OR l.ts < ? OR (l.ts = ? AND l.id < ?))
 ORDER BY l.ts DESC, l.id DESC
 LIMIT ?
 `
 
 // LogsPageByTraceID returns a newest-first page of logs correlated to
-// traceID. Unlike LogsPage it takes no time range — matching
-// the old store package's GetLogsPageByTraceID, which looks up its secondary index
-// by trace_id alone regardless of when the logs arrived.
-func (s *Storage) LogsPageByTraceID(ctx context.Context, traceID string, after *LogCursor, limit int) (items []LogDetail, hasNextPage bool, err error) {
+// traceID and optionally matching search. Unlike LogsPage it takes no time
+// range: trace correlation is retained-history filtering regardless of when
+// the logs arrived.
+func (s *Storage) LogsPageByTraceID(ctx context.Context, traceID string, after *LogCursor, limit int, search string) (items []LogDetail, hasNextPage bool, err error) {
 	ctx, span := startStorageSpan(ctx, "storage.LogsPageByTraceID", attribute.Int("db.limit", limit))
 	defer func() { endStorageSpan(span, err) }()
 	started := time.Now()
@@ -115,7 +116,9 @@ func (s *Storage) LogsPageByTraceID(ctx context.Context, traceID string, after *
 		queryLimit++
 	}
 	firstPage, cursorTS, cursorID := logCursorArgs(after)
+	pattern := likePattern(search)
 	rows, err := s.DB().QueryContext(ctx, logsPageByTraceIDQuery, traceID,
+		pattern, pattern, pattern, pattern,
 		firstPage, cursorTS, cursorTS, cursorID, queryLimit)
 	if err != nil {
 		return nil, false, fmt.Errorf("storage: query logs by trace: %w", err)

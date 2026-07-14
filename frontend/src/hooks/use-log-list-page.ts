@@ -2,7 +2,12 @@ import { useCallback } from "react";
 import { useSetAtom, useStore } from "jotai";
 import { graphql } from "@/gql";
 import { gqlClient } from "@/lib/graphql";
-import { replaceLogPageAtom, appendLogsAtom, logsAtom } from "@/stores/telemetry";
+import {
+  replaceLogPageAtom,
+  appendLogsAtom,
+  appendLogSearchResultsAtom,
+  logsAtom,
+} from "@/stores/telemetry";
 import type { LogData } from "@/types/telemetry";
 import type { EventTimeWindow } from "@/lib/event-time-window";
 import {
@@ -16,8 +21,15 @@ import {
 // replaces it as the logs tab's data source now that the list is paginated
 // by range instead of fetched unbounded (issue #160).
 const LogsPageQuery = graphql(`
-  query LogsPage($from: Time, $to: Time!, $after: String, $limit: Int!, $search: String) {
-    logs(from: $from, to: $to, after: $after, limit: $limit, search: $search) {
+  query LogsPage(
+    $from: Time
+    $to: Time
+    $after: String
+    $limit: Int!
+    $search: String
+    $traceId: String
+  ) {
+    logs(from: $from, to: $to, after: $after, limit: $limit, search: $search, traceId: $traceId) {
       items {
         id
         timestamp
@@ -37,25 +49,40 @@ const LogsPageQuery = graphql(`
   }
 `);
 
-// Fetches the logs tab's list page-by-page within `range`, matching `search`
-// server-side (issue #161), replacing hooks/use-initial-load.ts's old
-// unbounded `logs(limit: 0)` fetch. Mount this once from
+// Fetches the logs tab page-by-page: browsing is bounded by `range`, while
+// search and trace correlation span all retained history. This replaces
+// hooks/use-initial-load.ts's old unbounded `logs(limit: 0)` fetch. Mount this once from
 // components/logs/log-list.tsx; base-ui's Tabs unmounts an inactive tab's
 // panel (see App.tsx), so switching tabs and back naturally resets
 // pagination the same way a range change does.
-export function useLogListPage(window: EventTimeWindow, search: string): SignalListPage {
+export function useLogListPage(
+  window: EventTimeWindow,
+  search: string,
+  traceId: string | null = null,
+): SignalListPage {
   const replaceLogPage = useSetAtom(replaceLogPageAtom);
   const appendLogs = useSetAtom(appendLogsAtom);
+  const appendSearchResults = useSetAtom(appendLogSearchResultsAtom);
   const store = useStore();
 
-  const fetchPage = useCallback(async ({ from, to, after, limit, search }: FetchPageArgs) => {
-    const data = await gqlClient.request(LogsPageQuery, { from, to, after, limit, search });
-    return {
-      items: data.logs.items,
-      hasNextPage: data.logs.hasNextPage,
-      endCursor: data.logs.endCursor ?? null,
-    };
-  }, []);
+  const fetchPage = useCallback(
+    async ({ from, to, after, limit, search }: FetchPageArgs) => {
+      const data = await gqlClient.request(LogsPageQuery, {
+        from,
+        to,
+        after,
+        limit,
+        search,
+        traceId,
+      });
+      return {
+        items: data.logs.items,
+        hasNextPage: data.logs.hasNextPage,
+        endCursor: data.logs.endCursor ?? null,
+      };
+    },
+    [traceId],
+  );
   const getCurrentIds = useCallback(
     () => new Set(store.get(logsAtom).map((log) => log.id)),
     [store],
@@ -64,6 +91,13 @@ export function useLogListPage(window: EventTimeWindow, search: string): SignalL
     (page: ReplacementPage<LogData>) => replaceLogPage(page),
     [replaceLogPage],
   );
+  const appendPage = useCallback(
+    (items: LogData[]) => {
+      if (search.trim() || traceId) appendSearchResults(items);
+      else appendLogs(items);
+    },
+    [appendLogs, appendSearchResults, search, traceId],
+  );
 
   return useSignalListPage({
     window,
@@ -71,7 +105,8 @@ export function useLogListPage(window: EventTimeWindow, search: string): SignalL
     fetchPage,
     getCurrentIds,
     replacePage,
-    onAppend: appendLogs,
-    loadOlderBeyondWindow: true,
+    onAppend: appendPage,
+    loadOlderBeyondWindow: !traceId,
+    retainedHistory: Boolean(traceId),
   });
 }

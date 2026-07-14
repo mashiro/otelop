@@ -72,7 +72,7 @@ export function TraceList() {
         <>
           <SearchFilter atom={traceSearchAtom} placeholder="Search traces…" />
           <div className="ml-auto flex items-center gap-2 px-3">
-            <EventWindowControls tone="trace" />
+            <EventWindowControls tone="trace" allRetained={Boolean(search.trim())} />
             <div className="flex items-center gap-1">
               <button
                 type="button"

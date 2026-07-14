@@ -134,7 +134,7 @@ func TestLogsPageByTraceID_IsolatesByTraceIgnoringTimeRange(t *testing.T) {
 	s.Sync()
 
 	traceID := pcommon.TraceID([16]byte{4}).String()
-	items, hasNextPage, err := s.LogsPageByTraceID(ctx, traceID, nil, 0)
+	items, hasNextPage, err := s.LogsPageByTraceID(ctx, traceID, nil, 0, "")
 	if err != nil {
 		t.Fatalf("LogsPageByTraceID: %v", err)
 	}
@@ -155,12 +155,12 @@ func TestLogsPageByTraceID_PaginationAndHasNextPage(t *testing.T) {
 	s.Sync()
 
 	traceID := pcommon.TraceID([16]byte{6}).String()
-	first, _, err := s.LogsPageByTraceID(ctx, traceID, nil, 1)
+	first, _, err := s.LogsPageByTraceID(ctx, traceID, nil, 1, "")
 	if err != nil {
 		t.Fatalf("LogsPageByTraceID first page: %v", err)
 	}
 	after := &LogCursor{TS: first[0].TS, ID: first[0].ID}
-	items, hasNextPage, err := s.LogsPageByTraceID(ctx, traceID, after, 2)
+	items, hasNextPage, err := s.LogsPageByTraceID(ctx, traceID, after, 2, "")
 	if err != nil {
 		t.Fatalf("LogsPageByTraceID: %v", err)
 	}
@@ -169,6 +169,26 @@ func TestLogsPageByTraceID_PaginationAndHasNextPage(t *testing.T) {
 	}
 	if len(items) != 2 {
 		t.Fatalf("expected page of 2, got %d", len(items))
+	}
+}
+
+func TestLogsPageByTraceID_SearchComposesWithTraceFilter(t *testing.T) {
+	s := openTestStorage(t, Options{})
+	ctx := context.Background()
+	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	s.AddLogs(ctx, buildLog([16]byte{10}, "db timeout", "api", t0))
+	s.AddLogs(ctx, buildLog([16]byte{10}, "request complete", "api", t0.Add(time.Second)))
+	s.AddLogs(ctx, buildLog([16]byte{11}, "another timeout", "api", t0.Add(2*time.Second)))
+	s.Sync()
+
+	traceID := pcommon.TraceID([16]byte{10}).String()
+	items, hasNextPage, err := s.LogsPageByTraceID(ctx, traceID, nil, 0, "timeout")
+	if err != nil {
+		t.Fatalf("LogsPageByTraceID: %v", err)
+	}
+	if hasNextPage || len(items) != 1 || items[0].Body != "db timeout" {
+		t.Fatalf("expected the search match from only the requested trace, got hasNextPage=%v items=%+v", hasNextPage, items)
 	}
 }
 
@@ -183,7 +203,7 @@ func TestLogsPageByTraceID_EmptyPageHasNoNextPage(t *testing.T) {
 	s.Sync()
 
 	traceID := pcommon.TraceID([16]byte{9}).String()
-	items, hasNextPage, err := s.LogsPageByTraceID(ctx, traceID, &LogCursor{TS: t0.Add(-time.Hour)}, 2)
+	items, hasNextPage, err := s.LogsPageByTraceID(ctx, traceID, &LogCursor{TS: t0.Add(-time.Hour)}, 2, "")
 	if err != nil {
 		t.Fatalf("LogsPageByTraceID: %v", err)
 	}

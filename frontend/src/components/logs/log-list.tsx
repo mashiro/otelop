@@ -46,7 +46,7 @@ export function LogList() {
   const setSelectedLog = useSetAtom(selectedLogAtom);
   const [window, setWindow] = useAtom(eventTimeWindowAtom);
   const [search, setSearch] = useAtom(logSearchAtom);
-  const page = useLogListPage(window, search);
+  const page = useLogListPage(window, search, traceFilter);
 
   if (logCount === 0 && allLogs.length === 0) {
     return <EmptyState signal={SIGNALS.logs} />;
@@ -70,7 +70,7 @@ export function LogList() {
           )}
           <SearchFilter atom={logSearchAtom} placeholder="Search logs…" />
           <div className="ml-auto px-3">
-            <EventWindowControls tone="log" />
+            <EventWindowControls tone="log" allRetained={Boolean(search.trim() || traceFilter)} />
           </div>
         </>
       }

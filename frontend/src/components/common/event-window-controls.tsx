@@ -24,8 +24,20 @@ function formatInstant(value: string): string {
     });
 }
 
-export function EventWindowControls({ tone }: { tone: "trace" | "log" }) {
+export function EventWindowControls({
+  tone,
+  allRetained = false,
+}: {
+  tone: "trace" | "log";
+  allRetained?: boolean;
+}) {
   const [window, setWindow] = useAtom(eventTimeWindowAtom);
+
+  if (allRetained) {
+    return (
+      <span className="px-2 text-xs font-medium text-muted-foreground">All retained data</span>
+    );
+  }
 
   return <TimeWindowControls window={window} onWindowChange={setWindow} tone={tone} />;
 }

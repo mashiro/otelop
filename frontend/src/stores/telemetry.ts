@@ -539,3 +539,7 @@ export const appendLogsAtom = atom(null, (_get, set, logs: LogData[]) => {
   set(loadedOlderLogIdsAtom, (previous) => new Set([...previous, ...logs.map((log) => log.id)]));
   set(logList.append, logs);
 });
+// Search and trace-correlation pages are already global retained-history
+// modes. Appending them must not mark their rows as manually paged browsing
+// history, or clearing the mode could leak out-of-window rows into the list.
+export const appendLogSearchResultsAtom = logList.append;

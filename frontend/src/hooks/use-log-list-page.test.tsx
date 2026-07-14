@@ -158,6 +158,40 @@ describe("useLogListPage", () => {
 
     await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(1));
     expect(requestMock.mock.calls[0]?.[1]?.search).toBe("timeout");
+    expect(requestMock.mock.calls[0]?.[1]?.from).toBeUndefined();
+    expect(requestMock.mock.calls[0]?.[1]?.to).toBeUndefined();
+  });
+
+  it("does not restart an active retained-history search when the browsing range changes", async () => {
+    requestMock.mockResolvedValue({ logs: { items: [], hasNextPage: false, endCursor: null } });
+
+    const { rerender } = renderWithStore("1m", "timeout");
+    await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(1));
+
+    rerender({ range: "24h", search: "timeout" });
+    await act(async () => Promise.resolve());
+
+    expect(requestMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("queries a trace filter over retained history and composes it with search", async () => {
+    requestMock.mockResolvedValue({ logs: { items: [], hasNextPage: false, endCursor: null } });
+    const store = createStore();
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <Provider store={store}>{children}</Provider>
+    );
+
+    renderHook(() => useLogListPage({ mode: "live", range: "1m" }, "timeout", "trace-a"), {
+      wrapper,
+    });
+
+    await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(1));
+    expect(requestMock.mock.calls[0]?.[1]).toMatchObject({
+      from: undefined,
+      to: undefined,
+      search: "timeout",
+      traceId: "trace-a",
+    });
   });
 
   it("resets pagination and refetches page 1 on a search change, keeping the previous page visible while in flight", async () => {
@@ -199,5 +233,20 @@ describe("useLogListPage", () => {
 
     await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(2));
     expect(requestMock.mock.calls[1]?.[1]?.search).toBe("timeout");
+    expect(requestMock.mock.calls[1]?.[1]?.from).toBeUndefined();
+    expect(requestMock.mock.calls[1]?.[1]?.to).toBeUndefined();
+  });
+
+  it("returns to the current browsing window when search is cleared", async () => {
+    requestMock.mockResolvedValue({ logs: { items: [], hasNextPage: false, endCursor: null } });
+    const { rerender } = renderWithStore("5m", "timeout");
+    await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(1));
+
+    rerender({ range: "5m", search: "" });
+    await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(2));
+
+    expect(requestMock.mock.calls[1]?.[1]?.from).toBeDefined();
+    expect(requestMock.mock.calls[1]?.[1]?.to).toBeDefined();
+    expect(requestMock.mock.calls[1]?.[1]?.search).toBe("");
   });
 });

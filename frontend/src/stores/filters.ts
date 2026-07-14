@@ -38,7 +38,7 @@ function createServerBackedSearchAtom<T>(
 ) {
   return atom<T[]>((get) => {
     const items = get(sourceAtom);
-    const search = get(searchAtom);
+    const search = get(searchAtom).trim();
     if (!search) return items;
     const q = search.toLowerCase();
     const serverIds = get(serverIdsAtom);
@@ -85,8 +85,8 @@ const rangeFilteredTracesAtom = atom((get) => {
 // (query_trace.go): trace ID, any loaded span's name/status, service. Live
 // WebSocket rows are summary-only, so root/service fields are immediately
 // searchable; non-root span fields become searchable after lazy detail load.
-export const filteredTracesAtom = createServerBackedSearchAtom(
-  rangeFilteredTracesAtom,
+const searchedTracesAtom = createServerBackedSearchAtom(
+  tracesAtom,
   traceSearchAtom,
   serverMatchedTraceIdsAtom,
   (t: TraceData) => t.traceId,
@@ -98,6 +98,10 @@ export const filteredTracesAtom = createServerBackedSearchAtom(
     ...(t.searchValues ?? []),
     ...t.spans.flatMap((s) => [s.name, s.statusCode]),
   ],
+);
+
+export const filteredTracesAtom = atom((get) =>
+  get(traceSearchAtom).trim() ? get(searchedTracesAtom) : get(rangeFilteredTracesAtom),
 );
 
 export const logSearchAtom = atom("");
@@ -120,8 +124,8 @@ const rangeFilteredLogsAtom = atom((get) => {
 
 // The client-side predicate (live WS rows only) mirrors the server's
 // LogsPage search (query_log.go): body, service name, severity text, trace ID.
-const filteredLogsBySearchAtom = createServerBackedSearchAtom(
-  rangeFilteredLogsAtom,
+const searchedLogsAtom = createServerBackedSearchAtom(
+  logsAtom,
   logSearchAtom,
   serverMatchedLogIdsAtom,
   (l: LogData) => l.id,
@@ -130,7 +134,11 @@ const filteredLogsBySearchAtom = createServerBackedSearchAtom(
 
 export const filteredLogsAtom = atom<LogData[]>((get) => {
   const traceFilter = get(logTraceFilterAtom);
-  const logs = get(filteredLogsBySearchAtom);
+  const logs = get(logSearchAtom).trim()
+    ? get(searchedLogsAtom)
+    : traceFilter
+      ? get(logsAtom)
+      : get(rangeFilteredLogsAtom);
   if (!traceFilter) return logs;
   return logs.filter((l) => l.traceId === traceFilter);
 });

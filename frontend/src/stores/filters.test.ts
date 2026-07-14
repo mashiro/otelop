@@ -59,6 +59,30 @@ describe("filteredTracesAtom", () => {
     expect(store.get(filteredTracesAtom)[0].traceId).toBe("a");
   });
 
+  it("searches buffered traces outside the active time window", () => {
+    const store = createStore();
+    store.set(tracesAtom, [
+      makeTrace({
+        traceId: "old-match",
+        serviceName: "checkout",
+        startTime: "2024-01-01T00:00:00Z",
+      }),
+      makeTrace({
+        traceId: "current-miss",
+        serviceName: "billing",
+        startTime: "2024-01-01T01:00:00Z",
+      }),
+    ]);
+    store.set(traceListWindowAtom, {
+      mode: "fixed",
+      from: "2024-01-01T00:59:00Z",
+      to: "2024-01-01T01:01:00Z",
+    });
+    store.set(traceSearchAtom, "checkout");
+
+    expect(store.get(filteredTracesAtom).map((trace) => trace.traceId)).toEqual(["old-match"]);
+  });
+
   it("filters by span name", () => {
     const store = createStore();
     store.set(tracesAtom, [
@@ -248,6 +272,38 @@ describe("filteredLogsAtom", () => {
     store.set(logsAtom, [makeLog({ body: "error occurred" }), makeLog({ body: "all ok" })]);
     store.set(logSearchAtom, "error");
     expect(store.get(filteredLogsAtom)).toHaveLength(1);
+  });
+
+  it("searches buffered logs outside the active time window", () => {
+    const store = createStore();
+    store.set(logsAtom, [
+      makeLog({ id: "old-match", body: "timeout", timestamp: "2024-01-01T00:00:00Z" }),
+      makeLog({ id: "current-miss", body: "ok", timestamp: "2024-01-01T01:00:00Z" }),
+    ]);
+    store.set(logListWindowAtom, {
+      mode: "fixed",
+      from: "2024-01-01T00:59:00Z",
+      to: "2024-01-01T01:01:00Z",
+    });
+    store.set(logSearchAtom, "timeout");
+
+    expect(store.get(filteredLogsAtom).map((log) => log.id)).toEqual(["old-match"]);
+  });
+
+  it("treats the trace filter as retained-history scope", () => {
+    const store = createStore();
+    store.set(logsAtom, [
+      makeLog({ id: "old-match", traceId: "trace-a", timestamp: "2024-01-01T00:00:00Z" }),
+      makeLog({ id: "current-miss", traceId: "trace-b", timestamp: "2024-01-01T01:00:00Z" }),
+    ]);
+    store.set(logListWindowAtom, {
+      mode: "fixed",
+      from: "2024-01-01T00:59:00Z",
+      to: "2024-01-01T01:01:00Z",
+    });
+    store.set(logTraceFilterAtom, "trace-a");
+
+    expect(store.get(filteredLogsAtom).map((log) => log.id)).toEqual(["old-match"]);
   });
 
   it("filters by severity text", () => {

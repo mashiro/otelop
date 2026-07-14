@@ -19,7 +19,7 @@ import {
 // as the traces tab's data source now that the list is paginated by range
 // instead of fetched unbounded.
 const TracesPageQuery = graphql(`
-  query TracesPage($from: Time, $to: Time!, $after: String, $limit: Int!, $search: String) {
+  query TracesPage($from: Time, $to: Time, $after: String, $limit: Int!, $search: String) {
     traces(from: $from, to: $to, after: $after, limit: $limit, search: $search) {
       items {
         traceId
@@ -63,8 +63,8 @@ function toTraceData({
   };
 }
 
-// Fetches the traces tab's list page-by-page within `range`, matching
-// `search` server-side (issue #161), replacing hooks/use-initial-load.ts's
+// Fetches the traces tab page-by-page: browsing is bounded by `range`, while
+// search spans all retained history. This replaces hooks/use-initial-load.ts's
 // old unbounded `traces(limit: 0)` fetch (issue #160). Mount this once from
 // components/traces/trace-list.tsx; base-ui's Tabs unmounts an inactive
 // tab's panel (see App.tsx), so switching tabs and back naturally resets

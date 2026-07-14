@@ -180,10 +180,9 @@ func (r *Resolver) Logs(ctx context.Context, args LogsArgs) (*ConnectionResolver
 		return nil, err
 	}
 	if args.TraceID != nil && *args.TraceID != "" {
-		// The trace-correlation view ignores search, same as it already
-		// ignores from/to — it ranges over one trace's logs regardless of
-		// time or the traces/logs list's active search box.
-		items, hasNextPage, err = r.storage.LogsPageByTraceID(ctx, *args.TraceID, after, int(args.Limit))
+		// Trace correlation is a retained-history filter rather than a time
+		// window. Search remains an independent predicate and composes with it.
+		items, hasNextPage, err = r.storage.LogsPageByTraceID(ctx, *args.TraceID, after, int(args.Limit), stringArg(args.Search))
 	} else {
 		from, to := r.resolveWindow(args.From, args.To)
 		items, hasNextPage, err = r.storage.LogsPage(ctx, from, to, after, int(args.Limit), stringArg(args.Search))

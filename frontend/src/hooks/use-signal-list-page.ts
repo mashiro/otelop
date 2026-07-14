@@ -18,7 +18,7 @@ export interface SignalListPage {
 // shape this hook calls it with, instead of re-declaring the same inline type.
 export interface FetchPageArgs {
   from: string | undefined;
-  to: string;
+  to: string | undefined;
   after: string | null;
   limit: number;
   search: string;
@@ -32,7 +32,7 @@ interface FetchPageResult<T> {
 
 interface PagingSession {
   from: string | undefined;
-  to: string;
+  to: string | undefined;
   search: string;
   endCursor: string | null;
 }
@@ -45,6 +45,7 @@ interface SignalListPageOptions<T> {
   replacePage: (page: ReplacementPage<T>) => void;
   onAppend: (items: T[]) => void;
   loadOlderBeyondWindow?: boolean;
+  retainedHistory?: boolean;
 }
 
 export interface ReplacementPage<T> {
@@ -55,9 +56,9 @@ export interface ReplacementPage<T> {
 
 // Shared pagination core for the traces/logs list tabs
 // (hooks/use-trace-list-page.ts, hooks/use-log-list-page.ts): fetches the
-// newest SIGNAL_PAGE_SIZE-row page within `range` (and, since issue #161,
-// matching `search`) on mount and whenever either changes (replacing via
-// replacePage), then pages further into the past via the server cursor on
+// newest SIGNAL_PAGE_SIZE-row page within `range`, or across retained history
+// when searching, on mount and whenever the active request scope changes
+// (replacing via replacePage), then pages further into the past via the server cursor on
 // "Load more" (appending via onAppend). `from`/`to`/`search` are captured once
 // per range-or-search change. A
 // search edit while a "Load more" is in flight starts a fresh session rather
@@ -76,18 +77,31 @@ export function useSignalListPage<T>({
   replacePage,
   onAppend,
   loadOlderBeyondWindow = false,
+  retainedHistory = false,
 }: SignalListPageOptions<T>): SignalListPage {
   const [state, setState] = useState({ hasMore: false, loadingMore: false });
   const sessionRef = useRef<PagingSession | null>(null);
   const windowKey = eventWindowKey(window);
+  const normalizedSearch = search.trim();
+  // Search is a retained-history query mode, not a predicate applied inside
+  // the currently selected browsing window. Keeping one key for that mode
+  // also means an otherwise irrelevant range change cannot reset its cursor.
+  const requestKey = normalizedSearch
+    ? `search:${normalizedSearch}`
+    : retainedHistory
+      ? "retained"
+      : `browse:${windowKey}`;
 
   useEffect(() => {
     let ignore = false;
-    const bounds = eventWindowBounds(window);
+    const bounds =
+      normalizedSearch || retainedHistory
+        ? { from: undefined, to: undefined }
+        : eventWindowBounds(window);
     const session: PagingSession = {
       from: bounds.from,
       to: bounds.to,
-      search,
+      search: normalizedSearch,
       endCursor: null,
     };
     sessionRef.current = session;
@@ -122,7 +136,7 @@ export function useSignalListPage<T>({
     // fetchPage/replacePage/onAppend must be reference-stable across renders
     // (callers wrap them in useCallback or use Jotai setters) so this effect
     // only reruns on a genuine window or search change, not on every render.
-  }, [windowKey, search, fetchPage, getCurrentIds, replacePage, loadOlderBeyondWindow]);
+  }, [requestKey, fetchPage, getCurrentIds, replacePage, loadOlderBeyondWindow, retainedHistory]);
 
   const loadMore = useCallback(() => {
     const session = sessionRef.current;
