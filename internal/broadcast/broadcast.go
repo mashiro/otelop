@@ -12,16 +12,13 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/mashiro/otelop/internal/selftelemetry"
 	"github.com/mashiro/otelop/internal/storage"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 )
-
-// metricLeadMargin nudges the query's exclusive upper bound past the
-// batch's latest point timestamp so that exact-timestamp point is included.
-const metricLeadMargin = 1 * time.Second
 
 // New returns a storage.OnCommitFunc that translates each CommitEvent into
 // the legacy wire-shaped payloads and invokes onAdd once per logical item —
@@ -122,17 +119,28 @@ func broadcastMetrics(ctx context.Context, s *storage.Storage, batch storage.Met
 
 type metricBroadcastPlan struct {
 	ctx            context.Context
-	batch          storage.MetricBatch
-	seriesInfo     map[uint64]storage.MetricSeriesRow
+	rowCount       int
+	seriesCount    int
 	resourceByHash map[uint64]storage.ResourceRow
-	pointIDs       map[metricKey][]uuidKey
+	groups         map[metricKey]*metricBroadcastGroup
 	order          []metricKey
+}
+
+type metricBroadcastGroup struct {
+	series   storage.MetricSeriesRow
+	pointIDs map[uuid.UUID]struct{}
+	from     time.Time
+	to       time.Time
+}
+
+type metricTimeRange struct {
+	from time.Time
+	to   time.Time
 }
 
 func broadcastMetricDeliveries(s *storage.Storage, deliveries []storage.CommitDelivery, onAdd OnAddFunc) {
 	plans := make([]metricBroadcastPlan, 0, len(deliveries))
-	minTS := make(map[metricKey]time.Time)
-	maxTS := make(map[metricKey]time.Time)
+	ranges := make(map[metricKey]metricTimeRange)
 	var metricOrder []metricKey
 	for _, delivery := range deliveries {
 		batch := delivery.Event.Metrics
@@ -141,26 +149,24 @@ func broadcastMetricDeliveries(s *storage.Storage, deliveries []storage.CommitDe
 		}
 		plan := prepareMetricBroadcast(delivery.Ctx, batch)
 		for _, key := range plan.order {
-			for _, point := range batch.Points {
-				series, ok := plan.seriesInfo[point.SeriesKey]
-				if !ok || series.ServiceName != key.service || series.MetricName != key.name {
-					continue
-				}
-				if _, seen := minTS[key]; !seen {
-					minTS[key], maxTS[key] = point.TS, point.TS
-					metricOrder = append(metricOrder, key)
-				}
-				if point.TS.Before(minTS[key]) {
-					minTS[key] = point.TS
-				}
-				if point.TS.After(maxTS[key]) {
-					maxTS[key] = point.TS
-				}
+			group := plan.groups[key]
+			window, seen := ranges[key]
+			if !seen {
+				ranges[key] = metricTimeRange{from: group.from, to: group.to}
+				metricOrder = append(metricOrder, key)
+				continue
 			}
+			if group.from.Before(window.from) {
+				window.from = group.from
+			}
+			if group.to.After(window.to) {
+				window.to = group.to
+			}
+			ranges[key] = window
 		}
 		plans = append(plans, plan)
 	}
-	if len(plans) == 0 {
+	if len(plans) == 0 || len(metricOrder) == 0 {
 		return
 	}
 
@@ -168,9 +174,10 @@ func broadcastMetricDeliveries(s *storage.Storage, deliveries []storage.CommitDe
 	span.SetAttributes(attribute.Int("storage.batch.commits", len(plans)), attribute.Int("storage.batch.metric_count", len(metricOrder)))
 	windows := make([]storage.MetricPointWindow, len(metricOrder))
 	for i, key := range metricOrder {
+		window := ranges[key]
 		windows[i] = storage.MetricPointWindow{
 			ServiceName: key.service, MetricName: key.name,
-			From: minTS[key], To: maxTS[key].Add(metricLeadMargin),
+			From: window.from, To: window.to.Add(time.Nanosecond),
 		}
 	}
 	pointsByMetric, err := s.MetricPointsWithPredecessorsBatch(ctx, windows)
@@ -190,46 +197,57 @@ func broadcastMetricDeliveries(s *storage.Storage, deliveries []storage.CommitDe
 
 func prepareMetricBroadcast(ctx context.Context, batch storage.MetricBatch) metricBroadcastPlan {
 	plan := metricBroadcastPlan{
-		ctx: ctx, batch: batch,
-		seriesInfo:     make(map[uint64]storage.MetricSeriesRow, len(batch.Series)),
+		ctx:            ctx,
+		rowCount:       len(batch.Points),
+		seriesCount:    len(batch.Series),
 		resourceByHash: make(map[uint64]storage.ResourceRow, len(batch.Resources)),
-		pointIDs:       make(map[metricKey][]uuidKey),
+		groups:         make(map[metricKey]*metricBroadcastGroup),
 	}
+	seriesInfo := make(map[uint64]storage.MetricSeriesRow, len(batch.Series))
 	for _, series := range batch.Series {
-		plan.seriesInfo[series.SeriesKey] = series
+		seriesInfo[series.SeriesKey] = series
 	}
 	for _, resource := range batch.Resources {
 		plan.resourceByHash[resource.ResourceHash] = resource
 	}
 	for _, point := range batch.Points {
-		series, ok := plan.seriesInfo[point.SeriesKey]
+		series, ok := seriesInfo[point.SeriesKey]
 		if !ok {
 			slog.Warn("broadcast: metric point references unknown series", "series_key", point.SeriesKey)
 			continue
 		}
 		key := metricKey{service: series.ServiceName, name: series.MetricName}
-		if _, seen := plan.pointIDs[key]; !seen {
+		group, seen := plan.groups[key]
+		if !seen {
+			group = &metricBroadcastGroup{
+				series: series, pointIDs: make(map[uuid.UUID]struct{}),
+				from: point.TS, to: point.TS,
+			}
+			plan.groups[key] = group
 			plan.order = append(plan.order, key)
 		}
-		plan.pointIDs[key] = append(plan.pointIDs[key], uuidKey(point.ID))
+		group.pointIDs[point.ID] = struct{}{}
+		if point.TS.Before(group.from) {
+			group.from = point.TS
+		}
+		if point.TS.After(group.to) {
+			group.to = point.TS
+		}
 	}
 	return plan
 }
 
 func broadcastMetricPlan(plan metricBroadcastPlan, derivedByMetric map[metricKey][]storage.DerivedPoint, onAdd OnAddFunc) {
 	ctx, span := startBroadcastSpan(plan.ctx, "broadcast.broadcastMetrics")
-	span.SetAttributes(attribute.Int("storage.batch.rows", len(plan.batch.Points)), attribute.Int("storage.batch.series", len(plan.batch.Series)))
+	span.SetAttributes(attribute.Int("storage.batch.rows", plan.rowCount), attribute.Int("storage.batch.series", plan.seriesCount))
 	defer span.End()
 	now := time.Now()
 	for _, key := range plan.order {
-		series := seriesRowFor(plan.seriesInfo, key)
-		dataPoints := make([]DataPoint, 0, len(plan.pointIDs[key]))
-		ids := make(map[uuidKey]struct{}, len(plan.pointIDs[key]))
-		for _, id := range plan.pointIDs[key] {
-			ids[id] = struct{}{}
-		}
+		group := plan.groups[key]
+		series := group.series
+		dataPoints := make([]DataPoint, 0, len(group.pointIDs))
 		for _, point := range derivedByMetric[key] {
-			if _, ok := ids[uuidKey(point.ID)]; !ok {
+			if _, ok := group.pointIDs[point.ID]; !ok {
 				continue
 			}
 			dataPoints = append(dataPoints, DataPoint{
@@ -249,23 +267,6 @@ func broadcastMetricPlan(plan metricBroadcastPlan, derivedByMetric map[metricKey
 		})
 	}
 }
-
-// seriesRowFor returns metadata (type/unit/description) for one metric
-// group by picking any series row that belongs to it — every attribute
-// series of the same (service, name) pair shares this metadata by
-// construction (see convert.go's convertMetric).
-func seriesRowFor(seriesInfo map[uint64]storage.MetricSeriesRow, k metricKey) storage.MetricSeriesRow {
-	for _, sr := range seriesInfo {
-		if sr.ServiceName == k.service && sr.MetricName == k.name {
-			return sr
-		}
-	}
-	return storage.MetricSeriesRow{ServiceName: k.service, MetricName: k.name}
-}
-
-// uuidKey lets uuid.UUID (a [16]byte array) key a map without importing the
-// uuid package here just for the type.
-type uuidKey [16]byte
 
 func broadcastLogs(ctx context.Context, batch storage.LogBatch, onAdd OnAddFunc) {
 	ctx, span := startBroadcastSpan(ctx, "broadcast.broadcastLogs")

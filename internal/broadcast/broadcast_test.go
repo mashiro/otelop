@@ -3,10 +3,12 @@ package broadcast
 import (
 	"context"
 	"encoding/json"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/plog"
 	"go.opentelemetry.io/collector/pdata/pmetric"
@@ -28,6 +30,46 @@ type captured struct {
 	traceDeletes []*TraceDeleteData
 	metrics      []*MetricData
 	logs         []*LogData
+}
+
+func TestPrepareMetricBroadcastGroupsPointsAndRanges(t *testing.T) {
+	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	firstID, secondID, otherID := uuid.New(), uuid.New(), uuid.New()
+	plan := prepareMetricBroadcast(context.Background(), storage.MetricBatch{
+		Series: []storage.MetricSeriesRow{
+			{SeriesKey: 1, ServiceName: "svc-a", MetricName: "metric-a", MetricType: "Gauge", ResourceHash: 11},
+			{SeriesKey: 2, ServiceName: "svc-b", MetricName: "metric-b", MetricType: "Sum", ResourceHash: 22},
+		},
+		Points: []storage.MetricPointRow{
+			{ID: firstID, SeriesKey: 1, TS: t0.Add(2 * time.Second)},
+			{ID: otherID, SeriesKey: 2, TS: t0.Add(time.Second)},
+			{ID: secondID, SeriesKey: 1, TS: t0},
+		},
+	})
+
+	if plan.rowCount != 3 || plan.seriesCount != 2 {
+		t.Fatalf("plan counts = rows:%d series:%d, want 3/2", plan.rowCount, plan.seriesCount)
+	}
+	wantOrder := []metricKey{{service: "svc-a", name: "metric-a"}, {service: "svc-b", name: "metric-b"}}
+	if !reflect.DeepEqual(plan.order, wantOrder) {
+		t.Fatalf("plan order = %+v, want %+v", plan.order, wantOrder)
+	}
+	group := plan.groups[wantOrder[0]]
+	if group == nil || group.series.SeriesKey != 1 {
+		t.Fatalf("metric-a group metadata = %+v", group)
+	}
+	if !group.from.Equal(t0) || !group.to.Equal(t0.Add(2*time.Second)) {
+		t.Fatalf("metric-a range = %s..%s, want %s..%s", group.from, group.to, t0, t0.Add(2*time.Second))
+	}
+	if len(group.pointIDs) != 2 {
+		t.Fatalf("metric-a point IDs = %d, want 2", len(group.pointIDs))
+	}
+	if _, ok := group.pointIDs[firstID]; !ok {
+		t.Fatal("metric-a group is missing first point")
+	}
+	if _, ok := group.pointIDs[secondID]; !ok {
+		t.Fatal("metric-a group is missing second point")
+	}
 }
 
 func TestBroadcast_OversizedTraceDeletion(t *testing.T) {
