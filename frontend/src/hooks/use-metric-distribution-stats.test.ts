@@ -87,4 +87,29 @@ describe("useMetricDistributionStats", () => {
     await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(2));
     expect(requestMock.mock.calls[1]?.[1].groupBy).toEqual(["worker"]);
   });
+
+  it("keeps the previous distribution visible while a range refetch is in flight", async () => {
+    const next = { ...opus, count: 20 };
+    let resolveNext: ((value: MetricDistributionStatsQuery) => void) | undefined;
+    requestMock.mockResolvedValueOnce({ metricDistributionStats: [opus] }).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveNext = resolve;
+        }),
+    );
+    const metric = makeMetric({ type: "Histogram" });
+    const { result, rerender } = renderHook(
+      ({ range }: { range: "all" | "5m" }) =>
+        useMetricDistributionStats(metric, { mode: "live", range }, ["model"]),
+      { initialProps: { range: "all" } },
+    );
+    await waitFor(() => expect(result.current).toEqual([opus]));
+
+    rerender({ range: "5m" });
+    expect(result.current).toEqual([opus]);
+    await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(2));
+
+    resolveNext?.({ metricDistributionStats: [next] });
+    await waitFor(() => expect(result.current).toEqual([next]));
+  });
 });
