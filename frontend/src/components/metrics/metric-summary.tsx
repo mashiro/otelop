@@ -142,7 +142,7 @@ function HistogramSummary({
 
   const columns = [
     ["Average", (item: MetricDistributionSeriesData) => item.mean],
-    ["P50", (item: MetricDistributionSeriesData) => item.p50],
+    ["Median", (item: MetricDistributionSeriesData) => item.p50],
     ["P90", (item: MetricDistributionSeriesData) => item.p90],
     ["P95", (item: MetricDistributionSeriesData) => item.p95],
     ["P99", (item: MetricDistributionSeriesData) => item.p99],

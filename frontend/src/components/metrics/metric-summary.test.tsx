@@ -180,7 +180,7 @@ describe("MetricSummary", () => {
 
     expect(screen.getByText("Distribution · 1h")).toBeTruthy();
     expect(screen.getByText("100")).toBeTruthy();
-    for (const label of ["Average", "P50", "P90", "P95", "P99", "Min", "Max"]) {
+    for (const label of ["Average", "Median", "P90", "P95", "P99", "Min", "Max"]) {
       expect(screen.getByText(label)).toBeTruthy();
     }
     expect(screen.queryByText("Latest · 1h")).toBeNull();
