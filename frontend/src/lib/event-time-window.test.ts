@@ -68,6 +68,32 @@ describe("event time window", () => {
     ).toBeLessThan(0);
   });
 
+  it("does not move a live window into the future for a recent log", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-12T03:10:00Z"));
+
+    expect(eventWindowAround("2026-07-12T03:00:00Z", { mode: "live", range: "1h" })).toEqual({
+      mode: "fixed",
+      from: "2026-07-12T02:10:00Z",
+      to: "2026-07-12T03:10:00Z",
+    });
+
+    vi.useRealTimers();
+  });
+
+  it("still centers an older log within a live window", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-12T05:00:00Z"));
+
+    expect(eventWindowAround("2026-07-12T03:00:00Z", { mode: "live", range: "1h" })).toEqual({
+      mode: "fixed",
+      from: "2026-07-12T02:30:00Z",
+      to: "2026-07-12T03:30:00Z",
+    });
+
+    vi.useRealTimers();
+  });
+
   it("uses fixed bounds for filtering and chart domains", () => {
     const window = {
       mode: "fixed" as const,

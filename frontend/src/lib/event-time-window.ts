@@ -74,10 +74,24 @@ export function eventWindowAround(timestamp: string, source: EventTimeWindow): E
   const widthMs = eventWindowWidthMs(source);
   const center = Temporal.Instant.from(timestamp);
   const beforeMs = Math.floor(widthMs / 2);
+  const centeredTo = center.add({ milliseconds: widthMs - beforeMs });
+  if (source.mode === "live") {
+    const now = Temporal.Now.instant();
+    if (
+      Temporal.Instant.compare(center, now) <= 0 &&
+      Temporal.Instant.compare(centeredTo, now) > 0
+    ) {
+      return {
+        mode: "fixed",
+        from: now.subtract({ milliseconds: widthMs }).toString(),
+        to: now.toString(),
+      };
+    }
+  }
   return {
     mode: "fixed",
     from: center.subtract({ milliseconds: beforeMs }).toString(),
-    to: center.add({ milliseconds: widthMs - beforeMs }).toString(),
+    to: centeredTo.toString(),
   };
 }
 

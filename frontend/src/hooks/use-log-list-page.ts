@@ -72,5 +72,6 @@ export function useLogListPage(window: EventTimeWindow, search: string): SignalL
     getCurrentIds,
     replacePage,
     onAppend: appendLogs,
+    loadOlderBeyondWindow: true,
   });
 }

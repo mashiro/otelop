@@ -77,7 +77,10 @@ export function LogList() {
     >
       <div className="flex min-h-0 flex-1 overflow-hidden">
         {logs.length === 0 ? (
-          <EmptyMatches label="logs" />
+          <div className="flex min-h-0 flex-1 flex-col">
+            <EmptyMatches label="logs" />
+            <LoadMoreRow {...page} />
+          </div>
         ) : (
           <ScrollArea className="min-h-0 flex-1">
             <Table>

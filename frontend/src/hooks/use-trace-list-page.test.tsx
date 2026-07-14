@@ -89,7 +89,6 @@ describe("useTraceListPage", () => {
     const { store, result } = renderWithStore("1h");
 
     await waitFor(() => expect(store.get(tracesAtom).map((t) => t.traceId)).toEqual(["a", "b"]));
-    expect(result.current.loaded).toBe(2);
     expect(result.current.hasMore).toBe(true);
   });
 
@@ -116,7 +115,6 @@ describe("useTraceListPage", () => {
     await waitFor(() =>
       expect(store.get(tracesAtom).map((t) => t.traceId)).toEqual(["a", "b", "c", "d"]),
     );
-    expect(result.current.loaded).toBe(4);
     expect(result.current.hasMore).toBe(false);
   });
 
@@ -161,7 +159,6 @@ describe("useTraceListPage", () => {
     resolveOldPage({ traces: { items: [queryTrace("b")], hasNextPage: false, endCursor: null } });
     await act(async () => Promise.resolve());
     expect(store.get(tracesAtom).map((t) => t.traceId)).toEqual(["c"]);
-    expect(result.current.loaded).toBe(1);
   });
 
   it("preserves a WebSocket row received while page 1 is in flight", async () => {

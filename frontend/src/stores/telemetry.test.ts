@@ -29,8 +29,10 @@ import {
   appendTracesAtom,
   appendLogsAtom,
   setTracesAtom,
+  setLogsAtom,
   serverMatchedTraceIdsAtom,
   navigateToTraceAtom,
+  loadedOlderLogIdsAtom,
 } from "./telemetry";
 import {
   activeTabAtom,
@@ -609,6 +611,7 @@ describe("appendLogsAtom", () => {
     store.set(appendLogsAtom, [makeLog({ id: "b" }), makeLog({ id: "c" })]);
 
     expect(store.get(logsAtom).map((l) => l.id)).toEqual(["a", "b", "c"]);
+    expect(store.get(loadedOlderLogIdsAtom)).toEqual(new Set(["b", "c"]));
   });
 
   it("dedups against logs already present (e.g. delivered live via WebSocket)", () => {
@@ -638,5 +641,14 @@ describe("appendLogsAtom", () => {
     store.set(appendLogsAtom, [makeLog({ id: "b" }), makeLog({ id: "c" })]);
 
     expect(store.get(logsAtom).map((l) => l.id)).toEqual(["a", "b"]);
+  });
+
+  it("resets loaded-history IDs when a new page session replaces the list", () => {
+    const store = createStore();
+    store.set(appendLogsAtom, [makeLog({ id: "older" })]);
+
+    store.set(setLogsAtom, [makeLog({ id: "new-page" })]);
+
+    expect(store.get(loadedOlderLogIdsAtom)).toEqual(new Set());
   });
 });

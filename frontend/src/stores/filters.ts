@@ -10,6 +10,7 @@ import {
   logTraceFilterAtom,
   serverMatchedTraceIdsAtom,
   serverMatchedLogIdsAtom,
+  loadedOlderLogIdsAtom,
   metricSearchResultAtom,
   traceListWindowAtom,
   logListWindowAtom,
@@ -104,9 +105,17 @@ export const logSearchAtom = atom("");
 // See rangeFilteredTracesAtom above — same live-tail rolling-window rationale.
 const rangeFilteredLogsAtom = atom((get) => {
   const window = get(logListWindowAtom);
-  if (window.mode === "live") return filterDataPointsInRange(get(logsAtom), window.range);
+  const logs = get(logsAtom);
+  const loadedOlderIds = get(loadedOlderLogIdsAtom);
+  if (window.mode === "live") {
+    if (window.range === "all") return logs;
+    const inRangeIds = new Set(filterDataPointsInRange(logs, window.range).map((log) => log.id));
+    return logs.filter((log) => loadedOlderIds.has(log.id) || inRangeIds.has(log.id));
+  }
   const { from, to } = eventWindowBounds(window);
-  return get(logsAtom).filter((log) => inEventWindow(log.timestamp, from, to));
+  return get(logsAtom).filter(
+    (log) => loadedOlderIds.has(log.id) || inEventWindow(log.timestamp, from, to),
+  );
 });
 
 // The client-side predicate (live WS rows only) mirrors the server's

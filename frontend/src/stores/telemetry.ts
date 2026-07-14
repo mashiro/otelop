@@ -421,6 +421,10 @@ export const navigateToLogsAtom = atom(null, (_get, set, traceId: string) => {
 // non-root span-name/status match client-side.
 export const serverMatchedTraceIdsAtom = atom<ReadonlySet<string>>(new Set<string>());
 export const serverMatchedLogIdsAtom = atom<ReadonlySet<string>>(new Set<string>());
+// Log IDs appended after the initial time-window page. Unlike
+// serverMatchedLogIdsAtom (which also vouches for search matches), this set
+// only exempts explicitly loaded history from the rolling range filter.
+export const loadedOlderLogIdsAtom = atom<ReadonlySet<string>>(new Set<string>());
 
 export interface MetricSearchResult {
   search: string;
@@ -523,6 +527,15 @@ const logList = createPaginatedListAtoms(
   (l: LogData) => l.id,
   (caps) => caps.logCap,
 );
-export const setLogsAtom = logList.set;
-export const replaceLogPageAtom = logList.replacePage;
-export const appendLogsAtom = logList.append;
+export const setLogsAtom = atom(null, (_get, set, logs: LogData[]) => {
+  set(loadedOlderLogIdsAtom, new Set());
+  set(logList.set, logs);
+});
+export const replaceLogPageAtom = atom(null, (_get, set, page: ReplacementPage<LogData>) => {
+  set(loadedOlderLogIdsAtom, new Set());
+  set(logList.replacePage, page);
+});
+export const appendLogsAtom = atom(null, (_get, set, logs: LogData[]) => {
+  set(loadedOlderLogIdsAtom, (previous) => new Set([...previous, ...logs.map((log) => log.id)]));
+  set(logList.append, logs);
+});

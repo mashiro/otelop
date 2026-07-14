@@ -8,10 +8,6 @@ import { eventWindowBounds, eventWindowKey, type EventTimeWindow } from "@/lib/e
 const SIGNAL_PAGE_SIZE = 100;
 
 export interface SignalListPage {
-  // Rows fetched from the server across page 1 + every "Load more" so far —
-  // NOT the live buffer's length, which can differ (WS deliveries grow it,
-  // the client cap or the range display filter can shrink what's rendered).
-  loaded: number;
   hasMore: boolean;
   loadingMore: boolean;
   loadMore: () => void;
@@ -48,6 +44,7 @@ interface SignalListPageOptions<T> {
   getCurrentIds: () => ReadonlySet<string>;
   replacePage: (page: ReplacementPage<T>) => void;
   onAppend: (items: T[]) => void;
+  loadOlderBeyondWindow?: boolean;
 }
 
 export interface ReplacementPage<T> {
@@ -78,8 +75,9 @@ export function useSignalListPage<T>({
   getCurrentIds,
   replacePage,
   onAppend,
+  loadOlderBeyondWindow = false,
 }: SignalListPageOptions<T>): SignalListPage {
-  const [state, setState] = useState({ hasMore: false, loaded: 0, loadingMore: false });
+  const [state, setState] = useState({ hasMore: false, loadingMore: false });
   const sessionRef = useRef<PagingSession | null>(null);
   const windowKey = eventWindowKey(window);
 
@@ -107,7 +105,10 @@ export function useSignalListPage<T>({
         if (ignore) return;
         replacePage({ items, idsBeforeRequest, window });
         session.endCursor = endCursor;
-        setState({ hasMore: hasNextPage, loaded: items.length, loadingMore: false });
+        setState({
+          hasMore: hasNextPage || (loadOlderBeyondWindow && session.from !== undefined),
+          loadingMore: false,
+        });
       } catch {
         // Leave whatever was showing before (the previous range's page, or
         // just the live buffer) — the next range/search/tab activation retries.
@@ -121,7 +122,7 @@ export function useSignalListPage<T>({
     // fetchPage/replacePage/onAppend must be reference-stable across renders
     // (callers wrap them in useCallback or use Jotai setters) so this effect
     // only reruns on a genuine window or search change, not on every render.
-  }, [windowKey, search, fetchPage, getCurrentIds, replacePage]);
+  }, [windowKey, search, fetchPage, getCurrentIds, replacePage, loadOlderBeyondWindow]);
 
   const loadMore = useCallback(() => {
     const session = sessionRef.current;
@@ -130,9 +131,14 @@ export function useSignalListPage<T>({
     const after = session.endCursor;
     const load = async () => {
       try {
+        // Logs treat the selected window as the starting page, not a hard
+        // history boundary. Once the user asks for more, continue from the
+        // oldest loaded cursor without `from`; an empty first page starts at
+        // the window's lower bound instead.
+        const beyondWindow = loadOlderBeyondWindow && session.from !== undefined;
         const { items, hasNextPage, endCursor } = await fetchPage({
-          from: session.from,
-          to: session.to,
+          from: beyondWindow ? undefined : session.from,
+          to: beyondWindow && after === null ? session.from! : session.to,
           after,
           limit: SIGNAL_PAGE_SIZE,
           search: session.search,
@@ -140,21 +146,19 @@ export function useSignalListPage<T>({
         if (sessionRef.current !== session) return;
         onAppend(items);
         session.endCursor = endCursor;
-        setState((s) => ({
+        setState({
           hasMore: hasNextPage,
-          loaded: s.loaded + items.length,
           loadingMore: false,
-        }));
+        });
       } catch {
         if (sessionRef.current !== session) return;
         setState((s) => ({ ...s, loadingMore: false }));
       }
     };
     void load();
-  }, [fetchPage, onAppend]);
+  }, [fetchPage, onAppend, loadOlderBeyondWindow]);
 
   return {
-    loaded: state.loaded,
     hasMore: state.hasMore,
     loadingMore: state.loadingMore,
     loadMore,

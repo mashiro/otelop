@@ -71,7 +71,6 @@ describe("useLogListPage", () => {
     const { store, result } = renderWithStore("1h");
 
     await waitFor(() => expect(store.get(logsAtom).map((l) => l.id)).toEqual(["a", "b"]));
-    expect(result.current.loaded).toBe(2);
     expect(result.current.hasMore).toBe(true);
   });
 
@@ -90,8 +89,39 @@ describe("useLogListPage", () => {
     await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(2));
     const secondVars = requestMock.mock.calls[1]?.[1];
     expect(secondVars?.after).toBe("cursor-1");
+    expect(secondVars?.from).toBeUndefined();
     await waitFor(() => expect(store.get(logsAtom).map((l) => l.id)).toEqual(["a", "b", "c", "d"]));
-    expect(result.current.loaded).toBe(4);
+    expect(result.current.hasMore).toBe(false);
+  });
+
+  it("can load the next older page when the selected window is empty", async () => {
+    requestMock.mockResolvedValueOnce({
+      logs: { items: [], hasNextPage: false, endCursor: null },
+    });
+    const { store, result } = renderWithStore("1m");
+    await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(1));
+    const firstFrom = requestMock.mock.calls[0]?.[1]?.from;
+    await waitFor(() => expect(result.current.hasMore).toBe(true));
+
+    requestMock.mockResolvedValueOnce({
+      logs: { items: [queryLog("older")], hasNextPage: false, endCursor: null },
+    });
+    act(() => result.current.loadMore());
+
+    await waitFor(() => expect(store.get(logsAtom).map((log) => log.id)).toEqual(["older"]));
+    const secondVars = requestMock.mock.calls[1]?.[1];
+    expect(secondVars?.from).toBeUndefined();
+    expect(secondVars?.to).toBe(firstFrom);
+    expect(secondVars?.after).toBeNull();
+    expect(result.current.hasMore).toBe(false);
+  });
+
+  it("does not invent an older page for the unbounded all range", async () => {
+    requestMock.mockResolvedValue({ logs: { items: [], hasNextPage: false, endCursor: null } });
+
+    const { result } = renderWithStore("all");
+
+    await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(1));
     expect(result.current.hasMore).toBe(false);
   });
 

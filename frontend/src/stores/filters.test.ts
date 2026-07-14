@@ -7,6 +7,7 @@ import {
   logTraceFilterAtom,
   setTracesAtom,
   setLogsAtom,
+  appendLogsAtom,
   addTraceAtom,
   addLogAtom,
   traceListWindowAtom,
@@ -219,6 +220,27 @@ describe("filteredLogsAtom", () => {
     store.set(logListWindowAtom, { mode: "live", range: "5m" });
 
     expect(store.get(filteredLogsAtom).map((l) => l.id)).toEqual(["new"]);
+  });
+
+  it("keeps explicitly loaded older logs visible beyond the selected range", () => {
+    const store = createStore();
+    store.set(logListWindowAtom, { mode: "live", range: "1m" });
+    store.set(setLogsAtom, [makeLog({ id: "current", timestamp: "2024-01-01T00:02:00Z" })]);
+
+    store.set(appendLogsAtom, [makeLog({ id: "older", timestamp: "2024-01-01T00:00:00Z" })]);
+
+    expect(store.get(filteredLogsAtom).map((log) => log.id)).toEqual(["current", "older"]);
+  });
+
+  it("still hides an unpaged live log outside the selected range", () => {
+    const store = createStore();
+    store.set(logsAtom, [
+      makeLog({ id: "current", timestamp: "2024-01-01T00:02:00Z" }),
+      makeLog({ id: "old-live", timestamp: "2024-01-01T00:00:00Z" }),
+    ]);
+    store.set(logListWindowAtom, { mode: "live", range: "1m" });
+
+    expect(store.get(filteredLogsAtom).map((log) => log.id)).toEqual(["current"]);
   });
 
   it("filters by body text", () => {
