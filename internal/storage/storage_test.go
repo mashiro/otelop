@@ -860,6 +860,90 @@ func TestStorage_OnCommit_DeliversInCommitOrder(t *testing.T) {
 	}
 }
 
+func TestStorage_OnCommitBatch_CoalescesAdjacentMetricsInOrder(t *testing.T) {
+	var mu sync.Mutex
+	var batchSizes []int
+	var values []int64
+	firstDelivery := make(chan struct{})
+	releaseFirst := make(chan struct{})
+	var first sync.Once
+	s, err := Open(context.Background(), Options{OnCommitBatch: func(deliveries []CommitDelivery) {
+		blocked := false
+		first.Do(func() {
+			blocked = true
+			close(firstDelivery)
+		})
+		if blocked {
+			<-releaseFirst
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		batchSizes = append(batchSizes, len(deliveries))
+		for _, delivery := range deliveries {
+			values = append(values, *delivery.Event.Metrics.Points[0].ValueInt)
+		}
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+
+	for i := 0; i < 20; i++ {
+		md := pmetric.NewMetrics()
+		metric := md.ResourceMetrics().AppendEmpty().ScopeMetrics().AppendEmpty().Metrics().AppendEmpty()
+		metric.SetName("batch.gauge")
+		point := metric.SetEmptyGauge().DataPoints().AppendEmpty()
+		point.SetIntValue(int64(i))
+		point.SetTimestamp(pcommon.NewTimestampFromTime(time.Unix(int64(i+1), 0)))
+		s.AddMetrics(context.Background(), md)
+	}
+	<-firstDelivery
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		var count int
+		if err := s.DB().QueryRowContext(context.Background(), `SELECT count(*) FROM metric_points`).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		if count == 20 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("writer persisted %d/20 points before timeout", count)
+		}
+		time.Sleep(time.Millisecond)
+	}
+	close(releaseFirst)
+	s.Sync()
+
+	mu.Lock()
+	defer mu.Unlock()
+	if !slices.Equal(values, []int64{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19}) {
+		t.Fatalf("delivery values = %v, want commit order", values)
+	}
+	coalesced := false
+	for _, size := range batchSizes {
+		if size > metricCommitBatchSize {
+			t.Fatalf("delivery batch size = %d, max %d", size, metricCommitBatchSize)
+		}
+		if size > 1 {
+			coalesced = true
+		}
+	}
+	if !coalesced {
+		t.Fatalf("metric commits were not coalesced: batch sizes %v", batchSizes)
+	}
+}
+
+func TestStorage_OpenRejectsBothCommitCallbacks(t *testing.T) {
+	_, err := Open(context.Background(), Options{
+		OnCommit:      func(context.Context, CommitEvent) {},
+		OnCommitBatch: func([]CommitDelivery) {},
+	})
+	if err == nil {
+		t.Fatal("Open accepted both OnCommit and OnCommitBatch")
+	}
+}
+
 // TestStorage_OnCommit_CloseWaitsForInFlightDelivery verifies Close's
 // documented guarantee: a CommitEvent already dispatched to the delivery
 // goroutine (see Options.OnCommit) fires before Close returns, even when the

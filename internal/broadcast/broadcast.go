@@ -41,6 +41,27 @@ func New(s *storage.Storage, onAdd OnAddFunc) storage.OnCommitFunc {
 	}
 }
 
+// NewBatch returns the batch-aware broadcaster used by the server. Adjacent
+// metric commits share one predecessor query, while their WebSocket messages
+// are still emitted in the original commit order and granularity. When
+// shouldBroadcast reports no connected clients, all read-back work is
+// skipped; a later client gets the committed rows through its initial
+// GraphQL load.
+func NewBatch(s *storage.Storage, onAdd OnAddFunc, shouldBroadcast func() bool) storage.OnCommitBatchFunc {
+	return func(deliveries []storage.CommitDelivery) {
+		if len(deliveries) == 0 || !shouldBroadcast() {
+			return
+		}
+		if deliveries[0].Event.Kind == storage.KindMetrics {
+			broadcastMetricDeliveries(s, deliveries, onAdd)
+			return
+		}
+		for _, delivery := range deliveries {
+			New(s, onAdd)(delivery.Ctx, delivery.Event)
+		}
+	}
+}
+
 func broadcastTraces(ctx context.Context, batch storage.TraceBatch, onAdd OnAddFunc) {
 	for _, traceID := range batch.DroppedTraceIDs {
 		onAdd(ctx, SignalTraceDeletes, &TraceDeleteData{TraceID: traceID})
@@ -96,109 +117,135 @@ type metricKey struct {
 }
 
 func broadcastMetrics(ctx context.Context, s *storage.Storage, batch storage.MetricBatch, onAdd OnAddFunc) {
-	if len(batch.Points) == 0 {
-		return
-	}
-	ctx, span := startBroadcastSpan(ctx, "broadcast.broadcastMetrics")
-	span.SetAttributes(attribute.Int("storage.batch.rows", len(batch.Points)), attribute.Int("storage.batch.series", len(batch.Series)))
-	defer span.End()
+	broadcastMetricDeliveries(s, []storage.CommitDelivery{{Ctx: ctx, Event: storage.CommitEvent{Kind: storage.KindMetrics, Metrics: batch}}}, onAdd)
+}
 
-	// ConvertMetrics (internal/storage/convert.go) always includes a
-	// MetricSeriesRow for every series referenced by Points in this same
-	// batch — and a ResourceRow for every resource referenced by Series —
-	// whether or not they already existed in the DB, so neither map needs a
-	// DB round trip.
-	seriesInfo := make(map[uint64]storage.MetricSeriesRow, len(batch.Series))
-	for _, sr := range batch.Series {
-		seriesInfo[sr.SeriesKey] = sr
-	}
-	resourceByHash := make(map[uint64]storage.ResourceRow, len(batch.Resources))
-	for _, r := range batch.Resources {
-		resourceByHash[r.ResourceHash] = r
-	}
+type metricBroadcastPlan struct {
+	ctx            context.Context
+	batch          storage.MetricBatch
+	seriesInfo     map[uint64]storage.MetricSeriesRow
+	resourceByHash map[uint64]storage.ResourceRow
+	pointIDs       map[metricKey][]uuidKey
+	order          []metricKey
+}
 
-	newIDs := make(map[metricKey]map[uuidKey]struct{})
+func broadcastMetricDeliveries(s *storage.Storage, deliveries []storage.CommitDelivery, onAdd OnAddFunc) {
+	plans := make([]metricBroadcastPlan, 0, len(deliveries))
 	minTS := make(map[metricKey]time.Time)
 	maxTS := make(map[metricKey]time.Time)
-	var order []metricKey
-	for _, p := range batch.Points {
-		sr, ok := seriesInfo[p.SeriesKey]
-		if !ok {
-			slog.Warn("broadcast: metric point references unknown series", "series_key", p.SeriesKey)
+	var metricOrder []metricKey
+	for _, delivery := range deliveries {
+		batch := delivery.Event.Metrics
+		if len(batch.Points) == 0 {
 			continue
 		}
-		k := metricKey{service: sr.ServiceName, name: sr.MetricName}
-		if _, seen := newIDs[k]; !seen {
-			newIDs[k] = make(map[uuidKey]struct{})
-			minTS[k] = p.TS
-			maxTS[k] = p.TS
-			order = append(order, k)
+		plan := prepareMetricBroadcast(delivery.Ctx, batch)
+		for _, key := range plan.order {
+			for _, point := range batch.Points {
+				series, ok := plan.seriesInfo[point.SeriesKey]
+				if !ok || series.ServiceName != key.service || series.MetricName != key.name {
+					continue
+				}
+				if _, seen := minTS[key]; !seen {
+					minTS[key], maxTS[key] = point.TS, point.TS
+					metricOrder = append(metricOrder, key)
+				}
+				if point.TS.Before(minTS[key]) {
+					minTS[key] = point.TS
+				}
+				if point.TS.After(maxTS[key]) {
+					maxTS[key] = point.TS
+				}
+			}
 		}
-		newIDs[k][uuidKey(p.ID)] = struct{}{}
-		if p.TS.Before(minTS[k]) {
-			minTS[k] = p.TS
-		}
-		if p.TS.After(maxTS[k]) {
-			maxTS[k] = p.TS
-		}
+		plans = append(plans, plan)
+	}
+	if len(plans) == 0 {
+		return
 	}
 
-	now := time.Now()
-	windows := make([]storage.MetricPointWindow, len(order))
-	for i, k := range order {
+	ctx, span := startBroadcastSpan(plans[0].ctx, "broadcast.deriveMetricBatch")
+	span.SetAttributes(attribute.Int("storage.batch.commits", len(plans)), attribute.Int("storage.batch.metric_count", len(metricOrder)))
+	windows := make([]storage.MetricPointWindow, len(metricOrder))
+	for i, key := range metricOrder {
 		windows[i] = storage.MetricPointWindow{
-			ServiceName: k.service,
-			MetricName:  k.name,
-			From:        minTS[k],
-			To:          maxTS[k].Add(metricLeadMargin),
+			ServiceName: key.service, MetricName: key.name,
+			From: minTS[key], To: maxTS[key].Add(metricLeadMargin),
 		}
 	}
 	pointsByMetric, err := s.MetricPointsWithPredecessorsBatch(ctx, windows)
+	span.End()
 	if err != nil {
-		slog.Error("broadcast: metric points batch lookup failed", "metric_count", len(order), "error", err)
+		slog.Error("broadcast: metric points batch lookup failed", "metric_count", len(metricOrder), "error", err)
 		return
 	}
+	derivedByMetric := make(map[metricKey][]storage.DerivedPoint, len(metricOrder))
+	for i, key := range metricOrder {
+		derivedByMetric[key] = storage.FilterDerivedPoints(pointsByMetric[i])
+	}
+	for _, plan := range plans {
+		broadcastMetricPlan(plan, derivedByMetric, onAdd)
+	}
+}
 
-	for i, k := range order {
-		sr := seriesRowFor(seriesInfo, k)
+func prepareMetricBroadcast(ctx context.Context, batch storage.MetricBatch) metricBroadcastPlan {
+	plan := metricBroadcastPlan{
+		ctx: ctx, batch: batch,
+		seriesInfo:     make(map[uint64]storage.MetricSeriesRow, len(batch.Series)),
+		resourceByHash: make(map[uint64]storage.ResourceRow, len(batch.Resources)),
+		pointIDs:       make(map[metricKey][]uuidKey),
+	}
+	for _, series := range batch.Series {
+		plan.seriesInfo[series.SeriesKey] = series
+	}
+	for _, resource := range batch.Resources {
+		plan.resourceByHash[resource.ResourceHash] = resource
+	}
+	for _, point := range batch.Points {
+		series, ok := plan.seriesInfo[point.SeriesKey]
+		if !ok {
+			slog.Warn("broadcast: metric point references unknown series", "series_key", point.SeriesKey)
+			continue
+		}
+		key := metricKey{service: series.ServiceName, name: series.MetricName}
+		if _, seen := plan.pointIDs[key]; !seen {
+			plan.order = append(plan.order, key)
+		}
+		plan.pointIDs[key] = append(plan.pointIDs[key], uuidKey(point.ID))
+	}
+	return plan
+}
 
-		// storage.FilterDerivedPoints drops baseline observations (the first
-		// point of a cumulative series, with no predecessor for lag() to
-		// derive a delta from) — the old store package's seriesStore never
-		// broadcast these either; the newIDs membership check below then
-		// narrows that down to just this batch's newly-appended points.
-		dataPoints := make([]DataPoint, 0, len(newIDs[k]))
-		for _, p := range storage.FilterDerivedPoints(pointsByMetric[i]) {
-			if _, isNew := newIDs[k][uuidKey(p.ID)]; !isNew {
+func broadcastMetricPlan(plan metricBroadcastPlan, derivedByMetric map[metricKey][]storage.DerivedPoint, onAdd OnAddFunc) {
+	ctx, span := startBroadcastSpan(plan.ctx, "broadcast.broadcastMetrics")
+	span.SetAttributes(attribute.Int("storage.batch.rows", len(plan.batch.Points)), attribute.Int("storage.batch.series", len(plan.batch.Series)))
+	defer span.End()
+	now := time.Now()
+	for _, key := range plan.order {
+		series := seriesRowFor(plan.seriesInfo, key)
+		dataPoints := make([]DataPoint, 0, len(plan.pointIDs[key]))
+		ids := make(map[uuidKey]struct{}, len(plan.pointIDs[key]))
+		for _, id := range plan.pointIDs[key] {
+			ids[id] = struct{}{}
+		}
+		for _, point := range derivedByMetric[key] {
+			if _, ok := ids[uuidKey(point.ID)]; !ok {
 				continue
 			}
 			dataPoints = append(dataPoints, DataPoint{
-				ID:              p.ID.String(),
-				Timestamp:       p.TS,
-				Value:           *p.Value,
-				Cumulative:      p.Cumulative,
-				Count:           p.Count,
-				CountCumulative: p.CountCumulative,
-				Sum:             p.Sum,
-				SumCumulative:   p.SumCumulative,
-				Min:             p.Min,
-				Max:             p.Max,
-				Attributes:      p.Attributes,
+				ID: point.ID.String(), Timestamp: point.TS, Value: *point.Value,
+				Cumulative: point.Cumulative, Count: point.Count, CountCumulative: point.CountCumulative,
+				Sum: point.Sum, SumCumulative: point.SumCumulative, Min: point.Min, Max: point.Max,
+				Attributes: point.Attributes,
 			})
 		}
 		if len(dataPoints) == 0 {
 			continue
 		}
-
 		onAdd(ctx, SignalMetrics, &MetricData{
-			Name:        sr.MetricName,
-			Description: sr.Description,
-			Unit:        sr.Unit,
-			Type:        sr.MetricType,
-			ServiceName: sr.ServiceName,
-			Resource:    resourceByHash[sr.ResourceHash].Attributes,
-			DataPoints:  dataPoints,
-			ReceivedAt:  now,
+			Name: series.MetricName, Description: series.Description, Unit: series.Unit, Type: series.MetricType,
+			ServiceName: series.ServiceName, Resource: plan.resourceByHash[series.ResourceHash].Attributes,
+			DataPoints: dataPoints, ReceivedAt: now,
 		})
 	}
 }

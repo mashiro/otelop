@@ -259,10 +259,10 @@ func bootstrap(ctx context.Context, opts startOptions) (*runtime, error) {
 		return nil, err
 	}
 
-	// st is declared before Open so the OnCommit closure below can capture a
+	// st is declared before Open so the OnCommitBatch closure below can capture a
 	// reference to the very Storage it will be attached to (broadcast.New
 	// needs *storage.Storage to query back through). Safe because Open never
-	// invokes OnCommit synchronously during construction — only later, from
+	// invokes OnCommitBatch synchronously during construction — only later, from
 	// the writer goroutine, once st is already assigned.
 	var st *storage.Storage
 	onAdd := func(ctx context.Context, sig broadcast.SignalType, data any) {
@@ -272,8 +272,8 @@ func bootstrap(ctx context.Context, opts startOptions) (*runtime, error) {
 		Path:      storagePath,
 		Retention: retention,
 		MaxSize:   maxSize,
-		OnCommit: func(ctx context.Context, ev storage.CommitEvent) {
-			broadcast.New(st, onAdd)(ctx, ev)
+		OnCommitBatch: func(deliveries []storage.CommitDelivery) {
+			broadcast.NewBatch(st, onAdd, func() bool { return rt.hub.ClientCount() > 0 })(deliveries)
 		},
 	})
 	if err != nil {

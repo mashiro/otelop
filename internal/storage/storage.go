@@ -51,6 +51,10 @@ const (
 	// reason: absorb a burst without making the writer wait on a slow
 	// listener; once full, the newest event is dropped (see dispatchCommit).
 	commitQueueSize = 256
+	// metricCommitBatchSize caps how many adjacent metric commit events the
+	// optional batch delivery callback may derive in one read-back query.
+	// The cap avoids trading query overhead for an unbounded in-memory result.
+	metricCommitBatchSize = 16
 
 	// sweepInterval is how often the background retention/max_size sweep
 	// runs, matching docs/design/duckdb-storage.md's "hourly sweep".
@@ -94,6 +98,11 @@ type Options struct {
 	// queue applies — rather than blocking the writer. Close waits for every
 	// already-queued event to be delivered before returning.
 	OnCommit OnCommitFunc
+	// OnCommitBatch is the batch-aware alternative used by the WebSocket
+	// broadcaster. When set, adjacent metric commits are delivered together
+	// (up to metricCommitBatchSize); other signals remain one item per call.
+	// OnCommit and OnCommitBatch are mutually exclusive.
+	OnCommitBatch OnCommitBatchFunc
 }
 
 // SignalKind identifies which fact table a CommitEvent covers.
@@ -122,6 +131,18 @@ type CommitEvent struct {
 
 // OnCommitFunc is the type of Options.OnCommit.
 type OnCommitFunc func(ctx context.Context, ev CommitEvent)
+
+// CommitDelivery preserves each event's ingest context when multiple metric
+// commits share one delivery callback.
+type CommitDelivery struct {
+	Ctx   context.Context
+	Event CommitEvent
+}
+
+// OnCommitBatchFunc receives commit-ordered deliveries. A call contains
+// either one non-metric event or up to metricCommitBatchSize adjacent metric
+// events.
+type OnCommitBatchFunc func(deliveries []CommitDelivery)
 
 // commitJob is what flows through Storage.commitCh. barrier is non-nil only
 // for the internal "has everything enqueued so far been delivered" probe
@@ -216,6 +237,9 @@ type Storage struct {
 // database if empty), applies schema migrations, and starts the writer and
 // sweep goroutines.
 func Open(ctx context.Context, opts Options) (*Storage, error) {
+	if opts.OnCommit != nil && opts.OnCommitBatch != nil {
+		return nil, errors.New("storage: OnCommit and OnCommitBatch are mutually exclusive")
+	}
 	if opts.Retention <= 0 {
 		opts.Retention = defaultRetention
 	}
@@ -260,7 +284,7 @@ func Open(ctx context.Context, opts Options) (*Storage, error) {
 	}
 	s.sizeFn = s.fileSize
 
-	if opts.OnCommit != nil {
+	if opts.OnCommit != nil || opts.OnCommitBatch != nil {
 		s.commitCh = make(chan commitJob, commitQueueSize)
 		s.commitWG.Add(1)
 		go s.runCommits()
@@ -539,9 +563,46 @@ func (s *Storage) dispatchCommit(ctx context.Context, ev CommitEvent) {
 // barrier trick work.
 func (s *Storage) runCommits() {
 	defer s.commitWG.Done()
-	for job := range s.commitCh {
+	var pending *commitJob
+	for {
+		var job commitJob
+		var ok bool
+		if pending != nil {
+			job = *pending
+			pending = nil
+			ok = true
+		} else {
+			job, ok = <-s.commitCh
+		}
+		if !ok {
+			return
+		}
 		if job.barrier != nil {
 			close(job.barrier)
+			continue
+		}
+		if s.opts.OnCommitBatch != nil {
+			jobs := []commitJob{job}
+			if job.ev.Kind == KindMetrics {
+			drainMetrics:
+				for len(jobs) < metricCommitBatchSize {
+					select {
+					case next, open := <-s.commitCh:
+						if !open {
+							s.deliverCommitBatch(jobs)
+							return
+						}
+						if next.barrier != nil || next.ev.Kind != KindMetrics {
+							pending = &next
+							break drainMetrics
+						}
+						jobs = append(jobs, next)
+					default:
+						break drainMetrics
+					}
+				}
+			}
+			s.deliverCommitBatch(jobs)
 			continue
 		}
 		ctx := job.ctx
@@ -556,6 +617,29 @@ func (s *Storage) runCommits() {
 		s.recordCommit(ctx, signalKindName(job.ev.Kind), started)
 		span.End()
 	}
+}
+
+func (s *Storage) deliverCommitBatch(jobs []commitJob) {
+	ctx := jobs[0].ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ctx, span := startStorageSpan(ctx, "storage.deliverCommitBatch",
+		attribute.String("storage.signal", signalKindName(jobs[0].ev.Kind)),
+		attribute.Int("storage.batch.commits", len(jobs)),
+		attribute.Float64("storage.queue.wait_ms", float64(time.Since(jobs[0].enqueuedAt).Microseconds())/1000))
+	started := time.Now()
+	deliveries := make([]CommitDelivery, len(jobs))
+	for i, job := range jobs {
+		jobCtx := job.ctx
+		if jobCtx == nil {
+			jobCtx = context.Background()
+		}
+		deliveries[i] = CommitDelivery{Ctx: jobCtx, Event: job.ev}
+	}
+	s.opts.OnCommitBatch(deliveries)
+	s.recordCommit(ctx, signalKindName(jobs[0].ev.Kind), started)
+	span.End()
 }
 
 // sweepLoop runs the periodic retention/max_size sweep. It goes through the

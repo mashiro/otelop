@@ -254,9 +254,11 @@ A single writer goroutine owns the write connection. Per OTLP batch:
    of arrival order and process-local caches.
 4. Append metric points and exemplars through DuckDB Appenders in the same
    transaction; append log facts through their Appender and flush.
-5. After commit, invoke `onAdd` (outside any lock) to feed the WebSocket hub,
-   mirroring the previous store's contract. Trace broadcasts reuse the
-   summaries produced by the write transaction.
+5. After commit, feed the WebSocket hub outside any lock. With no connected
+   clients the read-back is skipped. Adjacent metric commits are derived in
+   bounded groups of at most 16 through one predecessor query, then emitted
+   in their original per-commit order and message granularity. Trace
+   broadcasts reuse the summaries produced by the write transaction.
 
 WebSocket payloads still carry per-point deltas for live charts. After a
 metric batch commits, the broadcast adapter queries the committed points plus

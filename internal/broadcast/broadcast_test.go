@@ -364,6 +364,83 @@ func TestBroadcast_Metrics_BatchesMultipleGroups(t *testing.T) {
 	}
 }
 
+func TestBroadcastBatch_SkipsReadBackWithoutClients(t *testing.T) {
+	called := false
+	callback := NewBatch(nil, func(context.Context, SignalType, any) {
+		called = true
+	}, func() bool { return false })
+	callback([]storage.CommitDelivery{{Event: storage.CommitEvent{
+		Kind:    storage.KindMetrics,
+		Metrics: storage.MetricBatch{Points: []storage.MetricPointRow{{}}},
+	}}})
+	if called {
+		t.Fatal("broadcast callback ran without connected clients")
+	}
+}
+
+func TestBroadcastBatch_CoalescesMetricReadBackAndPreservesMessages(t *testing.T) {
+	recorder := tracetest.NewSpanRecorder()
+	provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+	previous := otel.GetTracerProvider()
+	otel.SetTracerProvider(provider)
+	t.Cleanup(func() {
+		otel.SetTracerProvider(previous)
+		_ = provider.Shutdown(context.Background())
+	})
+
+	var mu sync.Mutex
+	var deliveries []storage.CommitDelivery
+	s, err := storage.Open(context.Background(), storage.Options{OnCommit: func(ctx context.Context, event storage.CommitEvent) {
+		mu.Lock()
+		deliveries = append(deliveries, storage.CommitDelivery{Ctx: ctx, Event: event})
+		mu.Unlock()
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+
+	metricAt := func(value float64, ts time.Time) pmetric.Metrics {
+		md := pmetric.NewMetrics()
+		rm := md.ResourceMetrics().AppendEmpty()
+		rm.Resource().Attributes().PutStr("service.name", "batch-svc")
+		metric := rm.ScopeMetrics().AppendEmpty().Metrics().AppendEmpty()
+		metric.SetName("batch.gauge")
+		point := metric.SetEmptyGauge().DataPoints().AppendEmpty()
+		point.SetDoubleValue(value)
+		point.SetTimestamp(pcommon.NewTimestampFromTime(ts))
+		return md
+	}
+	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	s.AddMetrics(context.Background(), metricAt(1, start))
+	s.AddMetrics(context.Background(), metricAt(2, start.Add(time.Second)))
+	s.Sync()
+
+	mu.Lock()
+	committed := append([]storage.CommitDelivery(nil), deliveries...)
+	mu.Unlock()
+	rec := &captured{}
+	NewBatch(s, rec.onAdd, func() bool { return true })(committed)
+
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+	if len(rec.metrics) != 2 {
+		t.Fatalf("metric messages = %d, want one per original commit", len(rec.metrics))
+	}
+	if rec.metrics[0].DataPoints[0].Value != 1 || rec.metrics[1].DataPoints[0].Value != 2 {
+		t.Fatalf("metric values = %v/%v, want 1/2", rec.metrics[0].DataPoints[0].Value, rec.metrics[1].DataPoints[0].Value)
+	}
+	queries := 0
+	for _, span := range recorder.Ended() {
+		if span.Name() == "storage.MetricPointsWithPredecessorsBatch" {
+			queries++
+		}
+	}
+	if queries != 1 {
+		t.Fatalf("metric read-back queries = %d, want 1 for two commits", queries)
+	}
+}
+
 func TestBroadcast_Logs_WireShapeMatchesFrontendContract(t *testing.T) {
 	rec := &captured{}
 	s := openTestStorage(t, rec)
