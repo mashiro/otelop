@@ -27,6 +27,7 @@ import { DEFAULT_CHART_TIME_RANGE } from "@/lib/chart-time-range";
 import { eventWindowRange } from "@/lib/event-time-window";
 import { useMetricRangePoints } from "@/hooks/use-metric-range-points";
 import { useMetricAggregateSeries } from "@/hooks/use-metric-aggregate-series";
+import { useMetricDistributionStats } from "@/hooks/use-metric-distribution-stats";
 import type { DataPoint, MetricData } from "@/types/telemetry";
 
 const ALL_FACET = "__all__";
@@ -118,6 +119,7 @@ export function MetricDetailBody({ metric }: { metric: MetricData }) {
     pickedId === ALL_FACET ? ALL_FACET : effectiveFacet ? facetId(effectiveFacet) : ALL_FACET;
 
   const aggregatedSeries = useMetricAggregateSeries(metric, effectiveFacet, window);
+  const distributionStats = useMetricDistributionStats(metric, window);
 
   // MetricSummary/DataPointsTable only read a metric's identity/display
   // fields (name/type/unit/description/resource) plus their own
@@ -215,6 +217,7 @@ export function MetricDetailBody({ metric }: { metric: MetricData }) {
             range={range}
             rangeDataPoints={rangeDataPoints}
             aggregatedSeries={aggregatedSeries}
+            distributionStats={distributionStats}
           />
 
           <div className="mb-4 rounded-lg border border-border/30 bg-muted/50 p-4">

@@ -28,7 +28,7 @@ explicitly out of scope — that is what LGTM-stack deployments are for.
 
 ```
 OTLP receiver → exporter → convert (pure functions) → writer goroutine (single)
-                                                        ├─ Appender: spans / metric_points / logs
+                                                        ├─ Appender: spans / metric_points / metric_exemplars / logs
                                                         ├─ update: trace_summaries
                                                         ├─ upsert: resources / metric_series
                                                         └─ commit per OTLP batch → WebSocket broadcast
@@ -61,35 +61,51 @@ Key decisions:
 
 ## Schema
 
-Two dimension tables keep the fact tables narrow. Resources repeat for every
-span/log; series metadata repeats for every point. Both are hash-keyed so they
-can be computed statelessly at ingest.
+Three dimension tables keep the fact tables narrow. Resources repeat for every
+span/log; series metadata repeats for every point; histogram layouts normally
+repeat for every export. All are hash-keyed so they can be computed statelessly
+at ingest.
 
 ```sql
 -- dimensions (small, low write rate)
 CREATE TABLE resources (
-  resource_hash UBIGINT PRIMARY KEY,   -- hash over sorted attribute keys
+  resource_hash UBIGINT PRIMARY KEY,   -- hash over schema URL + sorted attributes
   service_name  VARCHAR NOT NULL,
-  attributes    JSON NOT NULL
+  schema_url    VARCHAR NOT NULL,
+  dropped_attributes_count UINTEGER NOT NULL,
+  attributes    JSON NOT NULL,
+  attributes_raw BLOB NOT NULL       -- versioned, lossless OTLP type encoding
 );
 
 CREATE TABLE metric_series (
-  series_key    UBIGINT PRIMARY KEY,   -- hash(resource, scope, metric name, sorted attrs)
+  series_key    UBIGINT PRIMARY KEY,   -- hash(resource, scope, full descriptor, sorted attrs)
   service_name  VARCHAR NOT NULL,
   metric_name   VARCHAR NOT NULL,
   metric_type   VARCHAR NOT NULL,      -- Gauge | Sum | Histogram | ExponentialHistogram | Summary
+  number_kind   VARCHAR NOT NULL,      -- int | double | empty for distributions
   unit          VARCHAR,
   description   VARCHAR,
   temporality   VARCHAR,               -- cumulative | delta
   is_monotonic  BOOLEAN,
   attributes    JSON NOT NULL,
+  attributes_raw BLOB NOT NULL,
   scope_name       VARCHAR NOT NULL,
   scope_version    VARCHAR NOT NULL,
   scope_schema_url VARCHAR NOT NULL,
+  scope_dropped_attributes_count UINTEGER NOT NULL,
   scope_attributes JSON NOT NULL,
+  scope_attributes_raw BLOB NOT NULL,
   resource_hash UBIGINT NOT NULL,      -- references resources, like spans/logs
   first_seen    TIMESTAMP_NS NOT NULL,
   last_seen     TIMESTAMP_NS NOT NULL
+);
+
+CREATE TABLE histogram_layouts (
+  layout_hash     UBIGINT PRIMARY KEY,
+  kind            VARCHAR NOT NULL,   -- explicit | exponential
+  explicit_bounds DOUBLE[],
+  scale           INTEGER,
+  zero_threshold  DOUBLE
 );
 
 -- facts (large, append-only)
@@ -136,16 +152,41 @@ CREATE TABLE dropped_traces (
 );
 
 CREATE TABLE metric_points (
-  id         UUID NOT NULL,            -- UUIDv7 minted at ingest (stable client key)
-  series_key UBIGINT NOT NULL,
-  ts         TIMESTAMP_NS NOT NULL,
-  start_ts   TIMESTAMP_NS,             -- OTLP StartTimestamp, used for reset detection
-  value      DOUBLE,                   -- raw OTLP value; deltas derived at query time
-  count      DOUBLE,
-  sum        DOUBLE,
-  min        DOUBLE,
-  max        DOUBLE
+  id           UUID NOT NULL,          -- UUIDv7 minted at ingest (stable client key)
+  series_key   UBIGINT NOT NULL,
+  ts           TIMESTAMP_NS NOT NULL,
+  start_ts     TIMESTAMP_NS,           -- OTLP StartTimestamp, used for reset detection
+  ingested_at  TIMESTAMP_NS NOT NULL,
+  flags        UINTEGER NOT NULL,      -- raw OTLP DataPointFlags
+  value_int    BIGINT,                 -- exact NumberDataPoint integer arm
+  value_double DOUBLE,                 -- exact NumberDataPoint double arm
+  count        UBIGINT,
+  sum          DOUBLE,
+  min          DOUBLE,
+  max          DOUBLE,
+  histogram_layout_hash UBIGINT,
+  bucket_counts UBIGINT[],            -- explicit histogram buckets
+  zero_count UBIGINT,                 -- exponential histogram zero bucket
+  positive_offset INTEGER,
+  positive_bucket_counts UBIGINT[],
+  negative_offset INTEGER,
+  negative_bucket_counts UBIGINT[],
+  summary_quantiles DOUBLE[],
+  summary_quantile_values DOUBLE[]
 );
+
+CREATE TABLE metric_exemplars (
+  id                  UUID NOT NULL,
+  point_id            UUID NOT NULL,
+  ts                  TIMESTAMP_NS NOT NULL,
+  trace_id            VARCHAR,
+  span_id             VARCHAR,
+  filtered_attributes JSON NOT NULL,
+  filtered_attributes_raw BLOB NOT NULL,
+  value_int           BIGINT,
+  value_double        DOUBLE
+);
+CREATE INDEX idx_metric_exemplars_point ON metric_exemplars (point_id);
 
 CREATE TABLE logs (
   id              UUID NOT NULL,       -- UUIDv7 minted at ingest
@@ -174,22 +215,45 @@ Notes:
   indexes for conflict lookup; time-range scans rely on zonemap pruning.
 - Attribute maps stay `JSON`: variable keys need no schema and remain
   queryable (`attributes->>'http.method'`).
+- Each metric-related attribute map also keeps a versioned canonical BLOB.
+  JSON alone cannot distinguish int64 from double or bytes from string, so
+  the BLOB is the lossless source while JSON remains the query projection.
+- Histogram layouts are hash-deduplicated because explicit boundaries and
+  exponential scale normally remain stable for an instrument. Point rows keep
+  only the changing bucket counts. Window percentiles first delta-derive each
+  cumulative series, then merge buckets across series; per-point percentiles
+  are never averaged.
+- Scalar integer values and distribution counts remain integers in raw
+  storage. Query-time chart/statistic projections may cast them to DOUBLE,
+  but the received OTLP value remains recoverable without the 2^53 precision
+  limit.
+- Metric identity includes type, numeric kind, unit, temporality, and
+  monotonicity. Description is deliberately excluded because it is metadata,
+  not stream identity.
+- Flags, Summary quantiles, exemplars, and ingestion time are retained even
+  when the current GraphQL/UI does not expose them yet. This keeps later
+  interpretation fixes recoverable from DuckDB. Duplicate intervals are
+  identifiable from `(series_key, start_ts, ts)` without storing a random,
+  compression-resistant hash on every point.
 
 ## Ingest
 
 A single writer goroutine owns the write connection. Per OTLP batch:
 
 1. Convert pdata to row values (pure functions; no shared state).
-2. Insert unseen `resources` and upsert `metric_series` metadata (including
-   `last_seen`). An LRU of known resource hashes skips redundant writes; the
-   LRU is only a cache.
+2. Insert unseen `resources`, then bulk-stage and merge `histogram_layouts`
+   and `metric_series` metadata (including `last_seen`). This keeps one export
+   with thousands of series to a constant number of SQL statements instead
+   of preparing and executing one upsert per series. An LRU of known resource
+   hashes skips redundant writes; the LRU is only a cache.
 3. For traces already present in `trace_summaries`, query only the incoming
    candidate span IDs through `idx_spans_trace`; new traces need no fact-table
    lookup. Rows not already present append to spans and update only their trace
    summaries. The lookup, append, summary upsert, oversize-trace tombstone, and
    deletion share one transaction. This keeps duplicate handling independent
    of arrival order and process-local caches.
-4. Append metric/log facts through DuckDB Appenders and flush.
+4. Append metric points and exemplars through DuckDB Appenders in the same
+   transaction; append log facts through their Appender and flush.
 5. After commit, invoke `onAdd` (outside any lock) to feed the WebSocket hub,
    mirroring the previous store's contract. Trace broadcasts reuse the
    summaries produced by the write transaction.
@@ -235,13 +299,16 @@ Metric chart — delta/cumulative derived per series:
 ```sql
 SELECT p.ts, p.id,
   CASE WHEN s.temporality = 'cumulative' AND s.is_monotonic
-       THEN CASE WHEN p.value < lag(p.value) OVER w THEN p.value  -- counter reset
-                 ELSE p.value - lag(p.value) OVER w END
-       ELSE p.value END                                AS value,
+       THEN CASE WHEN value < lag(value) OVER w THEN value  -- counter reset
+                 ELSE value - lag(value) OVER w END
+       ELSE value END                                  AS value,
   CASE WHEN s.temporality = 'delta' AND s.is_monotonic
-       THEN sum(p.value) OVER w
-       ELSE p.value END                                AS cumulative
-FROM metric_points p
+       THEN sum(value) OVER w
+       ELSE value END                                  AS cumulative
+FROM (
+  SELECT *, coalesce(value_double, cast(value_int AS DOUBLE)) AS value
+  FROM metric_points
+) p
 JOIN metric_series s USING (series_key)
 WHERE p.series_key = $key AND p.ts >= $from AND p.ts < $to
 WINDOW w AS (PARTITION BY p.series_key ORDER BY p.ts);

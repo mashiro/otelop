@@ -237,7 +237,9 @@ func (s *Storage) populateMetricSummaryStats(ctx context.Context, items []Metric
 WITH selected(service_name, metric_name) AS (VALUES ` + selected + `),
 points AS (
 	SELECT s.service_name, s.metric_name, s.series_key, s.metric_type,
-		s.temporality, s.is_monotonic, p.ts, p.value, p.count
+		s.temporality, s.is_monotonic, p.ts,
+		coalesce(p.value_double, cast(p.value_int AS DOUBLE)) AS value,
+		cast(p.count AS DOUBLE) AS count
 	FROM selected x
 	JOIN metric_series s USING (service_name, metric_name)
 	JOIN metric_points p USING (series_key)
@@ -286,7 +288,9 @@ targets AS (
 	FROM selected x JOIN metric_series s USING (service_name, metric_name)
 	GROUP BY s.service_name, s.metric_name
 ), ranked AS (
-	SELECT t.service_name, t.metric_name, p.series_key, p.ts, p.value, p.count, p.sum,
+	SELECT t.service_name, t.metric_name, p.series_key, p.ts,
+		coalesce(p.value_double, cast(p.value_int AS DOUBLE)) AS value,
+		cast(p.count AS DOUBLE) AS count, p.sum,
 		s.metric_type, s.temporality, s.is_monotonic,
 		row_number() OVER (PARTITION BY p.series_key ORDER BY p.ts DESC, p.id DESC) AS point_rank
 	FROM targets t JOIN metric_points p USING (series_key) JOIN metric_series s USING (series_key)
@@ -440,7 +444,9 @@ const metricDerivedCTE = `
 WITH points AS (
 	SELECT
 		0 AS request_index,
-		p.id, p.series_key, p.ts, p.value, p.count, p.sum, p.min, p.max,
+		p.id, p.series_key, p.ts,
+		coalesce(p.value_double, cast(p.value_int AS DOUBLE)) AS value,
+		cast(p.count AS DOUBLE) AS count, p.sum, p.min, p.max,
 		s.metric_type, s.temporality, s.is_monotonic, s.attributes::VARCHAR AS attrs_json
 	FROM metric_points p
 	JOIN metric_series s USING (series_key)
@@ -488,7 +494,9 @@ WITH target_series AS (
 window_points AS (
 	SELECT
 		0 AS request_index,
-		p.id, p.series_key, p.ts, p.value, p.count, p.sum, p.min, p.max,
+		p.id, p.series_key, p.ts,
+		coalesce(p.value_double, cast(p.value_int AS DOUBLE)) AS value,
+		cast(p.count AS DOUBLE) AS count, p.sum, p.min, p.max,
 		s.metric_type, s.temporality, s.is_monotonic, s.attrs_json
 	FROM metric_points p
 	JOIN target_series s USING (series_key)
@@ -505,7 +513,9 @@ points AS (
 	FROM (
 		SELECT
 			0 AS request_index,
-			p.id, p.series_key, p.ts, p.value, p.count, p.sum, p.min, p.max,
+			p.id, p.series_key, p.ts,
+			coalesce(p.value_double, cast(p.value_int AS DOUBLE)) AS value,
+			cast(p.count AS DOUBLE) AS count, p.sum, p.min, p.max,
 			s.metric_type, s.temporality, s.is_monotonic, s.attrs_json,
 			row_number() OVER (PARTITION BY p.series_key ORDER BY p.ts DESC, p.id DESC) AS predecessor_rank
 		FROM metric_points p
@@ -528,7 +538,9 @@ target_series AS (
 ),
 window_points AS (
 	SELECT
-		s.request_index, p.id, p.series_key, p.ts, p.value, p.count, p.sum, p.min, p.max,
+		s.request_index, p.id, p.series_key, p.ts,
+		coalesce(p.value_double, cast(p.value_int AS DOUBLE)) AS value,
+		cast(p.count AS DOUBLE) AS count, p.sum, p.min, p.max,
 		s.metric_type, s.temporality, s.is_monotonic, s.attrs_json
 	FROM metric_points p
 	JOIN target_series s USING (series_key)
@@ -544,7 +556,9 @@ points AS (
 		metric_type, temporality, is_monotonic, attrs_json
 	FROM (
 		SELECT
-			s.request_index, p.id, p.series_key, p.ts, p.value, p.count, p.sum, p.min, p.max,
+			s.request_index, p.id, p.series_key, p.ts,
+			coalesce(p.value_double, cast(p.value_int AS DOUBLE)) AS value,
+			cast(p.count AS DOUBLE) AS count, p.sum, p.min, p.max,
 			s.metric_type, s.temporality, s.is_monotonic, s.attrs_json,
 			row_number() OVER (
 				PARTITION BY s.request_index, p.series_key ORDER BY p.ts DESC, p.id DESC
@@ -730,7 +744,9 @@ WITH target AS (
 points AS (
 	SELECT
 		0 AS request_index,
-		p.id, p.series_key, p.ts, p.value, p.count, p.sum, p.min, p.max,
+		p.id, p.series_key, p.ts,
+		coalesce(p.value_double, cast(p.value_int AS DOUBLE)) AS value,
+		cast(p.count AS DOUBLE) AS count, p.sum, p.min, p.max,
 		s.metric_type, s.temporality, s.is_monotonic, s.attributes::VARCHAR AS attrs_json
 	FROM metric_points p
 	JOIN metric_series s USING (series_key)

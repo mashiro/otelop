@@ -1,8 +1,6 @@
 package storage
 
 import (
-	"log/slog"
-	"math"
 	"time"
 
 	"github.com/google/uuid"
@@ -14,9 +12,12 @@ import (
 
 // ResourceRow is one row of the resources dimension table.
 type ResourceRow struct {
-	ResourceHash uint64
-	ServiceName  string
-	Attributes   map[string]any
+	ResourceHash           uint64
+	ServiceName            string
+	SchemaURL              string
+	DroppedAttributesCount uint32
+	Attributes             map[string]any
+	AttributesRaw          []byte
 }
 
 // SpanEventRow is a span event. Stored as JSON inside spans.events rather
@@ -63,19 +64,23 @@ type MetricSeriesRow struct {
 	ServiceName string
 	MetricName  string
 	MetricType  string
+	NumberKind  string
 	Unit        string
 	Description string
 	// Temporality is "cumulative", "delta", or "" (Gauge, where OTLP has no
 	// temporality concept).
-	Temporality string
-	IsMonotonic bool
-	Attributes  map[string]any
+	Temporality   string
+	IsMonotonic   bool
+	Attributes    map[string]any
+	AttributesRaw []byte
 	// Scope fields preserve the instrumentation-scope identity included in
 	// SeriesKey so otherwise identical dimension rows remain inspectable.
-	ScopeName       string
-	ScopeVersion    string
-	ScopeSchemaURL  string
-	ScopeAttributes map[string]any
+	ScopeName                   string
+	ScopeVersion                string
+	ScopeSchemaURL              string
+	ScopeDroppedAttributesCount uint32
+	ScopeAttributes             map[string]any
+	ScopeAttributesRaw          []byte
 	// ResourceHash references the resources dimension row this series was
 	// observed under, mirroring SpanRow/LogRow — full resource attributes
 	// for metrics resolve through the same join.
@@ -85,26 +90,64 @@ type MetricSeriesRow struct {
 // MetricPointRow is one row of the metric_points fact table. It carries the
 // *raw* OTLP value — no delta-ization against prior observations — because
 // cumulative/delta accounting moves to query time (see docs/design). A point
-// is either a scalar observation (Gauge/Sum: Value set, Count/Sum/Min/Max
-// nil) or a distribution observation (Histogram/ExponentialHistogram/
-// Summary: Count/Sum/Min/Max set as available, Value nil) — never both.
+// is either a scalar observation (Gauge/Sum: exactly one of ValueInt and
+// ValueDouble set, Count/Sum/Min/Max nil) or a distribution observation
+// (Histogram/ExponentialHistogram/Summary: Count/Sum/Min/Max set as
+// available, scalar value arms nil) — never both.
 type MetricPointRow struct {
-	ID        uuid.UUID
-	SeriesKey uint64
-	TS        time.Time
-	StartTS   *time.Time
-	Value     *float64
-	Count     *float64
-	Sum       *float64
-	Min       *float64
-	Max       *float64
+	ID                    uuid.UUID
+	SeriesKey             uint64
+	TS                    time.Time
+	StartTS               *time.Time
+	Flags                 uint32
+	ValueInt              *int64
+	ValueDouble           *float64
+	Count                 *uint64
+	Sum                   *float64
+	Min                   *float64
+	Max                   *float64
+	HistogramLayoutHash   *uint64
+	BucketCounts          []uint64
+	ZeroCount             *uint64
+	PositiveOffset        *int32
+	PositiveBucketCounts  []uint64
+	NegativeOffset        *int32
+	NegativeBucketCounts  []uint64
+	SummaryQuantiles      []float64
+	SummaryQuantileValues []float64
+}
+
+type MetricExemplarRow struct {
+	ID                    uuid.UUID
+	PointID               uuid.UUID
+	TS                    time.Time
+	TraceID               string
+	SpanID                string
+	FilteredAttributes    map[string]any
+	FilteredAttributesRaw []byte
+	ValueInt              *int64
+	ValueDouble           *float64
+}
+
+// HistogramLayoutRow is the shape shared by histogram points. Explicit
+// bounds and exponential histogram scale/zero-threshold are stable for a
+// configured instrument, so storing them once avoids repeating the layout
+// alongside every point's counts.
+type HistogramLayoutRow struct {
+	LayoutHash     uint64
+	Kind           string
+	ExplicitBounds []float64
+	Scale          *int32
+	ZeroThreshold  *float64
 }
 
 // MetricBatch is the converted output of one AddMetrics call.
 type MetricBatch struct {
-	Resources []ResourceRow
-	Series    []MetricSeriesRow
-	Points    []MetricPointRow
+	Resources        []ResourceRow
+	Series           []MetricSeriesRow
+	HistogramLayouts []HistogramLayoutRow
+	Points           []MetricPointRow
+	Exemplars        []MetricExemplarRow
 }
 
 // LogRow is one row of the logs fact table.
@@ -142,14 +185,20 @@ func ConvertTraces(td ptrace.Traces) TraceBatch {
 	rss := td.ResourceSpans()
 	for i := 0; i < rss.Len(); i++ {
 		rs := rss.At(i)
-		attrs, svcName := resourceInfo(rs.Resource().Attributes())
-		resourceHash := hashResource(attrs)
+		schemaURL := rs.SchemaUrl()
+		resource := rs.Resource()
+		attrs, svcName := resourceInfo(resource.Attributes())
+		attrsRaw := encodeOTLPAttributes(resource.Attributes())
+		resourceHash := hashResource(schemaURL, resource.DroppedAttributesCount(), attrsRaw)
 		if _, ok := seenResources[resourceHash]; !ok {
 			seenResources[resourceHash] = struct{}{}
 			batch.Resources = append(batch.Resources, ResourceRow{
-				ResourceHash: resourceHash,
-				ServiceName:  svcName,
-				Attributes:   attrs,
+				ResourceHash:           resourceHash,
+				ServiceName:            svcName,
+				SchemaURL:              schemaURL,
+				DroppedAttributesCount: resource.DroppedAttributesCount(),
+				Attributes:             attrs,
+				AttributesRaw:          attrsRaw,
 			})
 		}
 
@@ -203,14 +252,20 @@ func ConvertLogs(ld plog.Logs) LogBatch {
 	rls := ld.ResourceLogs()
 	for i := 0; i < rls.Len(); i++ {
 		rl := rls.At(i)
-		attrs, svcName := resourceInfo(rl.Resource().Attributes())
-		resourceHash := hashResource(attrs)
+		schemaURL := rl.SchemaUrl()
+		resource := rl.Resource()
+		attrs, svcName := resourceInfo(resource.Attributes())
+		attrsRaw := encodeOTLPAttributes(resource.Attributes())
+		resourceHash := hashResource(schemaURL, resource.DroppedAttributesCount(), attrsRaw)
 		if _, ok := seenResources[resourceHash]; !ok {
 			seenResources[resourceHash] = struct{}{}
 			batch.Resources = append(batch.Resources, ResourceRow{
-				ResourceHash: resourceHash,
-				ServiceName:  svcName,
-				Attributes:   attrs,
+				ResourceHash:           resourceHash,
+				ServiceName:            svcName,
+				SchemaURL:              schemaURL,
+				DroppedAttributesCount: resource.DroppedAttributesCount(),
+				Attributes:             attrs,
+				AttributesRaw:          attrsRaw,
 			})
 		}
 
@@ -255,18 +310,25 @@ func ConvertMetrics(md pmetric.Metrics) MetricBatch {
 	var batch MetricBatch
 	seenSeries := make(map[uint64]struct{})
 	seenResources := make(map[uint64]struct{})
+	seenLayouts := make(map[uint64]struct{})
 
 	rms := md.ResourceMetrics()
 	for i := 0; i < rms.Len(); i++ {
 		rm := rms.At(i)
-		resAttrs, svcName := resourceInfo(rm.Resource().Attributes())
-		resourceHash := hashResource(resAttrs)
+		schemaURL := rm.SchemaUrl()
+		resource := rm.Resource()
+		resAttrs, svcName := resourceInfo(resource.Attributes())
+		resAttrsRaw := encodeOTLPAttributes(resource.Attributes())
+		resourceHash := hashResource(schemaURL, resource.DroppedAttributesCount(), resAttrsRaw)
 		if _, ok := seenResources[resourceHash]; !ok {
 			seenResources[resourceHash] = struct{}{}
 			batch.Resources = append(batch.Resources, ResourceRow{
-				ResourceHash: resourceHash,
-				ServiceName:  svcName,
-				Attributes:   resAttrs,
+				ResourceHash:           resourceHash,
+				ServiceName:            svcName,
+				SchemaURL:              schemaURL,
+				DroppedAttributesCount: resource.DroppedAttributesCount(),
+				Attributes:             resAttrs,
+				AttributesRaw:          resAttrsRaw,
 			})
 		}
 
@@ -275,13 +337,15 @@ func ConvertMetrics(md pmetric.Metrics) MetricBatch {
 			sm := sms.At(j)
 			scope := sm.Scope()
 			scopeIdentity := metricScopeIdentity{
-				SchemaURL:  sm.SchemaUrl(),
-				Name:       scope.Name(),
-				Version:    scope.Version(),
-				Attributes: attributesToMap(scope.Attributes()),
+				SchemaURL:              sm.SchemaUrl(),
+				Name:                   scope.Name(),
+				Version:                scope.Version(),
+				DroppedAttributesCount: scope.DroppedAttributesCount(),
+				Attributes:             attributesToMap(scope.Attributes()),
+				AttributesRaw:          encodeOTLPAttributes(scope.Attributes()),
 			}
 			for k := 0; k < sm.Metrics().Len(); k++ {
-				convertMetric(sm.Metrics().At(k), svcName, resourceHash, scopeIdentity, &batch, seenSeries)
+				convertMetric(sm.Metrics().At(k), svcName, resourceHash, scopeIdentity, &batch, seenSeries, seenLayouts)
 			}
 		}
 	}
@@ -293,37 +357,45 @@ func ConvertMetrics(md pmetric.Metrics) MetricBatch {
 // which spans the whole batch so an identical resource/scope series repeated
 // in one OTLP payload doesn't produce duplicate dimension rows) and data
 // points to batch.
-func convertMetric(m pmetric.Metric, serviceName string, resourceHash uint64, scope metricScopeIdentity, batch *MetricBatch, seenSeries map[uint64]struct{}) {
-	var skipped int
-	seriesKeyFor := func(attrs map[string]any) uint64 {
+func convertMetric(m pmetric.Metric, serviceName string, resourceHash uint64, scope metricScopeIdentity, batch *MetricBatch, seenSeries map[uint64]struct{}, seenLayouts map[uint64]struct{}) {
+	seriesKeyFor := func(attrsRaw []byte, numberKind, temporality string, isMonotonic bool) uint64 {
 		return hashSeries(metricSeriesIdentity{
-			ResourceHash: resourceHash,
-			Scope:        scope,
-			MetricName:   m.Name(),
-			Attributes:   attrs,
+			ResourceHash:  resourceHash,
+			Scope:         scope,
+			MetricName:    m.Name(),
+			MetricType:    m.Type().String(),
+			NumberKind:    numberKind,
+			Unit:          m.Unit(),
+			Temporality:   temporality,
+			IsMonotonic:   isMonotonic,
+			AttributesRaw: attrsRaw,
 		})
 	}
 
-	addSeries := func(seriesKey uint64, attrs map[string]any, temporality string, isMonotonic bool) {
+	addSeries := func(seriesKey uint64, attrs map[string]any, attrsRaw []byte, numberKind, temporality string, isMonotonic bool) {
 		if _, ok := seenSeries[seriesKey]; ok {
 			return
 		}
 		seenSeries[seriesKey] = struct{}{}
 		batch.Series = append(batch.Series, MetricSeriesRow{
-			SeriesKey:       seriesKey,
-			ServiceName:     serviceName,
-			MetricName:      m.Name(),
-			MetricType:      m.Type().String(),
-			Unit:            m.Unit(),
-			Description:     m.Description(),
-			Temporality:     temporality,
-			IsMonotonic:     isMonotonic,
-			Attributes:      attrs,
-			ScopeName:       scope.Name,
-			ScopeVersion:    scope.Version,
-			ScopeSchemaURL:  scope.SchemaURL,
-			ScopeAttributes: scope.Attributes,
-			ResourceHash:    resourceHash,
+			SeriesKey:                   seriesKey,
+			ServiceName:                 serviceName,
+			MetricName:                  m.Name(),
+			MetricType:                  m.Type().String(),
+			NumberKind:                  numberKind,
+			Unit:                        m.Unit(),
+			Description:                 m.Description(),
+			Temporality:                 temporality,
+			IsMonotonic:                 isMonotonic,
+			Attributes:                  attrs,
+			AttributesRaw:               attrsRaw,
+			ScopeName:                   scope.Name,
+			ScopeVersion:                scope.Version,
+			ScopeSchemaURL:              scope.SchemaURL,
+			ScopeDroppedAttributesCount: scope.DroppedAttributesCount,
+			ScopeAttributes:             scope.Attributes,
+			ScopeAttributesRaw:          scope.AttributesRaw,
+			ResourceHash:                resourceHash,
 		})
 	}
 
@@ -332,15 +404,13 @@ func convertMetric(m pmetric.Metric, serviceName string, resourceHash uint64, sc
 		dps := m.Gauge().DataPoints()
 		for i := 0; i < dps.Len(); i++ {
 			dp := dps.At(i)
-			v := numberValue(dp)
-			if math.IsNaN(v) || math.IsInf(v, 0) {
-				skipped++
-				continue
-			}
+			valueInt, valueDouble, numberKind := numberValue(dp)
 			attrs := attributesToMap(dp.Attributes())
-			seriesKey := seriesKeyFor(attrs)
-			addSeries(seriesKey, attrs, "", false)
-			appendScalarPoint(batch, seriesKey, dp.Timestamp().AsTime(), optionalTimestamp(dp.StartTimestamp()), v)
+			attrsRaw := encodeOTLPAttributes(dp.Attributes())
+			seriesKey := seriesKeyFor(attrsRaw, numberKind, "", false)
+			addSeries(seriesKey, attrs, attrsRaw, numberKind, "", false)
+			point := appendScalarPoint(batch, seriesKey, dp.Timestamp().AsTime(), optionalTimestamp(dp.StartTimestamp()), uint32(dp.Flags()), valueInt, valueDouble)
+			appendExemplars(batch, point.ID, dp.Exemplars())
 		}
 	case pmetric.MetricTypeSum:
 		sum := m.Sum()
@@ -348,15 +418,13 @@ func convertMetric(m pmetric.Metric, serviceName string, resourceHash uint64, sc
 		dps := sum.DataPoints()
 		for i := 0; i < dps.Len(); i++ {
 			dp := dps.At(i)
-			v := numberValue(dp)
-			if math.IsNaN(v) || math.IsInf(v, 0) {
-				skipped++
-				continue
-			}
+			valueInt, valueDouble, numberKind := numberValue(dp)
 			attrs := attributesToMap(dp.Attributes())
-			seriesKey := seriesKeyFor(attrs)
-			addSeries(seriesKey, attrs, temporality, sum.IsMonotonic())
-			appendScalarPoint(batch, seriesKey, dp.Timestamp().AsTime(), optionalTimestamp(dp.StartTimestamp()), v)
+			attrsRaw := encodeOTLPAttributes(dp.Attributes())
+			seriesKey := seriesKeyFor(attrsRaw, numberKind, temporality, sum.IsMonotonic())
+			addSeries(seriesKey, attrs, attrsRaw, numberKind, temporality, sum.IsMonotonic())
+			point := appendScalarPoint(batch, seriesKey, dp.Timestamp().AsTime(), optionalTimestamp(dp.StartTimestamp()), uint32(dp.Flags()), valueInt, valueDouble)
+			appendExemplars(batch, point.ID, dp.Exemplars())
 		}
 	case pmetric.MetricTypeHistogram:
 		hist := m.Histogram()
@@ -364,11 +432,19 @@ func convertMetric(m pmetric.Metric, serviceName string, resourceHash uint64, sc
 		dps := hist.DataPoints()
 		for i := 0; i < dps.Len(); i++ {
 			dp := dps.At(i)
+			bounds := append([]float64(nil), dp.ExplicitBounds().AsRaw()...)
+			layout := HistogramLayoutRow{Kind: "explicit", ExplicitBounds: bounds}
+			layout.LayoutHash = hashHistogramLayout(layout)
+			appendHistogramLayout(batch, layout, seenLayouts)
 			attrs := attributesToMap(dp.Attributes())
-			seriesKey := seriesKeyFor(attrs)
-			addSeries(seriesKey, attrs, temporality, false)
-			appendDistributionPoint(batch, seriesKey, dp.Timestamp().AsTime(), optionalTimestamp(dp.StartTimestamp()),
-				float64(dp.Count()), optionalHasFloat(dp.HasSum(), dp.Sum()), optionalHasFloat(dp.HasMin(), dp.Min()), optionalHasFloat(dp.HasMax(), dp.Max()))
+			attrsRaw := encodeOTLPAttributes(dp.Attributes())
+			seriesKey := seriesKeyFor(attrsRaw, "", temporality, false)
+			addSeries(seriesKey, attrs, attrsRaw, "", temporality, false)
+			point := appendDistributionPoint(batch, seriesKey, dp.Timestamp().AsTime(), optionalTimestamp(dp.StartTimestamp()), uint32(dp.Flags()),
+				dp.Count(), optionalHasFloat(dp.HasSum(), dp.Sum()), optionalHasFloat(dp.HasMin(), dp.Min()), optionalHasFloat(dp.HasMax(), dp.Max()))
+			point.HistogramLayoutHash = uint64Ptr(layout.LayoutHash)
+			point.BucketCounts = append([]uint64(nil), dp.BucketCounts().AsRaw()...)
+			appendExemplars(batch, point.ID, dp.Exemplars())
 		}
 	case pmetric.MetricTypeExponentialHistogram:
 		eh := m.ExponentialHistogram()
@@ -376,47 +452,78 @@ func convertMetric(m pmetric.Metric, serviceName string, resourceHash uint64, sc
 		dps := eh.DataPoints()
 		for i := 0; i < dps.Len(); i++ {
 			dp := dps.At(i)
+			scale := dp.Scale()
+			zeroThreshold := dp.ZeroThreshold()
+			layout := HistogramLayoutRow{Kind: "exponential", Scale: &scale, ZeroThreshold: &zeroThreshold}
+			layout.LayoutHash = hashHistogramLayout(layout)
+			appendHistogramLayout(batch, layout, seenLayouts)
 			attrs := attributesToMap(dp.Attributes())
-			seriesKey := seriesKeyFor(attrs)
-			addSeries(seriesKey, attrs, temporality, false)
-			appendDistributionPoint(batch, seriesKey, dp.Timestamp().AsTime(), optionalTimestamp(dp.StartTimestamp()),
-				float64(dp.Count()), optionalHasFloat(dp.HasSum(), dp.Sum()), optionalHasFloat(dp.HasMin(), dp.Min()), optionalHasFloat(dp.HasMax(), dp.Max()))
+			attrsRaw := encodeOTLPAttributes(dp.Attributes())
+			seriesKey := seriesKeyFor(attrsRaw, "", temporality, false)
+			addSeries(seriesKey, attrs, attrsRaw, "", temporality, false)
+			point := appendDistributionPoint(batch, seriesKey, dp.Timestamp().AsTime(), optionalTimestamp(dp.StartTimestamp()), uint32(dp.Flags()),
+				dp.Count(), optionalHasFloat(dp.HasSum(), dp.Sum()), optionalHasFloat(dp.HasMin(), dp.Min()), optionalHasFloat(dp.HasMax(), dp.Max()))
+			point.HistogramLayoutHash = uint64Ptr(layout.LayoutHash)
+			zeroCount := dp.ZeroCount()
+			positiveOffset := dp.Positive().Offset()
+			negativeOffset := dp.Negative().Offset()
+			point.ZeroCount = &zeroCount
+			point.PositiveOffset = &positiveOffset
+			point.PositiveBucketCounts = append([]uint64(nil), dp.Positive().BucketCounts().AsRaw()...)
+			point.NegativeOffset = &negativeOffset
+			point.NegativeBucketCounts = append([]uint64(nil), dp.Negative().BucketCounts().AsRaw()...)
+			appendExemplars(batch, point.ID, dp.Exemplars())
 		}
 	case pmetric.MetricTypeSummary:
 		dps := m.Summary().DataPoints()
 		for i := 0; i < dps.Len(); i++ {
 			dp := dps.At(i)
 			attrs := attributesToMap(dp.Attributes())
-			seriesKey := seriesKeyFor(attrs)
+			attrsRaw := encodeOTLPAttributes(dp.Attributes())
+			seriesKey := seriesKeyFor(attrsRaw, "", "cumulative", false)
 			// Summary has no temporality field in OTLP; treat as cumulative
 			// so query-time derivation matches Histogram semantics.
-			addSeries(seriesKey, attrs, "cumulative", false)
-			appendDistributionPoint(batch, seriesKey, dp.Timestamp().AsTime(), optionalTimestamp(dp.StartTimestamp()),
-				float64(dp.Count()), floatPtr(dp.Sum()), nil, nil)
+			addSeries(seriesKey, attrs, attrsRaw, "", "cumulative", false)
+			point := appendDistributionPoint(batch, seriesKey, dp.Timestamp().AsTime(), optionalTimestamp(dp.StartTimestamp()), uint32(dp.Flags()),
+				dp.Count(), floatPtr(dp.Sum()), nil, nil)
+			quantiles := dp.QuantileValues()
+			point.SummaryQuantiles = make([]float64, quantiles.Len())
+			point.SummaryQuantileValues = make([]float64, quantiles.Len())
+			for j := 0; j < quantiles.Len(); j++ {
+				point.SummaryQuantiles[j] = quantiles.At(j).Quantile()
+				point.SummaryQuantileValues[j] = quantiles.At(j).Value()
+			}
 		}
 	}
+}
 
-	if skipped > 0 {
-		slog.Warn("storage: skipped non-finite metric data points",
-			"metric", m.Name(),
-			"service", serviceName,
-			"skipped", skipped,
-		)
+func appendHistogramLayout(batch *MetricBatch, layout HistogramLayoutRow, seen map[uint64]struct{}) {
+	if _, ok := seen[layout.LayoutHash]; ok {
+		return
 	}
+	seen[layout.LayoutHash] = struct{}{}
+	batch.HistogramLayouts = append(batch.HistogramLayouts, layout)
+}
+
+func hashHistogramLayout(layout HistogramLayoutRow) uint64 {
+	return histogramLayoutHash(layout.Kind, layout.ExplicitBounds, layout.Scale, layout.ZeroThreshold)
 }
 
 // appendScalarPoint appends one Gauge/Sum observation (a plain Value, no
 // Count/Sum/Min/Max) to batch.Points — shared by convertMetric's Gauge and
 // Sum arms, which differ only in the series metadata (temporality/
 // isMonotonic) passed to addSeries beforehand.
-func appendScalarPoint(batch *MetricBatch, seriesKey uint64, ts time.Time, startTS *time.Time, value float64) {
+func appendScalarPoint(batch *MetricBatch, seriesKey uint64, ts time.Time, startTS *time.Time, flags uint32, valueInt *int64, valueDouble *float64) *MetricPointRow {
 	batch.Points = append(batch.Points, MetricPointRow{
-		ID:        newRowID(),
-		SeriesKey: seriesKey,
-		TS:        ts,
-		StartTS:   startTS,
-		Value:     floatPtr(value),
+		ID:          newRowID(),
+		SeriesKey:   seriesKey,
+		TS:          ts,
+		StartTS:     startTS,
+		Flags:       flags,
+		ValueInt:    valueInt,
+		ValueDouble: valueDouble,
 	})
+	return &batch.Points[len(batch.Points)-1]
 }
 
 // appendDistributionPoint appends one Histogram/ExponentialHistogram/Summary
@@ -424,17 +531,37 @@ func appendScalarPoint(batch *MetricBatch, seriesKey uint64, ts time.Time, start
 // convertMetric's three distribution-shaped arms, which differ only in how
 // they populate sum/min/max (Summary has no HasSum/HasMin/HasMax concept and
 // always reports Sum, never Min/Max).
-func appendDistributionPoint(batch *MetricBatch, seriesKey uint64, ts time.Time, startTS *time.Time, count float64, sum, min, max *float64) {
+func appendDistributionPoint(batch *MetricBatch, seriesKey uint64, ts time.Time, startTS *time.Time, flags uint32, count uint64, sum, min, max *float64) *MetricPointRow {
 	batch.Points = append(batch.Points, MetricPointRow{
 		ID:        newRowID(),
 		SeriesKey: seriesKey,
 		TS:        ts,
 		StartTS:   startTS,
-		Count:     floatPtr(count),
+		Flags:     flags,
+		Count:     uint64Ptr(count),
 		Sum:       sum,
 		Min:       min,
 		Max:       max,
 	})
+	return &batch.Points[len(batch.Points)-1]
+}
+
+func appendExemplars(batch *MetricBatch, pointID uuid.UUID, exemplars pmetric.ExemplarSlice) {
+	for i := 0; i < exemplars.Len(); i++ {
+		exemplar := exemplars.At(i)
+		valueInt, valueDouble := exemplarValue(exemplar)
+		batch.Exemplars = append(batch.Exemplars, MetricExemplarRow{
+			ID:                    newRowID(),
+			PointID:               pointID,
+			TS:                    exemplar.Timestamp().AsTime(),
+			TraceID:               exemplar.TraceID().String(),
+			SpanID:                exemplar.SpanID().String(),
+			FilteredAttributes:    attributesToMap(exemplar.FilteredAttributes()),
+			FilteredAttributesRaw: encodeOTLPAttributes(exemplar.FilteredAttributes()),
+			ValueInt:              valueInt,
+			ValueDouble:           valueDouble,
+		})
+	}
 }
 
 func temporalityString(t pmetric.AggregationTemporality) string {
@@ -448,18 +575,34 @@ func temporalityString(t pmetric.AggregationTemporality) string {
 	}
 }
 
-func numberValue(dp pmetric.NumberDataPoint) float64 {
+func numberValue(dp pmetric.NumberDataPoint) (*int64, *float64, string) {
 	switch dp.ValueType() {
 	case pmetric.NumberDataPointValueTypeInt:
-		return float64(dp.IntValue())
+		value := dp.IntValue()
+		return &value, nil, "int"
 	case pmetric.NumberDataPointValueTypeDouble:
-		return dp.DoubleValue()
+		value := dp.DoubleValue()
+		return nil, &value, "double"
 	default:
-		return 0
+		return nil, nil, ""
+	}
+}
+
+func exemplarValue(exemplar pmetric.Exemplar) (*int64, *float64) {
+	switch exemplar.ValueType() {
+	case pmetric.ExemplarValueTypeInt:
+		value := exemplar.IntValue()
+		return &value, nil
+	case pmetric.ExemplarValueTypeDouble:
+		value := exemplar.DoubleValue()
+		return nil, &value
+	default:
+		return nil, nil
 	}
 }
 
 func floatPtr(v float64) *float64 { return &v }
+func uint64Ptr(v uint64) *uint64  { return &v }
 
 func optionalHasFloat(has bool, v float64) *float64 {
 	if !has {

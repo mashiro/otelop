@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"path/filepath"
@@ -168,7 +169,7 @@ func TestStorage_AddMetrics_IngestIsQueryable(t *testing.T) {
 
 	var value float64
 	err := s.DB().QueryRowContext(context.Background(), `
-		SELECT p.value FROM metric_points p
+		SELECT coalesce(p.value_double, cast(p.value_int AS DOUBLE)) FROM metric_points p
 		JOIN metric_series s ON s.series_key = p.series_key
 		WHERE s.metric_name = ?
 	`, "cpu.usage").Scan(&value)
@@ -191,6 +192,126 @@ func TestStorage_AddMetrics_IngestIsQueryable(t *testing.T) {
 	if scopeName != "example.metrics" || scopeVersion != "1.2.3" ||
 		scopeSchemaURL != "https://opentelemetry.io/schemas/1.30.0" || scopeLanguage != "go" {
 		t.Errorf("scope = %q/%q/%q/%q", scopeName, scopeVersion, scopeSchemaURL, scopeLanguage)
+	}
+}
+
+func TestStorage_AddMetrics_PreservesRawOTLPFields(t *testing.T) {
+	s := openTestStorage(t, Options{})
+	md := pmetric.NewMetrics()
+	rm := md.ResourceMetrics().AppendEmpty()
+	rm.SetSchemaUrl("https://opentelemetry.io/schemas/1.40.0")
+	rm.Resource().Attributes().PutStr("service.name", "raw-svc")
+	rm.Resource().SetDroppedAttributesCount(3)
+	sm := rm.ScopeMetrics().AppendEmpty()
+	sm.Scope().SetDroppedAttributesCount(2)
+	now := time.Now()
+
+	gauge := sm.Metrics().AppendEmpty()
+	gauge.SetName("exact.int")
+	gaugePoint := gauge.SetEmptyGauge().DataPoints().AppendEmpty()
+	gaugePoint.SetIntValue(9_007_199_254_740_993)
+	gaugePoint.SetFlags(pmetric.DefaultDataPointFlags.WithNoRecordedValue(true))
+	gaugePoint.SetTimestamp(pcommon.NewTimestampFromTime(now))
+	gaugePoint.Attributes().PutInt("exact.attribute", 9_007_199_254_740_993)
+	exemplar := gaugePoint.Exemplars().AppendEmpty()
+	exemplar.SetIntValue(9_007_199_254_740_995)
+	exemplar.SetTimestamp(pcommon.NewTimestampFromTime(now))
+	exemplar.FilteredAttributes().PutStr("reason", "sampled")
+
+	histogram := sm.Metrics().AppendEmpty()
+	histogram.SetName("exact.count")
+	histogramData := histogram.SetEmptyHistogram()
+	histogramData.SetAggregationTemporality(pmetric.AggregationTemporalityDelta)
+	histogramPoint := histogramData.DataPoints().AppendEmpty()
+	histogramPoint.SetCount(9_007_199_254_740_993)
+	histogramPoint.SetTimestamp(pcommon.NewTimestampFromTime(now))
+	histogramPoint.ExplicitBounds().FromRaw([]float64{1})
+	histogramPoint.BucketCounts().FromRaw([]uint64{9_007_199_254_740_993, 0})
+
+	summary := sm.Metrics().AppendEmpty()
+	summary.SetName("raw.summary")
+	summaryPoint := summary.SetEmptySummary().DataPoints().AppendEmpty()
+	summaryPoint.SetCount(2)
+	summaryPoint.SetSum(3)
+	summaryPoint.SetTimestamp(pcommon.NewTimestampFromTime(now))
+	quantile := summaryPoint.QuantileValues().AppendEmpty()
+	quantile.SetQuantile(0.99)
+	quantile.SetValue(2.5)
+
+	s.AddMetrics(context.Background(), md)
+	s.Sync()
+
+	var value int64
+	var flags uint32
+	var numberKind string
+	var seriesAttrsRaw []byte
+	var ingestedAt time.Time
+	err := s.DB().QueryRowContext(context.Background(), `
+		SELECT p.value_int, p.flags, s.number_kind, p.ingested_at, s.attributes_raw
+		FROM metric_points p JOIN metric_series s USING (series_key)
+		WHERE s.metric_name = 'exact.int'
+	`).Scan(&value, &flags, &numberKind, &ingestedAt, &seriesAttrsRaw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if value != 9_007_199_254_740_993 || flags != 1 || numberKind != "int" {
+		t.Fatalf("raw scalar = %d flags=%d kind=%q", value, flags, numberKind)
+	}
+	if ingestedAt.IsZero() {
+		t.Fatal("point ingestion timestamp was not retained")
+	}
+	if !bytes.HasPrefix(seriesAttrsRaw, otlpAttributesEncodingPrefix) {
+		t.Fatalf("series attributes raw = %x", seriesAttrsRaw)
+	}
+
+	var count uint64
+	if err := s.DB().QueryRowContext(context.Background(), `
+		SELECT p.count FROM metric_points p JOIN metric_series s USING (series_key)
+		WHERE s.metric_name = 'exact.count'
+	`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 9_007_199_254_740_993 {
+		t.Fatalf("raw count = %d", count)
+	}
+
+	var q, qv float64
+	if err := s.DB().QueryRowContext(context.Background(), `
+		SELECT p.summary_quantiles[1], p.summary_quantile_values[1]
+		FROM metric_points p JOIN metric_series s USING (series_key)
+		WHERE s.metric_name = 'raw.summary'
+	`).Scan(&q, &qv); err != nil {
+		t.Fatal(err)
+	}
+	if q != 0.99 || qv != 2.5 {
+		t.Fatalf("summary quantile = %v/%v", q, qv)
+	}
+
+	var exemplarValue int64
+	var reason string
+	var exemplarAttrsRaw []byte
+	if err := s.DB().QueryRowContext(context.Background(), `
+		SELECT value_int, filtered_attributes->>'reason', filtered_attributes_raw FROM metric_exemplars
+	`).Scan(&exemplarValue, &reason, &exemplarAttrsRaw); err != nil {
+		t.Fatal(err)
+	}
+	if exemplarValue != 9_007_199_254_740_995 || reason != "sampled" {
+		t.Fatalf("exemplar = %d/%q", exemplarValue, reason)
+	}
+	if !bytes.HasPrefix(exemplarAttrsRaw, otlpAttributesEncodingPrefix) {
+		t.Fatalf("exemplar attributes raw = %x", exemplarAttrsRaw)
+	}
+
+	var resourceSchemaURL string
+	var resourceDropped, scopeDropped uint32
+	if err := s.DB().QueryRowContext(context.Background(), `SELECT schema_url, dropped_attributes_count FROM resources`).Scan(&resourceSchemaURL, &resourceDropped); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DB().QueryRowContext(context.Background(), `SELECT max(scope_dropped_attributes_count) FROM metric_series`).Scan(&scopeDropped); err != nil {
+		t.Fatal(err)
+	}
+	if resourceSchemaURL != "https://opentelemetry.io/schemas/1.40.0" || resourceDropped != 3 || scopeDropped != 2 {
+		t.Fatalf("resource/scope metadata = %q/%d/%d", resourceSchemaURL, resourceDropped, scopeDropped)
 	}
 }
 
@@ -390,6 +511,37 @@ func TestStorage_Sweep_DeletesExpiredFactsKeepsRecent(t *testing.T) {
 
 	if len(names) != 1 || names[0] != "recent-span" {
 		t.Errorf("spans after sweep = %v, want only [recent-span]", names)
+	}
+}
+
+func TestStorage_Sweep_DeletesExemplarsWithExpiredMetricPoint(t *testing.T) {
+	s := openTestStorage(t, Options{Retention: time.Hour})
+	md := pmetric.NewMetrics()
+	rm := md.ResourceMetrics().AppendEmpty()
+	sm := rm.ScopeMetrics().AppendEmpty()
+	m := sm.Metrics().AppendEmpty()
+	m.SetName("old.metric")
+	dp := m.SetEmptyGauge().DataPoints().AppendEmpty()
+	dp.SetDoubleValue(1)
+	dp.SetTimestamp(pcommon.NewTimestampFromTime(time.Now().Add(-2 * time.Hour)))
+	exemplar := dp.Exemplars().AppendEmpty()
+	exemplar.SetDoubleValue(1)
+	exemplar.SetTimestamp(dp.Timestamp())
+	s.AddMetrics(context.Background(), md)
+	s.Sync()
+
+	if err := s.Sweep(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	var pointCount, exemplarCount int
+	if err := s.DB().QueryRowContext(context.Background(), `SELECT count(*) FROM metric_points`).Scan(&pointCount); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DB().QueryRowContext(context.Background(), `SELECT count(*) FROM metric_exemplars`).Scan(&exemplarCount); err != nil {
+		t.Fatal(err)
+	}
+	if pointCount != 0 || exemplarCount != 0 {
+		t.Fatalf("retained point/exemplar = %d/%d", pointCount, exemplarCount)
 	}
 }
 

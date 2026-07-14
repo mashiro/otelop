@@ -33,24 +33,39 @@ const (
 // wrong here: resource_hash and series_key are DuckDB primary keys that must
 // resolve to the same dimension row across restarts of the same database
 // file, so the hash function itself must be deterministic across processes.
-func hashResource(attrs map[string]any) uint64 {
+func hashResource(schemaURL string, droppedAttributesCount uint32, attrsRaw []byte) uint64 {
 	h := fnv.New64a()
-	writeAttrs(h, attrs)
+	// Keep pre-schema-URL hashes stable for the overwhelmingly common empty
+	// value while still separating resources that declare a schema.
+	if schemaURL != "" {
+		writeString(h, schemaURL)
+	}
+	if droppedAttributesCount != 0 {
+		writeValue(h, uint64(droppedAttributesCount))
+	}
+	writeValue(h, attrsRaw)
 	return h.Sum64()
 }
 
 type metricScopeIdentity struct {
-	SchemaURL  string
-	Name       string
-	Version    string
-	Attributes map[string]any
+	SchemaURL              string
+	Name                   string
+	Version                string
+	DroppedAttributesCount uint32
+	Attributes             map[string]any
+	AttributesRaw          []byte
 }
 
 type metricSeriesIdentity struct {
-	ResourceHash uint64
-	Scope        metricScopeIdentity
-	MetricName   string
-	Attributes   map[string]any
+	ResourceHash  uint64
+	Scope         metricScopeIdentity
+	MetricName    string
+	MetricType    string
+	NumberKind    string
+	Unit          string
+	Temporality   string
+	IsMonotonic   bool
+	AttributesRaw []byte
 }
 
 // hashSeries returns a stable 64-bit key for one metric series. Resource and
@@ -62,9 +77,37 @@ func hashSeries(identity metricSeriesIdentity) uint64 {
 	writeString(h, identity.Scope.SchemaURL)
 	writeString(h, identity.Scope.Name)
 	writeString(h, identity.Scope.Version)
-	writeValue(h, identity.Scope.Attributes)
+	if identity.Scope.DroppedAttributesCount != 0 {
+		writeValue(h, uint64(identity.Scope.DroppedAttributesCount))
+	}
+	writeValue(h, identity.Scope.AttributesRaw)
 	writeString(h, identity.MetricName)
-	writeValue(h, identity.Attributes)
+	writeString(h, identity.MetricType)
+	writeString(h, identity.NumberKind)
+	writeString(h, identity.Unit)
+	writeString(h, identity.Temporality)
+	writeValue(h, identity.IsMonotonic)
+	writeValue(h, identity.AttributesRaw)
+	return h.Sum64()
+}
+
+func histogramLayoutHash(kind string, explicitBounds []float64, scale *int32, zeroThreshold *float64) uint64 {
+	h := fnv.New64a()
+	writeString(h, kind)
+	writeLen(h, len(explicitBounds))
+	for _, bound := range explicitBounds {
+		writeValue(h, bound)
+	}
+	if scale == nil {
+		writeValue(h, nil)
+	} else {
+		writeValue(h, int64(*scale))
+	}
+	if zeroThreshold == nil {
+		writeValue(h, nil)
+	} else {
+		writeValue(h, *zeroThreshold)
+	}
 	return h.Sum64()
 }
 

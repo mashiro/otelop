@@ -252,6 +252,22 @@ func (r *Resolver) MetricPoints(ctx context.Context, args MetricPointsArgs) ([]*
 	return out, nil
 }
 
+type MetricDistributionStatsArgs struct {
+	ServiceName string
+	Name        string
+	From        *gql.Time
+	To          *gql.Time
+}
+
+func (r *Resolver) MetricDistributionStats(ctx context.Context, args MetricDistributionStatsArgs) (*DistributionStatsResolver, error) {
+	from, to := r.resolveWindow(args.From, args.To)
+	stats, err := r.storage.MetricDistributionStats(ctx, args.ServiceName, args.Name, from, to)
+	if err != nil || stats == nil {
+		return nil, err
+	}
+	return &DistributionStatsResolver{stats: *stats}, nil
+}
+
 func (r *Resolver) ClearSignals(ctx context.Context) (bool, error) {
 	if err := r.storage.Clear(ctx); err != nil {
 		return false, err

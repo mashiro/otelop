@@ -146,6 +146,40 @@ describe("MetricSummary", () => {
     expect(screen.getByText("count 2")).toBeTruthy();
   });
 
+  it("shows window-wide histogram percentiles instead of the latest point", () => {
+    const metric = makeMetric({
+      type: "Histogram",
+      unit: "ms",
+      dataPoints: [makeDataPoint({ value: 999, count: 1 })],
+    });
+
+    render(
+      <MetricSummary
+        metric={metric}
+        facet={null}
+        range="1h"
+        rangeDataPoints={metric.dataPoints}
+        aggregatedSeries={null}
+        distributionStats={{
+          count: 100,
+          mean: 12,
+          min: 1,
+          max: 80,
+          p50: 10,
+          p90: 25,
+          p95: 40,
+          p99: 70,
+        }}
+      />,
+    );
+
+    expect(screen.getByText("Distribution · 1h · 100 observations")).toBeTruthy();
+    for (const label of ["Average", "P50", "P90", "P95", "P99", "Min", "Max"]) {
+      expect(screen.getByText(label)).toBeTruthy();
+    }
+    expect(screen.queryByText("Latest · 1h")).toBeNull();
+  });
+
   it("renders the tile's main value without font-mono / tabular-nums (proportional sans figures)", () => {
     const metric = makeMetric({
       type: "Sum",

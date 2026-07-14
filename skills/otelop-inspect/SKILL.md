@@ -114,6 +114,9 @@ Never call it without an explicit user request.
   `pointCount`, `latestValue`, and `receivedAt`.
 - `DataPoint`: `id`, `timestamp`, `value`, `cumulative`, `count`,
   `countCumulative`, `sum`, `sumCumulative`, `min`, `max`, and `attributes`.
+- `DistributionStats`: window-wide `count`, `mean`, `min`, `max`, and
+  bucket-estimated `p50`, `p90`, `p95`, `p99` for Histogram and
+  ExponentialHistogram metrics.
 - `Log`: `id`, timestamps, trace/span IDs, severity, body, service,
   attributes/resource, `trace`, and `span`.
 
@@ -184,6 +187,17 @@ query($service: String!, $name: String!, $from: Time!, $to: Time!) {
   metricPoints(serviceName: $service, name: $name, from: $from, to: $to) {
     id timestamp value cumulative count countCumulative
     sum sumCumulative min max attributes
+  }
+}
+```
+
+For histogram percentiles, request the server-side merged distribution rather
+than calculating or averaging percentiles from individual points:
+
+```graphql
+query($service: String!, $name: String!, $from: Time!, $to: Time!) {
+  metricDistributionStats(serviceName: $service, name: $name, from: $from, to: $to) {
+    count mean min max p50 p90 p95 p99
   }
 }
 ```

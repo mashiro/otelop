@@ -10,6 +10,7 @@ import { formatMetricValue } from "@/lib/format-metric";
 import { CHART_TIME_RANGES, type ChartTimeRange } from "@/lib/chart-time-range";
 import { SERIES_COLORS } from "./metric-chart";
 import type { AggregateSeriesData } from "@/hooks/use-metric-aggregate-series";
+import type { MetricDistributionStatsData } from "@/hooks/use-metric-distribution-stats";
 import type { DataPoint, MetricData } from "@/types/telemetry";
 
 function rangeLabel(range: ChartTimeRange): string {
@@ -26,14 +27,18 @@ export const MetricSummary = memo(function MetricSummary({
   range,
   rangeDataPoints,
   aggregatedSeries,
+  distributionStats,
 }: {
   metric: MetricData;
   facet?: MetricFacet | null;
   range: ChartTimeRange;
   rangeDataPoints: DataPoint[];
   aggregatedSeries: AggregateSeriesData[] | null;
+  distributionStats?: MetricDistributionStatsData | null;
 }) {
   const isDistribution = isDistributionMetric(metric.type);
+  const isHistogram = metric.type === "Histogram" || metric.type === "ExponentialHistogram";
+  const unit = resolveMetricUnit(metric.name, metric.unit);
   const showsLatest = metric.type === "Gauge" || isDistribution;
   const tiles = useMemo(() => {
     // Increase eligibility must read rangeDataPoints (the fetched-range + live
@@ -62,9 +67,12 @@ export const MetricSummary = memo(function MetricSummary({
     return computeStatTiles(input);
   }, [facet, aggregatedSeries, rangeDataPoints, range, isDistribution, showsLatest]);
 
+  if (isHistogram && distributionStats) {
+    return <HistogramSummary stats={distributionStats} range={range} unit={unit} />;
+  }
+
   if (tiles.length === 0) return null;
 
-  const unit = resolveMetricUnit(metric.name, metric.unit);
   const showLabels = tiles.length > 1 || tiles[0]?.key !== "";
 
   return (
@@ -93,6 +101,43 @@ export const MetricSummary = memo(function MetricSummary({
     </div>
   );
 });
+
+function HistogramSummary({
+  stats,
+  range,
+  unit,
+}: {
+  stats: MetricDistributionStatsData;
+  range: ChartTimeRange;
+  unit: string;
+}) {
+  const values = [
+    ["Average", stats.mean],
+    ["P50", stats.p50],
+    ["P90", stats.p90],
+    ["P95", stats.p95],
+    ["P99", stats.p99],
+    ["Min", stats.min],
+    ["Max", stats.max],
+  ] as const;
+  return (
+    <div className="mb-4">
+      <div className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+        Distribution · {rangeLabel(range)} · {stats.count.toLocaleString()} observations
+      </div>
+      <div className="grid grid-cols-[repeat(auto-fill,minmax(140px,1fr))] gap-2">
+        {values.map(([label, value]) => (
+          <div key={label} className="rounded-lg border border-border/30 bg-muted/50 p-3">
+            <div className="mb-1 text-xs text-foreground/60">{label}</div>
+            <div className="text-2xl font-semibold text-foreground">
+              {value != null ? formatMetricValue(value, unit) : "-"}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 function mainText(tile: StatTile, unit: string): string {
   return tile.value != null ? formatMetricValue(tile.value, unit) : "-";

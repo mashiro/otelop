@@ -2,6 +2,7 @@ package storage
 
 import (
 	"math"
+	"reflect"
 	"testing"
 	"time"
 
@@ -242,8 +243,8 @@ func TestConvertMetrics_Gauge(t *testing.T) {
 		t.Fatalf("expected 1 point, got %d", len(batch.Points))
 	}
 	p := batch.Points[0]
-	if p.Value == nil || *p.Value != 0.5 {
-		t.Errorf("Value = %v, want 0.5", p.Value)
+	if p.ValueDouble == nil || *p.ValueDouble != 0.5 || p.ValueInt != nil {
+		t.Errorf("ValueDouble/ValueInt = %v/%v, want 0.5/nil", p.ValueDouble, p.ValueInt)
 	}
 	if p.Count != nil || p.Sum != nil || p.Min != nil || p.Max != nil {
 		t.Errorf("Gauge point should have nil Count/Sum/Min/Max, got %+v", p)
@@ -286,15 +287,15 @@ func TestConvertMetrics_SumCumulativeMonotonic(t *testing.T) {
 	p := batch.Points[0]
 	// Raw value stored as-is: no delta-ization at ingest (that moves to
 	// query time), unlike the old store package's convertMetrics.
-	if p.Value == nil || *p.Value != 42 {
-		t.Errorf("Value = %v, want the raw cumulative value 42", p.Value)
+	if p.ValueInt == nil || *p.ValueInt != 42 || p.ValueDouble != nil {
+		t.Errorf("ValueInt/ValueDouble = %v/%v, want the raw cumulative value 42/nil", p.ValueInt, p.ValueDouble)
 	}
 	if p.StartTS == nil || !p.StartTS.Equal(start) {
 		t.Errorf("StartTS = %v, want %v", p.StartTS, start)
 	}
 }
 
-func TestConvertMetrics_SkipsNonFiniteGaugeValues(t *testing.T) {
+func TestConvertMetrics_PreservesNonFiniteGaugeValues(t *testing.T) {
 	md := pmetric.NewMetrics()
 	rm := md.ResourceMetrics().AppendEmpty()
 	sm := rm.ScopeMetrics().AppendEmpty()
@@ -315,11 +316,11 @@ func TestConvertMetrics_SkipsNonFiniteGaugeValues(t *testing.T) {
 	inf.SetTimestamp(pcommon.NewTimestampFromTime(time.Now()))
 
 	batch := ConvertMetrics(md)
-	if len(batch.Points) != 1 {
-		t.Fatalf("expected NaN/Inf points to be skipped, got %d points", len(batch.Points))
+	if len(batch.Points) != 3 {
+		t.Fatalf("expected all raw points to be retained, got %d points", len(batch.Points))
 	}
-	if *batch.Points[0].Value != 1.0 {
-		t.Errorf("surviving point Value = %v, want 1.0", *batch.Points[0].Value)
+	if *batch.Points[0].ValueDouble != 1.0 || !math.IsNaN(*batch.Points[1].ValueDouble) || !math.IsInf(*batch.Points[2].ValueDouble, 1) {
+		t.Errorf("raw values = %v/%v/%v, want 1/NaN/+Inf", batch.Points[0].ValueDouble, batch.Points[1].ValueDouble, batch.Points[2].ValueDouble)
 	}
 }
 
@@ -336,6 +337,8 @@ func TestConvertMetrics_Histogram(t *testing.T) {
 	dp.SetSum(55)
 	dp.SetMin(1)
 	dp.SetMax(20)
+	dp.ExplicitBounds().FromRaw([]float64{5, 10})
+	dp.BucketCounts().FromRaw([]uint64{2, 3, 5})
 	dp.SetTimestamp(pcommon.NewTimestampFromTime(time.Now()))
 
 	batch := ConvertMetrics(md)
@@ -349,8 +352,8 @@ func TestConvertMetrics_Histogram(t *testing.T) {
 		t.Fatalf("expected 1 point, got %d", len(batch.Points))
 	}
 	p := batch.Points[0]
-	if p.Value != nil {
-		t.Errorf("Histogram point Value should be nil, got %v", *p.Value)
+	if p.ValueInt != nil || p.ValueDouble != nil {
+		t.Errorf("Histogram point values should be nil, got %v/%v", p.ValueInt, p.ValueDouble)
 	}
 	if p.Count == nil || *p.Count != 10 {
 		t.Errorf("Count = %v, want 10", p.Count)
@@ -360,6 +363,101 @@ func TestConvertMetrics_Histogram(t *testing.T) {
 	}
 	if p.Min == nil || *p.Min != 1 || p.Max == nil || *p.Max != 20 {
 		t.Errorf("Min/Max = %v/%v, want 1/20", p.Min, p.Max)
+	}
+	if len(batch.HistogramLayouts) != 1 || batch.HistogramLayouts[0].Kind != "explicit" {
+		t.Fatalf("HistogramLayouts = %+v, want one explicit layout", batch.HistogramLayouts)
+	}
+	if p.HistogramLayoutHash == nil || *p.HistogramLayoutHash != batch.HistogramLayouts[0].LayoutHash {
+		t.Errorf("point layout hash = %v, want %d", p.HistogramLayoutHash, batch.HistogramLayouts[0].LayoutHash)
+	}
+	if len(p.BucketCounts) != 3 || p.BucketCounts[1] != 3 {
+		t.Errorf("BucketCounts = %v, want [2 3 5]", p.BucketCounts)
+	}
+}
+
+func TestConvertMetrics_PreservesFlagsAndExemplars(t *testing.T) {
+	md := pmetric.NewMetrics()
+	rm := md.ResourceMetrics().AppendEmpty()
+	sm := rm.ScopeMetrics().AppendEmpty()
+	m := sm.Metrics().AppendEmpty()
+	m.SetName("requests")
+	dp := m.SetEmptyGauge().DataPoints().AppendEmpty()
+	dp.SetIntValue(7)
+	dp.SetFlags(pmetric.DefaultDataPointFlags.WithNoRecordedValue(true))
+	dp.SetTimestamp(pcommon.NewTimestampFromTime(time.Now()))
+	exemplar := dp.Exemplars().AppendEmpty()
+	exemplar.SetIntValue(9_007_199_254_740_993)
+	exemplar.SetTimestamp(dp.Timestamp())
+	exemplar.SetTraceID(pcommon.TraceID{1})
+	exemplar.SetSpanID(pcommon.SpanID{2})
+	exemplar.FilteredAttributes().PutStr("sample", "kept")
+
+	batch := ConvertMetrics(md)
+	if len(batch.Points) != 1 || batch.Points[0].Flags != 1 {
+		t.Fatalf("point flags = %v, want NoRecordedValue", batch.Points)
+	}
+	if len(batch.Exemplars) != 1 {
+		t.Fatalf("exemplars = %d, want 1", len(batch.Exemplars))
+	}
+	got := batch.Exemplars[0]
+	if got.PointID != batch.Points[0].ID || got.TraceID == "" || got.SpanID == "" {
+		t.Errorf("exemplar correlation = %+v", got)
+	}
+	if got.ValueInt == nil || *got.ValueInt != 9_007_199_254_740_993 || got.ValueDouble != nil {
+		t.Errorf("exemplar value = %v/%v", got.ValueInt, got.ValueDouble)
+	}
+	if got.FilteredAttributes["sample"] != "kept" {
+		t.Errorf("filtered attributes = %v", got.FilteredAttributes)
+	}
+}
+
+func TestConvertMetrics_PreservesSummaryQuantiles(t *testing.T) {
+	md := pmetric.NewMetrics()
+	rm := md.ResourceMetrics().AppendEmpty()
+	sm := rm.ScopeMetrics().AppendEmpty()
+	m := sm.Metrics().AppendEmpty()
+	m.SetName("request.duration")
+	dp := m.SetEmptySummary().DataPoints().AppendEmpty()
+	dp.SetCount(20)
+	dp.SetSum(100)
+	dp.SetTimestamp(pcommon.NewTimestampFromTime(time.Now()))
+	q50 := dp.QuantileValues().AppendEmpty()
+	q50.SetQuantile(0.5)
+	q50.SetValue(4)
+	q99 := dp.QuantileValues().AppendEmpty()
+	q99.SetQuantile(0.99)
+	q99.SetValue(12)
+
+	batch := ConvertMetrics(md)
+	point := batch.Points[0]
+	if !reflect.DeepEqual(point.SummaryQuantiles, []float64{0.5, 0.99}) ||
+		!reflect.DeepEqual(point.SummaryQuantileValues, []float64{4, 12}) {
+		t.Fatalf("summary quantiles = %v/%v", point.SummaryQuantiles, point.SummaryQuantileValues)
+	}
+}
+
+func TestConvertMetrics_SeparatesIncompatibleDescriptors(t *testing.T) {
+	md := pmetric.NewMetrics()
+	rm := md.ResourceMetrics().AppendEmpty()
+	sm := rm.ScopeMetrics().AppendEmpty()
+
+	intGauge := sm.Metrics().AppendEmpty()
+	intGauge.SetName("same.name")
+	intGauge.SetUnit("1")
+	intPoint := intGauge.SetEmptyGauge().DataPoints().AppendEmpty()
+	intPoint.SetIntValue(1)
+	intPoint.SetTimestamp(pcommon.NewTimestampFromTime(time.Now()))
+
+	doubleGauge := sm.Metrics().AppendEmpty()
+	doubleGauge.SetName("same.name")
+	doubleGauge.SetUnit("ms")
+	doublePoint := doubleGauge.SetEmptyGauge().DataPoints().AppendEmpty()
+	doublePoint.SetDoubleValue(1)
+	doublePoint.SetTimestamp(pcommon.NewTimestampFromTime(time.Now()))
+
+	batch := ConvertMetrics(md)
+	if len(batch.Series) != 2 || batch.Series[0].SeriesKey == batch.Series[1].SeriesKey {
+		t.Fatalf("incompatible descriptors were merged: %+v", batch.Series)
 	}
 }
 

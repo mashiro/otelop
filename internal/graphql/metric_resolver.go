@@ -109,6 +109,19 @@ func (r *AggregatePointResolver) Sum() *float64       { return r.p.Sum }
 func (r *AggregatePointResolver) Min() *float64       { return r.p.Min }
 func (r *AggregatePointResolver) Max() *float64       { return r.p.Max }
 
+type DistributionStatsResolver struct {
+	stats storage.DistributionStats
+}
+
+func (r *DistributionStatsResolver) Count() float64 { return float64(r.stats.Count) }
+func (r *DistributionStatsResolver) Mean() *float64 { return r.stats.Mean }
+func (r *DistributionStatsResolver) Min() *float64  { return r.stats.Min }
+func (r *DistributionStatsResolver) Max() *float64  { return r.stats.Max }
+func (r *DistributionStatsResolver) P50() *float64  { return r.stats.P50 }
+func (r *DistributionStatsResolver) P90() *float64  { return r.stats.P90 }
+func (r *DistributionStatsResolver) P95() *float64  { return r.stats.P95 }
+func (r *DistributionStatsResolver) P99() *float64  { return r.stats.P99 }
+
 // floatOrZero unwraps an optional derived value to 0 when nil (a baseline
 // observation with nothing to derive yet) — the GraphQL schema's Value
 // field is non-nullable, unlike the storage layer's pointer representation.

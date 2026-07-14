@@ -19,7 +19,10 @@ const schemaV1 = `
 CREATE TABLE resources (
   resource_hash UBIGINT PRIMARY KEY,
   service_name  VARCHAR NOT NULL,
-  attributes    JSON NOT NULL
+  schema_url    VARCHAR NOT NULL,
+  dropped_attributes_count UINTEGER NOT NULL,
+  attributes    JSON NOT NULL,
+  attributes_raw BLOB NOT NULL
 );
 
 CREATE TABLE metric_series (
@@ -27,15 +30,19 @@ CREATE TABLE metric_series (
   service_name  VARCHAR NOT NULL,
   metric_name   VARCHAR NOT NULL,
   metric_type   VARCHAR NOT NULL,
+  number_kind   VARCHAR NOT NULL,
   unit          VARCHAR,
   description   VARCHAR,
   temporality   VARCHAR,
   is_monotonic  BOOLEAN,
   attributes    JSON NOT NULL,
+  attributes_raw BLOB NOT NULL,
   scope_name       VARCHAR NOT NULL,
   scope_version    VARCHAR NOT NULL,
   scope_schema_url VARCHAR NOT NULL,
+  scope_dropped_attributes_count UINTEGER NOT NULL,
   scope_attributes JSON NOT NULL,
+  scope_attributes_raw BLOB NOT NULL,
   resource_hash UBIGINT NOT NULL,
   first_seen    TIMESTAMP_NS NOT NULL,
   last_seen     TIMESTAMP_NS NOT NULL
@@ -83,16 +90,49 @@ CREATE TABLE dropped_traces (
 );
 
 CREATE TABLE metric_points (
-  id         UUID NOT NULL,
-  series_key UBIGINT NOT NULL,
-  ts         TIMESTAMP_NS NOT NULL,
-  start_ts   TIMESTAMP_NS,
-  value      DOUBLE,
-  count      DOUBLE,
-  sum        DOUBLE,
-  min        DOUBLE,
-  max        DOUBLE
+  id          UUID NOT NULL,
+  series_key  UBIGINT NOT NULL,
+  ts          TIMESTAMP_NS NOT NULL,
+  start_ts    TIMESTAMP_NS,
+  ingested_at TIMESTAMP_NS NOT NULL,
+  flags       UINTEGER NOT NULL,
+  value_int   BIGINT,
+  value_double DOUBLE,
+  count       UBIGINT,
+  sum         DOUBLE,
+  min         DOUBLE,
+  max         DOUBLE,
+  histogram_layout_hash UBIGINT,
+  bucket_counts UBIGINT[],
+  zero_count UBIGINT,
+  positive_offset INTEGER,
+  positive_bucket_counts UBIGINT[],
+  negative_offset INTEGER,
+  negative_bucket_counts UBIGINT[],
+  summary_quantiles DOUBLE[],
+  summary_quantile_values DOUBLE[]
 );
+
+CREATE TABLE histogram_layouts (
+  layout_hash    UBIGINT PRIMARY KEY,
+  kind           VARCHAR NOT NULL,
+  explicit_bounds DOUBLE[],
+  scale          INTEGER,
+  zero_threshold DOUBLE
+);
+
+CREATE TABLE metric_exemplars (
+  id                  UUID NOT NULL,
+  point_id            UUID NOT NULL,
+  ts                  TIMESTAMP_NS NOT NULL,
+  trace_id            VARCHAR,
+  span_id             VARCHAR,
+  filtered_attributes JSON NOT NULL,
+  filtered_attributes_raw BLOB NOT NULL,
+  value_int           BIGINT,
+  value_double        DOUBLE
+);
+CREATE INDEX idx_metric_exemplars_point ON metric_exemplars (point_id);
 
 CREATE TABLE logs (
   id              UUID NOT NULL,
@@ -144,7 +184,108 @@ func migrate(ctx context.Context, db *sql.DB) error {
 		}
 		version = m.version
 	}
+	return ensureSchemaV1Extensions(ctx, db)
+}
+
+// ensureSchemaV1Extensions keeps development databases created earlier in
+// schema v1 usable while that unreleased schema is still evolving. Once v1
+// is released, subsequent changes must use a numbered migration instead.
+func ensureSchemaV1Extensions(ctx context.Context, db *sql.DB) error {
+	statements := []string{
+		`ALTER TABLE resources ADD COLUMN IF NOT EXISTS schema_url VARCHAR DEFAULT ''`,
+		`ALTER TABLE resources ADD COLUMN IF NOT EXISTS dropped_attributes_count UINTEGER DEFAULT 0`,
+		`ALTER TABLE resources ADD COLUMN IF NOT EXISTS attributes_raw BLOB`,
+		`ALTER TABLE metric_series ADD COLUMN IF NOT EXISTS number_kind VARCHAR DEFAULT ''`,
+		`ALTER TABLE metric_series ADD COLUMN IF NOT EXISTS scope_dropped_attributes_count UINTEGER DEFAULT 0`,
+		`ALTER TABLE metric_series ADD COLUMN IF NOT EXISTS attributes_raw BLOB`,
+		`ALTER TABLE metric_series ADD COLUMN IF NOT EXISTS scope_attributes_raw BLOB`,
+		`CREATE TABLE IF NOT EXISTS histogram_layouts (
+			layout_hash UBIGINT PRIMARY KEY, kind VARCHAR NOT NULL,
+			explicit_bounds DOUBLE[], scale INTEGER, zero_threshold DOUBLE)`,
+		`CREATE TABLE IF NOT EXISTS metric_exemplars (
+			id UUID NOT NULL, point_id UUID NOT NULL, ts TIMESTAMP_NS NOT NULL,
+			trace_id VARCHAR, span_id VARCHAR, filtered_attributes JSON NOT NULL, filtered_attributes_raw BLOB,
+			value_int BIGINT, value_double DOUBLE)`,
+		`ALTER TABLE metric_exemplars ADD COLUMN IF NOT EXISTS filtered_attributes_raw BLOB`,
+		`CREATE INDEX IF NOT EXISTS idx_metric_exemplars_point ON metric_exemplars (point_id)`,
+		`ALTER TABLE metric_points ADD COLUMN IF NOT EXISTS ingested_at TIMESTAMP_NS`,
+		`ALTER TABLE metric_points ADD COLUMN IF NOT EXISTS flags UINTEGER DEFAULT 0`,
+		`ALTER TABLE metric_points ADD COLUMN IF NOT EXISTS value_int BIGINT`,
+		`ALTER TABLE metric_points ADD COLUMN IF NOT EXISTS value_double DOUBLE`,
+		`ALTER TABLE metric_points ADD COLUMN IF NOT EXISTS histogram_layout_hash UBIGINT`,
+		`ALTER TABLE metric_points ADD COLUMN IF NOT EXISTS bucket_counts UBIGINT[]`,
+		`ALTER TABLE metric_points ADD COLUMN IF NOT EXISTS zero_count UBIGINT`,
+		`ALTER TABLE metric_points ADD COLUMN IF NOT EXISTS positive_offset INTEGER`,
+		`ALTER TABLE metric_points ADD COLUMN IF NOT EXISTS positive_bucket_counts UBIGINT[]`,
+		`ALTER TABLE metric_points ADD COLUMN IF NOT EXISTS negative_offset INTEGER`,
+		`ALTER TABLE metric_points ADD COLUMN IF NOT EXISTS negative_bucket_counts UBIGINT[]`,
+		`ALTER TABLE metric_points ADD COLUMN IF NOT EXISTS summary_quantiles DOUBLE[]`,
+		`ALTER TABLE metric_points ADD COLUMN IF NOT EXISTS summary_quantile_values DOUBLE[]`,
+	}
+	for _, statement := range statements {
+		if _, err := db.ExecContext(ctx, statement); err != nil {
+			return fmt.Errorf("storage: extend schema v1: %w", err)
+		}
+	}
+	// point_key/payload_hash were briefly added during pre-release schema-v1
+	// development. Both are derivable from the retained interval and payload,
+	// while their random 64 bytes per point do not compress. Remove them from
+	// any development database that opened that intermediate build.
+	if _, err := db.ExecContext(ctx, `DROP INDEX IF EXISTS idx_metric_points_key`); err != nil {
+		return fmt.Errorf("storage: drop metric point hash index: %w", err)
+	}
+	for _, column := range []string{"point_key", "payload_hash"} {
+		if _, err := db.ExecContext(ctx, `ALTER TABLE metric_points DROP COLUMN IF EXISTS `+column); err != nil {
+			return fmt.Errorf("storage: drop metric_points.%s: %w", column, err)
+		}
+	}
+	// Development databases created before exact numeric storage retained
+	// scalar values in one DOUBLE column. Preserve those observations in the
+	// new double arm; their original int/double discriminator was already
+	// lost, so it cannot be reconstructed retroactively.
+	hasLegacyValue, err := columnExists(ctx, db, "metric_points", "value")
+	if err != nil {
+		return err
+	}
+	if hasLegacyValue {
+		if _, err := db.ExecContext(ctx, `UPDATE metric_points SET value_double = value WHERE value_double IS NULL`); err != nil {
+			return fmt.Errorf("storage: preserve legacy metric values: %w", err)
+		}
+	}
+	countType, err := columnDataType(ctx, db, "metric_points", "count")
+	if err != nil {
+		return err
+	}
+	if countType == "DOUBLE" {
+		if _, err := db.ExecContext(ctx, `ALTER TABLE metric_points ALTER COLUMN count TYPE UBIGINT USING CAST(count AS UBIGINT)`); err != nil {
+			return fmt.Errorf("storage: preserve metric counts as uint64: %w", err)
+		}
+	}
 	return nil
+}
+
+func columnExists(ctx context.Context, db *sql.DB, table, column string) (bool, error) {
+	var exists bool
+	err := db.QueryRowContext(ctx, `
+		SELECT count(*) > 0
+		FROM information_schema.columns
+		WHERE table_name = ? AND column_name = ?`, table, column).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("storage: inspect %s.%s: %w", table, column, err)
+	}
+	return exists, nil
+}
+
+func columnDataType(ctx context.Context, db *sql.DB, table, column string) (string, error) {
+	var dataType string
+	err := db.QueryRowContext(ctx, `
+		SELECT data_type
+		FROM information_schema.columns
+		WHERE table_name = ? AND column_name = ?`, table, column).Scan(&dataType)
+	if err != nil {
+		return "", fmt.Errorf("storage: inspect type of %s.%s: %w", table, column, err)
+	}
+	return dataType, nil
 }
 
 // schemaVersion reads the recorded schema version, returning 0 for a

@@ -239,6 +239,16 @@ func Open(ctx context.Context, opts Options) (*Storage, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("storage: reserve writer connection: %w", err)
 	}
+	if _, err := writerConn.ExecContext(ctx, `
+		CREATE TEMP TABLE metric_series_staging AS
+		SELECT * FROM metric_series WHERE false;
+		CREATE TEMP TABLE histogram_layouts_staging AS
+		SELECT * FROM histogram_layouts WHERE false;
+	`); err != nil {
+		_ = writerConn.Close()
+		_ = db.Close()
+		return nil, fmt.Errorf("storage: prepare metric staging tables: %w", err)
+	}
 	s := &Storage{
 		opts:          opts,
 		connector:     connector,
@@ -674,12 +684,27 @@ func distinctTraceIDsForRows(rows []SpanRow) []string {
 func (s *Storage) writeMetrics(ctx context.Context, batch MetricBatch) {
 	ctx, span := startStorageSpan(ctx, "storage.writeMetrics",
 		attribute.Int("storage.batch.rows", len(batch.Points)),
+		attribute.Int("storage.batch.exemplars", len(batch.Exemplars)),
 		attribute.Int("storage.batch.series", len(batch.Series)),
 		attribute.Int("storage.batch.resources", len(batch.Resources)))
 	defer span.End()
 	started := time.Now()
 	var written int64
 	defer func() { s.recordWrite(ctx, "metrics", started, written) }()
+	if _, err := s.writer.ExecContext(ctx, `BEGIN TRANSACTION`); err != nil {
+		slog.Error("storage: begin metrics transaction failed", "error", err)
+		return
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_, _ = s.writer.ExecContext(context.Background(), `ROLLBACK`)
+			// upsertResources populates this cache before COMMIT. A later
+			// point/exemplar failure rolls the row back, so retain no cache
+			// entries that could suppress its next insert.
+			s.resourceCache = newLRUSet[uint64](resourceCacheCap)
+		}
+	}()
 
 	if err := s.upsertResources(ctx, batch.Resources); err != nil {
 		slog.Error("storage: upsert resources failed", "error", err)
@@ -689,13 +714,29 @@ func (s *Storage) writeMetrics(ctx context.Context, batch MetricBatch) {
 		slog.Error("storage: upsert metric series failed", "error", err)
 		return
 	}
+	if err := s.upsertHistogramLayouts(ctx, batch.HistogramLayouts); err != nil {
+		slog.Error("storage: upsert histogram layouts failed", "error", err)
+		return
+	}
 	if len(batch.Points) == 0 {
+		if _, err := s.writer.ExecContext(ctx, `COMMIT`); err != nil {
+			slog.Error("storage: commit metric dimensions failed", "error", err)
+			return
+		}
+		committed = true
 		return
 	}
 
+	ingestedAt := time.Now()
 	_, appendSpan := startStorageSpan(ctx, "storage.appendMetricPoints", attribute.Int("db.rows", len(batch.Points)))
 	err := s.writer.Raw(func(driverConn any) error {
-		appender, err := duckdb.NewAppenderFromConn(driverConn.(driver.Conn), "", "metric_points")
+		conn := driverConn.(driver.Conn)
+		appender, err := duckdb.NewAppenderWithColumns(conn, "", "", "metric_points", []string{
+			"id", "series_key", "ts", "start_ts", "ingested_at", "flags",
+			"value_int", "value_double", "count", "sum", "min", "max", "histogram_layout_hash",
+			"bucket_counts", "zero_count", "positive_offset", "positive_bucket_counts",
+			"negative_offset", "negative_bucket_counts", "summary_quantiles", "summary_quantile_values",
+		})
 		if err != nil {
 			return err
 		}
@@ -707,24 +748,105 @@ func (s *Storage) writeMetrics(ctx context.Context, batch MetricBatch) {
 				p.SeriesKey,
 				p.TS,
 				timeArg(p.StartTS),
-				floatArg(p.Value),
-				floatArg(p.Count),
+				ingestedAt,
+				p.Flags,
+				int64Arg(p.ValueInt),
+				floatArg(p.ValueDouble),
+				uint64Arg(p.Count),
 				floatArg(p.Sum),
 				floatArg(p.Min),
 				floatArg(p.Max),
+				uint64Arg(p.HistogramLayoutHash),
+				p.BucketCounts,
+				uint64Arg(p.ZeroCount),
+				int32Arg(p.PositiveOffset),
+				p.PositiveBucketCounts,
+				int32Arg(p.NegativeOffset),
+				p.NegativeBucketCounts,
+				p.SummaryQuantiles,
+				p.SummaryQuantileValues,
 			); err != nil {
 				return err
 			}
 		}
-		return appender.Flush()
+		if err := appender.Flush(); err != nil {
+			return err
+		}
+		if len(batch.Exemplars) == 0 {
+			return nil
+		}
+		exemplarAppender, err := duckdb.NewAppenderWithColumns(conn, "", "", "metric_exemplars", []string{
+			"id", "point_id", "ts", "trace_id", "span_id", "filtered_attributes", "filtered_attributes_raw",
+			"value_int", "value_double",
+		})
+		if err != nil {
+			return err
+		}
+		defer func() { _ = exemplarAppender.Close() }()
+		for _, exemplar := range batch.Exemplars {
+			if err := exemplarAppender.AppendRow(
+				duckdb.UUID(exemplar.ID), duckdb.UUID(exemplar.PointID), exemplar.TS,
+				exemplar.TraceID, exemplar.SpanID, exemplar.FilteredAttributes,
+				exemplar.FilteredAttributesRaw,
+				int64Arg(exemplar.ValueInt), floatArg(exemplar.ValueDouble),
+			); err != nil {
+				return err
+			}
+		}
+		return exemplarAppender.Flush()
 	})
 	endStorageSpan(appendSpan, err)
 	if err != nil {
 		slog.Error("storage: append metric points failed", "error", err)
 		return
 	}
+	if _, err := s.writer.ExecContext(ctx, `COMMIT`); err != nil {
+		slog.Error("storage: commit metric batch failed", "error", err)
+		return
+	}
+	committed = true
 	written = int64(len(batch.Points))
 	s.dispatchCommit(ctx, CommitEvent{Kind: KindMetrics, Metrics: batch})
+}
+
+func (s *Storage) upsertHistogramLayouts(ctx context.Context, rows []HistogramLayoutRow) error {
+	if len(rows) == 0 {
+		return nil
+	}
+	if _, err := s.writer.ExecContext(ctx, `DELETE FROM histogram_layouts_staging`); err != nil {
+		return fmt.Errorf("storage: clear histogram layout staging table: %w", err)
+	}
+	err := s.writer.Raw(func(driverConn any) error {
+		appender, appendErr := duckdb.NewAppenderWithColumns(driverConn.(driver.Conn), "", "", "histogram_layouts_staging", []string{
+			"layout_hash", "kind", "explicit_bounds", "scale", "zero_threshold",
+		})
+		if appendErr != nil {
+			return appendErr
+		}
+		defer func() { _ = appender.Close() }()
+		for _, row := range rows {
+			if appendErr := appender.AppendRow(
+				row.LayoutHash, row.Kind, row.ExplicitBounds, int32Arg(row.Scale), floatArg(row.ZeroThreshold),
+			); appendErr != nil {
+				return appendErr
+			}
+		}
+		return appender.Flush()
+	})
+	if err != nil {
+		return fmt.Errorf("storage: stage histogram layouts: %w", err)
+	}
+	_, err = s.writer.ExecContext(ctx, `
+		MERGE INTO histogram_layouts AS target
+		USING histogram_layouts_staging AS incoming
+		ON target.layout_hash = incoming.layout_hash
+		WHEN NOT MATCHED THEN INSERT (layout_hash, kind, explicit_bounds, scale, zero_threshold)
+		VALUES (incoming.layout_hash, incoming.kind, incoming.explicit_bounds, incoming.scale, incoming.zero_threshold)
+	`)
+	if err != nil {
+		return fmt.Errorf("storage: merge histogram layouts: %w", err)
+	}
+	return nil
 }
 
 // writeLogs upserts the batch's resource rows, then appends every log.
@@ -829,10 +951,16 @@ func (s *Storage) upsertResources(ctx context.Context, rows []ResourceRow) (err 
 		if err != nil {
 			return fmt.Errorf("storage: marshal resource attributes: %w", err)
 		}
+		attrsRaw, err := encodedAttributesOrFallback(r.AttributesRaw, r.Attributes)
+		if err != nil {
+			return fmt.Errorf("storage: encode resource attributes: %w", err)
+		}
 		_, err = s.writer.ExecContext(ctx,
-			`INSERT INTO resources (resource_hash, service_name, attributes) VALUES (?, ?, ?)
+			`INSERT INTO resources
+			 (resource_hash, service_name, schema_url, dropped_attributes_count, attributes, attributes_raw)
+			 VALUES (?, ?, ?, ?, ?, ?)
 			 ON CONFLICT (resource_hash) DO NOTHING`,
-			duckdb.Typed(r.ResourceHash, duckdb.TYPE_UBIGINT), r.ServiceName, attrs,
+			duckdb.Typed(r.ResourceHash, duckdb.TYPE_UBIGINT), r.ServiceName, r.SchemaURL, r.DroppedAttributesCount, attrs, attrsRaw,
 		)
 		if err != nil {
 			return err
@@ -842,11 +970,11 @@ func (s *Storage) upsertResources(ctx context.Context, rows []ResourceRow) (err 
 	return nil
 }
 
-// upsertSeries inserts or refreshes metric_series rows. Every unique series
-// in the batch always executes the upsert (no cache gating): last_seen must
-// stay current for retention/staleness purposes, and ConvertMetrics already
-// deduplicates a series repeated within one batch, so this is at most one
-// statement per distinct series per AddMetrics call.
+// upsertSeries inserts or refreshes metric_series rows. ConvertMetrics has
+// already deduplicated the input by series key. Stage the whole batch through
+// the Appender and merge it with one statement: issuing one prepared
+// INSERT ... ON CONFLICT per series dominates ingest once an exporter sends
+// hundreds or thousands of series in one payload.
 func (s *Storage) upsertSeries(ctx context.Context, rows []MetricSeriesRow) (err error) {
 	ctx, span := startStorageSpan(ctx, "storage.upsertSeries", attribute.Int("db.rows", len(rows)))
 	defer func() { endStorageSpan(span, err) }()
@@ -854,29 +982,66 @@ func (s *Storage) upsertSeries(ctx context.Context, rows []MetricSeriesRow) (err
 		return nil
 	}
 	now := time.Now()
-	for _, r := range rows {
-		attrs, err := json.Marshal(r.Attributes)
-		if err != nil {
-			return fmt.Errorf("storage: marshal series attributes: %w", err)
+	if _, err := s.writer.ExecContext(ctx, `DELETE FROM metric_series_staging`); err != nil {
+		return fmt.Errorf("storage: clear metric series staging table: %w", err)
+	}
+	err = s.writer.Raw(func(driverConn any) error {
+		appender, appendErr := duckdb.NewAppenderWithColumns(driverConn.(driver.Conn), "", "", "metric_series_staging", []string{
+			"series_key", "service_name", "metric_name", "metric_type", "number_kind", "unit", "description",
+			"temporality", "is_monotonic", "attributes", "attributes_raw", "scope_name", "scope_version",
+			"scope_schema_url", "scope_dropped_attributes_count", "scope_attributes", "scope_attributes_raw",
+			"resource_hash", "first_seen", "last_seen",
+		})
+		if appendErr != nil {
+			return appendErr
 		}
-		scopeAttrs, err := json.Marshal(r.ScopeAttributes)
-		if err != nil {
-			return fmt.Errorf("storage: marshal scope attributes: %w", err)
+		defer func() { _ = appender.Close() }()
+		for _, r := range rows {
+			attrsRaw, encodeErr := encodedAttributesOrFallback(r.AttributesRaw, r.Attributes)
+			if encodeErr != nil {
+				return fmt.Errorf("storage: encode series attributes: %w", encodeErr)
+			}
+			scopeAttrsRaw, encodeErr := encodedAttributesOrFallback(r.ScopeAttributesRaw, r.ScopeAttributes)
+			if encodeErr != nil {
+				return fmt.Errorf("storage: encode scope attributes: %w", encodeErr)
+			}
+			if appendErr := appender.AppendRow(
+				r.SeriesKey, r.ServiceName, r.MetricName, r.MetricType,
+				r.NumberKind, r.Unit, r.Description, r.Temporality, r.IsMonotonic, r.Attributes, attrsRaw,
+				r.ScopeName, r.ScopeVersion, r.ScopeSchemaURL, r.ScopeDroppedAttributesCount,
+				r.ScopeAttributes, scopeAttrsRaw, r.ResourceHash, now, now,
+			); appendErr != nil {
+				return appendErr
+			}
 		}
-		_, err = s.writer.ExecContext(ctx,
-			`INSERT INTO metric_series
-			   (series_key, service_name, metric_name, metric_type, unit, description, temporality, is_monotonic, attributes,
-			    scope_name, scope_version, scope_schema_url, scope_attributes, resource_hash, first_seen, last_seen)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-			 ON CONFLICT (series_key) DO UPDATE SET last_seen = excluded.last_seen`,
-			duckdb.Typed(r.SeriesKey, duckdb.TYPE_UBIGINT), r.ServiceName, r.MetricName, r.MetricType,
-			r.Unit, r.Description, r.Temporality, r.IsMonotonic, attrs,
-			r.ScopeName, r.ScopeVersion, r.ScopeSchemaURL, scopeAttrs,
-			duckdb.Typed(r.ResourceHash, duckdb.TYPE_UBIGINT), now, now,
+		return appender.Flush()
+	})
+	if err != nil {
+		return fmt.Errorf("storage: stage metric series: %w", err)
+	}
+	_, err = s.writer.ExecContext(ctx, `
+		MERGE INTO metric_series AS target
+		USING metric_series_staging AS incoming
+		ON target.series_key = incoming.series_key
+		WHEN MATCHED THEN UPDATE SET
+			description = incoming.description,
+			last_seen = incoming.last_seen
+		WHEN NOT MATCHED THEN INSERT (
+			series_key, service_name, metric_name, metric_type, number_kind, unit, description,
+			temporality, is_monotonic, attributes, attributes_raw, scope_name, scope_version,
+			scope_schema_url, scope_dropped_attributes_count, scope_attributes, scope_attributes_raw,
+			resource_hash, first_seen, last_seen
+		) VALUES (
+			incoming.series_key, incoming.service_name, incoming.metric_name, incoming.metric_type,
+			incoming.number_kind, incoming.unit, incoming.description, incoming.temporality,
+			incoming.is_monotonic, incoming.attributes, incoming.attributes_raw, incoming.scope_name,
+			incoming.scope_version, incoming.scope_schema_url, incoming.scope_dropped_attributes_count,
+			incoming.scope_attributes, incoming.scope_attributes_raw, incoming.resource_hash,
+			incoming.first_seen, incoming.last_seen
 		)
-		if err != nil {
-			return err
-		}
+	`)
+	if err != nil {
+		return fmt.Errorf("storage: merge metric series: %w", err)
 	}
 	return nil
 }
@@ -929,6 +1094,12 @@ func (s *Storage) deleteFactsBefore(ctx context.Context, cutoff time.Time) (err 
 	if err := s.rebuildAffectedTraceSummaries(ctx); err != nil {
 		return err
 	}
+	if _, err := s.writer.ExecContext(ctx, `
+		DELETE FROM metric_exemplars
+		WHERE point_id IN (SELECT id FROM metric_points WHERE ts < ?)
+	`, cutoff); err != nil {
+		return fmt.Errorf("storage: sweep metric_exemplars: %w", err)
+	}
 	if _, err := s.writer.ExecContext(ctx, `DELETE FROM metric_points WHERE ts < ?`, cutoff); err != nil {
 		return fmt.Errorf("storage: sweep metric_points: %w", err)
 	}
@@ -964,6 +1135,16 @@ func (s *Storage) pruneDimensions(ctx context.Context) (err error) {
 	`)
 	if err != nil {
 		return fmt.Errorf("storage: prune metric_series: %w", err)
+	}
+	_, err = s.writer.ExecContext(ctx, `
+		DELETE FROM histogram_layouts
+		WHERE layout_hash NOT IN (
+			SELECT histogram_layout_hash FROM metric_points
+			WHERE histogram_layout_hash IS NOT NULL
+		)
+	`)
+	if err != nil {
+		return fmt.Errorf("storage: prune histogram_layouts: %w", err)
 	}
 
 	_, err = s.writer.ExecContext(ctx, `
@@ -1032,7 +1213,7 @@ func (s *Storage) enforceMaxSize(ctx context.Context) (err error) {
 func (s *Storage) performClear(ctx context.Context) (err error) {
 	ctx, span := startStorageSpan(ctx, "storage.performClear")
 	defer func() { endStorageSpan(span, err) }()
-	for _, table := range []string{"spans", "trace_summaries", "metric_points", "logs", "metric_series", "resources", "dropped_traces"} {
+	for _, table := range []string{"spans", "trace_summaries", "metric_exemplars", "metric_points", "logs", "metric_series", "histogram_layouts", "resources", "dropped_traces"} {
 		if _, err := s.writer.ExecContext(ctx, `DELETE FROM `+table); err != nil { //nolint:gosec // table is a fixed internal identifier, never user input
 			return fmt.Errorf("storage: clear %s: %w", table, err)
 		}
@@ -1090,6 +1271,27 @@ func spanEventsArg(events []SpanEventRow) any {
 // cast, so these must dereference to the underlying type or return a plain
 // untyped nil.
 func floatArg(p *float64) any {
+	if p == nil {
+		return nil
+	}
+	return *p
+}
+
+func int64Arg(p *int64) any {
+	if p == nil {
+		return nil
+	}
+	return *p
+}
+
+func uint64Arg(p *uint64) any {
+	if p == nil {
+		return nil
+	}
+	return *p
+}
+
+func int32Arg(p *int32) any {
 	if p == nil {
 		return nil
 	}

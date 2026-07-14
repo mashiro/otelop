@@ -80,6 +80,13 @@ type Query {
   default to the full retention window, matching the other list queries.
   """
   metricPoints(serviceName: String!, name: String!, from: Time, to: Time): [DataPoint!]!
+
+  """
+  Window-wide statistics for Histogram and ExponentialHistogram metrics.
+  Percentiles are estimated after merging retained bucket counts across all
+  attribute series; null for metrics without mergeable histogram buckets.
+  """
+  metricDistributionStats(serviceName: String!, name: String!, from: Time, to: Time): DistributionStats
 }
 
 type Mutation {
@@ -307,6 +314,17 @@ type AggregatePoint {
   min: Float
   "Maximum observation across every contributing series in this window. Null when unavailable."
   max: Float
+}
+
+type DistributionStats {
+  count: Float!
+  mean: Float
+  min: Float
+  max: Float
+  p50: Float
+  p90: Float
+  p95: Float
+  p99: Float
 }
 
 type Log {
