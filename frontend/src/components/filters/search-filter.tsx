@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState } from "react";
 import { useAtom } from "jotai";
 import { Search, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
@@ -14,46 +14,32 @@ export function SearchFilter({
   const [value, setValue] = useAtom(atom);
   const [lastSyncedValue, setLastSyncedValue] = useState(value);
   const [input, setInput] = useState(value);
-  const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
-  const generationRef = useRef(0);
 
   // An external write to the atom (e.g. log-list.tsx's "Show surrounding
-  // logs" clearing logSearchAtom from outside this component) must reflect
-  // into the box, but typing already writes the atom the other way
-  // (debounced, local input -> atom) — a useEffect syncing input from value
-  // would fight that and violate the project's no-setState-in-useEffect
-  // rule. Adjust state during render instead (React's sanctioned pattern for
-  // deriving state from a prop that can also change externally): only fires
-  // when the atom's value has genuinely diverged from the last one this
-  // component synced, so a re-render caused by typing (where value hasn't
-  // changed yet) never touches input.
+  // logs" clearing logSearchAtom) must also update the input. Keep a local
+  // value so unfinished IME composition can remain visible without being
+  // written to the search atom.
   if (value !== lastSyncedValue) {
-    generationRef.current += 1;
     setLastSyncedValue(value);
     setInput(value);
   }
 
-  useEffect(() => () => clearTimeout(timerRef.current), []);
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setInput(e.target.value);
+  };
 
-  const handleChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const v = e.target.value;
-      setInput(v);
-      clearTimeout(timerRef.current);
-      const generation = generationRef.current;
-      timerRef.current = setTimeout(() => {
-        if (generation === generationRef.current) setValue(v);
-      }, 300);
-    },
-    [setValue],
-  );
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key !== "Enter" || e.nativeEvent.isComposing) {
+      return;
+    }
 
-  const handleClear = useCallback(() => {
+    setValue(input);
+  };
+
+  const handleClear = () => {
     setInput("");
-    clearTimeout(timerRef.current);
-    generationRef.current += 1;
     setValue("");
-  }, [setValue]);
+  };
 
   return (
     <div className="relative">
@@ -62,6 +48,7 @@ export function SearchFilter({
         placeholder={placeholder}
         value={input}
         onChange={handleChange}
+        onKeyDown={handleKeyDown}
         className="h-7 w-72 pl-7 pr-7 text-xs"
       />
       {input && (

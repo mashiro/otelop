@@ -1,18 +1,12 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, afterEach } from "vitest";
 import { atom, createStore, Provider } from "jotai";
 import { render, screen, cleanup, fireEvent, act } from "@testing-library/react";
 import { SearchFilter } from "./search-filter";
 
-beforeEach(() => {
-  vi.useFakeTimers();
-});
-afterEach(() => {
-  cleanup();
-  vi.useRealTimers();
-});
+afterEach(cleanup);
 
 describe("SearchFilter", () => {
-  it("debounces typing before writing the atom", () => {
+  it("writes typing to the atom when Enter is pressed", () => {
     const store = createStore();
     const searchAtom = atom("");
     render(
@@ -24,14 +18,32 @@ describe("SearchFilter", () => {
     const input = screen.getByPlaceholderText("Search…") as HTMLInputElement;
     fireEvent.change(input, { target: { value: "checkout" } });
 
-    // The box updates immediately; the atom doesn't until the debounce fires.
     expect(input.value).toBe("checkout");
     expect(store.get(searchAtom)).toBe("");
 
-    act(() => {
-      vi.advanceTimersByTime(300);
-    });
+    fireEvent.keyDown(input, { key: "Enter" });
     expect(store.get(searchAtom)).toBe("checkout");
+  });
+
+  it("does not search when Enter confirms an IME composition", () => {
+    const store = createStore();
+    const searchAtom = atom("");
+    render(
+      <Provider store={store}>
+        <SearchFilter atom={searchAtom} placeholder="Search…" />
+      </Provider>,
+    );
+
+    const input = screen.getByPlaceholderText("Search…") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "にほ" } });
+
+    expect(input.value).toBe("にほ");
+    fireEvent.keyDown(input, { key: "Enter", isComposing: true });
+    expect(store.get(searchAtom)).toBe("");
+
+    fireEvent.change(input, { target: { value: "日本" } });
+    fireEvent.keyDown(input, { key: "Enter", isComposing: false });
+    expect(store.get(searchAtom)).toBe("日本");
   });
 
   it("clearing via the X button resets both the box and the atom immediately", () => {
@@ -45,9 +57,6 @@ describe("SearchFilter", () => {
 
     const input = screen.getByPlaceholderText("Search…") as HTMLInputElement;
     fireEvent.change(input, { target: { value: "checkout" } });
-    act(() => {
-      vi.advanceTimersByTime(300);
-    });
 
     fireEvent.click(screen.getByRole("button"));
 
@@ -73,58 +82,13 @@ describe("SearchFilter", () => {
 
     const input = screen.getByPlaceholderText("Search…") as HTMLInputElement;
     fireEvent.change(input, { target: { value: "checkout" } });
-    act(() => {
-      vi.advanceTimersByTime(300);
-    });
+    fireEvent.keyDown(input, { key: "Enter" });
     expect(input.value).toBe("checkout");
 
     act(() => {
       store.set(searchAtom, "");
     });
 
-    expect(input.value).toBe("");
-  });
-
-  it("does not clobber in-flight typing that hasn't debounced yet", () => {
-    const store = createStore();
-    const searchAtom = atom("initial");
-    render(
-      <Provider store={store}>
-        <SearchFilter atom={searchAtom} placeholder="Search…" />
-      </Provider>,
-    );
-
-    const input = screen.getByPlaceholderText("Search…") as HTMLInputElement;
-    expect(input.value).toBe("initial");
-
-    fireEvent.change(input, { target: { value: "in-progress" } });
-    // The atom hasn't changed yet (debounce still pending), so a re-render
-    // here must not stomp the just-typed value.
-    expect(input.value).toBe("in-progress");
-    expect(store.get(searchAtom)).toBe("initial");
-  });
-
-  it("does not let a pending debounce overwrite a newer external atom value", () => {
-    const store = createStore();
-    const searchAtom = atom("checkout");
-    render(
-      <Provider store={store}>
-        <SearchFilter atom={searchAtom} placeholder="Search…" />
-      </Provider>,
-    );
-
-    const input = screen.getByPlaceholderText("Search…") as HTMLInputElement;
-    fireEvent.change(input, { target: { value: "checkout failed" } });
-
-    act(() => {
-      store.set(searchAtom, "");
-    });
-    expect(input.value).toBe("");
-
-    act(() => {
-      vi.advanceTimersByTime(300);
-    });
-    expect(store.get(searchAtom)).toBe("");
     expect(input.value).toBe("");
   });
 });
