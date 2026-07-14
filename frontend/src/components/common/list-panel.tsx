@@ -7,8 +7,7 @@ interface ListPanelProps {
 }
 
 // ListPanel is the glass-card + toolbar shell shared by every signal list view.
-// The body is left to the caller because list pages need different layouts
-// (flat table, service map, multi-mode views, etc.).
+// The body is left to the caller because each signal has its own list layout.
 export function ListPanel({ toolbar, children }: ListPanelProps) {
   return (
     <div className="glass-card flex h-full flex-col overflow-hidden">

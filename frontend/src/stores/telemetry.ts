@@ -56,7 +56,7 @@ export const logListWindowAtom = atom<EventTimeWindow>(DEFAULT_EVENT_TIME_WINDOW
 
 // mergeSpans unions two span lists by their stable spanId, keeping the first
 // occurrence. WebSocket trace deliveries are summary-only; full spans enter
-// through the lazy trace-detail/service-map GraphQL fetches.
+// through the lazy trace-detail GraphQL fetch.
 export function mergeSpans(existing: SpanData[], incoming: SpanData[]): SpanData[] {
   const seen = new Set(existing.map((s) => s.spanId));
   const deduped = incoming.filter((s) => !seen.has(s.spanId));
@@ -141,38 +141,23 @@ interface TraceSpansPayload {
   spans: SpanData[];
 }
 
-// Write-only: merge freshly GraphQL-fetched full span data for potentially
-// many traces at once into the buffer, in a single tracesAtom update rather
-// than one per trace — used by the service map's bulk fetch
-// (hooks/use-service-map-spans.ts), which can touch every buffered trace in
-// one go. List-loaded trace summaries start with spans: [] (see
-// hooks/use-initial-load.ts) since fetching every buffered trace's spans up
-// front is the N+1 this whole lazy-loading scheme exists to avoid.
+// Write-only: merge freshly GraphQL-fetched full span data into one trace
+// already in the buffer. List-loaded trace summaries start with spans: []
+// since fetching every buffered trace's spans up front would create an N+1.
 // Deliberately leaves spanCount/duration/rootSpan/serviceName untouched —
 // those already came from the TracesPage summary and are authoritative,
 // unlike spans.length which this fetch may only be partially racing a live
 // WS delivery for.
-export const mergeManyTraceSpansAtom = atom(null, (get, set, payloads: TraceSpansPayload[]) => {
-  const byTraceID = new Map(payloads.map((p) => [p.traceId, p.spans]));
-  if (byTraceID.size === 0) return;
+export const mergeTraceSpansAtom = atom(null, (get, set, payload: TraceSpansPayload) => {
   const current = get(tracesAtom);
-  let changed = false;
-  const updated = current.map((t) => {
-    const incoming = byTraceID.get(t.traceId);
-    if (!incoming) return t;
-    const mergedSpans = mergeSpans(t.spans, incoming);
-    if (mergedSpans.length === t.spans.length) return t;
-    changed = true;
-    return { ...t, spans: mergedSpans };
-  });
-  if (changed) set(tracesAtom, updated);
-});
-
-// Write-only: merge freshly GraphQL-fetched full span data into one trace
-// already in the buffer — the single-trace case of mergeManyTraceSpansAtom
-// above, used by the trace-detail lazy fetch (hooks/use-trace-spans.ts).
-export const mergeTraceSpansAtom = atom(null, (_get, set, payload: TraceSpansPayload) => {
-  set(mergeManyTraceSpansAtom, [payload]);
+  const index = current.findIndex((trace) => trace.traceId === payload.traceId);
+  if (index < 0) return;
+  const trace = current[index];
+  const spans = mergeSpans(trace.spans, payload.spans);
+  if (spans.length === trace.spans.length) return;
+  const updated = [...current];
+  updated[index] = { ...trace, spans };
+  set(tracesAtom, updated);
 });
 
 // Picks the longest parentless span as the representative root for display.

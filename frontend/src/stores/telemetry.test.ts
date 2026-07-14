@@ -25,7 +25,6 @@ import {
   selectedMetricAtom,
   selectedLogAtom,
   mergeTraceSpansAtom,
-  mergeManyTraceSpansAtom,
   appendTracesAtom,
   appendLogsAtom,
   setTracesAtom,
@@ -400,38 +399,6 @@ describe("mergeTraceSpansAtom", () => {
 
     expect(store.get(tracesAtom)).toHaveLength(1);
     expect(store.get(tracesAtom)[0].spans).toEqual([]);
-  });
-});
-
-describe("mergeManyTraceSpansAtom", () => {
-  it("merges spans for several traces in one update", () => {
-    const store = createStore();
-    store.set(tracesAtom, [
-      makeTrace({ traceId: "t1", spanCount: 1, spans: [] }),
-      makeTrace({ traceId: "t2", spanCount: 1, spans: [] }),
-      makeTrace({ traceId: "t3", spanCount: 1, spans: [] }),
-    ]);
-
-    store.set(mergeManyTraceSpansAtom, [
-      { traceId: "t1", spans: [makeSpan({ spanId: "a" })] },
-      { traceId: "t3", spans: [makeSpan({ spanId: "c" })] },
-    ]);
-
-    const traces = store.get(tracesAtom);
-    expect(traces.find((t) => t.traceId === "t1")?.spans).toHaveLength(1);
-    expect(traces.find((t) => t.traceId === "t2")?.spans).toHaveLength(0);
-    expect(traces.find((t) => t.traceId === "t3")?.spans).toHaveLength(1);
-  });
-
-  it("does nothing when given an empty payload list", () => {
-    const store = createStore();
-    const traces = [makeTrace({ traceId: "t1", spans: [] })];
-    store.set(tracesAtom, traces);
-
-    store.set(mergeManyTraceSpansAtom, []);
-
-    // Same array reference: no spurious tracesAtom write.
-    expect(store.get(tracesAtom)).toBe(traces);
   });
 });
 

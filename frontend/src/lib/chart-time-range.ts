@@ -42,8 +42,8 @@ export function rangeToMs(range: ChartTimeRange): number | null {
 
 // Converts a range selection into the GraphQL `from` argument every
 // range-scoped fetch sends (hooks/use-signal-list-page.ts,
-// use-metric-range-points.ts, use-metric-aggregate-series.ts,
-// use-service-map-spans.ts): "all" has no fixed lower bound, so it's elided
+// use-metric-range-points.ts, use-metric-aggregate-series.ts): "all" has no
+// fixed lower bound, so it's elided
 // (undefined) rather than sent as an explicit null, letting the server apply
 // its own default; every other range subtracts from "now" via Temporal (not
 // Date.parse) per the project's OTel-timestamp convention.

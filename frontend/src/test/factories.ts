@@ -23,9 +23,7 @@ export function makeSpan(overrides: Partial<SpanData> = {}): SpanData {
 
 // Converts a makeSpan()-shaped SpanData back into the GraphQL SpanFields
 // fragment shape (durationMs instead of duration) a mocked gqlClient.request
-// response needs — the inverse of lib/span-mapping.ts's toSpan. Shared by
-// use-trace-spans.test.tsx and use-service-map-spans.test.tsx, which both
-// mock the same fragment fields.
+// response needs — the inverse of lib/span-mapping.ts's toSpan.
 export function toQuerySpan(span: SpanData) {
   const { duration, ...rest } = span;
   return { ...rest, durationMs: duration / 1_000_000 };

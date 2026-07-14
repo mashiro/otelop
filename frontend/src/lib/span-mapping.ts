@@ -8,11 +8,8 @@ import type { SpanData, SpanStatus } from "@/types/telemetry";
 // carry the same unit once converted here.
 export const MS_TO_NS = 1_000_000;
 
-// Shared by every query that needs a span's full field set
-// (hooks/use-trace-spans.ts, hooks/use-service-map-spans.ts) so the field
-// list can't drift between them — graphql-codegen resolves this fragment
-// wherever a document spreads `...SpanFields`, regardless of which file
-// defines it (see codegen.ts's `documents` glob).
+// Full field set used by the trace-detail span query. Keeping it as a fragment
+// gives graphql-codegen a reusable mapping type for the response.
 export const SpanFieldsFragmentDoc = graphql(`
   fragment SpanFields on Span {
     traceId

@@ -56,9 +56,8 @@ function toTraceData({
           duration: rootSpan.durationMs * MS_TO_NS,
         }
       : undefined,
-    // Full span data is fetched lazily once a trace's detail view (or the
-    // service map) actually needs it — see hooks/use-trace-spans.ts and
-    // hooks/use-service-map-spans.ts.
+    // Full span data is fetched lazily once a trace's detail view needs it —
+    // see hooks/use-trace-spans.ts.
     spans: [],
   };
 }

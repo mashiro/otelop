@@ -1,6 +1,4 @@
-import { useState } from "react";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
-import { List, Network } from "lucide-react";
 import { traceCountAtom, tracesAtom, selectedTraceAtom } from "@/stores/telemetry";
 import { eventTimeWindowAtom, selectedTraceIdAtom } from "@/stores/navigation";
 import { filteredTracesAtom, traceSearchAtom } from "@/stores/filters";
@@ -10,11 +8,9 @@ import { ListPanel } from "@/components/common/list-panel";
 import { EmptyMatches } from "@/components/common/empty-state";
 import { EventWindowControls } from "@/components/common/event-window-controls";
 import { LoadMoreRow } from "@/components/common/load-more-row";
-import { useServiceMapSpans } from "@/hooks/use-service-map-spans";
 import { useTraceListPage } from "@/hooks/use-trace-list-page";
 import { useTraceById, type TraceByIdStatus } from "@/hooks/use-trace-by-id";
 import { Button } from "@/components/ui/button";
-import { ServiceMap } from "./service-map";
 import {
   Table,
   TableBody,
@@ -37,17 +33,10 @@ export function TraceList() {
   const selectedTraceId = useAtomValue(selectedTraceIdAtom);
   const selectedTrace = useAtomValue(selectedTraceAtom);
   const setSelectedTrace = useSetAtom(selectedTraceAtom);
-  const [view, setView] = useState<"list" | "map">("list");
   const [window] = useAtom(eventTimeWindowAtom);
   const search = useAtomValue(traceSearchAtom);
   const page = useTraceListPage(window, search);
   const traceById = useTraceById(selectedTraceId, selectedTrace);
-  // The service map needs full span data across every buffered trace (see
-  // lib/service-graph.ts), which the trace list itself deliberately doesn't
-  // load (use-trace-list-page.ts). Fetch it lazily, once per range, the
-  // first time this view is actually opened.
-  useServiceMapSpans(view === "map", window);
-
   if (selectedTrace) {
     return <TraceDetail />;
   }
@@ -73,33 +62,11 @@ export function TraceList() {
           <SearchFilter atom={traceSearchAtom} placeholder="Search traces…" />
           <div className="ml-auto flex items-center gap-2 px-3">
             <EventWindowControls tone="trace" allRetained={Boolean(search.trim())} />
-            <div className="flex items-center gap-1">
-              <button
-                type="button"
-                onClick={() => setView("list")}
-                className={`rounded p-1 transition-colors ${view === "list" ? "bg-trace/15 text-trace" : "text-muted-foreground hover:text-foreground"}`}
-                title="List view"
-              >
-                <List className="h-3.5 w-3.5" />
-              </button>
-              <button
-                type="button"
-                onClick={() => setView("map")}
-                className={`rounded p-1 transition-colors ${view === "map" ? "bg-trace/15 text-trace" : "text-muted-foreground hover:text-foreground"}`}
-                title="Service map"
-              >
-                <Network className="h-3.5 w-3.5" />
-              </button>
-            </div>
           </div>
         </>
       }
     >
-      {view === "map" ? (
-        <div className="min-h-0 flex-1">
-          <ServiceMap />
-        </div>
-      ) : traces.length === 0 ? (
+      {traces.length === 0 ? (
         <EmptyMatches label="traces" />
       ) : (
         <ScrollArea className="min-h-0 flex-1">

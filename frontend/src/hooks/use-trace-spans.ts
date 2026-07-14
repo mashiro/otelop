@@ -21,8 +21,8 @@ const TraceSpansQuery = graphql(`
 // to use-metric-range-points.ts's on-demand server fetch. use-initial-load.ts
 // deliberately keeps the trace list summary-only (spanCount/rootSpan, no
 // `spans`) to avoid the N+1 self-telemetry surfaced (815 x Trace.spans ->
-// 815 TraceByID SQL calls for one page load), so the waterfall/service map
-// need this to backfill the actual span rows on demand.
+// 815 TraceByID SQL calls for one page load), so the detail view uses this to
+// backfill the actual span rows on demand.
 export function useTraceSpans(trace: TraceData | null): void {
   const mergeSpans = useSetAtom(mergeTraceSpansAtom);
 
