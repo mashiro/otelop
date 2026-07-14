@@ -3,9 +3,14 @@ package storage
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"math"
+	"sort"
+	"strings"
 	"time"
+
+	"go.opentelemetry.io/otel/attribute"
 )
 
 // DistributionStats summarizes all histogram observations whose export
@@ -20,6 +25,14 @@ type DistributionStats struct {
 	P90   *float64
 	P95   *float64
 	P99   *float64
+}
+
+// DistributionStatsSeries is one breakdown group's window-wide histogram
+// statistics. GroupValues follows the caller's groupBy order.
+type DistributionStatsSeries struct {
+	GroupValues []string
+	Attributes  map[string]any
+	Stats       DistributionStats
 }
 
 type histogramPoint struct {
@@ -38,6 +51,9 @@ type histogramPoint struct {
 	zeroCount                      sql.Null[uint64]
 	positiveOffset, negativeOffset sql.NullInt64
 	positiveCounts, negativeCounts []uint64
+	groupValues                    []string
+	groupAttributes                map[string]any
+	groupAttributesRaw             string
 }
 
 type distributionBucket struct {
@@ -46,29 +62,51 @@ type distributionBucket struct {
 	logarithmic bool
 }
 
+type distributionAccumulator struct {
+	buckets              []distributionBucket
+	totalCount, totalSum float64
+	sumComplete          bool
+	minValue, maxValue   *float64
+}
+
+func newDistributionAccumulator() *distributionAccumulator {
+	return &distributionAccumulator{sumComplete: true}
+}
+
 // MetricDistributionStats returns window-wide statistics for Histogram and
-// ExponentialHistogram metrics. Summary quantiles cannot be merged across
-// points or attribute series, so Summary intentionally returns nil.
-func (s *Storage) MetricDistributionStats(ctx context.Context, serviceName, metricName string, from, to time.Time) (_ *DistributionStats, err error) {
+// ExponentialHistogram metrics, split by the requested point attributes.
+// Each underlying series is delta-derived independently before its buckets
+// are merged into a breakdown group. Summary quantiles cannot be merged
+// across points or attribute series, so Summary intentionally returns no
+// groups. A nil groupBy groups by the complete point-attribute map (the UI's
+// All view); an empty non-nil groupBy produces one group.
+func (s *Storage) MetricDistributionStats(ctx context.Context, serviceName, metricName string, groupBy []string, from, to time.Time) (_ []DistributionStatsSeries, err error) {
 	ctx, span := startStorageSpan(ctx, "storage.MetricDistributionStats")
+	span.SetAttributes(attribute.Int("metric.group_by.count", len(groupBy)))
 	defer func() { endStorageSpan(span, err) }()
 	started := time.Now()
 	defer func() { s.recordQuery(ctx, "query_metric_distribution_stats", started, err) }()
 
-	rows, err := s.DB().QueryContext(ctx, metricDistributionPointsQuery, serviceName, metricName, from, to, from)
+	fullAttributes := groupBy == nil
+	query := metricDistributionPointsQuery(len(groupBy), fullAttributes)
+	args := make([]any, 0, 5+len(groupBy))
+	args = append(args, serviceName, metricName, from, to, from)
+	for _, key := range groupBy {
+		args = append(args, key)
+	}
+	rows, err := s.DB().QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("storage: query metric distribution stats: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
 
 	var previous *histogramPoint
-	var buckets []distributionBucket
-	var totalCount, totalSum float64
-	sumComplete := true
-	var minValue, maxValue *float64
-	minMaxComplete := true
+	accumulators := make(map[string]*distributionAccumulator)
+	valuesByKey := make(map[string][]string)
+	attributesByKey := make(map[string]map[string]any)
+	attributesBySeries := make(map[uint64]map[string]any)
 	for rows.Next() {
-		point, scanErr := scanHistogramPoint(rows)
+		point, scanErr := scanHistogramPoint(rows, len(groupBy), fullAttributes)
 		if scanErr != nil {
 			return nil, scanErr
 		}
@@ -76,88 +114,137 @@ func (s *Storage) MetricDistributionStats(ctx context.Context, serviceName, metr
 			previous = point
 			continue
 		}
+		if fullAttributes {
+			attributes, ok := attributesBySeries[point.seriesKey]
+			if !ok {
+				if err := json.Unmarshal([]byte(point.groupAttributesRaw), &attributes); err != nil {
+					return nil, fmt.Errorf("storage: decode metric distribution attributes: %w", err)
+				}
+				attributesBySeries[point.seriesKey] = attributes
+			}
+			point.groupAttributes = attributes
+		}
 
 		counts := pointCounts(point)
-		count := nullableUint64Float(point.count)
-		sum := nullableFloat(point.sum)
-		reset := false
-		if point.temporality == "cumulative" {
-			if previous == nil || previous.seriesKey != point.seriesKey ||
-				!point.layoutHash.Valid || !previous.layoutHash.Valid || point.layoutHash.V != previous.layoutHash.V {
-				previous = point
-				continue
-			}
-			previousCounts := pointCounts(previous)
-			if point.startTS.Valid && previous.startTS.Valid && !point.startTS.Time.Equal(previous.startTS.Time) {
-				reset = true
-			} else if point.count.Valid && previous.count.Valid && point.count.V < previous.count.V {
-				reset = true
-			} else {
-				var ok bool
-				counts, ok = subtractCounts(counts, previousCounts)
-				if !ok {
-					reset = true
-					counts = pointCounts(point)
-				} else {
-					count = subtractNullableUint64(point.count, previous.count)
-					sum = subtractNullable(point.sum, previous.sum)
-				}
-			}
+		groupIdentity := any(point.groupValues)
+		if fullAttributes {
+			groupIdentity = point.groupAttributes
 		}
-
-		if count != nil && *count > 0 {
-			totalCount += *count
+		keyRaw, _ := json.Marshal(groupIdentity)
+		key := string(keyRaw)
+		accumulator := accumulators[key]
+		if accumulator == nil {
+			accumulator = newDistributionAccumulator()
+			accumulators[key] = accumulator
+			valuesByKey[key] = append([]string(nil), point.groupValues...)
+			attributesByKey[key] = point.groupAttributes
 		}
-		if sum != nil {
-			totalSum += *sum
-		} else {
-			sumComplete = false
-		}
-		// Delta points (and a cumulative reset, which is a fresh delta) carry
-		// interval min/max. Normal cumulative min/max describe the whole stream
-		// and cannot be subtracted, so don't mislabel them as window extrema.
-		if point.temporality != "cumulative" || reset {
-			minValue = minPointer(minValue, nullableFloat(point.min))
-			maxValue = maxPointer(maxValue, nullableFloat(point.max))
-		} else {
-			minMaxComplete = false
-		}
-		buckets = append(buckets, bucketsForPoint(point, counts)...)
+		accumulator.add(point, previous, counts)
 		previous = point
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("storage: iterate metric distribution stats: %w", err)
 	}
-	if totalCount <= 0 || len(buckets) == 0 {
-		return nil, nil
+	result := make([]DistributionStatsSeries, 0, len(accumulators))
+	for key, accumulator := range accumulators {
+		stats := accumulator.stats()
+		if stats == nil {
+			continue
+		}
+		result = append(result, DistributionStatsSeries{
+			GroupValues: valuesByKey[key], Attributes: attributesByKey[key], Stats: *stats,
+		})
 	}
-	stats := &DistributionStats{Count: int64(totalCount)}
-	if sumComplete {
-		mean := totalSum / totalCount
-		stats.Mean = &mean
-	}
-	if minMaxComplete {
-		stats.Min, stats.Max = minValue, maxValue
-	}
-	stats.P50 = histogramQuantile(buckets, 0.50)
-	stats.P90 = histogramQuantile(buckets, 0.90)
-	stats.P95 = histogramQuantile(buckets, 0.95)
-	stats.P99 = histogramQuantile(buckets, 0.99)
-	return stats, nil
+	sort.Slice(result, func(i, j int) bool {
+		if fullAttributes {
+			left, _ := json.Marshal(result[i].Attributes)
+			right, _ := json.Marshal(result[j].Attributes)
+			return string(left) < string(right)
+		}
+		return strings.Join(result[i].GroupValues, "\x00") < strings.Join(result[j].GroupValues, "\x00")
+	})
+	return result, nil
 }
 
-const metricDistributionPointsQuery = `
+func (a *distributionAccumulator) add(point, previous *histogramPoint, counts []uint64) {
+	count := nullableUint64Float(point.count)
+	sum := nullableFloat(point.sum)
+	if point.temporality == "cumulative" {
+		if previous == nil || previous.seriesKey != point.seriesKey ||
+			!point.layoutHash.Valid || !previous.layoutHash.Valid || point.layoutHash.V != previous.layoutHash.V {
+			return
+		}
+		previousCounts := pointCounts(previous)
+		reset := point.startTS.Valid && previous.startTS.Valid && !point.startTS.Time.Equal(previous.startTS.Time)
+		reset = reset || point.count.Valid && previous.count.Valid && point.count.V < previous.count.V
+		if !reset {
+			var ok bool
+			counts, ok = subtractCounts(counts, previousCounts)
+			if !ok {
+				counts = pointCounts(point)
+			} else {
+				count = subtractNullableUint64(point.count, previous.count)
+				sum = subtractNullable(point.sum, previous.sum)
+			}
+		}
+	}
+
+	if count != nil && *count > 0 {
+		a.totalCount += *count
+	}
+	if sum != nil {
+		a.totalSum += *sum
+	} else {
+		a.sumComplete = false
+	}
+	// Min/max are independent reductions over the values carried by points in
+	// the selected window. Unlike count, sum, and buckets, they are not
+	// delta-derived for cumulative histograms.
+	a.minValue = minPointer(a.minValue, nullableFloat(point.min))
+	a.maxValue = maxPointer(a.maxValue, nullableFloat(point.max))
+	a.buckets = append(a.buckets, bucketsForPoint(point, counts)...)
+}
+
+func (a *distributionAccumulator) stats() *DistributionStats {
+	if a.totalCount <= 0 || len(a.buckets) == 0 {
+		return nil
+	}
+	stats := &DistributionStats{Count: int64(a.totalCount)}
+	if a.sumComplete {
+		mean := a.totalSum / a.totalCount
+		stats.Mean = &mean
+	}
+	stats.Min, stats.Max = a.minValue, a.maxValue
+	stats.P50 = histogramQuantile(a.buckets, 0.50)
+	stats.P90 = histogramQuantile(a.buckets, 0.90)
+	stats.P95 = histogramQuantile(a.buckets, 0.95)
+	stats.P99 = histogramQuantile(a.buckets, 0.99)
+	return stats
+}
+
+func metricDistributionPointsQuery(groupCount int, fullAttributes bool) string {
+	groupColumns := make([]string, groupCount)
+	for i := range groupColumns {
+		groupColumns[i] = "coalesce(p.attrs_json::JSON->>?, '')"
+	}
+	groupSelect := ""
+	if fullAttributes {
+		groupSelect = ", coalesce(p.attrs_json, '{}')"
+	} else if len(groupColumns) > 0 {
+		groupSelect = ", " + strings.Join(groupColumns, ", ")
+	}
+	return `
 WITH target_series AS (
-	SELECT series_key, temporality FROM metric_series
+	SELECT series_key, temporality, attributes::VARCHAR AS attrs_json FROM metric_series
 	WHERE service_name = ? AND metric_name = ?
 		AND metric_type IN ('Histogram', 'ExponentialHistogram')
 ), window_points AS (
-	SELECT p.*, s.temporality, true AS in_window
+	SELECT p.*, s.temporality, s.attrs_json, true AS in_window
 	FROM metric_points p JOIN target_series s USING (series_key)
 	WHERE p.ts >= ? AND p.ts < ?
 ), represented_series AS (SELECT DISTINCT series_key FROM window_points),
 predecessor_points AS (
-	SELECT p.*, s.temporality, false AS in_window
+	SELECT p.*, s.temporality, s.attrs_json, false AS in_window
 	FROM metric_points p JOIN target_series s USING (series_key)
 	JOIN represented_series r USING (series_key)
 	WHERE p.ts < ?
@@ -171,17 +258,36 @@ points AS (
 SELECT p.series_key, p.in_window, p.temporality, p.start_ts, p.count, p.sum, p.min, p.max,
 	p.histogram_layout_hash, coalesce(l.kind, ''), l.explicit_bounds, l.scale, l.zero_threshold,
 	p.bucket_counts, p.zero_count, p.positive_offset, p.positive_bucket_counts,
-	p.negative_offset, p.negative_bucket_counts
+	p.negative_offset, p.negative_bucket_counts` + groupSelect + `
 FROM points p LEFT JOIN histogram_layouts l ON l.layout_hash = p.histogram_layout_hash
 ORDER BY p.series_key, p.ts, p.id`
+}
 
-func scanHistogramPoint(rows *sql.Rows) (*histogramPoint, error) {
+func scanHistogramPoint(rows *sql.Rows, groupCount int, fullAttributes bool) (*histogramPoint, error) {
 	p := &histogramPoint{}
 	var boundsRaw, bucketCountsRaw, positiveCountsRaw, negativeCountsRaw any
-	if err := rows.Scan(&p.seriesKey, &p.inWindow, &p.temporality, &p.startTS, &p.count, &p.sum, &p.min, &p.max,
+	groupValues := make([]any, groupCount)
+	groupDest := make([]any, groupCount)
+	for i := range groupValues {
+		groupDest[i] = &groupValues[i]
+	}
+	dest := []any{&p.seriesKey, &p.inWindow, &p.temporality, &p.startTS, &p.count, &p.sum, &p.min, &p.max,
 		&p.layoutHash, &p.kind, &boundsRaw, &p.scale, &p.zeroThreshold, &bucketCountsRaw,
-		&p.zeroCount, &p.positiveOffset, &positiveCountsRaw, &p.negativeOffset, &negativeCountsRaw); err != nil {
+		&p.zeroCount, &p.positiveOffset, &positiveCountsRaw, &p.negativeOffset, &negativeCountsRaw}
+	var attributesRaw string
+	if fullAttributes {
+		dest = append(dest, &attributesRaw)
+	}
+	dest = append(dest, groupDest...)
+	if err := rows.Scan(dest...); err != nil {
 		return nil, fmt.Errorf("storage: scan metric distribution point: %w", err)
+	}
+	p.groupValues = make([]string, groupCount)
+	for i, value := range groupValues {
+		p.groupValues[i], _ = value.(string)
+	}
+	if fullAttributes {
+		p.groupAttributesRaw = attributesRaw
 	}
 	var err error
 	if p.bounds, err = float64List(boundsRaw); err != nil {

@@ -703,6 +703,55 @@ func TestMetricAggregate_RejectsEmptyGroupBy(t *testing.T) {
 	}
 }
 
+func TestMetricDistributionStats_GroupsByRequestedAttributes(t *testing.T) {
+	s := newTestStorage(t)
+	t0 := time.Date(2026, 4, 11, 12, 0, 0, 0, time.UTC)
+	md := pmetric.NewMetrics()
+	rm := md.ResourceMetrics().AppendEmpty()
+	rm.Resource().Attributes().PutStr("service.name", "svc-a")
+	metric := rm.ScopeMetrics().AppendEmpty().Metrics().AppendEmpty()
+	metric.SetName("request.duration")
+	histogram := metric.SetEmptyHistogram()
+	histogram.SetAggregationTemporality(pmetric.AggregationTemporalityDelta)
+	for i, model := range []string{"haiku", "opus"} {
+		point := histogram.DataPoints().AppendEmpty()
+		point.Attributes().PutStr("model", model)
+		point.SetTimestamp(pcommon.NewTimestampFromTime(t0))
+		point.SetCount(uint64(i + 1))
+		point.SetSum(float64((i + 1) * 10))
+		point.SetMin(1)
+		point.SetMax(20)
+		point.ExplicitBounds().FromRaw([]float64{10})
+		point.BucketCounts().FromRaw([]uint64{uint64(i + 1), 0})
+	}
+	s.AddMetrics(context.Background(), md)
+	s.Sync()
+
+	data := exec(t, s, `
+		query($from: Time!, $to: Time!) {
+			metricDistributionStats(
+				serviceName: "svc-a"
+				name: "request.duration"
+				groupBy: ["model"]
+				from: $from
+				to: $to
+			) { groupValues count mean }
+		}
+	`, map[string]any{
+		"from": t0.Add(-time.Second).Format(time.RFC3339),
+		"to":   t0.Add(time.Second).Format(time.RFC3339),
+	})
+
+	series := data["metricDistributionStats"].([]any)
+	if len(series) != 2 {
+		t.Fatalf("distribution groups = %+v, want haiku and opus", series)
+	}
+	first := series[0].(map[string]any)
+	if values := first["groupValues"].([]any); len(values) != 1 || values[0] != "haiku" {
+		t.Fatalf("first distribution group = %+v, want haiku", first)
+	}
+}
+
 func TestClearMutation(t *testing.T) {
 	s := seedStorage(t)
 	exec(t, s, `mutation { clearSignals }`, nil)

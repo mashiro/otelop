@@ -82,11 +82,13 @@ type Query {
   metricPoints(serviceName: String!, name: String!, from: Time, to: Time): [DataPoint!]!
 
   """
-  Window-wide statistics for Histogram and ExponentialHistogram metrics.
-  Percentiles are estimated after merging retained bucket counts across all
-  attribute series; null for metrics without mergeable histogram buckets.
+  Window-wide statistics for Histogram and ExponentialHistogram metrics,
+  grouped by the requested point attributes. Every underlying series is
+  delta-derived before buckets are merged into its group. Missing attributes
+  are returned as empty group values. Omitting groupBy groups by the complete
+  point-attribute map, matching the metric detail's All view.
   """
-  metricDistributionStats(serviceName: String!, name: String!, from: Time, to: Time): DistributionStats
+  metricDistributionStats(serviceName: String!, name: String!, groupBy: [String!], from: Time, to: Time): [DistributionSeries!]!
 }
 
 type Mutation {
@@ -316,7 +318,11 @@ type AggregatePoint {
   max: Float
 }
 
-type DistributionStats {
+type DistributionSeries {
+  "Attribute values in the same order as the requested groupBy keys."
+  groupValues: [String!]!
+  "Complete point attributes when groupBy is omitted; empty for an explicit breakdown."
+  attributes: JSON!
   count: Float!
   mean: Float
   min: Float

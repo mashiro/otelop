@@ -109,18 +109,20 @@ func (r *AggregatePointResolver) Sum() *float64       { return r.p.Sum }
 func (r *AggregatePointResolver) Min() *float64       { return r.p.Min }
 func (r *AggregatePointResolver) Max() *float64       { return r.p.Max }
 
-type DistributionStatsResolver struct {
-	stats storage.DistributionStats
+type DistributionSeriesResolver struct {
+	series storage.DistributionStatsSeries
 }
 
-func (r *DistributionStatsResolver) Count() float64 { return float64(r.stats.Count) }
-func (r *DistributionStatsResolver) Mean() *float64 { return r.stats.Mean }
-func (r *DistributionStatsResolver) Min() *float64  { return r.stats.Min }
-func (r *DistributionStatsResolver) Max() *float64  { return r.stats.Max }
-func (r *DistributionStatsResolver) P50() *float64  { return r.stats.P50 }
-func (r *DistributionStatsResolver) P90() *float64  { return r.stats.P90 }
-func (r *DistributionStatsResolver) P95() *float64  { return r.stats.P95 }
-func (r *DistributionStatsResolver) P99() *float64  { return r.stats.P99 }
+func (r *DistributionSeriesResolver) GroupValues() []string { return r.series.GroupValues }
+func (r *DistributionSeriesResolver) Attributes() JSONMap   { return attrsToJSON(r.series.Attributes) }
+func (r *DistributionSeriesResolver) Count() float64        { return float64(r.series.Stats.Count) }
+func (r *DistributionSeriesResolver) Mean() *float64        { return r.series.Stats.Mean }
+func (r *DistributionSeriesResolver) Min() *float64         { return r.series.Stats.Min }
+func (r *DistributionSeriesResolver) Max() *float64         { return r.series.Stats.Max }
+func (r *DistributionSeriesResolver) P50() *float64         { return r.series.Stats.P50 }
+func (r *DistributionSeriesResolver) P90() *float64         { return r.series.Stats.P90 }
+func (r *DistributionSeriesResolver) P95() *float64         { return r.series.Stats.P95 }
+func (r *DistributionSeriesResolver) P99() *float64         { return r.series.Stats.P99 }
 
 // floatOrZero unwraps an optional derived value to 0 when nil (a baseline
 // observation with nothing to derive yet) — the GraphQL schema's Value

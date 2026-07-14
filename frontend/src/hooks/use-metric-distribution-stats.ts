@@ -6,8 +6,22 @@ import { eventWindowRange, type EventTimeWindow } from "@/lib/event-time-window"
 import type { MetricData } from "@/types/telemetry";
 
 const MetricDistributionStatsQuery = graphql(`
-  query MetricDistributionStats($serviceName: String!, $name: String!, $from: Time, $to: Time) {
-    metricDistributionStats(serviceName: $serviceName, name: $name, from: $from, to: $to) {
+  query MetricDistributionStats(
+    $serviceName: String!
+    $name: String!
+    $groupBy: [String!]
+    $from: Time
+    $to: Time
+  ) {
+    metricDistributionStats(
+      serviceName: $serviceName
+      name: $name
+      groupBy: $groupBy
+      from: $from
+      to: $to
+    ) {
+      groupValues
+      attributes
       count
       mean
       min
@@ -20,7 +34,9 @@ const MetricDistributionStatsQuery = graphql(`
   }
 `);
 
-export interface MetricDistributionStatsData {
+export interface MetricDistributionSeriesData {
+  groupValues: string[];
+  attributes: Record<string, unknown>;
   count: number;
   mean: number | null;
   min: number | null;
@@ -36,7 +52,8 @@ const LIVE_REFETCH_DEBOUNCE_MS = 2000;
 export function useMetricDistributionStats(
   metric: MetricData,
   window: EventTimeWindow,
-): MetricDistributionStatsData | null {
+  groupBy: string[] | null,
+): MetricDistributionSeriesData[] | null {
   const { serviceName, name, type, dataPoints } = metric;
   const supported = type === "Histogram" || type === "ExponentialHistogram";
   const range = eventWindowRange(window) ?? "1h";
@@ -50,10 +67,11 @@ export function useMetricDistributionStats(
     }),
     [windowMode, fixedFrom, fixedTo, range],
   );
-  const requestKey = `${serviceName}\u0000${name}\u0000${queryBounds.from ?? ""}\u0000${queryBounds.to ?? ""}`;
+  const groupByKey = JSON.stringify(groupBy);
+  const requestKey = `${serviceName}\u0000${name}\u0000${groupByKey}\u0000${queryBounds.from ?? ""}\u0000${queryBounds.to ?? ""}`;
   const [snapshot, setSnapshot] = useState<{
     key: string;
-    stats: MetricDistributionStatsData | null;
+    series: MetricDistributionSeriesData[];
   } | null>(null);
   const requestIdRef = useRef(0);
 
@@ -61,16 +79,24 @@ export function useMetricDistributionStats(
     if (!supported) return;
     const requestId = ++requestIdRef.current;
     void gqlClient
-      .request(MetricDistributionStatsQuery, { serviceName, name, ...queryBounds })
+      .request(MetricDistributionStatsQuery, {
+        serviceName,
+        name,
+        groupBy: groupBy ?? undefined,
+        ...queryBounds,
+      })
       .then((data) => {
         if (requestIdRef.current === requestId) {
-          setSnapshot({ key: requestKey, stats: data.metricDistributionStats ?? null });
+          setSnapshot({ key: requestKey, series: data.metricDistributionStats });
         }
       })
       .catch(() => {
-        if (requestIdRef.current === requestId) setSnapshot({ key: requestKey, stats: null });
+        if (requestIdRef.current === requestId) setSnapshot({ key: requestKey, series: [] });
       });
-  }, [supported, serviceName, name, queryBounds, requestKey]);
+    // groupBy's content is represented by groupByKey; callers memoize the
+    // array, but keying the callback on content avoids accidental refetches.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [supported, serviceName, name, groupByKey, queryBounds, requestKey]);
 
   useEffect(() => {
     if (!supported) {
@@ -93,5 +119,5 @@ export function useMetricDistributionStats(
     };
   }, [dataPoints, supported, windowMode, fetchNow]);
 
-  return snapshot?.key === requestKey ? snapshot.stats : null;
+  return snapshot?.key === requestKey ? snapshot.series : null;
 }

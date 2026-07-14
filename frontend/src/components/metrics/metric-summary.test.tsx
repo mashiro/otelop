@@ -160,24 +160,81 @@ describe("MetricSummary", () => {
         range="1h"
         rangeDataPoints={metric.dataPoints}
         aggregatedSeries={null}
-        distributionStats={{
-          count: 100,
-          mean: 12,
-          min: 1,
-          max: 80,
-          p50: 10,
-          p90: 25,
-          p95: 40,
-          p99: 70,
-        }}
+        distributionGroupBy={null}
+        distributionStats={[
+          {
+            groupValues: [],
+            attributes: {},
+            count: 100,
+            mean: 12,
+            min: 1,
+            max: 80,
+            p50: 10,
+            p90: 25,
+            p95: 40,
+            p99: 70,
+          },
+        ]}
       />,
     );
 
-    expect(screen.getByText("Distribution · 1h · 100 observations")).toBeTruthy();
+    expect(screen.getByText("Distribution · 1h")).toBeTruthy();
+    expect(screen.getByText("100")).toBeTruthy();
     for (const label of ["Average", "P50", "P90", "P95", "P99", "Min", "Max"]) {
       expect(screen.getByText(label)).toBeTruthy();
     }
     expect(screen.queryByText("Latest · 1h")).toBeNull();
+  });
+
+  it("renders histogram statistics per selected breakdown group", () => {
+    const rangeDataPoints = [
+      makeDataPoint({ id: "a", attributes: { model: "opus", worker: "1" } }),
+      makeDataPoint({ id: "b", attributes: { model: "haiku", worker: "2" } }),
+    ];
+    const metric = makeMetric({ type: "Histogram", dataPoints: rangeDataPoints });
+
+    render(
+      <MetricSummary
+        metric={metric}
+        facet={MODEL_FACET}
+        range="5m"
+        rangeDataPoints={rangeDataPoints}
+        aggregatedSeries={null}
+        distributionGroupBy={["model"]}
+        distributionStats={[
+          {
+            groupValues: ["haiku"],
+            attributes: {},
+            count: 20,
+            mean: 2,
+            min: 1,
+            max: 3,
+            p50: 2,
+            p90: 3,
+            p95: 3,
+            p99: 3,
+          },
+          {
+            groupValues: ["opus"],
+            attributes: {},
+            count: 40,
+            mean: 10,
+            min: 5,
+            max: 20,
+            p50: 9,
+            p90: 18,
+            p95: 19,
+            p99: 20,
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("haiku")).toBeTruthy();
+    expect(screen.getByText("opus")).toBeTruthy();
+    expect(screen.getAllByText("20").length).toBeGreaterThan(0);
+    expect(screen.getByText("40")).toBeTruthy();
+    expect(screen.queryByText(/60 observations/)).toBeNull();
   });
 
   it("renders the tile's main value without font-mono / tabular-nums (proportional sans figures)", () => {

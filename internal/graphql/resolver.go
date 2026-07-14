@@ -255,17 +255,26 @@ func (r *Resolver) MetricPoints(ctx context.Context, args MetricPointsArgs) ([]*
 type MetricDistributionStatsArgs struct {
 	ServiceName string
 	Name        string
+	GroupBy     *[]string
 	From        *gql.Time
 	To          *gql.Time
 }
 
-func (r *Resolver) MetricDistributionStats(ctx context.Context, args MetricDistributionStatsArgs) (*DistributionStatsResolver, error) {
+func (r *Resolver) MetricDistributionStats(ctx context.Context, args MetricDistributionStatsArgs) ([]*DistributionSeriesResolver, error) {
 	from, to := r.resolveWindow(args.From, args.To)
-	stats, err := r.storage.MetricDistributionStats(ctx, args.ServiceName, args.Name, from, to)
-	if err != nil || stats == nil {
+	var groupBy []string
+	if args.GroupBy != nil {
+		groupBy = *args.GroupBy
+	}
+	series, err := r.storage.MetricDistributionStats(ctx, args.ServiceName, args.Name, groupBy, from, to)
+	if err != nil {
 		return nil, err
 	}
-	return &DistributionStatsResolver{stats: *stats}, nil
+	out := make([]*DistributionSeriesResolver, len(series))
+	for i := range series {
+		out[i] = &DistributionSeriesResolver{series: series[i]}
+	}
+	return out, nil
 }
 
 func (r *Resolver) ClearSignals(ctx context.Context) (bool, error) {

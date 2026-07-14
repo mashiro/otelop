@@ -119,7 +119,8 @@ export function MetricDetailBody({ metric }: { metric: MetricData }) {
     pickedId === ALL_FACET ? ALL_FACET : effectiveFacet ? facetId(effectiveFacet) : ALL_FACET;
 
   const aggregatedSeries = useMetricAggregateSeries(metric, effectiveFacet, window);
-  const distributionStats = useMetricDistributionStats(metric, window);
+  const distributionGroupBy = effectiveFacet?.attributes ?? null;
+  const distributionStats = useMetricDistributionStats(metric, window, distributionGroupBy);
 
   // MetricSummary/DataPointsTable only read a metric's identity/display
   // fields (name/type/unit/description/resource) plus their own
@@ -218,6 +219,7 @@ export function MetricDetailBody({ metric }: { metric: MetricData }) {
             rangeDataPoints={rangeDataPoints}
             aggregatedSeries={aggregatedSeries}
             distributionStats={distributionStats}
+            distributionGroupBy={distributionGroupBy}
           />
 
           <div className="mb-4 rounded-lg border border-border/30 bg-muted/50 p-4">

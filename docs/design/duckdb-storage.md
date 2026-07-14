@@ -221,8 +221,11 @@ Notes:
 - Histogram layouts are hash-deduplicated because explicit boundaries and
   exponential scale normally remain stable for an instrument. Point rows keep
   only the changing bucket counts. Window percentiles first delta-derive each
-  cumulative series, then merge buckets across series; per-point percentiles
-  are never averaged.
+  cumulative series, then merge buckets within the requested attribute
+  breakdown; per-point percentiles are never averaged. Window minimum and
+  maximum independently reduce the optional min/max values carried by the
+  selected points; unlike count, sum, and buckets, cumulative min/max are not
+  delta-derived.
 - Scalar integer values and distribution counts remain integers in raw
   storage. Query-time chart/statistic projections may cast them to DOUBLE,
   but the received OTLP value remains recoverable without the 2^53 precision

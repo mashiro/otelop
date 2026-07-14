@@ -1,6 +1,9 @@
 import { memo, useMemo } from "react";
 import {
+  attrKey,
   computeStatTiles,
+  facetGroupLabel,
+  facetGroupOrder,
   hasIncreaseStatTileSignal,
   type StatTile,
   type StatTilesInput,
@@ -10,7 +13,7 @@ import { formatMetricValue } from "@/lib/format-metric";
 import { CHART_TIME_RANGES, type ChartTimeRange } from "@/lib/chart-time-range";
 import { SERIES_COLORS } from "./metric-chart";
 import type { AggregateSeriesData } from "@/hooks/use-metric-aggregate-series";
-import type { MetricDistributionStatsData } from "@/hooks/use-metric-distribution-stats";
+import type { MetricDistributionSeriesData } from "@/hooks/use-metric-distribution-stats";
 import type { DataPoint, MetricData } from "@/types/telemetry";
 
 function rangeLabel(range: ChartTimeRange): string {
@@ -28,13 +31,15 @@ export const MetricSummary = memo(function MetricSummary({
   rangeDataPoints,
   aggregatedSeries,
   distributionStats,
+  distributionGroupBy = null,
 }: {
   metric: MetricData;
   facet?: MetricFacet | null;
   range: ChartTimeRange;
   rangeDataPoints: DataPoint[];
   aggregatedSeries: AggregateSeriesData[] | null;
-  distributionStats?: MetricDistributionStatsData | null;
+  distributionStats?: MetricDistributionSeriesData[] | null;
+  distributionGroupBy?: string[] | null;
 }) {
   const isDistribution = isDistributionMetric(metric.type);
   const isHistogram = metric.type === "Histogram" || metric.type === "ExponentialHistogram";
@@ -68,7 +73,16 @@ export const MetricSummary = memo(function MetricSummary({
   }, [facet, aggregatedSeries, rangeDataPoints, range, isDistribution, showsLatest]);
 
   if (isHistogram && distributionStats) {
-    return <HistogramSummary stats={distributionStats} range={range} unit={unit} />;
+    return (
+      <HistogramSummary
+        series={distributionStats}
+        groupBy={distributionGroupBy}
+        facet={facet}
+        rangeDataPoints={rangeDataPoints}
+        range={range}
+        unit={unit}
+      />
+    );
   }
 
   if (tiles.length === 0) return null;
@@ -103,37 +117,85 @@ export const MetricSummary = memo(function MetricSummary({
 });
 
 function HistogramSummary({
-  stats,
+  series,
+  groupBy,
+  facet,
+  rangeDataPoints,
   range,
   unit,
 }: {
-  stats: MetricDistributionStatsData;
+  series: MetricDistributionSeriesData[];
+  groupBy: string[] | null;
+  facet?: MetricFacet | null;
+  rangeDataPoints: DataPoint[];
   range: ChartTimeRange;
   unit: string;
 }) {
-  const values = [
-    ["Average", stats.mean],
-    ["P50", stats.p50],
-    ["P90", stats.p90],
-    ["P95", stats.p95],
-    ["P99", stats.p99],
-    ["Min", stats.min],
-    ["Max", stats.max],
+  const colorOrder = facetGroupOrder(rangeDataPoints, facet);
+  const rows = series.map((item, index) => {
+    const label = facet
+      ? facetGroupLabel(item.groupValues) || "(no attributes)"
+      : attrKey(item.attributes) || "(no attributes)";
+    return { item, label, colorIndex: colorOrder.get(label) ?? colorOrder.size + index };
+  });
+  if (rows.length === 0) return null;
+
+  const columns = [
+    ["Average", (item: MetricDistributionSeriesData) => item.mean],
+    ["P50", (item: MetricDistributionSeriesData) => item.p50],
+    ["P90", (item: MetricDistributionSeriesData) => item.p90],
+    ["P95", (item: MetricDistributionSeriesData) => item.p95],
+    ["P99", (item: MetricDistributionSeriesData) => item.p99],
+    ["Min", (item: MetricDistributionSeriesData) => item.min],
+    ["Max", (item: MetricDistributionSeriesData) => item.max],
   ] as const;
   return (
     <div className="mb-4">
       <div className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-        Distribution · {rangeLabel(range)} · {stats.count.toLocaleString()} observations
+        Distribution · {rangeLabel(range)}
       </div>
-      <div className="grid grid-cols-[repeat(auto-fill,minmax(140px,1fr))] gap-2">
-        {values.map(([label, value]) => (
-          <div key={label} className="rounded-lg border border-border/30 bg-muted/50 p-3">
-            <div className="mb-1 text-xs text-foreground/60">{label}</div>
-            <div className="text-2xl font-semibold text-foreground">
-              {value != null ? formatMetricValue(value, unit) : "-"}
-            </div>
-          </div>
-        ))}
+      <div className="overflow-x-auto rounded-lg border border-border/30 bg-muted/50">
+        <table className="w-full min-w-[880px] text-left text-xs">
+          <thead className="border-b border-border/30 text-[10px] uppercase tracking-wider text-muted-foreground">
+            <tr>
+              <th className="px-3 py-2 font-semibold">Breakdown</th>
+              <th className="px-3 py-2 text-right font-semibold">Observations</th>
+              {columns.map(([label]) => (
+                <th key={label} className="px-3 py-2 text-right font-semibold">
+                  {label}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border/20">
+            {rows.map(({ item, label, colorIndex }) => (
+              <tr key={JSON.stringify(groupBy ? item.groupValues : item.attributes)}>
+                <td className="max-w-64 px-3 py-2.5">
+                  <div className="flex items-center gap-1.5">
+                    <span
+                      className="size-2 shrink-0 rounded-full"
+                      style={{ backgroundColor: SERIES_COLORS[colorIndex % SERIES_COLORS.length] }}
+                    />
+                    <span className="truncate font-mono text-foreground/70" title={label}>
+                      {label}
+                    </span>
+                  </div>
+                </td>
+                <td className="px-3 py-2.5 text-right tabular-nums">
+                  {item.count.toLocaleString()}
+                </td>
+                {columns.map(([column, value]) => {
+                  const number = value(item);
+                  return (
+                    <td key={column} className="px-3 py-2.5 text-right tabular-nums">
+                      {number != null ? formatMetricValue(number, unit) : "-"}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   );

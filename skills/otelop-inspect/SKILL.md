@@ -114,9 +114,10 @@ Never call it without an explicit user request.
   `pointCount`, `latestValue`, and `receivedAt`.
 - `DataPoint`: `id`, `timestamp`, `value`, `cumulative`, `count`,
   `countCumulative`, `sum`, `sumCumulative`, `min`, `max`, and `attributes`.
-- `DistributionStats`: window-wide `count`, `mean`, `min`, `max`, and
-  bucket-estimated `p50`, `p90`, `p95`, `p99` for Histogram and
-  ExponentialHistogram metrics.
+- `DistributionSeries`: one attribute breakdown's `groupValues` (or complete
+  `attributes` when `groupBy` is omitted), window-wide `count` and `mean`,
+  point-reduced optional `min` and `max`, and bucket-estimated `p50`, `p90`,
+  `p95`, `p99` for Histogram and ExponentialHistogram metrics.
 - `Log`: `id`, timestamps, trace/span IDs, severity, body, service,
   attributes/resource, `trace`, and `span`.
 
@@ -195,12 +196,24 @@ For histogram percentiles, request the server-side merged distribution rather
 than calculating or averaging percentiles from individual points:
 
 ```graphql
-query($service: String!, $name: String!, $from: Time!, $to: Time!) {
-  metricDistributionStats(serviceName: $service, name: $name, from: $from, to: $to) {
-    count mean min max p50 p90 p95 p99
+query($service: String!, $name: String!, $groupBy: [String!], $from: Time!, $to: Time!) {
+  metricDistributionStats(
+    serviceName: $service
+    name: $name
+    groupBy: $groupBy
+    from: $from
+    to: $to
+  ) {
+    groupValues attributes count mean min max p50 p90 p95 p99
   }
 }
 ```
+
+Pass the same attribute keys used by the chart breakdown. Omit `groupBy` to
+group by each complete point-attribute map, reproducing the UI's `All` view.
+Each underlying series is delta-derived before its buckets are merged into a
+returned group. `min` and `max` instead reduce the optional values carried by
+the selected points and are not delta-derived for cumulative histograms.
 
 Data points are ordered oldest-first. One metric group can contain multiple
 attribute series, so group points by `attributes` before reporting a latest
