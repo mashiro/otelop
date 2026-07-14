@@ -60,7 +60,7 @@ export function TraceList() {
       toolbar={
         <>
           <SearchFilter atom={traceSearchAtom} placeholder="Search traces…" />
-          <div className="ml-auto flex items-center gap-2 px-3">
+          <div className="ml-auto">
             <EventWindowControls tone="trace" allRetained={Boolean(search.trim())} />
           </div>
         </>

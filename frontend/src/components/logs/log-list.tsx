@@ -69,7 +69,7 @@ export function LogList() {
             </div>
           )}
           <SearchFilter atom={logSearchAtom} placeholder="Search logs…" />
-          <div className="ml-auto px-3">
+          <div className="ml-auto">
             <EventWindowControls tone="log" allRetained={Boolean(search.trim() || traceFilter)} />
           </div>
         </>
