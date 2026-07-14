@@ -4,6 +4,7 @@ import {
   metricsAtom,
   addMetricAtom,
   addTraceAtom,
+  cacheTraceAtom,
   removeTraceAtom,
   addLogAtom,
   bufferCapsAtom,
@@ -29,8 +30,14 @@ import {
   appendLogsAtom,
   setTracesAtom,
   serverMatchedTraceIdsAtom,
+  navigateToTraceAtom,
 } from "./telemetry";
-import { selectedTraceIdAtom, selectedMetricKeyAtom, selectedLogIdAtom } from "./navigation";
+import {
+  activeTabAtom,
+  selectedTraceIdAtom,
+  selectedMetricKeyAtom,
+  selectedLogIdAtom,
+} from "./navigation";
 import { makeMetric, makeDataPoint, makeTrace, makeLog, makeSpan } from "@/test/factories";
 
 describe("addMetricAtom", () => {
@@ -448,6 +455,56 @@ describe("selectedTraceAtom", () => {
 
     store.set(selectedTraceAtom, null);
     expect(store.get(selectedTraceIdAtom)).toBeNull();
+  });
+});
+
+describe("cacheTraceAtom", () => {
+  it("caches a retained trace fetched by ID without incrementing the live total", () => {
+    const store = createStore();
+
+    store.set(cacheTraceAtom, makeTrace({ traceId: "outside-page" }));
+
+    expect(store.get(tracesAtom).map((trace) => trace.traceId)).toEqual(["outside-page"]);
+    expect(store.get(newTraceCountAtom)).toBe(0);
+  });
+
+  it("merges fetched spans when a summary arrives during the focused request", () => {
+    const store = createStore();
+    store.set(tracesAtom, [makeTrace({ traceId: "t1", spanCount: 1, spans: [] })]);
+
+    store.set(
+      cacheTraceAtom,
+      makeTrace({ traceId: "t1", spanCount: 1, spans: [makeSpan({ spanId: "s1" })] }),
+    );
+
+    expect(store.get(tracesAtom)[0].spans.map((span) => span.spanId)).toEqual(["s1"]);
+  });
+
+  it("retains an old focused trace when the newest-first buffer is full", () => {
+    const store = createStore();
+    store.set(bufferCapsAtom, { ...store.get(bufferCapsAtom), traceCap: 2 });
+    store.set(tracesAtom, [
+      makeTrace({ traceId: "newest", startTime: "2024-01-03T00:00:00Z" }),
+      makeTrace({ traceId: "newer", startTime: "2024-01-02T00:00:00Z" }),
+    ]);
+
+    store.set(
+      cacheTraceAtom,
+      makeTrace({ traceId: "focused-old", startTime: "2024-01-01T00:00:00Z" }),
+    );
+
+    expect(store.get(tracesAtom).map((trace) => trace.traceId)).toEqual(["newest", "focused-old"]);
+  });
+});
+
+describe("navigateToTraceAtom", () => {
+  it("selects and opens a trace even when it is absent from the current list buffer", () => {
+    const store = createStore();
+
+    store.set(navigateToTraceAtom, "outside-page");
+
+    expect(store.get(selectedTraceIdAtom)).toBe("outside-page");
+    expect(store.get(activeTabAtom)).toBe("traces");
   });
 });
 

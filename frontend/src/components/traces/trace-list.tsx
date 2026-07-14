@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { List, Network } from "lucide-react";
 import { traceCountAtom, tracesAtom, selectedTraceAtom } from "@/stores/telemetry";
-import { eventTimeWindowAtom } from "@/stores/navigation";
+import { eventTimeWindowAtom, selectedTraceIdAtom } from "@/stores/navigation";
 import { filteredTracesAtom, traceSearchAtom } from "@/stores/filters";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { SearchFilter } from "@/components/filters/search-filter";
@@ -12,6 +12,8 @@ import { EventWindowControls } from "@/components/common/event-window-controls";
 import { LoadMoreRow } from "@/components/common/load-more-row";
 import { useServiceMapSpans } from "@/hooks/use-service-map-spans";
 import { useTraceListPage } from "@/hooks/use-trace-list-page";
+import { useTraceById, type TraceByIdStatus } from "@/hooks/use-trace-by-id";
+import { Button } from "@/components/ui/button";
 import { ServiceMap } from "./service-map";
 import {
   Table,
@@ -32,12 +34,14 @@ export function TraceList() {
   const allTraces = useAtomValue(tracesAtom);
   const traceCount = useAtomValue(traceCountAtom);
   const traces = useAtomValue(filteredTracesAtom);
+  const selectedTraceId = useAtomValue(selectedTraceIdAtom);
   const selectedTrace = useAtomValue(selectedTraceAtom);
   const setSelectedTrace = useSetAtom(selectedTraceAtom);
   const [view, setView] = useState<"list" | "map">("list");
   const [window] = useAtom(eventTimeWindowAtom);
   const search = useAtomValue(traceSearchAtom);
   const page = useTraceListPage(window, search);
+  const traceById = useTraceById(selectedTraceId, selectedTrace);
   // The service map needs full span data across every buffered trace (see
   // lib/service-graph.ts), which the trace list itself deliberately doesn't
   // load (use-trace-list-page.ts). Fetch it lazily, once per range, the
@@ -46,6 +50,16 @@ export function TraceList() {
 
   if (selectedTrace) {
     return <TraceDetail />;
+  }
+
+  if (selectedTraceId) {
+    return (
+      <TraceLoadState
+        status={traceById.status}
+        onRetry={traceById.retry}
+        onBack={() => setSelectedTrace(null)}
+      />
+    );
   }
 
   if (traceCount === 0 && allTraces.length === 0) {
@@ -141,5 +155,42 @@ export function TraceList() {
         </ScrollArea>
       )}
     </ListPanel>
+  );
+}
+
+function TraceLoadState({
+  status,
+  onRetry,
+  onBack,
+}: {
+  status: TraceByIdStatus;
+  onRetry: () => void;
+  onBack: () => void;
+}) {
+  const unavailable = status === "not-found";
+  return (
+    <div className="glass-card flex h-full items-center justify-center">
+      <div className="flex flex-col items-center gap-3 text-center">
+        <p className="text-sm font-medium text-foreground/70">
+          {status === "loading"
+            ? "Loading trace…"
+            : unavailable
+              ? "Trace is no longer retained"
+              : "Unable to load trace"}
+        </p>
+        {status !== "loading" && (
+          <div className="flex gap-2">
+            {!unavailable && (
+              <Button variant="outline" size="sm" onClick={onRetry}>
+                Retry
+              </Button>
+            )}
+            <Button variant="ghost" size="sm" onClick={onBack}>
+              Back to traces
+            </Button>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }

@@ -94,38 +94,10 @@ export const addTraceAtom = atom(null, (get, set, newTrace: TraceData) => {
   const idx = current.findIndex((t) => t.traceId === newTrace.traceId);
   if (idx >= 0) {
     const existing = current[idx];
-    const mergedSpans = mergeSpans(existing.spans, newTrace.spans);
-    const rootChanged = isBetterRoot(existing.rootSpan, newTrace.rootSpan);
-    // OTel timestamps are nanosecond-precision ISO strings; compare via
-    // Temporal.Instant to avoid Date's millisecond truncation.
-    const newStart = Temporal.Instant.from(newTrace.startTime).epochNanoseconds;
-    const existingStart = Temporal.Instant.from(existing.startTime).epochNanoseconds;
-    if (
-      mergedSpans.length === existing.spans.length &&
-      !rootChanged &&
-      newTrace.spanCount <= existing.spanCount &&
-      newTrace.duration <= existing.duration &&
-      newStart >= existingStart
-    ) {
-      return;
-    }
+    const merged = mergeTrace(existing, newTrace);
+    if (!merged) return;
     const updated = [...current];
-    updated[idx] = {
-      ...existing,
-      spans: mergedSpans,
-      searchValues: mergeSearchValues(existing.searchValues, newTrace.searchValues),
-      // WebSocket payloads carry an authoritative persisted summary with an
-      // empty spans array. Preserve already-fetched detail while letting a
-      // growing summary trigger useTraceSpans to fetch the missing rows.
-      spanCount: Math.max(existing.spanCount, newTrace.spanCount),
-      rootSpan: rootChanged ? newTrace.rootSpan : existing.rootSpan,
-      serviceName: rootChanged ? newTrace.serviceName : existing.serviceName,
-      // Multi-root Codex traces can grow past the originally-reported root
-      // span duration. Always take the larger range so the list/detail
-      // header reflect the full trace length.
-      startTime: newStart < existingStart ? newTrace.startTime : existing.startTime,
-      duration: Math.max(existing.duration, newTrace.duration),
-    };
+    updated[idx] = merged;
     set(tracesAtom, newestTraceStartFirst(updated));
   } else {
     // A brand-new trace, never merged into an existing one — the header
@@ -134,6 +106,34 @@ export const addTraceAtom = atom(null, (get, set, newTrace: TraceData) => {
     const next = newestTraceStartFirst([...current, newTrace]);
     set(tracesAtom, next.length > maxTraces ? next.slice(0, maxTraces) : next);
   }
+});
+
+// Inserts a trace fetched explicitly by ID without treating an already-retained
+// row as newly received. This is used when navigating from a log whose trace is
+// outside the current time-window/page buffer.
+export const cacheTraceAtom = atom(null, (get, set, trace: TraceData) => {
+  const current = get(tracesAtom);
+  const idx = current.findIndex((item) => item.traceId === trace.traceId);
+  if (idx >= 0) {
+    const merged = mergeTrace(current[idx], trace);
+    if (!merged) return;
+    const updated = [...current];
+    updated[idx] = merged;
+    set(tracesAtom, newestTraceStartFirst(updated));
+    return;
+  }
+
+  const next = newestTraceStartFirst([...current, trace]);
+  const cap = get(bufferCapsAtom).traceCap;
+  if (next.length <= cap) {
+    set(tracesAtom, next);
+    return;
+  }
+  // A focused lookup may deliberately fetch a trace older than every row in
+  // a full newest-first buffer. Keep that requested row and evict the oldest
+  // other row; slicing blindly would immediately discard the lookup result.
+  const withoutTrace = next.filter((item) => item.traceId !== trace.traceId);
+  set(tracesAtom, newestTraceStartFirst([...withoutTrace.slice(0, cap - 1), trace]));
 });
 
 interface TraceSpansPayload {
@@ -183,6 +183,40 @@ function isBetterRoot(
   if (!candidate) return false;
   if (!current) return true;
   return candidate.duration > current.duration;
+}
+
+function mergeTrace(existing: TraceData, incoming: TraceData): TraceData | null {
+  const spans = mergeSpans(existing.spans, incoming.spans);
+  const rootChanged = isBetterRoot(existing.rootSpan, incoming.rootSpan);
+  // OTel timestamps are nanosecond-precision ISO strings; compare via
+  // Temporal.Instant to avoid Date's millisecond truncation.
+  const incomingStart = Temporal.Instant.from(incoming.startTime).epochNanoseconds;
+  const existingStart = Temporal.Instant.from(existing.startTime).epochNanoseconds;
+  if (
+    spans.length === existing.spans.length &&
+    !rootChanged &&
+    incoming.spanCount <= existing.spanCount &&
+    incoming.duration <= existing.duration &&
+    incomingStart >= existingStart
+  ) {
+    return null;
+  }
+
+  return {
+    ...existing,
+    spans,
+    searchValues: mergeSearchValues(existing.searchValues, incoming.searchValues),
+    // WebSocket payloads carry an authoritative persisted summary with an
+    // empty spans array. Preserve already-fetched detail while letting a
+    // growing summary trigger useTraceSpans to fetch the missing rows.
+    spanCount: Math.max(existing.spanCount, incoming.spanCount),
+    rootSpan: rootChanged ? incoming.rootSpan : existing.rootSpan,
+    serviceName: rootChanged ? incoming.serviceName : existing.serviceName,
+    // Multi-root traces can grow past the originally-reported root span
+    // duration. Always retain the complete observed time range.
+    startTime: incomingStart < existingStart ? incoming.startTime : existing.startTime,
+    duration: Math.max(existing.duration, incoming.duration),
+  };
 }
 
 // mergeDataPoints unions two data-point lists by their stable id, keeping the
@@ -363,14 +397,11 @@ export const selectedLogAtom = createSelectionAtom(
 // Log filter by traceId (set when jumping from trace → logs)
 export const logTraceFilterAtom = atom<string | null>(null);
 
-// Navigate: log → trace (find trace by ID and switch tab)
-export const navigateToTraceAtom = atom(null, (get, set, traceId: string) => {
-  const traces = get(tracesAtom);
-  const trace = traces.find((t) => t.traceId === traceId);
-  if (trace) {
-    set(selectedTraceAtom, trace);
-    set(activeTabAtom, "traces");
-  }
+// Navigate: log → trace. The traces tab resolves an ID absent from its
+// current page with a focused trace(traceId:) request.
+export const navigateToTraceAtom = atom(null, (_get, set, traceId: string) => {
+  set(selectedTraceIdAtom, traceId);
+  set(activeTabAtom, "traces");
 });
 
 // Navigate: trace → related logs (switch to logs tab with filter)
