@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-#MISE description="Build the container image via goreleaser snapshot and tag it as otelop:local"
-#MISE depends=["release-snapshot"]
+#MISE description="Build the container image for the host arch and tag it as otelop:local"
+#MISE depends=["build:frontend"]
 set -euo pipefail
 
 case "$(uname -m)" in
@@ -8,5 +8,25 @@ case "$(uname -m)" in
   x86_64|amd64)  arch=amd64 ;;
   *) echo "unsupported arch: $(uname -m)" >&2; exit 1 ;;
 esac
+platform="linux/${arch}"
 
-docker tag "ghcr.io/mashiro/otelop:latest-${arch}" otelop:local
+# The Dockerfile's binary links glibc + libstdc++ (CGO, for the DuckDB
+# driver — see docs/design/duckdb-storage.md). On a non-Linux host there is
+# no cross C toolchain for that, so compile inside a Linux (bookworm, to
+# match the runtime base image's glibc/libstdc++) container instead of on
+# the host. Docker's own Linux VM builds this natively when its arch matches
+# the host's (the common case), no cross-arch emulation required.
+ctx="$(mktemp -d)"
+trap 'rm -rf "$ctx"' EXIT
+mkdir -p "$ctx/$platform"
+
+docker run --rm --platform "$platform" \
+  -v "$(pwd)":/src -w /src \
+  -v "$ctx/$platform":/out \
+  -e CGO_ENABLED=1 -e GOCACHE=/tmp/gocache \
+  golang:1.26-bookworm \
+  go build -tags embed -ldflags "-s -w -X main.version=local-$(git rev-parse --short HEAD)" \
+    -o /out/otelop ./cmd/otelop
+
+docker build --platform "$platform" --build-arg "TARGETPLATFORM=$platform" \
+  -t otelop:local -f Dockerfile "$ctx"

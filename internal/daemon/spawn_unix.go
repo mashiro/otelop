@@ -177,6 +177,10 @@ func metadataLocked() (bool, error) {
 	return false, nil
 }
 
+// pollInterval is how often StopAndWait re-checks liveness while waiting for
+// a signaled process to exit.
+const pollInterval = 50 * time.Millisecond
+
 // StopAndWait sends SIGTERM to the process, then polls until it exits or
 // timeout elapses. Returns nil if the process was already gone.
 func StopAndWait(pid int, timeout time.Duration) error {
@@ -188,22 +192,47 @@ func StopAndWait(pid int, timeout time.Duration) error {
 		return err
 	}
 	if err := proc.Signal(syscall.SIGTERM); err != nil {
-		if errors.Is(err, syscall.ESRCH) {
+		// The Go runtime's os.Process.Signal converts a raw ESRCH from the
+		// kill(2) syscall into the sentinel os.ErrProcessDone rather than
+		// returning syscall.ESRCH itself (see os.convertESRCH), so checking
+		// for syscall.ESRCH alone never matches here — keep both checks for
+		// robustness against Go/OS variation.
+		if errors.Is(err, os.ErrProcessDone) || errors.Is(err, syscall.ESRCH) {
 			return nil
 		}
 		return err
 	}
-	ticker := time.NewTicker(50 * time.Millisecond)
-	defer ticker.Stop()
-	deadline := time.After(timeout)
+	alive := func() bool { return ProcessAlive(pid) }
+	if waitUntilGone(alive, time.Now, time.Sleep, timeout, pollInterval) {
+		return nil
+	}
+	return fmt.Errorf("process %d did not exit within %s", pid, timeout)
+}
+
+// waitUntilGone polls alive until it reports false or the deadline (measured
+// from now()) passes, sleeping interval between checks. It returns whether
+// the process was observed gone.
+//
+// The previous implementation raced a ticker channel against a time.After
+// deadline channel in a select: whichever channel a stale liveness check
+// left "pending" would fire first, but the deadline case returned an error
+// immediately with no further liveness check. Because the ticker's next
+// tick is, by construction, always later than a deadline that isn't
+// perfectly aligned with it, the deadline branch would almost always win
+// once a process survived close to the full timeout — even if the process
+// had already exited in the (up to pollInterval-wide) gap since the last
+// check. Driving the loop off explicit time comparisons instead guarantees
+// one final alive() check happens exactly at (or after) the deadline,
+// before giving up.
+func waitUntilGone(alive func() bool, now func() time.Time, sleep func(time.Duration), timeout, interval time.Duration) bool {
+	deadline := now().Add(timeout)
 	for {
-		if !ProcessAlive(pid) {
-			return nil
+		if !alive() {
+			return true
 		}
-		select {
-		case <-ticker.C:
-		case <-deadline:
-			return fmt.Errorf("process %d did not exit within %s", pid, timeout)
+		if !now().Before(deadline) {
+			return false
 		}
+		sleep(interval)
 	}
 }

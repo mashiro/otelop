@@ -21,7 +21,14 @@ describe("DataPointsTable", () => {
     });
     const onSelect = vi.fn();
 
-    render(<DataPointsTable metric={metric} selectedId={null} onSelect={onSelect} />);
+    render(
+      <DataPointsTable
+        metric={metric}
+        dataPoints={metric.dataPoints}
+        selectedId={null}
+        onSelect={onSelect}
+      />,
+    );
     fireEvent.click(attrRow('http.method="GET", http.route="/api/users/{id}"'));
 
     expect(onSelect).toHaveBeenCalledWith("dp-a");
@@ -33,7 +40,14 @@ describe("DataPointsTable", () => {
     });
     const onSelect = vi.fn();
 
-    render(<DataPointsTable metric={metric} selectedId="dp-a" onSelect={onSelect} />);
+    render(
+      <DataPointsTable
+        metric={metric}
+        dataPoints={metric.dataPoints}
+        selectedId="dp-a"
+        onSelect={onSelect}
+      />,
+    );
     fireEvent.click(attrRow('k="v"'));
 
     expect(onSelect).toHaveBeenCalledWith(null);
@@ -47,7 +61,14 @@ describe("DataPointsTable", () => {
       ],
     });
 
-    render(<DataPointsTable metric={metric} selectedId="dp-b" onSelect={() => {}} />);
+    render(
+      <DataPointsTable
+        metric={metric}
+        dataPoints={metric.dataPoints}
+        selectedId="dp-b"
+        onSelect={() => {}}
+      />,
+    );
 
     expect(attrRow('k="va"').className).not.toContain("bg-metric/10");
     expect(attrRow('k="vb"').className).toContain("bg-metric/10");
@@ -58,7 +79,14 @@ describe("DataPointsTable", () => {
       dataPoints: [makeDataPoint({ id: "dp-a", attributes: { k: "v" } })],
     });
 
-    render(<DataPointsTable metric={metric} selectedId="dp-a" onSelect={() => {}} />);
+    render(
+      <DataPointsTable
+        metric={metric}
+        dataPoints={metric.dataPoints}
+        selectedId="dp-a"
+        onSelect={() => {}}
+      />,
+    );
 
     expect(screen.queryByRole("heading", { level: 4, name: "Attributes" })).toBeNull();
   });

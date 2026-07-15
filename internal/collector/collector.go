@@ -19,7 +19,10 @@ type obj map[string]any
 // selfTelemetryIntervalMs is the periodic OTLP reader interval for the
 // Collector's own component metrics. Mirrors the SDK-side cadence in
 // internal/selftelemetry so both data sources tick together.
-const selfTelemetryIntervalMs = 10_000
+const (
+	selfTelemetryIntervalMs      = 10_000
+	selfTelemetryExportTimeoutMs = 1_000
+)
 
 // Config holds runtime-configurable collector settings.
 type Config struct {
@@ -95,7 +98,7 @@ func buildTelemetryMetricsConfig(cfg Config) obj {
 	endpoint := (&url.URL{Scheme: "http", Host: cfg.SelfTelemetryEndpoint}).String()
 	return obj{
 		// "normal" omits per-RPC histograms that "detailed" enables; those
-		// would dominate the bounded in-memory store at default capacity.
+		// add high-volume self-telemetry without helping local investigation.
 		"level": "normal",
 		"readers": []any{
 			obj{
@@ -106,6 +109,7 @@ func buildTelemetryMetricsConfig(cfg Config) obj {
 							"protocol": "grpc",
 							"endpoint": endpoint,
 							"insecure": true,
+							"timeout":  selfTelemetryExportTimeoutMs,
 						},
 					},
 				},

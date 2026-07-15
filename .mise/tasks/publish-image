@@ -1,25 +1,17 @@
 #!/usr/bin/env bash
-#MISE description="Build and push the container image to ghcr.io for the given (or latest) tag"
+#MISE description="Re-run the release workflow (multi-arch build + GitHub release + Docker push) for the given (or latest) tag"
 set -euo pipefail
 
 tag="${1:-$(git describe --tags --abbrev=0)}"
 
-: "${GITHUB_TOKEN:=$(gh auth token 2>/dev/null || true)}"
-if [ -z "${GITHUB_TOKEN:-}" ]; then
-  echo "GITHUB_TOKEN unset and 'gh auth token' returned nothing — run 'gh auth login' or set GITHUB_TOKEN" >&2
-  exit 1
-fi
-
-if ! gh auth status 2>&1 | grep -q 'write:packages'; then
-  echo "gh token missing 'write:packages' scope." >&2
-  echo "Run: gh auth refresh -h github.com -s write:packages" >&2
-  exit 1
-fi
-
-gh_user="$(gh api user --jq .login)"
-echo "$GITHUB_TOKEN" | docker login ghcr.io -u "$gh_user" --password-stdin >/dev/null
-
-export GITHUB_TOKEN
-export GORELEASER_CURRENT_TAG="$tag"
-
-goreleaser release --clean --skip=archive,announce,sbom,sign,validate
+# The release workflow builds linux/amd64+arm64 and darwin/amd64+arm64
+# natively (CGO — see docs/design/duckdb-storage.md — rules out
+# cross-compiling all of those from a single local machine), then pushes
+# multi-platform Docker images via buildx. That's a strict superset of what
+# this task used to do locally with `goreleaser release` + dockers_v2, and
+# runs on real native runners instead of approximating cross-arch locally
+# through Docker's Linux VM — so re-dispatch release.yml's own escape hatch
+# (see its workflow_dispatch trigger) rather than reimplementing the
+# pipeline here.
+gh workflow run release.yml -f "tag=$tag"
+echo "Triggered release.yml for $tag — follow with: gh run watch"

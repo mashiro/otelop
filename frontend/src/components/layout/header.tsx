@@ -1,30 +1,16 @@
 import { useAtomValue, useSetAtom } from "jotai";
-import { Trash2, Sun, Moon, Monitor } from "lucide-react";
+import { Sun, Moon, Monitor } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Logo } from "@/components/ui/logo";
-import { graphql } from "@/gql";
-import { gqlClient } from "@/lib/graphql";
-import {
-  wsStatusAtom,
-  traceCountAtom,
-  metricCountAtom,
-  logCountAtom,
-  clearAllAtom,
-} from "@/stores/telemetry";
+import { wsStatusAtom, traceCountAtom, metricCountAtom, logCountAtom } from "@/stores/telemetry";
 import { themeAtom, type Theme } from "@/stores/theme";
 import { SIGNALS, type SignalConfig } from "@/lib/signals";
-
-const ClearSignalsMutation = graphql(`
-  mutation ClearSignals {
-    clearSignals
-  }
-`);
 
 const statusConfig: Record<string, { color: string; glow: string; label: string }> = {
   connected: {
     color: "bg-success",
     glow: "animate-breathe",
-    label: "Live",
+    label: "Connected",
   },
   connecting: {
     color: "bg-warning",
@@ -43,14 +29,8 @@ export function Header() {
   const traceCount = useAtomValue(traceCountAtom);
   const metricCount = useAtomValue(metricCountAtom);
   const logCount = useAtomValue(logCountAtom);
-  const clearAll = useSetAtom(clearAllAtom);
   const theme = useAtomValue(themeAtom);
   const setTheme = useSetAtom(themeAtom);
-
-  const handleClear = async () => {
-    await gqlClient.request(ClearSignalsMutation);
-    clearAll();
-  };
 
   const status = statusConfig[wsStatus] ?? statusConfig.disconnected;
 
@@ -76,15 +56,6 @@ export function Header() {
         </div>
 
         <ThemeToggle theme={theme} setTheme={setTheme} />
-
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={handleClear}
-          className="text-muted-foreground hover:text-destructive"
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-        </Button>
       </div>
     </header>
   );

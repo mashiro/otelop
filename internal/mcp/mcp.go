@@ -46,9 +46,9 @@ type queryInput struct {
 func registerTools(srv *sdkmcp.Server, schema *gqlgo.Schema) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name: "query",
-		Description: `Execute a GraphQL query or mutation against otelop's buffered traces, metrics, and logs.
+		Description: `Execute a GraphQL query or mutation against otelop's retained traces, metrics, and logs.
 
-The schema has top-level fields traces / trace / metrics / logs / config plus a clearSignals mutation. Request only the fields you need — field selection keeps response size (and token cost) under control. For trace↔log correlation, prefer 'trace(traceId: "...") { logs { ... } }' over a second 'logs(traceId: ...)' call.
+The schema has top-level fields status / config / traces / trace / metrics / metricPoints / metricAggregate / logs plus a clearSignals mutation. List fields support focused time ranges, and traces, metrics, and logs support server-side search. Request only the fields you need — field selection keeps response size (and token cost) under control. For trace↔log correlation, prefer 'trace(traceId: "...") { logs { ... } }' over a second 'logs(traceId: ...)' call.
 
 If you do not know the schema yet, first run an introspection query: '{ __schema { queryType { fields { name description args { name type { name ofType { name } } } } } } }'.`,
 	}, func(ctx context.Context, _ *sdkmcp.CallToolRequest, in queryInput) (*sdkmcp.CallToolResult, any, error) {

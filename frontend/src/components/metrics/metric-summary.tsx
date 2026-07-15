@@ -1,34 +1,105 @@
-import { useMemo } from "react";
-import { statTiles, type StatTile } from "@/lib/metric-stats";
+import { memo, useMemo } from "react";
+import {
+  attrKey,
+  computeStatTiles,
+  facetGroupLabel,
+  facetGroupOrder,
+  hasIncreaseStatTileSignal,
+  type StatTile,
+  type StatTilesInput,
+} from "@/lib/metric-stats";
 import { isDistributionMetric, resolveMetricUnit, type MetricFacet } from "@/lib/metric-catalog";
 import { formatMetricValue } from "@/lib/format-metric";
+import { CHART_TIME_RANGES, type ChartTimeRange } from "@/lib/chart-time-range";
 import { SERIES_COLORS } from "./metric-chart";
-import type { MetricData } from "@/types/telemetry";
+import type { AggregateSeriesData } from "@/hooks/use-metric-aggregate-series";
+import type { MetricDistributionSeriesData } from "@/hooks/use-metric-distribution-stats";
+import type { DataPoint, MetricData } from "@/types/telemetry";
 
-const RESET_NOTE =
-  "Running total since otelop started observing this series. Resets when otelop restarts.";
+function rangeLabel(range: ChartTimeRange): string {
+  return CHART_TIME_RANGES.find((r) => r.value === range)?.label ?? range;
+}
 
-export function MetricSummary({
+// Memoized so a WS delivery that doesn't move rangeDataPoints/aggregatedSeries
+// (both kept reference-stable upstream — see use-metric-range-points.ts /
+// use-metric-aggregate-series.ts / metric-detail.tsx's stableMetric) skips
+// recomputing and re-rendering the tiles.
+export const MetricSummary = memo(function MetricSummary({
   metric,
   facet,
+  range,
+  rangeDataPoints,
+  aggregatedSeries,
+  distributionStats,
+  distributionGroupBy = null,
 }: {
   metric: MetricData;
   facet?: MetricFacet | null;
+  range: ChartTimeRange;
+  rangeDataPoints: DataPoint[];
+  aggregatedSeries: AggregateSeriesData[] | null;
+  distributionStats?: MetricDistributionSeriesData[] | null;
+  distributionGroupBy?: string[] | null;
 }) {
-  const tiles = useMemo(() => statTiles(metric, facet), [metric, facet]);
+  const isDistribution = isDistributionMetric(metric.type);
+  const isHistogram = metric.type === "Histogram" || metric.type === "ExponentialHistogram";
+  const unit = resolveMetricUnit(metric.name, metric.unit);
+  const showsLatest = metric.type === "Gauge" || isDistribution;
+  const tiles = useMemo(() => {
+    // Increase eligibility must read rangeDataPoints (the fetched-range + live
+    // buffer merge), because the metrics list no longer loads point history.
+    // Latest mode only needs a point and therefore applies to Gauge and
+    // distribution metrics without a cumulative-family field.
+    if (!showsLatest && !hasIncreaseStatTileSignal(rangeDataPoints)) return [];
+    const input: StatTilesInput = facet
+      ? {
+          kind: "aggregate",
+          aggregatedSeries: aggregatedSeries ?? [],
+          rangeDataPoints,
+          facet,
+          range,
+          mode: showsLatest ? "latest" : "increase",
+          includeLatestCount: isDistribution,
+        }
+      : {
+          kind: "raw",
+          rangeDataPoints,
+          facet: null,
+          range,
+          mode: showsLatest ? "latest" : "increase",
+          includeLatestCount: isDistribution,
+        };
+    return computeStatTiles(input);
+  }, [facet, aggregatedSeries, rangeDataPoints, range, isDistribution, showsLatest]);
+
+  if (isHistogram && distributionStats) {
+    return (
+      <HistogramSummary
+        series={distributionStats}
+        groupBy={distributionGroupBy}
+        facet={facet}
+        rangeDataPoints={rangeDataPoints}
+        range={range}
+        unit={unit}
+      />
+    );
+  }
+
   if (tiles.length === 0) return null;
 
-  const unit = resolveMetricUnit(metric.name, metric.unit);
-  const isDistribution = isDistributionMetric(metric.type);
   const showLabels = tiles.length > 1 || tiles[0]?.key !== "";
 
   return (
     <div className="mb-4">
       <div
         className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground"
-        title={RESET_NOTE}
+        title={
+          showsLatest
+            ? `Latest value in the selected ${rangeLabel(range)} window`
+            : `Increase over the selected ${rangeLabel(range)} window`
+        }
       >
-        Total · Since observing
+        {showsLatest ? "Latest" : "Increase"} · {rangeLabel(range)}
       </div>
       <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-2">
         {tiles.map((tile) => (
@@ -43,15 +114,95 @@ export function MetricSummary({
       </div>
     </div>
   );
+});
+
+function HistogramSummary({
+  series,
+  groupBy,
+  facet,
+  rangeDataPoints,
+  range,
+  unit,
+}: {
+  series: MetricDistributionSeriesData[];
+  groupBy: string[] | null;
+  facet?: MetricFacet | null;
+  rangeDataPoints: DataPoint[];
+  range: ChartTimeRange;
+  unit: string;
+}) {
+  const colorOrder = facetGroupOrder(rangeDataPoints, facet);
+  const rows = series.map((item, index) => {
+    const label = facet
+      ? facetGroupLabel(item.groupValues) || "(no attributes)"
+      : attrKey(item.attributes) || "(no attributes)";
+    return { item, label, colorIndex: colorOrder.get(label) ?? colorOrder.size + index };
+  });
+  if (rows.length === 0) return null;
+
+  const columns = [
+    ["Average", (item: MetricDistributionSeriesData) => item.mean],
+    ["Median", (item: MetricDistributionSeriesData) => item.p50],
+    ["P90", (item: MetricDistributionSeriesData) => item.p90],
+    ["P95", (item: MetricDistributionSeriesData) => item.p95],
+    ["P99", (item: MetricDistributionSeriesData) => item.p99],
+    ["Min", (item: MetricDistributionSeriesData) => item.min],
+    ["Max", (item: MetricDistributionSeriesData) => item.max],
+  ] as const;
+  return (
+    <div className="mb-4">
+      <div className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+        Distribution · {rangeLabel(range)}
+      </div>
+      <div className="overflow-x-auto rounded-lg border border-border/30 bg-muted/50">
+        <table className="w-full min-w-[880px] text-left text-xs">
+          <thead className="border-b border-border/30 text-[10px] uppercase tracking-wider text-muted-foreground">
+            <tr>
+              <th className="px-3 py-2 font-semibold">Breakdown</th>
+              <th className="px-3 py-2 text-right font-semibold">Observations</th>
+              {columns.map(([label]) => (
+                <th key={label} className="px-3 py-2 text-right font-semibold">
+                  {label}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border/20">
+            {rows.map(({ item, label, colorIndex }) => (
+              <tr key={JSON.stringify(groupBy ? item.groupValues : item.attributes)}>
+                <td className="max-w-64 px-3 py-2.5">
+                  <div className="flex items-center gap-1.5">
+                    <span
+                      className="size-2 shrink-0 rounded-full"
+                      style={{ backgroundColor: SERIES_COLORS[colorIndex % SERIES_COLORS.length] }}
+                    />
+                    <span className="truncate font-mono text-foreground/70" title={label}>
+                      {label}
+                    </span>
+                  </div>
+                </td>
+                <td className="px-3 py-2.5 text-right tabular-nums">
+                  {item.count.toLocaleString()}
+                </td>
+                {columns.map(([column, value]) => {
+                  const number = value(item);
+                  return (
+                    <td key={column} className="px-3 py-2.5 text-right tabular-nums">
+                      {number != null ? formatMetricValue(number, unit) : "-"}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
 }
 
-function mainText(tile: StatTile, unit: string, isDistribution: boolean): string {
-  if (isDistribution) {
-    if (tile.totalSum != null) return formatMetricValue(tile.totalSum, unit);
-    if (tile.totalCount != null) return tile.totalCount.toLocaleString();
-    return "-";
-  }
-  return tile.total != null ? formatMetricValue(tile.total, unit) : "-";
+function mainText(tile: StatTile, unit: string): string {
+  return tile.value != null ? formatMetricValue(tile.value, unit) : "-";
 }
 
 function Tile({
@@ -66,11 +217,8 @@ function Tile({
   showLabel: boolean;
 }) {
   const color = SERIES_COLORS[tile.colorIndex % SERIES_COLORS.length];
-  const main = mainText(tile, unit, isDistribution);
-  const count =
-    isDistribution && tile.totalSum != null && tile.totalCount != null
-      ? tile.totalCount.toLocaleString()
-      : null;
+  const main = mainText(tile, unit);
+  const count = isDistribution && tile.count != null ? tile.count.toLocaleString() : null;
 
   return (
     <div className="rounded-lg border border-border/30 bg-muted/50 p-3">
@@ -82,8 +230,8 @@ function Tile({
           </span>
         </div>
       )}
-      <div className="font-mono text-2xl font-medium text-foreground">{main}</div>
-      {count && <div className="mt-0.5 text-xs text-muted-foreground">count {count}</div>}
+      <div className="text-2xl font-semibold text-foreground">{main}</div>
+      {count !== null && <div className="mt-0.5 text-xs text-muted-foreground">count {count}</div>}
     </div>
   );
 }

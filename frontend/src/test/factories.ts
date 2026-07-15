@@ -1,4 +1,5 @@
 import type { SpanData, TraceData, LogData, MetricData, DataPoint } from "@/types/telemetry";
+import type { AggregatePointData, AggregateSeriesData } from "@/hooks/use-metric-aggregate-series";
 
 export function makeSpan(overrides: Partial<SpanData> = {}): SpanData {
   return {
@@ -18,6 +19,14 @@ export function makeSpan(overrides: Partial<SpanData> = {}): SpanData {
     resource: {},
     ...overrides,
   };
+}
+
+// Converts a makeSpan()-shaped SpanData back into the GraphQL SpanFields
+// fragment shape (durationMs instead of duration) a mocked gqlClient.request
+// response needs — the inverse of lib/span-mapping.ts's toSpan.
+export function toQuerySpan(span: SpanData) {
+  const { duration, ...rest } = span;
+  return { ...rest, durationMs: duration / 1_000_000 };
 }
 
 export function makeTrace(overrides: Partial<TraceData> = {}): TraceData {
@@ -68,7 +77,33 @@ export function makeMetric(overrides: Partial<MetricData> = {}): MetricData {
     serviceName: "frontend",
     resource: {},
     dataPoints: [],
+    pointCount: 0,
+    latestValue: null,
     receivedAt: "2024-01-01T00:00:00Z",
+    ...overrides,
+  };
+}
+
+export function makeAggregatePoint(
+  overrides: Partial<AggregatePointData> = {},
+): AggregatePointData {
+  return {
+    timestamp: "2024-01-01T00:00:00Z",
+    value: 0,
+    count: null,
+    sum: null,
+    min: null,
+    max: null,
+    ...overrides,
+  };
+}
+
+export function makeAggregateSeries(
+  overrides: Partial<AggregateSeriesData> = {},
+): AggregateSeriesData {
+  return {
+    groupValues: ["a"],
+    points: [makeAggregatePoint()],
     ...overrides,
   };
 }

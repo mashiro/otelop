@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+#MISE description="Start an isolated backend for e2e verification"
+set -euo pipefail
+
+http_port="${OTELOP_E2E_HTTP:-14319}"
+grpc_port="${OTELOP_E2E_OTLP_GRPC:-14317}"
+otlp_http_port="${OTELOP_E2E_OTLP_HTTP:-14318}"
+frontend_port="${OTELOP_E2E_FRONTEND:-15173}"
+
+debug_flag=""
+if [[ "${OTELOP_E2E_DEBUG:-false}" == "true" ]]; then
+  debug_flag="--debug"
+fi
+
+storage_dir="$(mktemp -d)"
+config_file="$(mktemp)"
+trap 'rm -rf "$storage_dir" "$config_file"' EXIT
+
+echo "=========================================================================="
+echo " otelop e2e verification environment (isolated — live :4319/:5173 untouched)"
+echo "=========================================================================="
+echo "  Backend GraphQL : http://localhost:${http_port}/graphql"
+echo "  OTLP gRPC       : 127.0.0.1:${grpc_port}"
+echo "  OTLP HTTP       : http://127.0.0.1:${otlp_http_port}"
+echo "  Frontend        : http://localhost:${frontend_port}"
+echo "  Storage (temp)  : ${storage_dir}"
+echo "=========================================================================="
+
+OTELOP_CONFIG_FILE="$config_file" go run ./cmd/otelop start --foreground \
+  --http ":${http_port}" \
+  --otlp-grpc "127.0.0.1:${grpc_port}" \
+  --otlp-http "127.0.0.1:${otlp_http_port}" \
+  --storage-path "${storage_dir}/otelop.duckdb" \
+  $debug_flag

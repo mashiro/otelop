@@ -1,280 +1,273 @@
 ---
 name: otelop-inspect
-description: Investigate OpenTelemetry signals (traces, metrics, logs) buffered by a locally running otelop instance via its GraphQL API. Use this when the user is debugging an app that sends telemetry to otelop and you need to inspect spans, correlate logs with traces, or read metric values.
+description: Investigate OpenTelemetry signals (traces, metrics, logs) retained by a locally running otelop instance via its GraphQL API. Use this when the user is debugging an app that sends telemetry to otelop and you need to inspect spans, correlate logs with traces, or read metric values.
 ---
 
 # Investigating with otelop's GraphQL API
 
-`otelop` buffers every trace, metric, and log it receives in bounded ring
-buffers and exposes them at **`http://localhost:4319/graphql`** (the HTTP port
-is configurable, but 4319 is the default). When the user is debugging an app
-that points its OTLP exporter at otelop, this skill lets you pull exactly the
-signals you need without bothering them for screenshots or log dumps.
+otelop stores received telemetry in DuckDB and exposes it at
+`http://localhost:4319/graphql` by default. The HTTP address is configurable.
+Prefer public surfaces (`otelop status`, `/graphql`, `/mcp`, and the browser
+UI) over implementation details.
 
-Treat this skill as guidance for using the running tool. Prefer public
-surfaces (`otelop status`, `/graphql`, `/mcp`, the browser UI) and avoid
-implementation details unless the user explicitly asks for them.
+## Verify the server
 
-Before querying, verify otelop is actually running:
+Run:
 
 ```bash
 otelop status
 ```
 
-If `otelop status` shows the daemon is not running, ask the user to start it
-(`otelop start`) before retrying.
-
-When you specifically need to verify the GraphQL endpoint itself, use:
+To verify GraphQL itself:
 
 ```bash
 curl -sS -X POST http://localhost:4319/graphql \
   -H 'Content-Type: application/json' \
-  -d '{"query":"{ config { traceCap } }"}'
+  -d '{"query":"{ status { version uptimeMs dbSizeBytes config { traceCount metricCount logCount retention maxSize } } }"}'
 ```
 
-A connection error (or anything other than a `{"data":{...}}` envelope) means
-otelop is not up — ask the user to start it and retry.
+A connection error means the configured server is not reachable. Check the
+address reported by `otelop status`; do not assume the daemon should be
+started or restart it without the user's permission.
 
-## Picking the right query for the question
+## Choose a focused query
 
-The biggest mistake is under-fetching to "save round-trips" when the user
-asked for state. Match the query to the question:
+- Runtime and ingestion overview: `status` and `config`.
+- Storage performance: inspect `otelop.duckdb.query.duration`,
+  `otelop.duckdb.write.duration`, `otelop.duckdb.write.rows`,
+  `otelop.storage.commit.duration`, `otelop.storage.queue.depth`, and
+  `otelop.storage.queue.dropped`. Query metrics use the `operation` attribute;
+  write/commit metrics use `signal`; queue metrics use `queue` and, for drops,
+  `signal`.
+- Storage pipeline detail: search recent traces for `storage.writeTraces`,
+  `storage.writeMetrics`, or `storage.writeLogs`, then fetch the selected trace's
+  spans. The trace connects `exporter.push*`, conversion, writer queue wait,
+  upsert/dedup/append, commit queue wait, read-back queries, broadcast, and
+  WebSocket queue/dispatch. Compare `storage.queue.wait_ms` on
+  `storage.queue.wait` and `storage.deliverCommit`, then inspect the longest
+  function span. Self-telemetry ingestion is deliberately not re-instrumented.
+- Recent traces or errors: `traces` with `startTime`, `hasError`, and
+  `durationMs`, followed by `trace(traceId:)` for detail.
+- Missing or abruptly removed traces: search logs for
+  `dropped oversized trace`. A trace is deleted atomically when its retained
+  span count crosses 10,000; later spans for the same trace are ignored while
+  its tombstone remains live. The tombstone expires only after no spans for
+  that trace have arrived for a full retention period.
+- Logs: `logs` with a narrow time window and `search`; traverse `trace` or
+  `span` when correlation matters.
+- Metric existence/list view: `metrics` with `latestValue` and `pointCount`.
+- Exact metric history: `metricPoints(serviceName:, name:, from:, to:)`.
+- Chart/facet data: `metricAggregate(serviceName:, name:, groupBy:, ...)`.
+- Histogram window statistics: `metricDistributionStats(serviceName:, name:,
+  groupBy:, from:, to:)`.
 
-| User asks…                                  | Default query                                              |
-|---------------------------------------------|------------------------------------------------------------|
-| "is otelop running?" / "anything coming in?"| `config { *Cap *Count }`                                   |
-| "what's the state of metrics?" / "values?"  | `metrics { items { name unit type dataPoints { value attributes } } }` — fetch values |
-| "do we even have metric X?"                 | `metrics { items { name pointCount } }` — pointCount only  |
-| "what traces / errors do we have?"          | `traces { items { traceId hasError durationMs rootSpan { name } } }` |
-| "drill into trace T"                        | `trace(traceId: T) { spans { ... } logs { ... } }` (one round-trip) |
-| "what logs go with this trace?"             | Same `trace(traceId: T) { logs { ... } }` join             |
+Request only the fields needed. Avoid `Metric.dataPoints` on every item in a
+large metrics page; use `metricPoints` after choosing one metric.
 
-`pointCount` is a **cardinality probe**, not a state read. If the user said
-"state" / "values" / "what are they doing", fetch `dataPoints`.
-
-## Schema overview
+## Current schema overview
 
 The schema is introspectable:
 
 ```graphql
-{ __schema { queryType { fields { name args { name type { name ofType { name } } } } } } }
+{ __schema { queryType { fields { name description args { name type { name ofType { name } } } } } } }
 ```
 
-Top-level:
+Top-level queries:
 
-- `config: Config!` — capacities (`traceCap`, `metricCap`, `logCap`,
-  `maxDataPoints`) and current counts (`traceCount`, `metricCount`,
-  `logCount`).
-- `traces(limit=50, offset=0): TraceConnection!` / `trace(traceId: ID!): Trace`
-- `metrics(limit=50, offset=0): MetricConnection!`
-- `logs(limit=50, offset=0, traceId: String): LogConnection!`
-- Mutation `clearSignals: Boolean!` — drops every buffered signal.
-  **Destructive**; never call without explicit user permission.
+- `status: Status!`
+- `config: Config!`
+- `traces(limit: 50, after: String, from: Time, to: Time, search: String)`
+- `trace(traceId: ID!): Trace`
+- `metrics(limit: 50, after: String, from: Time, to: Time, search: String)`
+- `metricPoints(serviceName: String!, name: String!, from: Time, to: Time)`
+- `metricAggregate(serviceName: String!, name: String!, groupBy: [String!]!, bucketSeconds: Int, from: Time, to: Time)`
+- `metricDistributionStats(serviceName: String!, name: String!, groupBy: [String!], from: Time, to: Time)`
+- `logs(limit: 50, after: String, traceId: String, from: Time, to: Time, search: String)`
 
-All connections expose `{ items, total, limit, offset }`. Lists are
-newest-first.
+All three signal connections return `items`, `hasNextPage`, `endCursor`, and
+`limit`; pass `endCursor` as the next query's `after` value. A changed time
+window or search starts again without `after`. List queries deliberately do
+not count every match. Their `search` is a case-insensitive literal
+substring match; `%` and `_` are not wildcards. `from` is inclusive and `to`
+is exclusive.
 
-### Types
+Time-window semantics differ by list:
 
-**`Trace`**: `traceId`, `serviceName`, `rootSpan: Span`, `spans: [Span!]!`,
-`spanCount`, `startTime`, `durationMs`, `hasError` (precomputed; true if any
-span has `statusCode == "Error"`), `logs: [Log!]!` (correlation join).
+- Traces use trace `startTime`, the earliest retained span start, and sort by
+  that value descending.
+- Logs use the log timestamp and sort descending.
+- Metrics include a `(serviceName, name)` group when any series lifetime
+  overlaps the window, and sort groups by their latest received point.
 
-**`Span`**: `traceId`, `spanId`, `parentSpanId`, `name`, `kind`,
-`serviceName`, `startTime`, `endTime`, `durationMs`, `statusCode`,
-`statusMessage`, `attributes: JSON!`, `events: [SpanEvent!]!`, `resource`,
-`trace: Trace!`, `parent: Span`.
+`config` reports storage configuration plus logical counts: retained traces,
+distinct `(serviceName, metric name)` groups, and log records. It does not
+report capacities. `status.dbSizeBytes`, `config.retention`, and
+`config.maxSize` describe storage pressure.
 
-**`SpanEvent`**: `name`, `timestamp`, `attributes`.
+Mutation `clearSignals` deletes every retained signal and is irreversible.
+Never call it without an explicit user request.
 
-**`Metric`**: `name`, `description`, `unit`, `type`, `serviceName`,
-`resource`, `dataPoints: [DataPoint!]!`, `pointCount: Int!`, `receivedAt`.
-`type` is one of `Gauge` / `Sum` / `Histogram` / `Summary` /
-`ExponentialHistogram`. Histogram / Summary / ExponentialHistogram only
-expose `Count` via `value` — percentile/quantile analysis is out of scope,
-see the "Things that bite" section.
+## Types that matter
 
-**`DataPoint`**: `timestamp`, `value: Float!`, `attributes: JSON!`. Multiple
-series for the same metric are mixed into the same `dataPoints` list,
-distinguished only by `attributes` — see "Series grouping" below.
+- `Trace`: `traceId`, `serviceName`, `rootSpan`, `spans`, `spanCount`,
+  `startTime`, `durationMs`, `hasError`, `logs`.
+- `Span`: IDs, name/kind/service, start/end/duration, status, attributes,
+  events, resource, `trace`, and `parent`.
+- `Metric`: name/description/unit/type/service/resource, `dataPoints`,
+  `pointCount`, `latestValue`, and `receivedAt`.
+- `DataPoint`: `id`, `timestamp`, `value`, `cumulative`, `count`,
+  `countCumulative`, `sum`, `sumCumulative`, `min`, `max`, and `attributes`.
+- `DistributionSeries`: one attribute breakdown's `groupValues` (or complete
+  `attributes` when `groupBy` is omitted), window-wide `count` and `mean`,
+  point-reduced optional `min` and `max`, and bucket-estimated `p50`, `p90`,
+  `p95`, `p99` for Histogram and ExponentialHistogram metrics.
+- `Log`: `id`, timestamps, trace/span IDs, severity, body, service,
+  attributes/resource, `trace`, and `span`.
 
-**`Log`**: `timestamp`, `observedTimestamp`, `traceId`, `spanId`,
-`severityNumber`, `severityText`, `body`, `serviceName`, `attributes`,
-`resource`, `trace: Trace`, `span: Span`.
-
-### Graph edges (traversal)
-
-Every type exposes traversable edges so you can follow relationships in one
-round-trip:
-
-- `Log.trace: Trace` / `Log.span: Span` — null if traceId/spanId is unset or
-  the referent has been evicted.
-- `Span.trace: Trace!` / `Span.parent: Span` — parent span within the same
-  trace; null for root.
-- `Trace.rootSpan: Span` / `Trace.spans: [Span!]!` / `Trace.logs: [Log!]!`.
-
-Raw scalars (`Log.traceId`, `Span.parentSpanId`, …) remain available when you
-want just the ID without fetching the referent.
-
-## How to invoke
-
-### 1. Plain HTTP POST (always works)
-
-```bash
-curl -sS -X POST http://localhost:4319/graphql \
-  -H 'Content-Type: application/json' \
-  -d '{"query": "{ traces(limit: 20) { items { traceId hasError durationMs rootSpan { name } } } }"}'
-```
-
-For variables:
-
-```bash
-curl -sS -X POST http://localhost:4319/graphql \
-  -H 'Content-Type: application/json' \
-  -d '{"query":"query($id: ID!){ trace(traceId:$id){ spanCount } }","variables":{"id":"02000000000000000000000000000000"}}'
-```
-
-### 2. MCP (when available)
-
-otelop also exposes an MCP server at `http://localhost:4319/mcp` and exposes
-a single tool `query` that takes `{query, variables?, operationName?}`.
-otelop is **not** always running, so the MCP server is only reachable while
-the process is up.
+Graph edges can be fetched in one round-trip. A nullable correlation edge is
+null when its ID is absent or the referenced retained row no longer exists.
 
 ## Query cookbook
 
-### Traces — scan, then drill
+### Scan traces, then drill in
 
 ```graphql
-{ traces(limit: 100) {
-    total
-    items { traceId serviceName rootSpan { name } durationMs hasError spanCount }
-} }
+query($from: Time, $to: Time, $search: String) {
+  traces(limit: 100, from: $from, to: $to, search: $search) {
+    hasNextPage
+    endCursor
+    items { traceId startTime serviceName durationMs hasError spanCount rootSpan { name } }
+  }
+}
 ```
-
-Sort the response yourself: `hasError: true` first, then `durationMs` desc,
-to surface candidates.
 
 ```graphql
 query($id: ID!) {
   trace(traceId: $id) {
-    traceId serviceName durationMs hasError
+    traceId startTime durationMs hasError
     spans {
-      spanId parentSpanId name kind durationMs statusCode statusMessage
-      attributes
-      events { name timestamp attributes }
+      spanId parentSpanId name kind startTime durationMs statusCode statusMessage
+      attributes events { name timestamp attributes }
     }
     logs { timestamp severityText body attributes }
   }
 }
 ```
 
-### Logs — list, or filter by trace
+### Search logs and inspect their surroundings
 
 ```graphql
-{ logs(limit: 50) {
-    items { timestamp severityText body
-            trace { traceId hasError durationMs }
-            span { spanId name durationMs statusCode } }
-} }
-```
-
-```graphql
-{ logs(traceId: "02000000000000000000000000000000", limit: 200) {
-    items { timestamp severityText body }
-} }
-```
-
-### Metrics — read actual values (the default)
-
-```graphql
-{ metrics(limit: 100) {
+query($from: Time!, $to: Time!, $search: String) {
+  logs(limit: 100, from: $from, to: $to, search: $search) {
+    hasNextPage
+    endCursor
     items {
-      name type unit description serviceName
-      dataPoints { timestamp value attributes }
+      id timestamp severityText body serviceName
+      trace { traceId hasError durationMs }
+      span { spanId name statusCode }
     }
-} }
+  }
+}
 ```
 
-After fetching, **group `dataPoints` by `attributes`** to recover series.
-Then for each series, take the latest (last element — newest-first) for
-"current value", or scan the whole list for min/max/trend.
+To show surrounding records, choose a new `[from, to)` around the selected
+log timestamp and query again. `logs(traceId:)` instead returns all retained
+logs for that trace and ignores `from`, `to`, and `search`.
 
-```python
-# pseudo-code: per metric, per series, latest value
-series = {}
-for p in metric["dataPoints"]:
-    key = json.dumps(p["attributes"], sort_keys=True)
-    series.setdefault(key, []).append(p)
-for key, points in series.items():
-    latest = points[-1]["value"]
-```
-
-### Metrics — cheap existence check
-
-Only when you literally just want "does this metric exist and how big is it":
+### List metrics, then read one metric
 
 ```graphql
-{ metrics(limit: 100) { items { name type pointCount } } }
+query($from: Time, $to: Time, $search: String) {
+  metrics(limit: 100, from: $from, to: $to, search: $search) {
+    hasNextPage
+    endCursor
+    items { serviceName name type unit receivedAt latestValue pointCount }
+  }
+}
 ```
-
-### Capacity + counts
 
 ```graphql
-{ config { traceCap traceCount metricCap metricCount logCap logCount maxDataPoints } }
+query($service: String!, $name: String!, $from: Time!, $to: Time!) {
+  metricPoints(serviceName: $service, name: $name, from: $from, to: $to) {
+    id timestamp value cumulative count countCumulative
+    sum sumCumulative min max attributes
+  }
+}
 ```
 
-If a `*Count` equals its `*Cap`, the ring buffer is full and older signals
-are being evicted — note this when drawing conclusions about what "isn't
-there".
+For histogram percentiles, request the server-side merged distribution rather
+than calculating or averaging percentiles from individual points:
+
+```graphql
+query($service: String!, $name: String!, $groupBy: [String!], $from: Time!, $to: Time!) {
+  metricDistributionStats(
+    serviceName: $service
+    name: $name
+    groupBy: $groupBy
+    from: $from
+    to: $to
+  ) {
+    groupValues attributes count mean min max p50 p90 p95 p99
+  }
+}
+```
+
+Pass the same attribute keys used by the chart breakdown. Omit `groupBy` to
+group by each complete point-attribute map, reproducing the UI's `All` view.
+Each underlying series is delta-derived before its buckets are merged into a
+returned group. `min` and `max` instead reduce the optional values carried by
+the selected points and are not delta-derived for cumulative histograms.
+Percentiles are estimates interpolated from the sender's retained bucket
+boundaries. If the boundaries are much wider than the observed values, the
+reported percentiles will be correspondingly coarse and can fall outside the
+independently reduced point `min`/`max`. Compare `mean`, `min`, and `max` with
+`metricPoints` before treating an implausible percentile as storage
+corruption; the instrument's histogram boundaries may need adjustment.
+
+Data points are ordered oldest-first. One metric group can contain multiple
+attribute series, so group points by `attributes` before reporting a latest
+value or trend.
+
+For Gauge, `value` is instantaneous. For Sum, it is the interval value (a
+cumulative monotonic source is delta-derived). For Histogram, Summary, and
+ExponentialHistogram, `value` is the interval arithmetic mean (`sum/count`),
+while `count`, `sum`, `min`, and `max` expose distribution statistics when
+available. The cumulative fields either preserve source cumulative values or
+accumulate retained delta inputs. Retention/max-size cleanup can change totals
+derived from retained delta history.
 
 ## Investigation playbook
 
-### "Something's broken in my app, look at otelop"
+1. Query `status { config { ... } dbSizeBytes }` to confirm the server and
+   whether relevant signal groups exist.
+2. Use server-side `from`/`to` and `search` to narrow the response before
+   requesting large JSON attribute fields.
+3. Scan traces by `startTime`, `hasError`, and `durationMs`, then fetch one
+   trace with spans and correlated logs.
+4. For a metric, list with `latestValue`, then fetch its exact history with
+   `metricPoints` or server-bucketed chart data with `metricAggregate`.
+5. Report trace IDs and exact RFC3339 windows so the result is reproducible
+   in the UI or another query.
+6. If an expected trace is absent or disappears while ingest is active, search
+   logs for `dropped oversized trace` and report its `trace_id`, `span_count`,
+   and `limit` attributes before attributing the loss to retention.
 
-1. `config` — confirm otelop has data; note if any buffer is at capacity.
-2. `traces(limit: 100)` with `hasError` and `durationMs` — spot the candidate.
-3. `trace(traceId) { spans { ... } logs { ... } }` — drill in with the
-   correlation join in a single round-trip. Include `events` for
-   span-internal markers.
-4. If still uncertain, fetch metrics with **values** (`dataPoints { value
-   attributes }`) for the relevant service and look for spikes or saturation.
-5. Report findings with the trace ID so the user can open the trace at
-   `http://localhost:4319/traces/<traceId>`.
+## Common pitfalls
 
-### "What's the state of X right now?"
-
-Always fetch the values, not the cardinality:
-
-- "state of metrics" → `dataPoints { value attributes }`, group by series,
-  report latest + range per series with units.
-- "state of traces" → recent items with `hasError`, `durationMs`,
-  `spanCount`, `serviceName`. Note which services are sending.
-- "state of logs" → recent items with `severityText`, `body`, and
-  `trace { traceId }` to show correlation health.
-
-## Things that bite
-
-- **`Metric.dataPoints[].value` for Histogram / Summary / ExponentialHistogram
-  is the cumulative `Count`, not the sum, mean, or any bucket boundary.** The
-  GraphQL schema does not expose sum, buckets, quantiles, or min/max for
-  these types — this is intentional, not a missing feature. otelop is a local
-  "what's flowing through right now" viewer, not a metrics analysis backend.
-  If the user wants p99 latency or average request size, say so explicitly
-  and point them at Prometheus / Grafana / a real TSDB with PromQL — don't
-  invent a number from `value`.
-- **`dataPoints` mixes all series for one metric.** A metric with two label
-  sets (e.g. `go.memory.used` with `go.memory.type=other` and `=stack`)
-  returns 2× the data points in one flat list, distinguished only by
-  `attributes`. Group by `attributes` before reporting "the value".
-- **Ring buffers evict silently.** If you see fewer items than expected, check
-  `config.*Count` vs `*Cap`. Older data is just gone — ask the user to
-  reproduce.
-- **`*.attributes` and `*.resource` are free-form `JSON`.** Don't assume
-  specific keys; filter and print defensively. They can be large — only
-  request them when you actually need them.
-- **Times are RFC3339 strings** via the `Time` scalar. Parse before diffing.
-- **Durations (`Span.durationMs`, `Trace.durationMs`) are milliseconds**, not
-  seconds and not nanoseconds.
-- **`clearSignals` is destructive.** It empties every ring buffer with no
-  undo. Never call it without an explicit, scoped user request.
+- Times use the GraphQL `Time` scalar and RFC3339 values. Durations ending in
+  `Ms` are milliseconds.
+- Attributes and resources are free-form JSON and can be large.
+- A trace list window is based on trace start, not the timestamps of every
+  contained span.
+- `pointCount` is cardinality, not metric state; use `latestValue` or
+  `metricPoints` for values.
+- Histogram percentile accuracy is bounded by the sender's bucket layout. A
+  duration Histogram recorded in seconds with broad default boundaries can
+  legitimately return multi-second bucket estimates for millisecond-scale
+  observations; inspect `metricPoints` and the metric unit when results look
+  implausible.
+- Missing old data may be caused by configured retention or max-size cleanup.
+  A trace can also disappear when it crosses the 10,000 retained-span limit;
+  confirm this through the `dropped oversized trace` warning log. There is no
+  ring-buffer capacity to compare against.
+- `clearSignals` is destructive and has no undo.

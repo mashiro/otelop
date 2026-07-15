@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+#MISE description="Format and auto-fix frontend code"
+#MISE dir="frontend"
+set -euo pipefail
+pnpm exec vp check --fix

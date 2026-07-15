@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+#MISE description="Install backend dependencies"
+set -euo pipefail
+go mod download

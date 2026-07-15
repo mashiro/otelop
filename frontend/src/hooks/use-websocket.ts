@@ -1,7 +1,13 @@
 import { useEffect } from "react";
 import { useSetAtom } from "jotai";
-import { addTraceAtom, addMetricAtom, addLogAtom, wsStatusAtom } from "@/stores/telemetry";
-import type { TraceData, MetricData, LogData } from "@/types/telemetry";
+import {
+  addTraceAtom,
+  removeTraceAtom,
+  addMetricAtom,
+  addLogAtom,
+  wsStatusAtom,
+} from "@/stores/telemetry";
+import type { TraceData, TraceDeleteData, MetricData, LogData } from "@/types/telemetry";
 import { wsManager } from "@/lib/websocket-manager";
 
 // useWebSocket is a thin adapter that bridges the module-level WsManager to
@@ -12,6 +18,7 @@ import { wsManager } from "@/lib/websocket-manager";
 export function useWebSocket(): void {
   const setWsStatus = useSetAtom(wsStatusAtom);
   const addTrace = useSetAtom(addTraceAtom);
+  const removeTrace = useSetAtom(removeTraceAtom);
   const addMetric = useSetAtom(addMetricAtom);
   const addLog = useSetAtom(addLogAtom);
 
@@ -23,6 +30,9 @@ export function useWebSocket(): void {
           case "traces":
             addTrace(msg.data as TraceData);
             break;
+          case "trace-deletes":
+            removeTrace((msg.data as TraceDeleteData).traceId);
+            break;
           case "metrics":
             addMetric(msg.data as MetricData);
             break;
@@ -33,5 +43,5 @@ export function useWebSocket(): void {
       },
     });
     return unsubscribe;
-  }, [setWsStatus, addTrace, addMetric, addLog]);
+  }, [setWsStatus, addTrace, removeTrace, addMetric, addLog]);
 }

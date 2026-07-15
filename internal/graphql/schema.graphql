@@ -7,40 +7,107 @@ schema {
 }
 
 type Query {
-  "Ring buffer capacity and current counts."
+  "Storage configuration and current logical signal counts."
   config: Config!
 
   "Runtime info for the running otelop instance. Consumed by `otelop status`."
   status: Status!
 
-  "List traces newest-first."
-  traces(limit: Int = 50, offset: Int = 0): TraceConnection!
+  """
+  List traces by trace startTime, newest-first. A trace is in range when its
+  startTime (the earliest retained span start) is in [from, to); both bounds
+  default to the full retention window (now - retention - 24h slack) .. (now + 24h slack).
+  Traces that exceed 10,000 retained spans are dropped atomically and are
+  therefore absent from this list.
+  search, if given, case-insensitively matches a trace whose trace ID, or any
+  span's name, status code, or resource service name, contains it (substring
+  match; % and _ are treated literally, not as wildcards). An empty/omitted
+  search matches every trace in range. Pagination fetches limit + 1 candidate
+  traces and exposes `hasNextPage` without counting every match.
+  """
+  traces(limit: Int = 50, after: String, from: Time, to: Time, search: String): TraceConnection!
 
-  "Fetch a single trace by its hex-encoded trace ID."
+  """
+  Fetch a retained trace by its hex-encoded trace ID. Returns null when the
+  trace is not retained, including after retention/max-size cleanup or when it
+  exceeded the 10,000 retained-span limit.
+  """
   trace(traceId: ID!): Trace
 
-  "List metrics newest-first."
-  metrics(limit: Int = 50, offset: Int = 0): MetricConnection!
+  """
+  List metric groups by their most recently received point, newest-first.
+  A metric group is in range when any of its series overlaps [from, to);
+  both bounds default to the full retention window. search, if given,
+  case-insensitively matches metric name, service name, metric type, or
+  description (substring match; % and _ are treated literally, not as
+  wildcards). An empty/omitted search matches every metric group in range.
+  """
+  metrics(limit: Int = 50, after: String, from: Time, to: Time, search: String): MetricConnection!
 
   """
   List log records newest-first. If traceId is given, only logs whose TraceID
-  matches are returned — the standard observability trace↔log correlation.
+  matches are returned — the standard observability trace↔log correlation —
+  and from/to and search are ignored (matching the trace's own retained
+  lifetime). Otherwise from/to bound the query to a time range, defaulting to
+  the full retention window, and search, if given, case-insensitively matches
+  a log whose body, resource service name, severity text, or trace ID
+  contains it (substring match; % and _ are treated literally, not as
+  wildcards). An empty/omitted search matches every log in range.
   """
-  logs(limit: Int = 50, offset: Int = 0, traceId: String): LogConnection!
+  logs(limit: Int = 50, after: String, traceId: String, from: Time, to: Time, search: String): LogConnection!
+
+  """
+  Facet-aggregated series for one (serviceName, name) metric: every
+  attribute-series is delta/cumulative-derived first (the same derivation
+  `metrics.dataPoints` uses), THEN summed within each distinct combination of
+  groupBy attribute values and bucketed into bucketSeconds-wide time windows —
+  the server-side fix for a chart line that would otherwise zigzag between
+  multiple raw series sharing a facet value. from/to default to the full
+  retention window, matching the other list queries. bucketSeconds is
+  optional: omitted or null auto-sizes the bucket to target ~150 buckets
+  across the metric's actual data extent within from/to, rather than the
+  from/to window itself — the fix for a short-lived metric queried over a
+  wide/unbounded window collapsing into a handful of giant buckets.
+  """
+  metricAggregate(serviceName: String!, name: String!, groupBy: [String!]!, bucketSeconds: Int, from: Time, to: Time): [AggregateSeries!]!
+
+  """
+  Every derived data point for one (serviceName, name) metric group — the
+  single-metric counterpart to `metrics { dataPoints }`, added (issue #162)
+  so a metric detail view can fetch just the metric it's displaying instead
+  of the whole metrics page to extract one group client-side. Applies the
+  identical NULL-baseline filtering `metrics.dataPoints` does. from/to
+  default to the full retention window, matching the other list queries.
+  """
+  metricPoints(serviceName: String!, name: String!, from: Time, to: Time): [DataPoint!]!
+
+  """
+  Window-wide statistics for Histogram and ExponentialHistogram metrics,
+  grouped by the requested point attributes. Every underlying series is
+  delta-derived before buckets are merged into its group. Missing attributes
+  are returned as empty group values. Omitting groupBy groups by the complete
+  point-attribute map, matching the metric detail's All view.
+  """
+  metricDistributionStats(serviceName: String!, name: String!, groupBy: [String!], from: Time, to: Time): [DistributionSeries!]!
 }
 
 type Mutation {
-  "Drop every buffered trace, metric, and log."
+  "Delete every retained trace, metric, and log."
   clearSignals: Boolean!
 }
 
 type Config {
-  traceCap: Int!
-  metricCap: Int!
-  logCap: Int!
-  maxDataPoints: Int!
+  "Database file path, or empty for an in-memory database (tests only)."
+  storagePath: String!
+  "Configured retention window, as given in the TOML/CLI/env config (e.g. \"7d\")."
+  retention: String!
+  "Configured on-disk size ceiling, as given in the TOML/CLI/env config (e.g. \"4GB\")."
+  maxSize: String!
+  "Number of distinct retained trace groups."
   traceCount: Int!
+  "Number of distinct retained (serviceName, metric name) groups."
   metricCount: Int!
+  "Number of retained log records."
   logCount: Int!
 }
 
@@ -62,36 +129,46 @@ type Status {
   proxyProtocol: String!
   "True when self-telemetry is enabled via --debug."
   debug: Boolean!
-  "Ring buffer capacity and current counts."
+  "Configured log level (e.g. \"warn\"), as given in the TOML/CLI/env config."
+  logLevel: String!
+  "Storage configuration and current logical signal counts."
   config: Config!
+  "Current database file size in bytes (0 for an in-memory database)."
+  dbSizeBytes: Float!
 }
 
 type TraceConnection {
   items: [Trace!]!
-  total: Int!
+  "True when another infinite-scroll page exists after this one."
+  hasNextPage: Boolean!
+  "Opaque position to pass as `after` for the next page."
+  endCursor: String
   limit: Int!
-  offset: Int!
 }
 
 type MetricConnection {
   items: [Metric!]!
-  total: Int!
+  "True when another page exists after this one."
+  hasNextPage: Boolean!
+  "Opaque position to pass as `after` for the next page."
+  endCursor: String
   limit: Int!
-  offset: Int!
 }
 
 type LogConnection {
   items: [Log!]!
-  total: Int!
+  "True when another infinite-scroll page exists after this one."
+  hasNextPage: Boolean!
+  "Opaque position to pass as `after` for the next page."
+  endCursor: String
   limit: Int!
-  offset: Int!
 }
 
 type Trace {
   traceId: ID!
   serviceName: String!
   rootSpan: Span
-  "Every span otelop has buffered under this trace."
+  "Every retained span belonging to this trace."
   spans: [Span!]!
   spanCount: Int!
   startTime: Time!
@@ -141,6 +218,15 @@ type Metric {
   dataPoints: [DataPoint!]!
   "Length of dataPoints without requesting the array."
   pointCount: Int!
+  """
+  Derived value of the most recently observed point from the group's active
+  series. Metrics-page values are resolved in one page-wide batch instead of
+  re-deriving each group's whole retained history — the metrics list's cheap
+  glance column (issue #162).
+  Null when the group has no points yet, or its latest observation has
+  nothing meaningful to derive (see storage.LatestValue's doc comment).
+  """
+  latestValue: Float
   receivedAt: Time!
 }
 
@@ -150,13 +236,14 @@ activity: for cumulative OTLP inputs (monotonic Sum, Histogram, Summary,
 ExponentialHistogram) the server delta-izes against the previous observation
 before returning; delta inputs are already per-interval. The `cumulative`
 family carries the running total "since otelop started observing this series"
-so clients can show session totals without re-summing the delta column — for
+so clients can show retained-history totals without re-summing the delta column — for
 cumulative-temporality input it's the exporter's raw cumulative, for
-delta-temporality input otelop accumulates the deltas itself. Note that otelop
-is a local in-memory viewer: the running total resets when the daemon restarts.
+delta-temporality input otelop accumulates the retained deltas itself. Retention
+or max-size cleanup can therefore change that derived total; cumulative input
+continues to expose the exporter's raw cumulative value.
 """
 type DataPoint {
-  "Stable, globally unique identity (UUIDv7) assigned at ingestion. Survives ring-buffer eviction and reconnects, so clients can use it as a durable key."
+  "Stable, globally unique identity (UUIDv7) assigned at ingestion. Persists with the retained database row, so clients can use it as a key across reconnects."
   id: ID!
   timestamp: Time!
   """
@@ -196,8 +283,58 @@ type DataPoint {
   attributes: JSON!
 }
 
+"""
+One facet group's fully bucketed series from the metricAggregate query — one
+line on the chart when a facet is active. groupValues is ordered to match the
+groupBy argument (e.g. groupBy: ["region"] → groupValues: ["us-east"]); a
+series missing that attribute contributes to the "" (empty string) value.
+"""
+type AggregateSeries {
+  groupValues: [String!]!
+  points: [AggregatePoint!]!
+}
+
+"""
+One time bucket of an AggregateSeries — the summed-across-series counterpart
+to DataPoint. Unlike DataPoint there is no `cumulative` family: a running
+total only makes sense per series, not summed across a facet group over time.
+"""
+type AggregatePoint {
+  timestamp: Time!
+  """
+  Gauge/Sum: summed per-window delta across every series in the group.
+  Histogram/Summary/ExponentialHistogram: summed-sum / summed-count (0 when
+  the summed count is 0), so the metric's declared unit still applies
+  directly.
+  """
+  value: Float!
+  "Summed per-window observation count for distribution metrics. Null for Gauge/Sum."
+  count: Float
+  "Summed per-window observation sum for distribution metrics. Null for Gauge/Sum."
+  sum: Float
+  "Minimum observation across every contributing series in this window. Null when unavailable."
+  min: Float
+  "Maximum observation across every contributing series in this window. Null when unavailable."
+  max: Float
+}
+
+type DistributionSeries {
+  "Attribute values in the same order as the requested groupBy keys."
+  groupValues: [String!]!
+  "Complete point attributes when groupBy is omitted; empty for an explicit breakdown."
+  attributes: JSON!
+  count: Float!
+  mean: Float
+  min: Float
+  max: Float
+  p50: Float
+  p90: Float
+  p95: Float
+  p99: Float
+}
+
 type Log {
-  "Stable, globally unique identity (UUIDv7) assigned at ingestion. Survives ring-buffer eviction and reconnects, so clients can use it as a durable key."
+  "Stable, globally unique identity (UUIDv7) assigned at ingestion. Persists with the retained database row, so clients can use it as a key across reconnects."
   id: ID!
   timestamp: Time!
   observedTimestamp: Time!
@@ -209,7 +346,7 @@ type Log {
   serviceName: String!
   attributes: JSON!
   resource: JSON!
-  "Correlated trace, or null if the log has no traceId or the trace has been evicted from the ring buffer."
+  "Correlated retained trace, or null if traceId is unset or that trace is no longer retained."
   trace: Trace
   "Correlated span within the trace, or null if traceId/spanId are unset or the trace/span is missing."
   span: Span

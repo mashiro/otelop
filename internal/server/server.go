@@ -16,7 +16,7 @@ import (
 
 	otelopgraphql "github.com/mashiro/otelop/internal/graphql"
 	"github.com/mashiro/otelop/internal/mcp"
-	"github.com/mashiro/otelop/internal/store"
+	"github.com/mashiro/otelop/internal/storage"
 	ws "github.com/mashiro/otelop/internal/websocket"
 )
 
@@ -27,7 +27,7 @@ func tracer() oteltrace.Tracer { return otel.Tracer("otelop/server") }
 // Server serves the GraphQL endpoint, MCP endpoint, WebSocket stream, and
 // embedded frontend.
 type Server struct {
-	store      *store.Store
+	storage    *storage.Storage
 	hub        *ws.Hub
 	schema     *gqlgo.Schema
 	httpServer *http.Server
@@ -37,11 +37,11 @@ type Server struct {
 // New creates a new Server. When runtime.Debug is true, HTTP requests are
 // instrumented with OpenTelemetry spans via otelhttp. runtime.Version is
 // advertised via the MCP Implementation metadata at /mcp.
-func New(s *store.Store, hub *ws.Hub, frontendFS fs.FS, runtime otelopgraphql.RuntimeInfo) *Server {
+func New(s *storage.Storage, hub *ws.Hub, frontendFS fs.FS, runtime otelopgraphql.RuntimeInfo) *Server {
 	srv := &Server{
-		store:  s,
-		hub:    hub,
-		schema: otelopgraphql.MustNewSchema(s, runtime),
+		storage: s,
+		hub:     hub,
+		schema:  otelopgraphql.MustNewSchema(s, runtime),
 	}
 
 	mux := http.NewServeMux()

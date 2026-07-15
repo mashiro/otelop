@@ -1,4 +1,4 @@
-// Package graphql exposes otelop's in-memory telemetry store to callers via a
+// Package graphql exposes otelop's DuckDB-backed telemetry store to callers via a
 // GraphQL schema. It is the integration surface for AI-driven investigation —
 // field selection lets callers take exactly the data they want (and nothing
 // more), and the Trace.logs field implements the standard trace↔log
@@ -17,7 +17,7 @@ import (
 
 	gql "github.com/graph-gophers/graphql-go"
 
-	"github.com/mashiro/otelop/internal/store"
+	"github.com/mashiro/otelop/internal/storage"
 )
 
 //go:embed schema.graphql
@@ -35,13 +35,29 @@ type RuntimeInfo struct {
 	ProxyURL      string
 	ProxyProtocol string
 	Debug         bool
+	// LogLevel is the raw configured log level (e.g. "warn"), surfaced as-is
+	// by the `status` query — consumed by `otelop info` when reporting an
+	// instance's effective configuration.
+	LogLevel string
+
+	// Retention is the parsed retention window, used to compute the default
+	// "full retention window" for traces/metrics/logs queries when no
+	// explicit from/to args are given.
+	Retention time.Duration
+	// StoragePath, RetentionDisplay, and MaxSizeDisplay are the raw
+	// configured values (as given in the TOML/CLI/env config) surfaced
+	// as-is by the `config` query — e.g. RetentionDisplay "7d" rather than
+	// Retention.String()'s "168h0m0s".
+	StoragePath      string
+	RetentionDisplay string
+	MaxSizeDisplay   string
 }
 
 // MustNewSchema parses the embedded schema and binds it to a resolver backed
-// by the given store. It panics on schema errors so misconfigurations fail at
-// startup, not at query time.
-func MustNewSchema(s *store.Store, runtime RuntimeInfo) *gql.Schema {
-	return gql.MustParseSchema(schemaSource, &Resolver{store: s, runtime: runtime}, gql.Tracer(slogTracer{}))
+// by the given storage. It panics on schema errors so misconfigurations fail
+// at startup, not at query time.
+func MustNewSchema(s *storage.Storage, runtime RuntimeInfo) *gql.Schema {
+	return gql.MustParseSchema(schemaSource, &Resolver{storage: s, runtime: runtime}, gql.Tracer(slogTracer{}))
 }
 
 // Source returns the raw GraphQL schema document. Useful for tests and for

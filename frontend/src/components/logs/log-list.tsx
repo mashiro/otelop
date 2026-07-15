@@ -1,11 +1,13 @@
-import { useAtomValue, useSetAtom } from "jotai";
+import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { X } from "lucide-react";
 import {
   logsAtom,
+  logCountAtom,
   logTraceFilterAtom,
   navigateToTraceAtom,
   selectedLogAtom,
 } from "@/stores/telemetry";
+import { eventTimeWindowAtom } from "@/stores/navigation";
 import { filteredLogsAtom, logSearchAtom } from "@/stores/filters";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -24,21 +26,29 @@ import { Field, Section } from "@/components/common/detail-field";
 import { SearchFilter } from "@/components/filters/search-filter";
 import { ListPanel } from "@/components/common/list-panel";
 import { EmptyState, EmptyMatches } from "@/components/common/empty-state";
+import { EventWindowControls } from "@/components/common/event-window-controls";
+import { LoadMoreRow } from "@/components/common/load-more-row";
 import { Pill } from "@/components/common/pill";
 import { SIGNALS } from "@/lib/signals";
 import { severityTone } from "@/lib/tones";
+import { useLogListPage } from "@/hooks/use-log-list-page";
 import type { LogData } from "@/types/telemetry";
+import { eventWindowAround } from "@/lib/event-time-window";
 
 export function LogList() {
   const allLogs = useAtomValue(logsAtom);
+  const logCount = useAtomValue(logCountAtom);
   const logs = useAtomValue(filteredLogsAtom);
   const traceFilter = useAtomValue(logTraceFilterAtom);
   const setTraceFilter = useSetAtom(logTraceFilterAtom);
   const navigateToTrace = useSetAtom(navigateToTraceAtom);
   const selectedLog = useAtomValue(selectedLogAtom);
   const setSelectedLog = useSetAtom(selectedLogAtom);
+  const [window, setWindow] = useAtom(eventTimeWindowAtom);
+  const [search, setSearch] = useAtom(logSearchAtom);
+  const page = useLogListPage(window, search, traceFilter);
 
-  if (allLogs.length === 0) {
+  if (logCount === 0 && allLogs.length === 0) {
     return <EmptyState signal={SIGNALS.logs} />;
   }
 
@@ -58,13 +68,19 @@ export function LogList() {
               </button>
             </div>
           )}
-          <SearchFilter atom={logSearchAtom} placeholder="Search logs..." />
+          <SearchFilter atom={logSearchAtom} placeholder="Search logs…" />
+          <div className="ml-auto">
+            <EventWindowControls tone="log" allRetained={Boolean(search.trim() || traceFilter)} />
+          </div>
         </>
       }
     >
       <div className="flex min-h-0 flex-1 overflow-hidden">
         {logs.length === 0 ? (
-          <EmptyMatches label="logs" />
+          <div className="flex min-h-0 flex-1 flex-col">
+            <EmptyMatches label="logs" />
+            <LoadMoreRow {...page} />
+          </div>
         ) : (
           <ScrollArea className="min-h-0 flex-1">
             <Table>
@@ -119,6 +135,7 @@ export function LogList() {
                 })}
               </TableBody>
             </Table>
+            <LoadMoreRow {...page} />
           </ScrollArea>
         )}
         {selectedLog && (
@@ -127,6 +144,10 @@ export function LogList() {
               log={selectedLog}
               onClose={() => setSelectedLog(null)}
               onNavigateToTrace={navigateToTrace}
+              onShowContext={() => {
+                setSearch("");
+                setWindow(eventWindowAround(selectedLog.timestamp, window));
+              }}
             />
           </div>
         )}
@@ -139,10 +160,12 @@ function LogDetail({
   log,
   onClose,
   onNavigateToTrace,
+  onShowContext,
 }: {
   log: LogData;
   onClose: () => void;
   onNavigateToTrace: (id: string) => void;
+  onShowContext: () => void;
 }) {
   return (
     <div className="flex h-full flex-col">
@@ -163,6 +186,9 @@ function LogDetail({
       <ScrollArea className="min-h-0 flex-1">
         <div className="animate-slide-up-fade space-y-5 p-4">
           <div className="space-y-2.5">
+            <Button variant="outline" size="sm" onClick={onShowContext} className="w-full">
+              Show surrounding logs
+            </Button>
             <Field label="Timestamp" value={formatTimestamp(log.timestamp)} mono />
             <Field
               label="Severity"

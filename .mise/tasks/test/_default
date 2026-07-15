@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+#MISE description="Run all tests"
+#MISE depends=["test:backend", "test:frontend"]

@@ -39,9 +39,6 @@ importers:
       '@visx/group':
         specifier: 4.0.0
         version: 4.0.0(@types/react@19.2.17)(react@19.2.7)
-      '@visx/network':
-        specifier: 4.0.0
-        version: 4.0.0(@types/react@19.2.17)(react@19.2.7)
       '@visx/responsive':
         specifier: 4.0.0
         version: 4.0.0(@types/react@19.2.17)(react@19.2.7)
@@ -1435,15 +1432,6 @@ packages:
 
   '@visx/group@4.0.0':
     resolution: {integrity: sha512-HGAq8BCqn5x0t94CJOLJeKtWss9LFpF3HY69HbuO1PlR+B9c4aVT9xbjfudmU8wGQZLT6JNt+PJvxbO2aJ+1aA==}
-    peerDependencies:
-      '@types/react': ^18.0.0 || ^19.0.0
-      react: ^18.0.0 || ^19.0.0
-    peerDependenciesMeta:
-      '@types/react':
-        optional: true
-
-  '@visx/network@4.0.0':
-    resolution: {integrity: sha512-hMraCpMWODf1G4lHV3368RVAX19RDBEJIri+I5/Yg1PgY3ekRjatvp92jLvJK/y061g87QSSF55OqWoxQcoCuw==}
     peerDependencies:
       '@types/react': ^18.0.0 || ^19.0.0
       react: ^18.0.0 || ^19.0.0
@@ -4781,14 +4769,6 @@ snapshots:
 
   '@visx/group@4.0.0(@types/react@19.2.17)(react@19.2.7)':
     dependencies:
-      classnames: 2.5.1
-      react: 19.2.7
-    optionalDependencies:
-      '@types/react': 19.2.17
-
-  '@visx/network@4.0.0(@types/react@19.2.17)(react@19.2.7)':
-    dependencies:
-      '@visx/group': 4.0.0(@types/react@19.2.17)(react@19.2.7)
       classnames: 2.5.1
       react: 19.2.7
     optionalDependencies:

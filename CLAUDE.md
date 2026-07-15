@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-A local-development tool for visualizing OpenTelemetry signals (Traces / Metrics / Logs) in the browser in real time.
+A local-development tool for persistently storing and visualizing OpenTelemetry signals (Traces / Metrics / Logs) in the browser in real time.
 
 ## Development Commands
 
@@ -19,7 +19,7 @@ mise run build    # Build
 - lint: `golangci-lint run ./...`
 - Auto-format: `golangci-lint fmt ./...`
 - Tests: `go test ./...`
-- Tests live in `internal/store/` and `internal/websocket/`
+- Tests live alongside their packages; DuckDB storage coverage is in `internal/storage/`
 
 ## Frontend
 
@@ -58,6 +58,13 @@ mise run build    # Build
 - Don't commit until the user gives permission
 - Always run `mise run check` and `mise run test` after making changes
 - Use agent-browser to verify both light and dark mode
+
+### Verification environment
+
+- Use `mise run e2e-env` for any e2e/manual verification. It boots an isolated backend + frontend on high ports (14317/14318/14319 backend, 15173 frontend) against a throwaway temp DuckDB file, then tears everything down on exit
+- The live dev servers (`:4319` backend, `:5173` frontend) and the user's real DuckDB file are managed by the user's own orchestrator — treat them as **read-only** for verification purposes
+- Never edit `frontend/vite.config.ts` to retarget the dev proxy at a different backend — the proxy target is already an env var (`OTELOP_BACKEND_ORIGIN`); `mise run e2e-env` sets it for you
+- Never kill a process you didn't start (e.g. `kill 0`, `pkill vite`, `pkill otelop`) — this includes the live dev servers
 
 ### Commit messages and PR titles
 

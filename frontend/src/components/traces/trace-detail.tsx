@@ -6,6 +6,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { selectedTraceAtom, navigateToLogsAtom } from "@/stores/telemetry";
 import { formatDuration, shortId } from "@/lib/format";
 import { downloadJson } from "@/lib/export";
+import { useTraceSpans } from "@/hooks/use-trace-spans";
 import { SpanWaterfall } from "./span-waterfall";
 import { KVSection } from "@/components/ui/kv-section";
 import { DetailPanel } from "@/components/common/detail-panel";
@@ -19,6 +20,9 @@ export function TraceDetail() {
   const setSelected = useSetAtom(selectedTraceAtom);
   const navigateToLogs = useSetAtom(navigateToLogsAtom);
   const [selectedSpan, setSelectedSpan] = useState<SpanData | null>(null);
+  // The trace list only loads summaries (see use-initial-load.ts); backfill
+  // this trace's full span data the moment its detail view is open.
+  useTraceSpans(trace);
 
   if (!trace) return null;
 

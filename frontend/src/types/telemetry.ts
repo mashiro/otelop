@@ -25,11 +25,35 @@ export interface SpanData {
   resource: Record<string, unknown>;
 }
 
+// Trace list/detail-header display fields for the trace's representative
+// root span (the parentless span with the longest duration — see the Go
+// resolver's pickRootSpan). Deliberately narrower than SpanData: the
+// GraphQL trace-list query (use-initial-load.ts) resolves these straight
+// from the backend's TracesPage summary row without the per-trace detail
+// fetch that spanId/attributes/events/etc. would require (see
+// internal/graphql/trace_resolver.go), so only fetch fields the summary
+// actually carries. Nothing downstream needs more than this to render a
+// list row or a detail header — full span data comes from `trace.spans`
+// once the detail view lazily fetches it.
+export interface TraceRootSpan {
+  name: string;
+  kind: string;
+  statusCode: SpanStatus;
+  duration: number;
+}
+
 export interface TraceData {
   traceId: string;
-  rootSpan?: SpanData;
+  rootSpan?: TraceRootSpan;
+  // Empty until the trace detail view lazily fetches it (see
+  // hooks/use-trace-spans.ts). Both list queries and live WebSocket updates
+  // carry summary fields only, avoiding a TraceByID query per committed
+  // trace. Never derive count/duration from this array.
   spans: SpanData[];
   serviceName: string;
+  // Lightweight values from spans in the latest WebSocket batch, used to
+  // preserve live search without shipping full span detail.
+  searchValues?: string[];
   spanCount: number;
   startTime: string;
   duration: number;
@@ -37,12 +61,12 @@ export interface TraceData {
 
 // Distribution-only fields are null for Gauge/Sum. See schema.graphql for
 // semantics of value/count/sum/min/max across metric types.
-// The cumulative family carries raw running totals per series (attribute
-// combination) "since otelop started observing"; they reset on daemon restart
-// and are only populated for cumulative OTLP inputs the backend delta-izes.
+// The cumulative family carries the exporter's raw running total for
+// cumulative inputs, or a query-window accumulation for delta inputs. The
+// backend derives both from persisted raw observations at read time.
 export interface DataPoint {
   // Stable, globally unique identity (UUIDv7) assigned by the backend at
-  // ingestion. Use it as the React key: it survives ring-buffer eviction and
+  // ingestion. Use it as the React key: it survives client-buffer eviction and
   // reconnects, unlike timestamp/attributes (which can collide) or array index.
   id: string;
   timestamp: string;
@@ -64,7 +88,19 @@ export interface MetricData {
   type: string;
   serviceName: string;
   resource: Record<string, unknown>;
+  // Empty until a detail view fetches history (hooks/use-metric-range-points.ts)
+  // or a WS delivery merges points in (stores/telemetry.ts's addMetricAtom) —
+  // the initial metrics-list load only fetches pointCount/latestValue below
+  // (issue #162), never the full series, to avoid an N-metric fetch of every
+  // group's entire retained history just to render list rows.
   dataPoints: DataPoint[];
+  // Cheap server-computed summary fields the metrics LIST renders instead of
+  // dataPoints.length / dataPoints.at(-1)?.value (see MetricList) — kept
+  // current across a WS delivery by addMetricAtom's genuinely-new-points
+  // delta, the same "don't trust the wire payload, derive it" pattern the
+  // header badge totals use (see stores/telemetry.ts's totalMetricCountAtom).
+  pointCount: number;
+  latestValue: number | null;
   receivedAt: string;
 }
 
@@ -86,6 +122,10 @@ export interface LogData {
 }
 
 export interface WsMessage {
-  type: "traces" | "metrics" | "logs";
-  data: TraceData | MetricData | LogData;
+  type: "traces" | "trace-deletes" | "metrics" | "logs";
+  data: TraceData | TraceDeleteData | MetricData | LogData;
+}
+
+export interface TraceDeleteData {
+  traceId: string;
 }

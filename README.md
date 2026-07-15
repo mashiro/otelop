@@ -5,7 +5,7 @@
 # otelop
 
 A local OpenTelemetry viewer for traces, metrics, and logs.
-Single binary, in-memory, browser UI.
+Single binary, persistent local storage, browser UI.
 
 [![Go](https://img.shields.io/badge/go-1.26-00ADD8?logo=go&logoColor=white)](go.mod)
 [![React](https://img.shields.io/badge/react-19-61DAFB?logo=react&logoColor=white)](frontend/package.json)
@@ -17,7 +17,7 @@ Single binary, in-memory, browser UI.
 
 ## What it is
 
-`otelop` runs a local OTLP receiver and shows whatever it gets in a browser. No Docker, no database, no Jaeger/Prometheus/Loki to wire up. Start the binary, point your app at it, open the page.
+`otelop` runs a local OTLP receiver and shows whatever it gets in a browser. No Docker, external database, or Jaeger/Prometheus/Loki stack to wire up. Start the binary, point your app at it, open the page.
 
 It's meant for the loop where you're writing instrumentation and just want to see what came through.
 
@@ -33,10 +33,14 @@ It's meant for the loop where you're writing instrumentation and just want to se
 - OTLP gRPC and HTTP receivers (built-in OpenTelemetry Collector)
 - Optional OTLP forwarding to one upstream endpoint
 - Traces, metrics, and logs in one UI
+- Server-side search, time-window navigation, and infinite scrolling for traces and logs
+- Log context navigation for inspecting records around a selected event
+- Embedded DuckDB storage with time-based retention
 - Live updates over WebSocket
 - GraphQL API at `/graphql`
-- MCP server, so agents can query the same data
-- In-memory ring buffers — no persistence, no setup
+- Streamable HTTP MCP server at `/mcp`, so agents can query the same data
+- Persistent history across restarts with no external setup
+- Optional self-observability for otelop's own traces, metrics, and logs
 
 ## Install
 
@@ -55,8 +59,15 @@ mise use -g github:mashiro/otelop
 With Docker:
 
 ```bash
-docker run --rm -p 4317:4317 -p 4318:4318 -p 4319:4319 ghcr.io/mashiro/otelop:latest
+docker run --rm \
+  -p 4317:4317 -p 4318:4318 -p 4319:4319 \
+  -v otelop-data:/data \
+  ghcr.io/mashiro/otelop:latest
 ```
+
+The named volume keeps the DuckDB database when the container is replaced or
+removed. Delete the `otelop-data` volume explicitly when you want to discard
+the stored telemetry.
 
 ## Quick start
 
@@ -69,7 +80,17 @@ This detaches into the background so your terminal stays free. Use `otelop statu
 Then point your app at it:
 
 ```bash
-OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317 your-app
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317 \
+OTEL_EXPORTER_OTLP_PROTOCOL=grpc \
+your-app
+```
+
+For OTLP over HTTP/protobuf, use port `4318` instead:
+
+```bash
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 \
+OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf \
+your-app
 ```
 
 And open <http://localhost:4319>.
@@ -85,16 +106,22 @@ Any AI coding agent that supports OpenTelemetry can export to `otelop`, so you c
 
 | Port | Purpose |
 |---|---|
-| `4319` | Web UI + GraphQL |
+| `4319` | Web UI + GraphQL + MCP |
 | `4317` | OTLP gRPC receiver |
 | `4318` | OTLP HTTP receiver |
+
+The GraphQL and Streamable HTTP MCP endpoints are available at
+`http://localhost:4319/graphql` and `http://localhost:4319/mcp`.
 
 ## Commands
 
 ```
 otelop start [flags]   # launch in the background (default), or foreground with -f
+otelop restart [flags] # restart with the current flags, environment, and config
 otelop stop            # stop the background server
-otelop status          # show PID, listen addresses, and buffered counts
+otelop status          # show whether it's running: PID, version, uptime, listen addresses
+otelop info            # show effective configuration and storage: paths, retention, size, row counts
+otelop logs [-f]       # print the daemon log, or follow it with -f
 otelop version
 ```
 
@@ -112,14 +139,18 @@ otelop version
   --proxy-auth-username upstream basic auth username
   --proxy-auth-password upstream basic auth password
   --proxy-header     upstream header                 (repeatable key=value)
-  --trace-cap        max traces in memory            (default 1000)
-  --metric-cap       max metric series in memory     (default 3000)
-  --log-cap          max log entries in memory       (default 5000)
-  --max-data-points  max data points per series      (default 1000)
+  --storage-path     DuckDB database path             (default: XDG data directory)
+  --retention        telemetry retention period       (default 7d)
+  --max-size         database size ceiling            (default 4GB)
   --log-level        debug|info|warn|error           (default warn)
+  --debug            export otelop's own telemetry to itself
 ```
 
-PID, log, and metadata files live in `$XDG_STATE_HOME/otelop/` (defaults to `~/.local/state/otelop/`).
+PID, log, and metadata files live in `$XDG_STATE_HOME/otelop/` (defaults to
+`~/.local/state/otelop/`). The DuckDB database defaults to
+`$XDG_DATA_HOME/otelop/otelop.duckdb` (or
+`~/.local/share/otelop/otelop.duckdb`). Use `otelop info` to see the resolved
+paths and current storage usage.
 
 ## Configuration
 
@@ -135,12 +166,13 @@ Example `~/.config/otelop/config.toml`:
 http = ":4319"
 otlp_grpc = "0.0.0.0:4317"
 otlp_http = "0.0.0.0:4318"
-trace_cap = 1000
-metric_cap = 3000
-log_cap = 5000
-max_data_points = 1000
 log_level = "warn"
 debug = false
+
+[storage]
+path = "" # empty uses $XDG_DATA_HOME/otelop/otelop.duckdb
+retention = "7d"
+max_size = "4GB"
 
 [proxy]
 url = "https://collector.internal:4318"
@@ -151,9 +183,15 @@ type = "bearer"
 token = "replace-me"
 ```
 
-The matching environment variables are `OTELOP_HTTP`, `OTELOP_OTLP_GRPC`, `OTELOP_OTLP_HTTP`, `OTELOP_PROXY_URL`, `OTELOP_PROXY_PROTOCOL`, `OTELOP_PROXY_AUTH_TYPE`, `OTELOP_PROXY_AUTH_TOKEN`, `OTELOP_PROXY_AUTH_USERNAME`, `OTELOP_PROXY_AUTH_PASSWORD`, `OTELOP_PROXY_HEADERS`, `OTELOP_TRACE_CAP`, `OTELOP_METRIC_CAP`, `OTELOP_LOG_CAP`, `OTELOP_MAX_DATA_POINTS`, `OTELOP_LOG_LEVEL`, and `OTELOP_DEBUG`.
+The matching environment variables are `OTELOP_HTTP`, `OTELOP_OTLP_GRPC`, `OTELOP_OTLP_HTTP`, `OTELOP_PROXY_URL`, `OTELOP_PROXY_PROTOCOL`, `OTELOP_PROXY_AUTH_TYPE`, `OTELOP_PROXY_AUTH_TOKEN`, `OTELOP_PROXY_AUTH_USERNAME`, `OTELOP_PROXY_AUTH_PASSWORD`, `OTELOP_PROXY_HEADERS`, `OTELOP_STORAGE_PATH`, `OTELOP_RETENTION`, `OTELOP_MAX_SIZE`, `OTELOP_LOG_LEVEL`, and `OTELOP_DEBUG`.
 
-When proxying is enabled, `otelop` still buffers incoming telemetry locally for the UI and also forwards the same traces, metrics, and logs to the configured upstream OTLP endpoint.
+When proxying is enabled, `otelop` still stores incoming telemetry locally for the UI and also forwards the same traces, metrics, and logs to the configured upstream OTLP endpoint.
+
+When `debug = true` or `--debug` is set, otelop exports its own telemetry back
+to its local receiver. This includes request and storage traces, process and
+collector metrics, DuckDB query/storage metrics, and application logs. Leave it
+disabled for normal use if you do not want otelop's own activity mixed into the
+data you are inspecting.
 
 `proxy.auth.type` supports:
 
@@ -162,6 +200,21 @@ When proxying is enabled, `otelop` still buffers incoming telemetry locally for 
 - `headers`: sends the exact headers configured under `[proxy.auth.headers]` or `--proxy-header`
 
 Do not embed credentials in `proxy.url`; `otelop` rejects URLs with userinfo such as `https://user:pass@example.com`.
+
+## Development
+
+The main development tasks are managed by mise:
+
+```bash
+mise run install # install Go and frontend dependencies
+mise run dev     # start backend and frontend development servers
+mise run check   # format, lint, and type-check
+mise run test    # run Go and frontend tests
+mise run build   # build the embedded frontend and Go binary
+```
+
+Component tasks can also be run directly, such as `mise run dev:backend`,
+`mise run test:frontend`, or `mise run build:frontend`.
 
 ## License
 

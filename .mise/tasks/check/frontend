@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+#MISE description="Run frontend format, lint, and type checks"
+#MISE dir="frontend"
+set -euo pipefail
+pnpm check

@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useMemo, useRef } from "react";
 import { Group } from "@visx/group";
 import { scaleLinear, scaleTime } from "@visx/scale";
 import { LinePath } from "@visx/shape";
@@ -9,14 +9,10 @@ import { useTooltip, TooltipWithBounds } from "@visx/tooltip";
 import type { MetricData } from "@/types/telemetry";
 import { formatMetricValue } from "@/lib/format-metric";
 import { resolveMetricUnit, type MetricFacet } from "@/lib/metric-catalog";
-import { facetSeriesKey } from "@/lib/metric-stats";
-import {
-  CHART_TIME_RANGES,
-  filterPointsInDomain,
-  timeRangeDomain,
-  type ChartTimeRange,
-} from "@/lib/chart-time-range";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { facetSeriesKey, resolveFacetGroupColorIndex } from "@/lib/metric-stats";
+import { filterPointsInDomain } from "@/lib/chart-time-range";
+import { eventWindowDomain, type EventTimeWindow } from "@/lib/event-time-window";
+import type { AggregateSeriesData } from "@/hooks/use-metric-aggregate-series";
 
 const MARGIN = { top: 10, right: 20, bottom: 40, left: 72 };
 
@@ -56,10 +52,19 @@ interface TooltipData {
 }
 
 interface Props {
+  // metric.dataPoints is already the range-scoped data (metric-detail.tsx's
+  // stableMetric sets it to rangeDataPoints — see use-metric-range-points.ts)
+  // — the same range-scoped data the stat tiles above the chart sum, so the
+  // two can't desync (see metric-stats.ts's computeStatTiles and
+  // MetricSummary).
   metric: MetricData;
   // Facet to group series by; when null/undefined, series are keyed by the
   // full attribute combination (the "All" view).
   facet?: MetricFacet | null;
+  window: EventTimeWindow;
+  // Server-aggregated facet series (null when facet is null, or while a
+  // fetch for the active facet/range hasn't landed yet).
+  aggregatedSeries: AggregateSeriesData[] | null;
 }
 
 /** Find the point in a series closest to a given time. */
@@ -76,26 +81,19 @@ function closestPoint(points: PointData[], targetMs: number): PointData | undefi
   return best;
 }
 
-export function MetricChart({ metric, facet }: Props) {
-  const [range, setRange] = useState<ChartTimeRange>("all");
-
+// Memoized so a WS delivery that doesn't change the props MetricDetailBody
+// passes down (rangeDataPoints/aggregatedSeries kept reference-stable via
+// useStableArray — see use-metric-range-points.ts / use-metric-
+// aggregate-series.ts) skips the SVG/axis/tooltip re-render entirely instead
+// of repainting the whole chart on every message.
+export const MetricChart = memo(function MetricChart({
+  metric,
+  facet,
+  window,
+  aggregatedSeries,
+}: Props) {
   return (
     <div className="flex h-full flex-col">
-      <div className="flex justify-end pb-1.5">
-        <Tabs value={range} onValueChange={(v) => setRange(v as ChartTimeRange)}>
-          <TabsList className="h-7 bg-muted/50">
-            {CHART_TIME_RANGES.map((r) => (
-              <TabsTrigger
-                key={r.value}
-                value={r.value}
-                className="h-6 px-2.5 text-xs data-active:bg-metric/15 data-active:text-metric"
-              >
-                {r.label}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-        </Tabs>
-      </div>
       <div className="min-h-0 flex-1">
         <ParentSize>
           {({ width, height }) =>
@@ -103,7 +101,8 @@ export function MetricChart({ metric, facet }: Props) {
               <ChartInner
                 metric={metric}
                 facet={facet}
-                range={range}
+                aggregatedSeries={aggregatedSeries}
+                window={window}
                 width={width}
                 height={height}
               />
@@ -113,19 +112,50 @@ export function MetricChart({ metric, facet }: Props) {
       </div>
     </div>
   );
-}
+});
 
 function ChartInner({
   metric,
   facet,
-  range,
+  aggregatedSeries,
+  window,
   width,
   height,
-}: Props & { range: ChartTimeRange; width: number; height: number }) {
+}: {
+  metric: MetricData;
+  facet?: MetricFacet | null;
+  aggregatedSeries: AggregateSeriesData[] | null;
+  window: EventTimeWindow;
+  width: number;
+  height: number;
+}) {
   const svgRef = useRef<SVGSVGElement>(null);
   const unit = resolveMetricUnit(metric.name, metric.unit);
 
   const series = useMemo(() => {
+    // Facet active: render the server-summed series (the fix for the
+    // zigzag bug — see use-metric-aggregate-series.ts) instead of grouping
+    // raw points client-side. While the aggregated fetch is in flight or
+    // failed, render nothing rather than falling back to the raw
+    // (unsummed) grouping, which would reintroduce the zigzag.
+    if (facet) {
+      if (!aggregatedSeries) return [];
+      // Colors from first-appearance order in the raw buffer, same as the
+      // stat tiles above — see metric-stats.ts's resolveFacetGroupColorIndex.
+      const resolved = resolveFacetGroupColorIndex(aggregatedSeries, metric.dataPoints, facet);
+      return aggregatedSeries.map((s, i) => {
+        const { label, colorIndex } = resolved[i]!;
+        return {
+          key: label,
+          label,
+          color: SERIES_COLORS[colorIndex % SERIES_COLORS.length],
+          points: [...s.points]
+            .map((p) => ({ time: new Date(p.timestamp), value: p.value }))
+            .sort((a, b) => a.time.getTime() - b.time.getTime()),
+        };
+      });
+    }
+
     const groups = new Map<string, PointData[]>();
     for (const dp of metric.dataPoints) {
       const key = facetSeriesKey(dp.attributes, facet);
@@ -145,13 +175,13 @@ function ChartInner({
       i++;
     }
     return result;
-  }, [metric.dataPoints, facet]);
+  }, [metric.dataPoints, facet, aggregatedSeries]);
 
   // Kept unfiltered: the "No data points" branch reflects the raw metric,
   // not the current time-range window.
   const allPoints = useMemo(() => series.flatMap((s) => s.points), [series]);
 
-  const domain = useMemo(() => timeRangeDomain(allPoints, range), [allPoints, range]);
+  const domain = useMemo(() => eventWindowDomain(allPoints, window), [allPoints, window]);
 
   const visibleSeries = useMemo(
     () =>

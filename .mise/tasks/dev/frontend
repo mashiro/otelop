@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+#MISE description="Start the frontend dev server"
+#MISE dir="frontend"
+set -euo pipefail
+pnpm run dev

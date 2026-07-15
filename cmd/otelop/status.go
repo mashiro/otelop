@@ -35,13 +35,15 @@ type statusPayload struct {
 	ProxyURL      string    `json:"proxyUrl"`
 	ProxyProtocol string    `json:"proxyProtocol"`
 	Debug         bool      `json:"debug"`
+	LogLevel      string    `json:"logLevel"`
+	DBSizeBytes   float64   `json:"dbSizeBytes"`
 	Config        struct {
-		TraceCount  int32 `json:"traceCount"`
-		MetricCount int32 `json:"metricCount"`
-		LogCount    int32 `json:"logCount"`
-		TraceCap    int32 `json:"traceCap"`
-		MetricCap   int32 `json:"metricCap"`
-		LogCap      int32 `json:"logCap"`
+		TraceCount  int32  `json:"traceCount"`
+		MetricCount int32  `json:"metricCount"`
+		LogCount    int32  `json:"logCount"`
+		StoragePath string `json:"storagePath"`
+		Retention   string `json:"retention"`
+		MaxSize     string `json:"maxSize"`
 	} `json:"config"`
 }
 
@@ -56,13 +58,15 @@ const statusQuery = `{
     proxyUrl
     proxyProtocol
     debug
+    logLevel
+    dbSizeBytes
     config {
       traceCount
       metricCount
       logCount
-      traceCap
-      metricCap
-      logCap
+      storagePath
+      retention
+      maxSize
     }
   }
 }`
@@ -147,15 +151,12 @@ func printFull(w io.Writer, meta *daemon.Metadata, s *statusPayload) {
 	logFile, _ := daemon.LogFile()
 	writeBanner(w, suffix, bannerRows{
 		{"PID", strconv.Itoa(meta.PID)},
+		{"Version", s.Version},
 		{"Started", s.StartedAt.Local().Format(time.RFC3339) + " (up " + uptime + ")"},
 		{"Web UI", "http://" + webUIDisplay(s.HTTPAddr)},
 		{"OTLP gRPC", s.OTLPGrpcAddr},
 		{"OTLP HTTP", s.OTLPHTTPAddr},
 		{"Proxy", formatProxyStatus(s.ProxyURL, s.ProxyProtocol)},
-		{"Buffered", fmt.Sprintf("traces=%d/%d metrics=%d/%d logs=%d/%d",
-			s.Config.TraceCount, s.Config.TraceCap,
-			s.Config.MetricCount, s.Config.MetricCap,
-			s.Config.LogCount, s.Config.LogCap)},
 		{"Log", logFile},
 	})
 }
@@ -164,6 +165,7 @@ func printMetaOnly(w io.Writer, meta *daemon.Metadata) {
 	logFile, _ := daemon.LogFile()
 	writeBanner(w, " is running", bannerRows{
 		{"PID", strconv.Itoa(meta.PID)},
+		{"Version", meta.Version},
 		{"Started", meta.StartedAt.Local().Format(time.RFC3339)},
 		{"Web UI", "http://" + webUIDisplay(meta.HTTPAddr)},
 		{"OTLP gRPC", meta.OTLPGRPCAddr},

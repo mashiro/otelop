@@ -1,36 +1,41 @@
 import { useEffect, useRef } from "react";
 import { useSetAtom } from "jotai";
 import { graphql } from "@/gql";
-import type { SpanFieldsFragment } from "@/gql/graphql";
 import { gqlClient } from "@/lib/graphql";
-import { setTracesAtom, setMetricsAtom, setLogsAtom, serverConfigAtom } from "@/stores/telemetry";
-import type { TraceData, SpanData, SpanStatus } from "@/types/telemetry";
+import { setMetricsAtom, setTotalCountsAtom } from "@/stores/telemetry";
+import type { MetricData } from "@/types/telemetry";
 
-// GraphQL exposes durationMs (milliseconds, Float) while the frontend type
-// carries `duration` in nanoseconds — matching how Go's time.Duration is still
-// serialized over the WebSocket delta path. Scale at the fetch boundary so the
-// downstream stores don't need to know about the two worlds.
-const MS_TO_NS = 1_000_000;
-
+// Ring-buffer capacity config (traceCap/metricCap/logCap/maxDataPoints) was
+// removed from the backend's Config type when storage moved to DuckDB with
+// time-based retention (docs/design/duckdb-storage.md). The client-side caps
+// that used to come from that query stay as fixed defaults in
+// stores/telemetry.ts (DEFAULT_CONFIG) bounding this tab's live buffer;
+// history beyond them is queryable from the server (see
+// hooks/use-metric-range-points.ts).
+//
+// Traces and logs used to bootstrap here too (alongside metrics, in one
+// combined query), both via an unbounded `limit: 0` fetch — the ring-buffer-
+// era design issue #160 replaced with server-side pagination scoped to the
+// tab's selected time range (see hooks/use-trace-list-page.ts,
+// hooks/use-log-list-page.ts, mounted from the traces/logs tabs
+// themselves). Metrics still bootstrap unbounded here (`limit: 0`, every
+// group), but no longer with dataPoints (issue #162): a metrics list of ~40
+// groups was paying ~39 Metric.dataPoints resolutions — each re-deriving a
+// whole retained series — just to render list rows the detail view (which
+// fetches its own points on demand, see hooks/use-metric-range-points.ts)
+// doesn't need populated. pointCount/latestValue are cheap, purpose-built
+// summary fields for exactly what the list renders (see MetricList).
+//
+// config { traceCount metricCount logCount } feeds the header badges (see
+// stores/telemetry.ts's totalTraceCountAtom/totalMetricCountAtom/
+// totalLogCountAtom) — the server-side row/group totals, since the
+// traces/logs tabs' own paginated fetch only ever loads a page at a time.
 const InitialLoadQuery = graphql(`
   query InitialLoad {
     config {
-      traceCap
-      metricCap
-      logCap
-      maxDataPoints
-    }
-    traces(limit: 0) {
-      items {
-        traceId
-        serviceName
-        spanCount
-        startTime
-        durationMs
-        spans {
-          ...SpanFields
-        }
-      }
+      traceCount
+      metricCount
+      logCount
     }
     metrics(limit: 0) {
       items {
@@ -41,69 +46,16 @@ const InitialLoadQuery = graphql(`
         serviceName
         resource
         receivedAt
-        dataPoints {
-          id
-          timestamp
-          value
-          cumulative
-          count
-          countCumulative
-          sum
-          sumCumulative
-          min
-          max
-          attributes
-        }
+        pointCount
+        latestValue
       }
     }
-    logs(limit: 0) {
-      items {
-        id
-        timestamp
-        observedTimestamp
-        traceId
-        spanId
-        severityNumber
-        severityText
-        body
-        serviceName
-        attributes
-        resource
-      }
-    }
-  }
-
-  fragment SpanFields on Span {
-    traceId
-    spanId
-    parentSpanId
-    name
-    kind
-    serviceName
-    startTime
-    endTime
-    durationMs
-    statusCode
-    statusMessage
-    attributes
-    events {
-      name
-      timestamp
-      attributes
-    }
-    resource
   }
 `);
 
-function toSpan({ durationMs, statusCode, ...rest }: SpanFieldsFragment): SpanData {
-  return { ...rest, statusCode: statusCode as SpanStatus, duration: durationMs * MS_TO_NS };
-}
-
 export function useInitialLoad() {
-  const setTraces = useSetAtom(setTracesAtom);
   const setMetrics = useSetAtom(setMetricsAtom);
-  const setLogs = useSetAtom(setLogsAtom);
-  const setConfig = useSetAtom(serverConfigAtom);
+  const setTotalCounts = useSetAtom(setTotalCountsAtom);
   // StrictMode double-invokes effects in dev; guard so the bootstrap fetch
   // (and its Jotai writes) only runs once per real mount.
   const loadedRef = useRef(false);
@@ -114,34 +66,17 @@ export function useInitialLoad() {
     const load = async () => {
       try {
         const data = await gqlClient.request(InitialLoadQuery);
-        setConfig(data.config);
-
-        const traces: TraceData[] = data.traces.items.map(
-          ({ durationMs, spans: rawSpans, ...rest }) => {
-            const spans = rawSpans.map(toSpan);
-            return {
-              ...rest,
-              duration: durationMs * MS_TO_NS,
-              // Mirror the Go resolver: pick the longest parentless span as the
-              // representative root so multi-root Codex traces don't surface the
-              // short turn/start span. The query omits rootSpan to avoid shipping
-              // the same span twice.
-              rootSpan: spans.reduce<SpanData | undefined>(
-                (best, s) =>
-                  s.parentSpanId === "" && (!best || s.duration > best.duration) ? s : best,
-                undefined,
-              ),
-              spans,
-            };
-          },
-        );
-        setTraces(traces);
-        setMetrics(data.metrics.items);
-        setLogs(data.logs.items);
+        setTotalCounts(data.config);
+        // dataPoints wasn't selected above (see this file's doc comment);
+        // every metric enters the buffer empty and fills in lazily — via a
+        // detail view's use-metric-range-points fetch, or a WS delivery
+        // merging in through addMetricAtom.
+        const metrics: MetricData[] = data.metrics.items.map((m) => ({ ...m, dataPoints: [] }));
+        setMetrics(metrics);
       } catch {
         // WebSocket will deliver data later.
       }
     };
     void load();
-  }, [setTraces, setMetrics, setLogs, setConfig]);
+  }, [setMetrics, setTotalCounts]);
 }

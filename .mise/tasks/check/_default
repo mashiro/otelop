@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+#MISE description="Run backend and frontend linters"
+#MISE depends=["check:backend", "check:frontend"]

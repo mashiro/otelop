@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+#MISE description="Build frontend assets"
+#MISE dir="frontend"
+set -euo pipefail
+pnpm build

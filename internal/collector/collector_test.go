@@ -141,6 +141,9 @@ func TestBuildConfigMap_SelfTelemetryEnabled(t *testing.T) {
 	if otlp["insecure"] != true {
 		t.Fatalf("otlp insecure = %#v", otlp["insecure"])
 	}
+	if otlp["timeout"] != selfTelemetryExportTimeoutMs {
+		t.Fatalf("otlp timeout = %#v, want %d", otlp["timeout"], selfTelemetryExportTimeoutMs)
+	}
 }
 
 func TestBuildConfigMap_SelfTelemetryEndpointURLEncoded(t *testing.T) {
