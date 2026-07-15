@@ -1,5 +1,75 @@
 # Changelog
 
+## [1.0.0](https://github.com/mashiro/otelop/compare/v0.7.0...v1.0.0) (2026-07-15)
+
+
+### ⚠ BREAKING CHANGES
+
+* **storage:** replace in-memory ring buffers with embedded DuckDB persistence ([#165](https://github.com/mashiro/otelop/issues/165))
+* **storage:** Remove the per-signal capacity settings and replace them with DuckDB-backed storage retention and size limits.
+* **storage:** the config keys trace_cap, metric_cap, log_cap, and max_data_points (and their CLI flags/env vars) are removed. Use the new [storage] section: path, retention (default "7d"), max_size (default "4GB"), or --storage-path/--retention/--max-size.
+
+### Features
+
+* add server-backed telemetry exploration ([66bcb11](https://github.com/mashiro/otelop/commit/66bcb11fc29b9e13147c1d48a1fbc06b81c085f0))
+* **cli:** add otelop info and focus status on process state ([ee10e35](https://github.com/mashiro/otelop/commit/ee10e35717a33f1c7ce22fb7ead900bff3bd6446))
+* **frontend:** add time-range selector to metric detail chart ([#157](https://github.com/mashiro/otelop/issues/157)) ([90fc074](https://github.com/mashiro/otelop/commit/90fc074587d216f05983eea7cebb5b8fed2e1405))
+* **frontend:** default metric range to 1h, add 6h/24h options, persist range in URL ([f564650](https://github.com/mashiro/otelop/commit/f564650f2d71018bd261035ef0df321cc0e00fe7))
+* **frontend:** navigate metric time windows ([f804401](https://github.com/mashiro/otelop/commit/f8044016666f29d4af1ee0cebd285ac6eb760b37))
+* **frontend:** remove header clear-all button ([b76dfba](https://github.com/mashiro/otelop/commit/b76dfbaac10eb18354be20d75119b2a33dbab8fc))
+* **frontend:** scope trace/log lists by time range with server-side pagination ([4e4e10a](https://github.com/mashiro/otelop/commit/4e4e10a699b0912e4ce95435694dd361d4d9d227)), closes [#160](https://github.com/mashiro/otelop/issues/160)
+* **frontend:** server-backed time ranges, facet aggregation, and range-scoped totals ([1580340](https://github.com/mashiro/otelop/commit/1580340ffc6ef1d48c814e0a3316ae27af846f11))
+* **frontend:** show log and data point details in sidebars, sync log selection to URL ([#155](https://github.com/mashiro/otelop/issues/155)) ([00591a1](https://github.com/mashiro/otelop/commit/00591a1ffffe24f698b2362d37a782448f640c4a))
+* **frontend:** sync active tab and detail selection to URL ([#151](https://github.com/mashiro/otelop/issues/151)) ([f1d61ba](https://github.com/mashiro/otelop/commit/f1d61bae193aad43ba4bb607001548a938ca9a41))
+* **frontend:** unify time range controls ([da929c8](https://github.com/mashiro/otelop/commit/da929c893cb2fbf5431cefc779d2621fe22e8c8d))
+* **graphql:** use cursor-based signal pagination ([798d2c1](https://github.com/mashiro/otelop/commit/798d2c1cbe876d4dfe0b7270c23eaa2090385d37))
+* **metrics:** group histogram distribution statistics ([676bb15](https://github.com/mashiro/otelop/commit/676bb15f4a67d89b10b039ee60cbd9f2a51eb5a7))
+* **metrics:** preserve raw distributions and expose percentiles ([98f466c](https://github.com/mashiro/otelop/commit/98f466c5b5bdb769e5ffd0ff5f58c93565fda8a3))
+* **search:** search across retained telemetry ([48966d0](https://github.com/mashiro/otelop/commit/48966d0209fd711e4bb5b56bb48d0b15b0fa38ed))
+* **search:** server-side search for trace/log lists ([3bc545a](https://github.com/mashiro/otelop/commit/3bc545a094fb0b0aa1a68a52e87b5125b616fd95)), closes [#161](https://github.com/mashiro/otelop/issues/161)
+* **storage:** add DuckDB telemetry ([529adc9](https://github.com/mashiro/otelop/commit/529adc903911d75dd658796780062a66164698d7))
+* **storage:** add write pipeline telemetry ([d730bfd](https://github.com/mashiro/otelop/commit/d730bfddd5e838052f7bcb073fea59556e011df4))
+* **storage:** replace in-memory buffers with DuckDB ([64c88d9](https://github.com/mashiro/otelop/commit/64c88d9014543a5856de1b73d4a162b282f1aad9))
+* **storage:** replace in-memory ring buffers with DuckDB persistence ([9661374](https://github.com/mashiro/otelop/commit/9661374ef9532d6d8e8286b2d7b369c0ca364e2d))
+* **storage:** replace in-memory ring buffers with embedded DuckDB persistence ([#165](https://github.com/mashiro/otelop/issues/165)) ([20aadf2](https://github.com/mashiro/otelop/commit/20aadf2c9e2ac765f8f732411123fd2e913a331d))
+
+
+### Bug Fixes
+
+* **broadcast:** encode empty span events as arrays ([a2dec0b](https://github.com/mashiro/otelop/commit/a2dec0b5ee484673e2caf3f05049cbfb57690b97))
+* **build:** update renamed mise task references ([7a6be7e](https://github.com/mashiro/otelop/commit/7a6be7e37f79f37a2310407e86f9d5509624b52c))
+* **cli:** avoid stop timeout in debug mode ([e765efa](https://github.com/mashiro/otelop/commit/e765efad92e90f176d946b8ac93c0309f3e17cf8))
+* **cli:** stop reporting a spurious timeout when the process exits near the deadline ([5428d6c](https://github.com/mashiro/otelop/commit/5428d6ce775d78fc8541c0b9da463f6c9239f88d)), closes [#163](https://github.com/mashiro/otelop/issues/163)
+* **deps:** update all non-major dependencies ([#150](https://github.com/mashiro/otelop/issues/150)) ([7ff6224](https://github.com/mashiro/otelop/commit/7ff62244aed1caea5a53cf5af741abf6354369d9))
+* **deps:** update dependency lucide-react to v1.24.0 ([#167](https://github.com/mashiro/otelop/issues/167)) ([b5500a0](https://github.com/mashiro/otelop/commit/b5500a063fd31dfdfa50e147c20ba0c2bd8a26a1))
+* **frontend:** align retained-history pagination ([2c73078](https://github.com/mashiro/otelop/commit/2c730781d065f05746b7133a765feeb049c56313))
+* **frontend:** distinguish live window from connection ([da2294b](https://github.com/mashiro/otelop/commit/da2294b836cb0be8f5e68c04512907a72aef9118))
+* **frontend:** keep metrics search recoverable and search state consistent ([492e6f2](https://github.com/mashiro/otelop/commit/492e6f2fa587a828abb2e9755da876c590d508ff))
+* **frontend:** label monotonic sums as increase ([b525624](https://github.com/mashiro/otelop/commit/b5256242d565df56e5b0f2dc5762c565e34023e0))
+* **frontend:** make search submission IME-safe ([0d9ccd8](https://github.com/mashiro/otelop/commit/0d9ccd80e64bc1ac05c4b3c9e13cdaa387c93013))
+* **frontend:** pin pagination sessions and keep live rows through page fetches ([cf39a3c](https://github.com/mashiro/otelop/commit/cf39a3cd1150294d473eb233cb1ae1d74e2c8874))
+* **frontend:** preserve complete metric search results ([7651067](https://github.com/mashiro/otelop/commit/765106751fb17f39275a9a9ffeaeceeba824ac3a))
+* **frontend:** resolve traces outside the current log window ([b9aff70](https://github.com/mashiro/otelop/commit/b9aff70d9f94e8290557ac0c1b96b1a6ed6f53d0))
+* **frontend:** show latest gauge and distribution values ([a6d3ad0](https://github.com/mashiro/otelop/commit/a6d3ad09a7db360de033092b33efb6be5df48a17))
+* **logs:** continue pagination beyond time window ([ff4aec5](https://github.com/mashiro/otelop/commit/ff4aec5056db4c0e8ffd57e298ebe6ed53e4ff0e))
+* **logs:** fall back to observed timestamp ([8d9e8fe](https://github.com/mashiro/otelop/commit/8d9e8fee2181da459d6eb6a32b93b9a57bb305de))
+* **metrics:** improve duration histogram precision ([eb29f9c](https://github.com/mashiro/otelop/commit/eb29f9cef6aa3617cb56cef164a93471701520a3))
+* **metrics:** label p50 as median ([87a1c67](https://github.com/mashiro/otelop/commit/87a1c67e98e4825d21cbd87c09ee9cd9ef29b5a9))
+* **metrics:** retain distribution during range changes ([8765f42](https://github.com/mashiro/otelop/commit/8765f42a8980035808b6b4e20e45abfc65ee55fe))
+* **storage:** identify dropped oversized traces ([9835bb9](https://github.com/mashiro/otelop/commit/9835bb9a38e98176a0871736b866a941029de727))
+* **storage:** scope metric series identity to resource and instrumentation scope ([8756257](https://github.com/mashiro/otelop/commit/8756257eb8fc5d77e3bfeaf1c1fd71d8baa54b19))
+* **traces:** align time windows with trace start ([784fe91](https://github.com/mashiro/otelop/commit/784fe9113bf8498b49df7dc644148bbe7605effb))
+
+
+### Performance Improvements
+
+* **broadcast:** batch live update queries ([a1c97bd](https://github.com/mashiro/otelop/commit/a1c97bd12e624e2aeede3724db7f61d567e92a6b))
+* **frontend:** fetch metric summaries and header totals on initial load ([09de110](https://github.com/mashiro/otelop/commit/09de11054119d8cf82a79a0bd86f7510eedfd3d1)), closes [#162](https://github.com/mashiro/otelop/issues/162)
+* **graphql:** optimize telemetry list queries ([c40bb7c](https://github.com/mashiro/otelop/commit/c40bb7cbb35b8cd6bb6df6aeb11906a9514c476f))
+* **graphql:** stop N+1 trace-detail fetches and cap self-telemetry field spans ([cc49793](https://github.com/mashiro/otelop/commit/cc49793ac448b15ab5eeac52aa5185cd1d18de86))
+* **metrics:** coalesce broadcast readbacks ([c4032b4](https://github.com/mashiro/otelop/commit/c4032b4e6c433ca1663823f020f9948d0849359d))
+* **storage:** optimize trace processing ([74eced2](https://github.com/mashiro/otelop/commit/74eced20dfa706a3c00920499b2ddb582857d8ef))
+
 ## [0.7.0](https://github.com/mashiro/otelop/compare/v0.6.2...v0.7.0) (2026-07-06)
 
 
