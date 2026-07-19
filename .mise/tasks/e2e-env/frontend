@@ -6,5 +6,7 @@ set -euo pipefail
 http_port="${OTELOP_E2E_HTTP:-14319}"
 frontend_port="${OTELOP_E2E_FRONTEND:-15173}"
 
-OTELOP_BACKEND_ORIGIN="http://localhost:${http_port}" \
+# 127.0.0.1, not localhost: the backend binds loopback-only and Node's DNS
+# resolution order can try ::1 first, which the IPv4-only bind won't accept.
+OTELOP_BACKEND_ORIGIN="http://127.0.0.1:${http_port}" \
   pnpm run dev -- --port "${frontend_port}" --strictPort

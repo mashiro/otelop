@@ -27,7 +27,7 @@ echo "  Storage (temp)  : ${storage_dir}"
 echo "=========================================================================="
 
 OTELOP_CONFIG_FILE="$config_file" go run ./cmd/otelop start --foreground \
-  --http ":${http_port}" \
+  --http "127.0.0.1:${http_port}" \
   --otlp-grpc "127.0.0.1:${grpc_port}" \
   --otlp-http "127.0.0.1:${otlp_http_port}" \
   --storage-path "${storage_dir}/otelop.duckdb" \

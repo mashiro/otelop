@@ -29,7 +29,12 @@ const (
 // a given field. Mirrored as the built-in CLI flag defaults so the values
 // stay visible in `otelop start --help`.
 const (
-	DefaultHTTPAddr     = ":4319"
+	// DefaultHTTPAddr binds loopback-only: the Web UI/GraphQL endpoint
+	// carries no auth, so exposing it to the LAN by default would let anyone
+	// on the network read stored telemetry. OTLP receivers below stay on
+	// 0.0.0.0 to match OTel convention; LAN exposure of the UI is opt-in via
+	// --http/OTELOP_HTTP/config.
+	DefaultHTTPAddr     = "127.0.0.1:4319"
 	DefaultOTLPGRPCAddr = "0.0.0.0:4317"
 	DefaultOTLPHTTPAddr = "0.0.0.0:4318"
 	DefaultLogLevel     = "warn"

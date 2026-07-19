@@ -113,6 +113,12 @@ Any AI coding agent that supports OpenTelemetry can export to `otelop`, so you c
 The GraphQL and Streamable HTTP MCP endpoints are available at
 `http://localhost:4319/graphql` and `http://localhost:4319/mcp`.
 
+The Web UI/GraphQL endpoint has no authentication, so it binds to
+`127.0.0.1` by default — set `--http 0.0.0.0:4319` (or an env/config
+equivalent) to opt in to exposing it on the LAN. The published Docker image
+binds `0.0.0.0:4319` inside the container by default, since Docker's own
+`-p` publishing is itself an explicit opt-in.
+
 ## Commands
 
 ```
@@ -129,7 +135,7 @@ otelop version
 
 ```
   --foreground, -f   run in the foreground instead of detaching
-  --http             Web UI listen address           (default :4319)
+  --http             Web UI listen address           (default 127.0.0.1:4319)
   --otlp-grpc        OTLP gRPC receiver endpoint     (default 0.0.0.0:4317)
   --otlp-http        OTLP HTTP receiver endpoint     (default 0.0.0.0:4318)
   --proxy-url        upstream OTLP endpoint for forwarding
@@ -156,14 +162,14 @@ paths and current storage usage.
 
 Every `start` flag can be set three ways. Higher precedence wins:
 
-1. CLI flag (`otelop start --http :4319`)
-2. Environment variable (`OTELOP_HTTP=:4319 otelop start`)
+1. CLI flag (`otelop start --http 127.0.0.1:4319`)
+2. Environment variable (`OTELOP_HTTP=127.0.0.1:4319 otelop start`)
 3. TOML config file at `$XDG_CONFIG_HOME/otelop/config.toml` (defaults to `~/.config/otelop/config.toml`; override with `OTELOP_CONFIG_FILE=/path/to/config.toml`)
 
 Example `~/.config/otelop/config.toml`:
 
 ```toml
-http = ":4319"
+http = "127.0.0.1:4319"
 otlp_grpc = "0.0.0.0:4317"
 otlp_http = "0.0.0.0:4318"
 log_level = "warn"
