@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach } from "vite-plus/test";
 import { render, cleanup } from "@testing-library/react";
 import { MetricChart } from "./metric-chart";
 import { makeDataPoint, makeMetric } from "@/test/factories";

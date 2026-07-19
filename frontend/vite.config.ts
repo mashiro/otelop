@@ -38,6 +38,8 @@ export default defineConfig({
   fmt: { ignorePatterns: generatedSources },
   lint: {
     ignorePatterns: generatedSources,
+    jsPlugins: [{ name: "vite-plus", specifier: "vite-plus/oxlint-plugin" }],
+    rules: { "vite-plus/prefer-vite-plus-imports": "error" },
     options: { typeAware: true, typeCheck: true },
   },
   test: {

@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
+import { describe, it, expect, afterEach, beforeEach, vi } from "vite-plus/test";
 import type { ReactNode } from "react";
 import { getDefaultStore } from "jotai";
 import { render, screen, cleanup, within, waitFor, act } from "@testing-library/react";

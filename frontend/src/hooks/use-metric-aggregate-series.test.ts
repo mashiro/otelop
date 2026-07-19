@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vite-plus/test";
 import { renderHook, waitFor } from "@testing-library/react";
 import { useMetricAggregateSeries } from "./use-metric-aggregate-series";
 import { makeMetric, makeDataPoint, makeAggregateSeries } from "@/test/factories";

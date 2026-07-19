@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach } from "vite-plus/test";
 import { atom, createStore, Provider } from "jotai";
 import { render, screen, cleanup, fireEvent, act } from "@testing-library/react";
 import { SearchFilter } from "./search-filter";
