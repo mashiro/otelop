@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { memo, useMemo } from "react";
 import { useAtomValue, useSetAtom } from "jotai";
 import { metricsAtom, selectedMetricAtom } from "@/stores/telemetry";
 import { filteredMetricsAtom, metricSearchAtom } from "@/stores/filters";
@@ -6,6 +6,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { SearchFilter } from "@/components/filters/search-filter";
 import { ListPanel } from "@/components/common/list-panel";
 import { EmptyMatches } from "@/components/common/empty-state";
+import { ListOverflowNotice } from "@/components/common/list-overflow-notice";
 import {
   Table,
   TableBody,
@@ -21,6 +22,8 @@ import { EmptyState } from "@/components/common/empty-state";
 import { Pill } from "@/components/common/pill";
 import { SIGNALS } from "@/lib/signals";
 import { useMetricListSearch } from "@/hooks/use-metric-list-search";
+import type { MetricData } from "@/types/telemetry";
+import { LIST_DISPLAY_CAP } from "@/lib/list-render-cap";
 
 export function MetricList() {
   const allMetrics = useAtomValue(metricsAtom);
@@ -51,6 +54,9 @@ export function MetricList() {
     return <EmptyState signal={SIGNALS.metrics} />;
   }
 
+  const visibleMetrics = metrics.slice(0, LIST_DISPLAY_CAP);
+  const hiddenMetricCount = metrics.length - visibleMetrics.length;
+
   return (
     <ListPanel toolbar={<SearchFilter atom={metricSearchAtom} placeholder="Search metrics..." />}>
       {metrics.length === 0 ? (
@@ -71,39 +77,58 @@ export function MetricList() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {metrics.map((metric, i) => (
-                <TableRow
+              {visibleMetrics.map((metric, i) => (
+                <MetricRow
                   key={`${metric.serviceName}-${metric.name}`}
-                  className="stagger-row cursor-pointer border-b border-border/30 transition-colors hover:bg-metric/5"
-                  style={{ animationDelay: `${Math.min(i * 20, 200)}ms` }}
-                  onClick={() => setSelectedMetric(metric)}
-                >
-                  <TableCell className="font-medium">{metric.serviceName || "-"}</TableCell>
-                  <TableCell className="text-foreground/80">{metric.name}</TableCell>
-                  <TableCell className="max-w-xs truncate text-muted-foreground">
-                    {metric.description || "-"}
-                  </TableCell>
-                  <TableCell>
-                    <Pill tone="metric">{metric.type}</Pill>
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">
-                    {resolveMetricUnit(metric.name, metric.unit) || "-"}
-                  </TableCell>
-                  <TableCell className="text-right font-mono text-xs">
-                    {metric.pointCount}
-                  </TableCell>
-                  <TableCell className="text-right font-mono text-xs text-metric">
-                    {metric.latestValue != null ? metric.latestValue.toLocaleString() : "-"}
-                  </TableCell>
-                  <TableCell className="text-xs text-muted-foreground">
-                    {formatRelativeTime(metric.receivedAt)}
-                  </TableCell>
-                </TableRow>
+                  metric={metric}
+                  index={i}
+                  onSelect={setSelectedMetric}
+                />
               ))}
             </TableBody>
           </Table>
+          <ListOverflowNotice hiddenCount={hiddenMetricCount} />
         </ScrollArea>
       )}
     </ListPanel>
   );
 }
+
+interface MetricRowProps {
+  metric: MetricData;
+  index: number;
+  onSelect: (metric: MetricData) => void;
+}
+
+// Memoized for the same reason as logs/log-list.tsx's LogRow: a WS delivery
+// or an unrelated re-render shouldn't force every already-rendered row to
+// re-render. `metric` is stable unless that specific group was updated;
+// `onSelect` is a jotai setter, stable by construction.
+const MetricRow = memo(function MetricRow({ metric, index, onSelect }: MetricRowProps) {
+  return (
+    <TableRow
+      className="stagger-row cursor-pointer border-b border-border/30 transition-colors hover:bg-metric/5"
+      style={{ animationDelay: `${Math.min(index * 20, 200)}ms` }}
+      onClick={() => onSelect(metric)}
+    >
+      <TableCell className="font-medium">{metric.serviceName || "-"}</TableCell>
+      <TableCell className="text-foreground/80">{metric.name}</TableCell>
+      <TableCell className="max-w-xs truncate text-muted-foreground">
+        {metric.description || "-"}
+      </TableCell>
+      <TableCell>
+        <Pill tone="metric">{metric.type}</Pill>
+      </TableCell>
+      <TableCell className="text-muted-foreground">
+        {resolveMetricUnit(metric.name, metric.unit) || "-"}
+      </TableCell>
+      <TableCell className="text-right font-mono text-xs">{metric.pointCount}</TableCell>
+      <TableCell className="text-right font-mono text-xs text-metric">
+        {metric.latestValue != null ? metric.latestValue.toLocaleString() : "-"}
+      </TableCell>
+      <TableCell className="text-xs text-muted-foreground">
+        {formatRelativeTime(metric.receivedAt)}
+      </TableCell>
+    </TableRow>
+  );
+});

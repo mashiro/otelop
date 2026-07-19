@@ -1,4 +1,5 @@
 import { Temporal } from "temporal-polyfill";
+import { cachedEpochNanos } from "@/lib/epoch-cache";
 
 export type ChartTimeRange =
   | "1m"
@@ -161,16 +162,18 @@ export function filterDataPointsInRange<T>(
   const rangeMs = rangeToMs(range);
   if (rangeMs === null || points.length === 0) return points;
 
-  // Single pass: parse each point's timestamp exactly once, caching the
-  // epoch value alongside it while tracking the max, then filter against the
-  // cached values instead of re-parsing every point a second time. Called on
-  // every WS message via stores/filters.ts's rangeFilteredTracesAtom/
-  // rangeFilteredLogsAtom over the full capped buffer, so halving the
-  // Temporal.Instant.from calls matters here.
+  // Single pass: resolve each point's epoch value exactly once via the
+  // shared object-identity cache (lib/epoch-cache.ts) while tracking the
+  // max, then filter against the cached values instead of re-parsing every
+  // point a second time. Called on every WS message via stores/filters.ts's
+  // rangeFilteredTracesAtom/rangeFilteredLogsAtom over the full capped
+  // buffer, so avoiding a re-parse per point (across calls, not just within
+  // one) matters here.
   let maxMs = -Infinity;
   const withMs: { point: T; ms: number }[] = [];
   for (const point of points) {
-    const ms = Temporal.Instant.from(getTimestamp(point)).epochMilliseconds;
+    const ns = cachedEpochNanos(point as object, getTimestamp(point));
+    const ms = Number(ns / 1_000_000n);
     withMs.push({ point, ms });
     if (ms > maxMs) maxMs = ms;
   }

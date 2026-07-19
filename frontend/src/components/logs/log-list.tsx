@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { X } from "lucide-react";
 import {
@@ -28,12 +29,14 @@ import { ListPanel } from "@/components/common/list-panel";
 import { EmptyState, EmptyMatches } from "@/components/common/empty-state";
 import { EventWindowControls } from "@/components/common/event-window-controls";
 import { LoadMoreRow } from "@/components/common/load-more-row";
+import { ListOverflowNotice } from "@/components/common/list-overflow-notice";
 import { Pill } from "@/components/common/pill";
 import { SIGNALS } from "@/lib/signals";
 import { severityTone } from "@/lib/tones";
 import { useLogListPage } from "@/hooks/use-log-list-page";
 import type { LogData } from "@/types/telemetry";
 import { eventWindowAround } from "@/lib/event-time-window";
+import { LIST_DISPLAY_CAP } from "@/lib/list-render-cap";
 
 export function LogList() {
   const allLogs = useAtomValue(logsAtom);
@@ -47,6 +50,8 @@ export function LogList() {
   const [window, setWindow] = useAtom(eventTimeWindowAtom);
   const [search, setSearch] = useAtom(logSearchAtom);
   const page = useLogListPage(window, search, traceFilter);
+  const visibleLogs = logs.slice(0, LIST_DISPLAY_CAP);
+  const hiddenLogCount = logs.length - visibleLogs.length;
 
   if (logCount === 0 && allLogs.length === 0) {
     return <EmptyState signal={SIGNALS.logs} />;
@@ -94,47 +99,19 @@ export function LogList() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {logs.map((log, i) => {
-                  const hasTrace = !isZeroId(log.traceId);
-                  const isSelected = selectedLog?.id === log.id;
-                  return (
-                    <TableRow
-                      key={log.id}
-                      className={`stagger-row cursor-pointer border-b border-border/30 transition-colors hover:bg-log/5 ${isSelected ? "bg-log/10" : ""}`}
-                      style={{ animationDelay: `${Math.min(i * 20, 200)}ms` }}
-                      onClick={() => setSelectedLog(isSelected ? null : log)}
-                    >
-                      <TableCell className="font-mono text-xs text-muted-foreground">
-                        {formatTimestamp(log.timestamp)}
-                      </TableCell>
-                      <TableCell>
-                        <Pill tone={severityTone(log.severityText)} dot>
-                          {log.severityText || "UNSET"}
-                        </Pill>
-                      </TableCell>
-                      <TableCell className="font-medium">{log.serviceName || "-"}</TableCell>
-                      <TableCell className="max-w-[400px] truncate text-sm text-foreground/80">
-                        {log.body}
-                      </TableCell>
-                      <TableCell>
-                        {hasTrace ? (
-                          <button
-                            className="font-mono text-xs text-trace underline decoration-trace/30 underline-offset-2 transition-colors hover:text-trace hover:decoration-trace/60"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              navigateToTrace(log.traceId);
-                            }}
-                            title="View trace"
-                          >
-                            {shortId(log.traceId, 8)}
-                          </button>
-                        ) : null}
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
+                {visibleLogs.map((log, i) => (
+                  <LogRow
+                    key={log.id}
+                    log={log}
+                    index={i}
+                    isSelected={selectedLog?.id === log.id}
+                    onSelect={setSelectedLog}
+                    onNavigateToTrace={navigateToTrace}
+                  />
+                ))}
               </TableBody>
             </Table>
+            <ListOverflowNotice hiddenCount={hiddenLogCount} />
             <LoadMoreRow {...page} />
           </ScrollArea>
         )}
@@ -155,6 +132,65 @@ export function LogList() {
     </ListPanel>
   );
 }
+
+interface LogRowProps {
+  log: LogData;
+  index: number;
+  isSelected: boolean;
+  onSelect: (log: LogData | null) => void;
+  onNavigateToTrace: (traceId: string) => void;
+}
+
+// Memoized so a WS delivery that changes one log (or an unrelated store
+// update that recomputes filteredLogsAtom into a new array of otherwise
+// unchanged log objects) doesn't re-render every already-rendered row — only
+// props are compared, so `log`/`onSelect`/`onNavigateToTrace` must stay
+// reference-stable across parent renders (see LogList: onSelect/
+// onNavigateToTrace are jotai setters, stable by construction; `log` is
+// stable unless that specific record was updated).
+const LogRow = memo(function LogRow({
+  log,
+  index,
+  isSelected,
+  onSelect,
+  onNavigateToTrace,
+}: LogRowProps) {
+  const hasTrace = !isZeroId(log.traceId);
+  return (
+    <TableRow
+      className={`stagger-row cursor-pointer border-b border-border/30 transition-colors hover:bg-log/5 ${isSelected ? "bg-log/10" : ""}`}
+      style={{ animationDelay: `${Math.min(index * 20, 200)}ms` }}
+      onClick={() => onSelect(isSelected ? null : log)}
+    >
+      <TableCell className="font-mono text-xs text-muted-foreground">
+        {formatTimestamp(log.timestamp)}
+      </TableCell>
+      <TableCell>
+        <Pill tone={severityTone(log.severityText)} dot>
+          {log.severityText || "UNSET"}
+        </Pill>
+      </TableCell>
+      <TableCell className="font-medium">{log.serviceName || "-"}</TableCell>
+      <TableCell className="max-w-[400px] truncate text-sm text-foreground/80">
+        {log.body}
+      </TableCell>
+      <TableCell>
+        {hasTrace ? (
+          <button
+            className="font-mono text-xs text-trace underline decoration-trace/30 underline-offset-2 transition-colors hover:text-trace hover:decoration-trace/60"
+            onClick={(e) => {
+              e.stopPropagation();
+              onNavigateToTrace(log.traceId);
+            }}
+            title="View trace"
+          >
+            {shortId(log.traceId, 8)}
+          </button>
+        ) : null}
+      </TableCell>
+    </TableRow>
+  );
+});
 
 function LogDetail({
   log,

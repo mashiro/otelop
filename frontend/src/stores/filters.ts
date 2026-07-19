@@ -3,6 +3,7 @@ import type { Atom, PrimitiveAtom } from "jotai";
 import { Temporal } from "temporal-polyfill";
 import { filterDataPointsInRange } from "@/lib/chart-time-range";
 import { eventWindowBounds } from "@/lib/event-time-window";
+import { cachedEpochNanos } from "@/lib/epoch-cache";
 import {
   tracesAtom,
   metricsAtom,
@@ -64,12 +65,11 @@ export const traceSearchAtom = atom("");
 // mirrors the metric chart's rolling window (see metric-detail.tsx's
 // windowedDataPoints) and keeps re-deriving the true visible window as new
 // data arrives.
-function inEventWindow(timestamp: string, from: string | undefined, to: string): boolean {
-  const instant = Temporal.Instant.from(timestamp);
-  return (
-    (!from || Temporal.Instant.compare(instant, Temporal.Instant.from(from)) >= 0) &&
-    Temporal.Instant.compare(instant, Temporal.Instant.from(to)) < 0
-  );
+// from/to are resolved once per atom recompute (not once per row — see
+// callers below), so caching only needs to cover each row's own timestamp
+// via lib/epoch-cache.ts's cachedEpochNanos.
+function inEventWindowNs(ns: bigint, fromNs: bigint | undefined, toNs: bigint): boolean {
+  return (fromNs === undefined || ns >= fromNs) && ns < toNs;
 }
 
 const rangeFilteredTracesAtom = atom((get) => {
@@ -88,8 +88,12 @@ const rangeFilteredTracesAtom = atom((get) => {
     );
   }
   const { from, to } = eventWindowBounds(window);
+  const fromNs = from ? Temporal.Instant.from(from).epochNanoseconds : undefined;
+  const toNs = Temporal.Instant.from(to).epochNanoseconds;
   return traces.filter(
-    (trace) => loadedOlderIds.has(trace.traceId) || inEventWindow(trace.startTime, from, to),
+    (trace) =>
+      loadedOlderIds.has(trace.traceId) ||
+      inEventWindowNs(cachedEpochNanos(trace, trace.startTime), fromNs, toNs),
   );
 });
 
@@ -130,8 +134,12 @@ const rangeFilteredLogsAtom = atom((get) => {
     return logs.filter((log) => loadedOlderIds.has(log.id) || inRangeIds.has(log.id));
   }
   const { from, to } = eventWindowBounds(window);
+  const fromNs = from ? Temporal.Instant.from(from).epochNanoseconds : undefined;
+  const toNs = Temporal.Instant.from(to).epochNanoseconds;
   return get(logsAtom).filter(
-    (log) => loadedOlderIds.has(log.id) || inEventWindow(log.timestamp, from, to),
+    (log) =>
+      loadedOlderIds.has(log.id) ||
+      inEventWindowNs(cachedEpochNanos(log, log.timestamp), fromNs, toNs),
   );
 });
 

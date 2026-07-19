@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { traceCountAtom, tracesAtom, selectedTraceAtom } from "@/stores/telemetry";
 import { eventTimeWindowAtom, selectedTraceIdAtom } from "@/stores/navigation";
@@ -8,6 +9,7 @@ import { ListPanel } from "@/components/common/list-panel";
 import { EmptyMatches } from "@/components/common/empty-state";
 import { EventWindowControls } from "@/components/common/event-window-controls";
 import { LoadMoreRow } from "@/components/common/load-more-row";
+import { ListOverflowNotice } from "@/components/common/list-overflow-notice";
 import { useTraceListPage } from "@/hooks/use-trace-list-page";
 import { useTraceById, type TraceByIdStatus } from "@/hooks/use-trace-by-id";
 import { Button } from "@/components/ui/button";
@@ -25,6 +27,8 @@ import { EmptyState } from "@/components/common/empty-state";
 import { Pill } from "@/components/common/pill";
 import { SIGNALS } from "@/lib/signals";
 import { traceStatusTone } from "@/lib/tones";
+import type { TraceData } from "@/types/telemetry";
+import { LIST_DISPLAY_CAP } from "@/lib/list-render-cap";
 
 export function TraceList() {
   const allTraces = useAtomValue(tracesAtom);
@@ -54,6 +58,9 @@ export function TraceList() {
   if (traceCount === 0 && allTraces.length === 0) {
     return <EmptyState signal={SIGNALS.traces} />;
   }
+
+  const visibleTraces = traces.slice(0, LIST_DISPLAY_CAP);
+  const hiddenTraceCount = traces.length - visibleTraces.length;
 
   return (
     <ListPanel
@@ -86,47 +93,64 @@ export function TraceList() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {traces.map((trace, idx) => {
-                const status = trace.rootSpan?.statusCode ?? "Unset";
-                return (
-                  <TableRow
-                    key={trace.traceId}
-                    className="stagger-row cursor-pointer border-b border-border/30 transition-colors hover:bg-trace/5"
-                    style={{ animationDelay: `${Math.min(idx * 20, 200)}ms` }}
-                    onClick={() => setSelectedTrace(trace)}
-                  >
-                    <TableCell className="font-medium">{trace.serviceName || "-"}</TableCell>
-                    <TableCell className="text-foreground/80">
-                      {trace.rootSpan?.name ?? trace.spans[0]?.name ?? "-"}
-                    </TableCell>
-                    <TableCell className="font-mono text-xs text-muted-foreground">
-                      {shortId(trace.traceId)}
-                    </TableCell>
-                    <TableCell className="text-right font-mono text-xs">
-                      {trace.spanCount}
-                    </TableCell>
-                    <TableCell className="text-right font-mono text-xs text-trace">
-                      {formatDuration(trace.duration)}
-                    </TableCell>
-                    <TableCell className="font-mono text-xs text-muted-foreground">
-                      {formatTimestamp(trace.startTime)}
-                    </TableCell>
-                    <TableCell>
-                      <Pill tone={traceStatusTone(status)} dot>
-                        {status === "Unset" ? "Unset" : status}
-                      </Pill>
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
+              {visibleTraces.map((trace, idx) => (
+                <TraceRow
+                  key={trace.traceId}
+                  trace={trace}
+                  index={idx}
+                  onSelect={setSelectedTrace}
+                />
+              ))}
             </TableBody>
           </Table>
+          <ListOverflowNotice hiddenCount={hiddenTraceCount} />
           <LoadMoreRow {...page} />
         </ScrollArea>
       )}
     </ListPanel>
   );
 }
+
+interface TraceRowProps {
+  trace: TraceData;
+  index: number;
+  onSelect: (trace: TraceData) => void;
+}
+
+// Memoized for the same reason as logs/log-list.tsx's LogRow: a WS delivery
+// or an unrelated re-render shouldn't force every already-rendered row to
+// re-render. `trace` is stable unless that specific trace was updated;
+// `onSelect` is a jotai setter, stable by construction.
+const TraceRow = memo(function TraceRow({ trace, index, onSelect }: TraceRowProps) {
+  const status = trace.rootSpan?.statusCode ?? "Unset";
+  return (
+    <TableRow
+      className="stagger-row cursor-pointer border-b border-border/30 transition-colors hover:bg-trace/5"
+      style={{ animationDelay: `${Math.min(index * 20, 200)}ms` }}
+      onClick={() => onSelect(trace)}
+    >
+      <TableCell className="font-medium">{trace.serviceName || "-"}</TableCell>
+      <TableCell className="text-foreground/80">
+        {trace.rootSpan?.name ?? trace.spans[0]?.name ?? "-"}
+      </TableCell>
+      <TableCell className="font-mono text-xs text-muted-foreground">
+        {shortId(trace.traceId)}
+      </TableCell>
+      <TableCell className="text-right font-mono text-xs">{trace.spanCount}</TableCell>
+      <TableCell className="text-right font-mono text-xs text-trace">
+        {formatDuration(trace.duration)}
+      </TableCell>
+      <TableCell className="font-mono text-xs text-muted-foreground">
+        {formatTimestamp(trace.startTime)}
+      </TableCell>
+      <TableCell>
+        <Pill tone={traceStatusTone(status)} dot>
+          {status === "Unset" ? "Unset" : status}
+        </Pill>
+      </TableCell>
+    </TableRow>
+  );
+});
 
 function TraceLoadState({
   status,

@@ -1,6 +1,6 @@
 import { atom } from "jotai";
 import type { Atom, PrimitiveAtom, WritableAtom } from "jotai";
-import { Temporal } from "temporal-polyfill";
+import { cachedEpochNanos } from "@/lib/epoch-cache";
 import type {
   TraceData,
   TraceRootSpan,
@@ -12,6 +12,7 @@ import type {
 import {
   activeTabAtom,
   metricKeyEquals,
+  metricKeyToString,
   selectedLogIdAtom,
   selectedMetricKeyAtom,
   selectedTraceIdAtom,
@@ -79,33 +80,56 @@ function mergeSearchValues(
 }
 
 function newestTraceStartFirst(traces: TraceData[]): TraceData[] {
-  return traces.toSorted((a, b) =>
-    Temporal.Instant.compare(
-      Temporal.Instant.from(b.startTime),
-      Temporal.Instant.from(a.startTime),
-    ),
-  );
+  return traces.toSorted((a, b) => {
+    const bNs = cachedEpochNanos(b, b.startTime);
+    const aNs = cachedEpochNanos(a, a.startTime);
+    if (bNs > aNs) return 1;
+    if (bNs < aNs) return -1;
+    return 0;
+  });
 }
 
-// Write-only: add single item from WebSocket
-export const addTraceAtom = atom(null, (get, set, newTrace: TraceData) => {
+// Write-only: apply a whole WebSocket flush window's worth of trace
+// deliveries in a single store update (hooks/use-websocket.ts batches
+// messages that arrive within its flush window instead of writing one at a
+// time — see that file's doc comment). Processing the batch against one
+// working array and re-sorting/slicing once, instead of once per item,
+// avoids an O(n log n) re-sort of the whole capped buffer per message during
+// a burst.
+export const addTracesAtom = atom(null, (get, set, newTraces: TraceData[]) => {
+  if (newTraces.length === 0) return;
   const current = get(tracesAtom);
   const maxTraces = get(bufferCapsAtom).traceCap;
-  const idx = current.findIndex((t) => t.traceId === newTrace.traceId);
-  if (idx >= 0) {
-    const existing = current[idx];
-    const merged = mergeTrace(existing, newTrace);
-    if (!merged) return;
-    const updated = [...current];
-    updated[idx] = merged;
-    set(tracesAtom, newestTraceStartFirst(updated));
-  } else {
-    // A brand-new trace, never merged into an existing one — the header
-    // badge's "genuinely new" signal (see totalTraceCountAtom).
-    set(newTraceCountAtom, (n) => n + 1);
-    const next = newestTraceStartFirst([...current, newTrace]);
-    set(tracesAtom, next.length > maxTraces ? next.slice(0, maxTraces) : next);
+  const indexById = new Map(current.map((t, i) => [t.traceId, i]));
+  const working = current.slice();
+  let addedCount = 0;
+  let changed = false;
+  for (const newTrace of newTraces) {
+    const idx = indexById.get(newTrace.traceId);
+    if (idx !== undefined) {
+      const merged = mergeTrace(working[idx], newTrace);
+      if (!merged) continue;
+      working[idx] = merged;
+      changed = true;
+    } else {
+      // A brand-new trace, never merged into an existing one — the header
+      // badge's "genuinely new" signal (see totalTraceCountAtom).
+      addedCount++;
+      indexById.set(newTrace.traceId, working.length);
+      working.push(newTrace);
+      changed = true;
+    }
   }
+  if (!changed) return;
+  if (addedCount > 0) set(newTraceCountAtom, (n) => n + addedCount);
+  const next = newestTraceStartFirst(working);
+  set(tracesAtom, next.length > maxTraces ? next.slice(0, maxTraces) : next);
+});
+
+// Write-only: add a single item from WebSocket. A thin wrapper over the
+// batch path above so single-item callers (and tests) keep a simple API.
+export const addTraceAtom = atom(null, (_get, set, newTrace: TraceData) => {
+  set(addTracesAtom, [newTrace]);
 });
 
 // Inserts a trace fetched explicitly by ID without treating an already-retained
@@ -173,10 +197,12 @@ function isBetterRoot(
 function mergeTrace(existing: TraceData, incoming: TraceData): TraceData | null {
   const spans = mergeSpans(existing.spans, incoming.spans);
   const rootChanged = isBetterRoot(existing.rootSpan, incoming.rootSpan);
-  // OTel timestamps are nanosecond-precision ISO strings; compare via
-  // Temporal.Instant to avoid Date's millisecond truncation.
-  const incomingStart = Temporal.Instant.from(incoming.startTime).epochNanoseconds;
-  const existingStart = Temporal.Instant.from(existing.startTime).epochNanoseconds;
+  // OTel timestamps are nanosecond-precision ISO strings; compare via the
+  // cached epoch value (lib/epoch-cache.ts) to avoid Date's millisecond
+  // truncation and to skip re-parsing a timestamp already resolved by an
+  // earlier sort/filter over this same trace object.
+  const incomingStart = cachedEpochNanos(incoming, incoming.startTime);
+  const existingStart = cachedEpochNanos(existing, existing.startTime);
   if (
     spans.length === existing.spans.length &&
     !rootChanged &&
@@ -235,49 +261,90 @@ export function mergeDataPoints(existing: DataPoint[], incoming: DataPoint[]): D
 // widens by exactly the genuinely-new-point delta (a re-delivered point
 // mergeDataPoints already dedupes must not double count), and latestValue
 // only moves when that delta is nonzero, to the newest point's value.
-export const addMetricAtom = atom(null, (get, set, newMetric: MetricData) => {
+// Write-only: apply a whole WebSocket flush window's worth of metric
+// deliveries in a single store update (see addTracesAtom's doc comment for
+// why hooks/use-websocket.ts batches before writing). Existing groups are
+// updated in place against one working array; brand-new groups are
+// collected separately and prepended in the same reverse-arrival order a
+// sequence of single addMetricAtom calls would produce (each single call
+// prepends to the front), so batching this doesn't change the resulting
+// order.
+interface MetricLocation {
+  arr: "working" | "new";
+  idx: number;
+}
+
+export const addMetricsAtom = atom(null, (get, set, newMetrics: MetricData[]) => {
+  if (newMetrics.length === 0) return;
   const current = get(metricsAtom);
   const maxMetrics = get(bufferCapsAtom).metricCap;
-  const idx = current.findIndex((m) => metricKeyEquals(m, newMetric));
-  if (idx >= 0) {
-    const existing = current[idx];
-    const merged = mergeDataPoints(existing.dataPoints, newMetric.dataPoints);
-    const addedCount = merged.length - existing.dataPoints.length;
-    const updated = [...current];
-    updated[idx] = {
-      ...existing,
-      dataPoints: merged.slice(-get(bufferCapsAtom).maxDataPoints),
-      pointCount: existing.pointCount + addedCount,
-      latestValue: addedCount > 0 ? merged[merged.length - 1].value : existing.latestValue,
-      receivedAt: newMetric.receivedAt,
-    };
-    set(metricsAtom, updated);
-  } else {
-    // A brand-new (serviceName, name) group — the header badge's
-    // "genuinely new" signal (see totalMetricCountAtom); config.metricCount
-    // counts groups the same way (storage.Counts), so this mirrors it.
-    set(newMetricCountAtom, (n) => n + 1);
-    const next = [
-      {
+  const maxDataPoints = get(bufferCapsAtom).maxDataPoints;
+  const working = current.slice();
+  const newGroups: MetricData[] = [];
+  const locationByKey = new Map<string, MetricLocation>(
+    current.map((m, i) => [metricKeyToString(m), { arr: "working", idx: i }]),
+  );
+  let addedGroupCount = 0;
+  for (const newMetric of newMetrics) {
+    const key = metricKeyToString(newMetric);
+    const loc = locationByKey.get(key);
+    if (loc) {
+      // Also handles a metric key appearing more than once within this one
+      // batch: the second occurrence merges into the first occurrence's
+      // (possibly brand-new, `arr: "new"`) entry instead of being treated as
+      // a second brand-new group.
+      const arr = loc.arr === "working" ? working : newGroups;
+      const existing = arr[loc.idx];
+      const merged = mergeDataPoints(existing.dataPoints, newMetric.dataPoints);
+      const addedCount = merged.length - existing.dataPoints.length;
+      arr[loc.idx] = {
+        ...existing,
+        dataPoints: merged.slice(-maxDataPoints),
+        pointCount: existing.pointCount + addedCount,
+        latestValue: addedCount > 0 ? merged[merged.length - 1].value : existing.latestValue,
+        receivedAt: newMetric.receivedAt,
+      };
+    } else {
+      // A brand-new (serviceName, name) group — the header badge's
+      // "genuinely new" signal (see totalMetricCountAtom); config.metricCount
+      // counts groups the same way (storage.Counts), so this mirrors it.
+      addedGroupCount++;
+      locationByKey.set(key, { arr: "new", idx: newGroups.length });
+      newGroups.push({
         ...newMetric,
         pointCount: newMetric.dataPoints.length,
         latestValue: newMetric.dataPoints.at(-1)?.value ?? null,
-      },
-      ...current,
-    ];
-    set(metricsAtom, next.length > maxMetrics ? next.slice(0, maxMetrics) : next);
+      });
+    }
   }
+  if (addedGroupCount > 0) set(newMetricCountAtom, (n) => n + addedGroupCount);
+  const next = [...newGroups.reverse(), ...working];
+  set(metricsAtom, next.length > maxMetrics ? next.slice(0, maxMetrics) : next);
 });
 
-export const addLogAtom = atom(null, (get, set, newLog: LogData) => {
+export const addMetricAtom = atom(null, (_get, set, newMetric: MetricData) => {
+  set(addMetricsAtom, [newMetric]);
+});
+
+// Write-only: apply a whole WebSocket flush window's worth of log deliveries
+// in a single store update (see addTracesAtom's doc comment). Reversing the
+// batch before prepending mirrors what a sequence of single addLogAtom calls
+// would produce (each prepends to the front, so the last-arriving log of the
+// batch ends up first) while only writing logsAtom/newLogCountAtom once.
+export const addLogsAtom = atom(null, (get, set, newLogs: LogData[]) => {
+  if (newLogs.length === 0) return;
   const maxLogs = get(bufferCapsAtom).logCap;
   // Every log is a genuinely new row — there's no merge-into-existing
   // concept for logs (unlike traces/metrics), so this always increments.
-  set(newLogCountAtom, (n) => n + 1);
+  set(newLogCountAtom, (n) => n + newLogs.length);
   set(logsAtom, (prev) => {
-    const next = [newLog, ...prev];
+    const next = [...newLogs.toReversed(), ...prev];
     return next.length > maxLogs ? next.slice(0, maxLogs) : next;
   });
+});
+
+export const addLogAtom = atom(null, (_get, set, newLog: LogData) => {
+  set(addLogsAtom, [newLog]);
 });
 
 // Server-reported totals as of the initial load (config.traceCount/

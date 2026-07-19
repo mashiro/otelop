@@ -7,6 +7,7 @@ import { metricSearchResultAtom, metricsAtom } from "@/stores/telemetry";
 import { metricSearchAtom } from "@/stores/filters";
 import { selectedMetricKeyAtom } from "@/stores/navigation";
 import { makeMetric } from "@/test/factories";
+import { LIST_DISPLAY_CAP } from "@/lib/list-render-cap";
 import type { MetricsListQuery, MetricsListQueryVariables } from "@/gql/graphql";
 
 // Base UI's ScrollArea calls Element.getAnimations(), which happy-dom (this
@@ -16,6 +17,19 @@ vi.mock("@/components/ui/scroll-area", () => ({
   ScrollArea: ({ children, className }: { children: ReactNode; className?: string }) => (
     <div className={className}>{children}</div>
   ),
+}));
+
+// A leaf every row renders (the type Pill) whose render count doubles as a
+// proxy for "how many rows actually re-rendered" — memoization is only
+// meaningful if the wrapped Row bails out of re-rendering its own children.
+// The mock preserves children as plain text, so every other test's text
+// assertions on a metric's type column are unaffected.
+const { pillRenders } = vi.hoisted(() => ({ pillRenders: { current: 0 } }));
+vi.mock("@/components/common/pill", () => ({
+  Pill: ({ children }: { children: ReactNode }) => {
+    pillRenders.current++;
+    return <span>{children}</span>;
+  },
 }));
 
 // The hook is exercised for real (not mocked) in this file now: the bug this
@@ -37,6 +51,7 @@ beforeEach(() => {
   store.set(metricSearchResultAtom, { search: "", items: [] });
   requestMock.mockReset();
   requestMock.mockResolvedValue({ metrics: { items: [] } });
+  pillRenders.current = 0;
 });
 afterEach(cleanup);
 
@@ -158,5 +173,71 @@ describe("MetricList", () => {
     // Give any accidental fetch a tick to fire before asserting its absence.
     await act(async () => Promise.resolve());
     expect(requestMock).not.toHaveBeenCalled();
+  });
+});
+
+function makeMetrics(count: number) {
+  return Array.from({ length: count }, (_, i) => makeMetric({ name: `metric-${i}` }));
+}
+
+describe("MetricList row rendering", () => {
+  it("renders one row per metric when under the display cap", () => {
+    const store = getDefaultStore();
+    store.set(metricsAtom, makeMetrics(3));
+
+    render(<MetricList />);
+
+    const rows = screen.getAllByRole("row");
+    expect(rows).toHaveLength(4); // + header row
+  });
+
+  it("caps rendered rows at LIST_DISPLAY_CAP and reports the hidden count", () => {
+    const store = getDefaultStore();
+    const total = LIST_DISPLAY_CAP + 3;
+    store.set(metricsAtom, makeMetrics(total));
+
+    render(<MetricList />);
+
+    const rows = screen.getAllByRole("row");
+    expect(rows).toHaveLength(LIST_DISPLAY_CAP + 1);
+    expect(screen.getByText(/\+3 more/)).toBeTruthy();
+  });
+
+  it("does not show the overflow notice when at or under the cap", () => {
+    const store = getDefaultStore();
+    store.set(metricsAtom, makeMetrics(LIST_DISPLAY_CAP));
+
+    render(<MetricList />);
+
+    expect(screen.queryByText(/more —/)).toBeNull();
+  });
+
+  it("memoizes rows: an unrelated store update that produces a new array of the same metric objects does not re-render every row", () => {
+    const store = getDefaultStore();
+    store.set(metricsAtom, makeMetrics(5));
+
+    render(<MetricList />);
+    const rendersAfterMount = pillRenders.current;
+    expect(rendersAfterMount).toBe(5);
+
+    act(() => {
+      store.set(metricsAtom, (prev) => [...prev]);
+    });
+
+    expect(pillRenders.current).toBe(rendersAfterMount);
+  });
+
+  it("re-renders the affected row when a single metric is updated in place", () => {
+    const store = getDefaultStore();
+    store.set(metricsAtom, [makeMetric({ name: "http.requests", pointCount: 1 })]);
+
+    render(<MetricList />);
+    expect(screen.getByText("1")).toBeTruthy();
+
+    act(() => {
+      store.set(metricsAtom, [makeMetric({ name: "http.requests", pointCount: 2 })]);
+    });
+
+    expect(screen.getByText("2")).toBeTruthy();
   });
 });
