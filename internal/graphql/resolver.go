@@ -31,6 +31,64 @@ func (r *Resolver) fullWindow() (from, to time.Time) {
 	return now.Add(-r.runtime.Retention - slack), now.Add(slack)
 }
 
+// graphQLListDefaultLimit and graphQLListMaxLimit bound every top-level
+// connection's page size at the GraphQL boundary, independent of storage's
+// own "limit <= 0 means unlimited" sentinel (see query_trace.go's pageLimit
+// doc comment). That sentinel exists for storage's internal callers (e.g.
+// internal/broadcast's predecessor batches) and stays as-is; a GraphQL
+// caller reaching it directly — e.g. traces(limit:0){spans{trace{logs{...}}}}
+// — would otherwise get every retained trace's full span/log graph in one
+// response, combinatorially worse once combined with the schema's circular
+// edges (see schema.go's MaxDepth comment).
+//
+// graphQLListDefaultLimit (50) matches schema.graphql's declared
+// `limit: Int = 50`, the value graph-gophers substitutes when a caller
+// omits the argument entirely — a resolver only ever observes limit <= 0
+// when a caller explicitly passes it. Clamping to the same number keeps
+// "explicitly zero" and "omitted" behaviorally identical for traces/logs,
+// values no real frontend caller sends today: hooks/use-trace-list-page.ts
+// and hooks/use-log-list-page.ts always pass an explicit positive
+// SIGNAL_PAGE_SIZE (100).
+//
+// graphQLListMaxLimit (1000) is the hard ceiling every connection clamps
+// down to when asked for more, and also clampUnboundedLimit's target for
+// limit <= 0 on the metrics query. That's a deliberate asymmetry: unlike
+// traces/logs, hooks/use-initial-load.ts and hooks/use-metric-list-search.ts
+// intentionally send an explicit `limit: 0` today to mean "every metric
+// group". Real (service, metric name) group cardinality stays far below
+// four figures, so clamping that sentinel to 1000 rather than 50 keeps that
+// existing behavior working in practice while still bounding the worst case.
+const (
+	graphQLListDefaultLimit = 50
+	graphQLListMaxLimit     = 1000
+)
+
+// clampLimit bounds a client-supplied `limit` argument to
+// [1, graphQLListMaxLimit], substituting graphQLListDefaultLimit for
+// storage's "unlimited" sentinel (limit <= 0). Used by traces and logs.
+func clampLimit(limit int32) int32 {
+	return clampLimitTo(limit, graphQLListDefaultLimit)
+}
+
+// clampUnboundedLimit is clampLimit's counterpart for connections whose
+// zero/negative sentinel must keep meaning "as many as we're willing to
+// serve" rather than shrink to the ordinary page-size default — see the
+// metrics case in the doc comment above. Used by metrics.
+func clampUnboundedLimit(limit int32) int32 {
+	return clampLimitTo(limit, graphQLListMaxLimit)
+}
+
+func clampLimitTo(limit, zeroDefault int32) int32 {
+	switch {
+	case limit <= 0:
+		return zeroDefault
+	case limit > graphQLListMaxLimit:
+		return graphQLListMaxLimit
+	default:
+		return limit
+	}
+}
+
 // stringArg unwraps an optional GraphQL string argument to storage's plain
 // "" (no-op filter) sentinel, since a nil `search` arg (omitted or explicit
 // null) means "no search" the same way an empty string does.
@@ -111,7 +169,8 @@ func (r *Resolver) Traces(ctx context.Context, args TracesArgs) (*ConnectionReso
 	if err != nil {
 		return nil, err
 	}
-	items, hasNextPage, err := r.storage.TracesPage(ctx, from, to, after, int(args.Limit), stringArg(args.Search))
+	limit := clampLimit(args.Limit)
+	items, hasNextPage, err := r.storage.TracesPage(ctx, from, to, after, int(limit), stringArg(args.Search))
 	if err != nil {
 		return nil, err
 	}
@@ -119,7 +178,7 @@ func (r *Resolver) Traces(ctx context.Context, args TracesArgs) (*ConnectionReso
 	for i := range items {
 		resolved[i] = newTraceResolver(r.storage, items[i])
 	}
-	return newConnection(resolved, hasNextPage, args.Limit, traceEndCursor(items), func(item *TraceResolver) *TraceResolver { return item }), nil
+	return newConnection(resolved, hasNextPage, limit, traceEndCursor(items), func(item *TraceResolver) *TraceResolver { return item }), nil
 }
 
 type TraceArgs struct {
@@ -151,11 +210,12 @@ func (r *Resolver) Metrics(ctx context.Context, args MetricsArgs) (*ConnectionRe
 	if err != nil {
 		return nil, err
 	}
-	items, hasNextPage, err := r.storage.MetricsPageSearch(ctx, from, to, after, int(args.Limit), stringArg(args.Search))
+	limit := clampUnboundedLimit(args.Limit)
+	items, hasNextPage, err := r.storage.MetricsPageSearch(ctx, from, to, after, int(limit), stringArg(args.Search))
 	if err != nil {
 		return nil, err
 	}
-	return newConnection(items, hasNextPage, args.Limit, metricEndCursor(items), func(m storage.MetricSummary) *MetricResolver {
+	return newConnection(items, hasNextPage, limit, metricEndCursor(items), func(m storage.MetricSummary) *MetricResolver {
 		return &MetricResolver{storage: r.storage, m: m, from: from, to: to}
 	}), nil
 }
@@ -179,18 +239,19 @@ func (r *Resolver) Logs(ctx context.Context, args LogsArgs) (*ConnectionResolver
 	if err != nil {
 		return nil, err
 	}
+	limit := clampLimit(args.Limit)
 	if args.TraceID != nil && *args.TraceID != "" {
 		// Trace correlation is a retained-history filter rather than a time
 		// window. Search remains an independent predicate and composes with it.
-		items, hasNextPage, err = r.storage.LogsPageByTraceID(ctx, *args.TraceID, after, int(args.Limit), stringArg(args.Search))
+		items, hasNextPage, err = r.storage.LogsPageByTraceID(ctx, *args.TraceID, after, int(limit), stringArg(args.Search))
 	} else {
 		from, to := r.resolveWindow(args.From, args.To)
-		items, hasNextPage, err = r.storage.LogsPage(ctx, from, to, after, int(args.Limit), stringArg(args.Search))
+		items, hasNextPage, err = r.storage.LogsPage(ctx, from, to, after, int(limit), stringArg(args.Search))
 	}
 	if err != nil {
 		return nil, err
 	}
-	return newConnection(items, hasNextPage, args.Limit, logEndCursor(items), func(l storage.LogDetail) *LogResolver {
+	return newConnection(items, hasNextPage, limit, logEndCursor(items), func(l storage.LogDetail) *LogResolver {
 		return &LogResolver{storage: r.storage, l: l}
 	}), nil
 }
