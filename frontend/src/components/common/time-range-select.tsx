@@ -24,9 +24,17 @@ interface TimeRangeSelectProps {
   size?: "sm" | "md";
 }
 
+const CUSTOM_ITEM = { value: "custom", label: "Custom" };
+
 export function TimeRangeSelect({ range, onRangeChange, tone, size = "sm" }: TimeRangeSelectProps) {
+  // Base UI's Select.Value shows the selected item's raw value by default
+  // (unlike Radix, it doesn't read the rendered SelectItem's label) — items
+  // tells it which label to render for each value instead.
+  const items = range === null ? [CUSTOM_ITEM, ...CHART_TIME_RANGES] : CHART_TIME_RANGES;
+
   return (
     <Select
+      items={items}
       value={range ?? "custom"}
       onValueChange={(value) => {
         if (value && value !== "custom") onRangeChange(value as ChartTimeRange);
