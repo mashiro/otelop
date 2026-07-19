@@ -31,6 +31,15 @@ func TestDefaults_AppliedWhenFileMissing(t *testing.T) {
 	}
 }
 
+// TestDefaultHTTPAddr_IsLoopback pins the literal value (not just equality
+// with the constant) so a future edit can't silently widen the unauthenticated
+// GraphQL/UI listener back to all interfaces the way ":4319" used to.
+func TestDefaultHTTPAddr_IsLoopback(t *testing.T) {
+	if DefaultHTTPAddr != "127.0.0.1:4319" {
+		t.Errorf("DefaultHTTPAddr = %q, want a loopback-bound address (127.0.0.1:4319)", DefaultHTTPAddr)
+	}
+}
+
 func TestLoad_MergesPartialFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")

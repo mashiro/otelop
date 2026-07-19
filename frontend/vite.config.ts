@@ -10,7 +10,10 @@ const generatedSources = ["src/gql/**"];
 // isolated backend instance instead of the developer's live :4319 server
 // (see .mise/tasks/e2e-env). The ws:// target is derived from the same
 // origin rather than duplicated, so the two proxies can never drift apart.
-const backendOrigin = process.env.OTELOP_BACKEND_ORIGIN ?? "http://localhost:4319";
+// 127.0.0.1, not localhost: the backend now binds loopback-only
+// (internal/config.DefaultHTTPAddr), and Node's DNS resolution order can
+// try ::1 first, which the IPv4-only bind won't accept.
+const backendOrigin = process.env.OTELOP_BACKEND_ORIGIN ?? "http://127.0.0.1:4319";
 const backendWsOrigin = backendOrigin.replace(/^http/, "ws");
 
 export default defineConfig({
