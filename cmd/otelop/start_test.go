@@ -1,9 +1,13 @@
 package main
 
 import (
+	"bytes"
+	"errors"
+	"log/slog"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestValidateProxyOptions_RejectsSelfProxy(t *testing.T) {
@@ -86,5 +90,60 @@ func TestSplitCSV(t *testing.T) {
 				t.Errorf("splitCSV(%q) = %v, want %v", tc.in, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestWatchCollectorErrors_CancelsOnPostReadyFailure(t *testing.T) {
+	ch := make(chan error, 1)
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, nil))
+	canceled := make(chan struct{})
+	cancel := func() { close(canceled) }
+
+	ch <- errors.New("boom")
+	close(ch)
+
+	done := make(chan struct{})
+	go func() {
+		watchCollectorErrors(ch, cancel, logger)
+		close(done)
+	}()
+
+	select {
+	case <-canceled:
+	case <-time.After(time.Second):
+		t.Fatal("cancel was not called after a post-ready collector error")
+	}
+	<-done
+
+	if !strings.Contains(buf.String(), "boom") {
+		t.Errorf("log output = %q, want it to mention the collector error", buf.String())
+	}
+}
+
+func TestWatchCollectorErrors_NoOpOnCleanShutdown(t *testing.T) {
+	// col.Run returning nil (e.g. rt.shutdown() calling col.Shutdown()) closes
+	// the channel without ever sending — that's expected daemon shutdown, not
+	// a failure, so cancel must not be invoked again.
+	ch := make(chan error)
+	close(ch)
+
+	canceled := false
+	cancel := func() { canceled = true }
+
+	done := make(chan struct{})
+	go func() {
+		watchCollectorErrors(ch, cancel, slog.Default())
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("watchCollectorErrors did not return on channel close")
+	}
+
+	if canceled {
+		t.Error("cancel was called on a clean collector shutdown")
 	}
 }
