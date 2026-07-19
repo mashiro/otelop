@@ -117,6 +117,12 @@ equivalent) to opt in to exposing it on the LAN. The published Docker image
 binds `0.0.0.0:4319` inside the container by default, since Docker's own
 `-p` publishing is itself an explicit opt-in.
 
+To guard against DNS rebinding, `/graphql` and `/ws` also reject requests
+whose `Host` header isn't an IP literal or `localhost`. If you run `otelop`
+under a hostname (e.g. reverse-proxied at `http://otelop.internal:4319`),
+add it to `allowed_hosts` (or `--allowed-hosts`/`OTELOP_ALLOWED_HOSTS`) —
+see [Configuration](#configuration).
+
 ## Commands
 
 ```
@@ -136,6 +142,7 @@ otelop version
   --http             Web UI listen address           (default 127.0.0.1:4319)
   --otlp-grpc        OTLP gRPC receiver endpoint     (default 0.0.0.0:4317)
   --otlp-http        OTLP HTTP receiver endpoint     (default 0.0.0.0:4318)
+  --allowed-hosts    comma-separated hostnames to allow beyond loopback/IP literals (e.g. otelop.internal,*.example.com)
   --proxy-url        upstream OTLP endpoint for forwarding
   --proxy-protocol   upstream OTLP protocol          (grpc|http)
   --proxy-auth-type  upstream OTLP auth type         (bearer|basic|headers)
@@ -170,6 +177,7 @@ Example `~/.config/otelop/config.toml`:
 http = "127.0.0.1:4319"
 otlp_grpc = "0.0.0.0:4317"
 otlp_http = "0.0.0.0:4318"
+allowed_hosts = [] # e.g. ["otelop.internal", "*.example.com"]
 log_level = "warn"
 debug = false
 
@@ -187,7 +195,7 @@ type = "bearer"
 token = "replace-me"
 ```
 
-The matching environment variables are `OTELOP_HTTP`, `OTELOP_OTLP_GRPC`, `OTELOP_OTLP_HTTP`, `OTELOP_PROXY_URL`, `OTELOP_PROXY_PROTOCOL`, `OTELOP_PROXY_AUTH_TYPE`, `OTELOP_PROXY_AUTH_TOKEN`, `OTELOP_PROXY_AUTH_USERNAME`, `OTELOP_PROXY_AUTH_PASSWORD`, `OTELOP_PROXY_HEADERS`, `OTELOP_STORAGE_PATH`, `OTELOP_RETENTION`, `OTELOP_MAX_SIZE`, `OTELOP_LOG_LEVEL`, and `OTELOP_DEBUG`.
+The matching environment variables are `OTELOP_HTTP`, `OTELOP_OTLP_GRPC`, `OTELOP_OTLP_HTTP`, `OTELOP_PROXY_URL`, `OTELOP_PROXY_PROTOCOL`, `OTELOP_PROXY_AUTH_TYPE`, `OTELOP_PROXY_AUTH_TOKEN`, `OTELOP_PROXY_AUTH_USERNAME`, `OTELOP_PROXY_AUTH_PASSWORD`, `OTELOP_PROXY_HEADERS`, `OTELOP_STORAGE_PATH`, `OTELOP_RETENTION`, `OTELOP_MAX_SIZE`, `OTELOP_LOG_LEVEL`, `OTELOP_DEBUG`, and `OTELOP_ALLOWED_HOSTS` (comma-separated).
 
 When proxying is enabled, `otelop` still stores incoming telemetry locally for the UI and also forwards the same traces, metrics, and logs to the configured upstream OTLP endpoint.
 

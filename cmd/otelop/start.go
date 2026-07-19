@@ -64,6 +64,7 @@ func startCommand() *cli.Command {
 			&cli.StringFlag{Name: "http", Value: cfg.HTTPAddr, Usage: "Web UI + REST API listen address", Sources: cli.EnvVars("OTELOP_HTTP")},
 			&cli.StringFlag{Name: "otlp-grpc", Value: cfg.OTLPGRPCAddr, Usage: "OTLP gRPC receiver endpoint", Sources: cli.EnvVars("OTELOP_OTLP_GRPC")},
 			&cli.StringFlag{Name: "otlp-http", Value: cfg.OTLPHTTPAddr, Usage: "OTLP HTTP receiver endpoint", Sources: cli.EnvVars("OTELOP_OTLP_HTTP")},
+			&cli.StringFlag{Name: "allowed-hosts", Value: strings.Join(cfg.AllowedHosts, ","), Usage: "comma-separated hostnames to allow beyond loopback/IP literals, e.g. otelop.internal,*.example.com", Sources: cli.EnvVars("OTELOP_ALLOWED_HOSTS")},
 			&cli.StringFlag{Name: "proxy-url", Value: cfg.Proxy.URL, Usage: "upstream OTLP endpoint for forwarding", Sources: cli.EnvVars("OTELOP_PROXY_URL")},
 			&cli.StringFlag{Name: "proxy-protocol", Value: cfg.Proxy.Protocol, Usage: "upstream OTLP protocol (grpc|http)", Sources: cli.EnvVars("OTELOP_PROXY_PROTOCOL")},
 			&cli.StringFlag{Name: "proxy-auth-type", Value: cfg.Proxy.Auth.Type, Usage: "upstream OTLP auth type (bearer|basic|headers)", Sources: cli.EnvVars("OTELOP_PROXY_AUTH_TYPE")},
@@ -94,6 +95,7 @@ type startOptions struct {
 	HTTPAddr      string
 	OTLPGRPCAddr  string
 	OTLPHTTPAddr  string
+	AllowedHosts  []string
 	ProxyURL      string
 	ProxyProtocol string
 	ProxyAuth     proxyAuthOptions
@@ -110,6 +112,7 @@ func optionsFromCmd(cmd *cli.Command) startOptions {
 		HTTPAddr:      cmd.String("http"),
 		OTLPGRPCAddr:  cmd.String("otlp-grpc"),
 		OTLPHTTPAddr:  cmd.String("otlp-http"),
+		AllowedHosts:  splitCSV(cmd.String("allowed-hosts")),
 		ProxyURL:      strings.TrimSpace(cmd.String("proxy-url")),
 		ProxyProtocol: normalizeProxyProtocol(cmd.String("proxy-protocol")),
 		ProxyAuth: proxyAuthOptions{
@@ -126,6 +129,26 @@ func optionsFromCmd(cmd *cli.Command) startOptions {
 		Debug:       cmd.Bool("debug"),
 		Foreground:  cmd.Bool("foreground"),
 	}
+}
+
+// splitCSV splits a comma-separated flag/env value (e.g. --allowed-hosts,
+// OTELOP_ALLOWED_HOSTS) into its trimmed, non-empty entries. Returns nil for
+// an empty/all-whitespace input so callers see the same "no entries" shape
+// TOML's native array gives for an omitted key.
+func splitCSV(v string) []string {
+	fields := strings.Split(v, ",")
+	out := make([]string, 0, len(fields))
+	for _, f := range fields {
+		f = strings.TrimSpace(f)
+		if f == "" {
+			continue
+		}
+		out = append(out, f)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func runStart(ctx context.Context, cmd *cli.Command) error {
@@ -297,7 +320,7 @@ func bootstrap(ctx context.Context, opts startOptions) (*runtime, error) {
 		RetentionDisplay: opts.Retention,
 		MaxSizeDisplay:   opts.MaxSize,
 	}
-	rt.srv = server.New(rt.storage, rt.hub, otelop.FrontendFS(), runtimeInfo)
+	rt.srv = server.New(rt.storage, rt.hub, otelop.FrontendFS(), runtimeInfo, opts.AllowedHosts)
 
 	// Eager listen so port conflicts surface before we signal ready.
 	if err := rt.srv.Listen(ctx); err != nil {

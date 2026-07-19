@@ -23,8 +23,8 @@ import (
 // provider still see their own span recorder.
 func tracer() oteltrace.Tracer { return otel.Tracer("otelop/server") }
 
-// Server serves the GraphQL endpoint, WebSocket stream, and
-// embedded frontend.
+// Server serves the GraphQL endpoint, WebSocket stream, and embedded
+// frontend.
 type Server struct {
 	storage    *storage.Storage
 	hub        *ws.Hub
@@ -34,8 +34,13 @@ type Server struct {
 }
 
 // New creates a new Server. When runtime.Debug is true, HTTP requests are
-// instrumented with OpenTelemetry spans via otelhttp.
-func New(s *storage.Storage, hub *ws.Hub, frontendFS fs.FS, runtime otelopgraphql.RuntimeInfo) *Server {
+// instrumented with OpenTelemetry spans via otelhttp. allowedHosts extends
+// the Host header allowlist enforced by requireAllowedHost beyond IP
+// literals/localhost — see internal/server/host_check.go and
+// config.Config.AllowedHosts. It's a plain parameter rather than a field on
+// otelopgraphql.RuntimeInfo because RuntimeInfo is graphql's own
+// status/config query payload, not a general server-config bag.
+func New(s *storage.Storage, hub *ws.Hub, frontendFS fs.FS, runtime otelopgraphql.RuntimeInfo, allowedHosts []string) *Server {
 	srv := &Server{
 		storage: s,
 		hub:     hub,
@@ -44,10 +49,19 @@ func New(s *storage.Storage, hub *ws.Hub, frontendFS fs.FS, runtime otelopgraphq
 
 	mux := http.NewServeMux()
 
-	// GraphQL — primary data surface for the frontend and AI clients.
-	mux.Handle("POST /graphql", &relay.Handler{Schema: srv.schema})
+	// CSRF protection: otelop is a localhost dev tool, so any page open in the
+	// browser — including malicious ones — can reach it. Without this, a
+	// cross-site page could issue an unsafe /graphql request (no preflight
+	// required for simple POSTs) and otelop would happily execute it.
+	// NewCrossOriginProtection lets same-origin requests and non-browser
+	// clients (curl, scripts — no Sec-Fetch-Site/Origin headers) through, and
+	// rejects unsafe cross-site browser requests.
+	csrf := http.NewCrossOriginProtection()
 
-	mux.HandleFunc("GET /ws", srv.handleWebSocket)
+	// GraphQL — primary data surface for the frontend and AI clients.
+	mux.Handle("POST /graphql", requireAllowedHost(allowedHosts, csrf.Handler(&relay.Handler{Schema: srv.schema})))
+
+	mux.Handle("GET /ws", requireAllowedHost(allowedHosts, http.HandlerFunc(srv.handleWebSocket)))
 
 	// Static files with SPA fallback
 	mux.Handle("/", spaHandler(frontendFS))

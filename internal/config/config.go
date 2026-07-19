@@ -82,9 +82,18 @@ type StorageConfig struct {
 // keys to match TOML conventions (CLI flags are kebab-case, env vars are
 // SCREAMING_SNAKE — pick whichever surface is most ergonomic).
 type Config struct {
-	HTTPAddr     string        `toml:"http"`
-	OTLPGRPCAddr string        `toml:"otlp_grpc"`
-	OTLPHTTPAddr string        `toml:"otlp_http"`
+	HTTPAddr     string `toml:"http"`
+	OTLPGRPCAddr string `toml:"otlp_grpc"`
+	OTLPHTTPAddr string `toml:"otlp_http"`
+	// AllowedHosts additionally permits Host headers beyond the always-allowed
+	// IP literals/localhost that internal/server's DNS-rebinding guard
+	// enforces (see internal/server/host_check.go) — for operators who run
+	// otelop under a hostname, e.g. reverse-proxied at "otelop.internal".
+	// Entries are matched case-insensitively with the port ignored; a
+	// "*.example.com" entry matches "example.com" itself and any depth of
+	// subdomain. Empty (the default) keeps the strict IP-literal/localhost-only
+	// behavior.
+	AllowedHosts []string      `toml:"allowed_hosts"`
 	Proxy        ProxyConfig   `toml:"proxy"`
 	Storage      StorageConfig `toml:"storage"`
 	LogLevel     string        `toml:"log_level"`
