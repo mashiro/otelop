@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vite-plus/test";
 import { WsManager } from "./websocket-manager";
 import type { WsMessage } from "@/types/telemetry";
 import type { WsStatus } from "@/stores/telemetry";

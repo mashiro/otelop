@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach } from "vite-plus/test";
 import { createStore } from "jotai";
 import { DEFAULT_CHART_TIME_RANGE } from "@/lib/chart-time-range";
 import {

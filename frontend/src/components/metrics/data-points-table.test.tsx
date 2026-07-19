@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach, vi } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vite-plus/test";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { DataPointsTable, DataPointDetail } from "./metric-detail";
 import { makeDataPoint, makeMetric } from "@/test/factories";

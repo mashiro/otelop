@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vite-plus/test";
 import { renderHook, waitFor } from "@testing-library/react";
 import { Temporal } from "temporal-polyfill";
 import { useMetricRangePoints } from "./use-metric-range-points";

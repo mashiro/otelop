@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vite-plus/test";
 import { renderHook, waitFor, act } from "@testing-library/react";
 import { createStore, Provider } from "jotai";
 import { Temporal } from "temporal-polyfill";
