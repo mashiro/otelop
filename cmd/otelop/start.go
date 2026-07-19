@@ -373,6 +373,13 @@ func bootstrap(ctx context.Context, opts startOptions) (*runtime, error) {
 		return nil, err
 	}
 
+	// Once ready, nothing else reads colErrCh — without this, a post-ready
+	// Run failure (e.g. the OTLP listener dying) would go unnoticed and
+	// `otelop status` would keep reporting "running" while ingestion is
+	// silently dead. rt.cancel() unwinds waitForSignal, which triggers the
+	// deferred rt.shutdown() in runServer.
+	go watchCollectorErrors(colErrCh, rt.cancel, slog.Default())
+
 	if opts.Debug {
 		slog.Debug("starting self-telemetry", "endpoint", selfTelemetryEndpoint)
 		result, err := selftelemetry.Setup(ctx, selfTelemetryEndpoint)
@@ -423,6 +430,20 @@ func waitCollectorReady(ctx context.Context, col *otelcol.Collector, errCh <-cha
 			return nil
 		}
 	}
+}
+
+// watchCollectorErrors observes errCh for a collector failure that happens
+// after waitCollectorReady already returned success, and cancels the daemon
+// so the failure isn't silent. errCh is only ever populated when col.Run
+// returns a non-nil error; a clean shutdown (col.Shutdown() making Run
+// return nil) closes it without sending, which is a no-op here.
+func watchCollectorErrors(errCh <-chan error, cancel context.CancelFunc, logger *slog.Logger) {
+	err, ok := <-errCh
+	if !ok || err == nil {
+		return
+	}
+	logger.Error("collector stopped unexpectedly, shutting down", "error", err)
+	cancel()
 }
 
 func (r *runtime) printBanner(w io.Writer, opts startOptions) {
