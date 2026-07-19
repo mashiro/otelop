@@ -7,6 +7,7 @@ import {
   totalTraceCountAtom,
   totalMetricCountAtom,
   totalLogCountAtom,
+  renderWindowMaxAtom,
 } from "@/stores/telemetry";
 import { makeMetric } from "@/test/factories";
 
@@ -24,7 +25,7 @@ describe("useInitialLoad", () => {
     // hooks/use-log-list-page.ts); metrics stay an unbounded fetch, but the
     // list only needs pointCount/latestValue, not the full series (#162).
     requestMock.mockResolvedValue({
-      config: { traceCount: 10, metricCount: 2, logCount: 20 },
+      config: { traceCount: 10, metricCount: 2, logCount: 20, renderWindowMax: 500 },
       metrics: {
         items: [
           {
@@ -56,7 +57,7 @@ describe("useInitialLoad", () => {
 
   it("populates the server-reported totals atoms from config", async () => {
     requestMock.mockResolvedValue({
-      config: { traceCount: 300, metricCount: 5, logCount: 300 },
+      config: { traceCount: 300, metricCount: 5, logCount: 300, renderWindowMax: 500 },
       metrics: { items: [makeMetric()] },
     });
     const store = createStore();
@@ -68,6 +69,20 @@ describe("useInitialLoad", () => {
     await waitFor(() => expect(store.get(totalTraceCountAtom)).toBe(300));
     expect(store.get(totalMetricCountAtom)).toBe(5);
     expect(store.get(totalLogCountAtom)).toBe(300);
+  });
+
+  it("seeds renderWindowMaxAtom from the operator-configured config.renderWindowMax", async () => {
+    requestMock.mockResolvedValue({
+      config: { traceCount: 0, metricCount: 0, logCount: 0, renderWindowMax: 250 },
+      metrics: { items: [] },
+    });
+    const store = createStore();
+
+    renderHook(() => useInitialLoad(), {
+      wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
+    });
+
+    await waitFor(() => expect(store.get(renderWindowMaxAtom)).toBe(250));
   });
 
   it("leaves metrics/totals untouched (not thrown) when the bootstrap fetch fails", async () => {

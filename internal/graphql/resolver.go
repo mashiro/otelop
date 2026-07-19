@@ -116,10 +116,11 @@ func (r *Resolver) Config(ctx context.Context) (*ConfigResolver, error) {
 		return nil, err
 	}
 	return &ConfigResolver{
-		storagePath: r.runtime.StoragePath,
-		retention:   r.runtime.RetentionDisplay,
-		maxSize:     r.runtime.MaxSizeDisplay,
-		traceCount:  int32(traces), metricCount: int32(metrics), logCount: int32(logs),
+		storagePath:     r.runtime.StoragePath,
+		retention:       r.runtime.RetentionDisplay,
+		maxSize:         r.runtime.MaxSizeDisplay,
+		renderWindowMax: int32(r.runtime.RenderWindowMax),
+		traceCount:      int32(traces), metricCount: int32(metrics), logCount: int32(logs),
 	}, nil
 }
 
@@ -348,15 +349,17 @@ func (r *Resolver) ClearSignals(ctx context.Context) (bool, error) {
 // captured once at resolve time so field access doesn't re-query per field.
 type ConfigResolver struct {
 	storagePath, retention, maxSize   string
+	renderWindowMax                   int32
 	traceCount, metricCount, logCount int32
 }
 
-func (c *ConfigResolver) StoragePath() string { return c.storagePath }
-func (c *ConfigResolver) Retention() string   { return c.retention }
-func (c *ConfigResolver) MaxSize() string     { return c.maxSize }
-func (c *ConfigResolver) TraceCount() int32   { return c.traceCount }
-func (c *ConfigResolver) MetricCount() int32  { return c.metricCount }
-func (c *ConfigResolver) LogCount() int32     { return c.logCount }
+func (c *ConfigResolver) StoragePath() string    { return c.storagePath }
+func (c *ConfigResolver) Retention() string      { return c.retention }
+func (c *ConfigResolver) MaxSize() string        { return c.maxSize }
+func (c *ConfigResolver) RenderWindowMax() int32 { return c.renderWindowMax }
+func (c *ConfigResolver) TraceCount() int32      { return c.traceCount }
+func (c *ConfigResolver) MetricCount() int32     { return c.metricCount }
+func (c *ConfigResolver) LogCount() int32        { return c.logCount }
 
 // ConnectionResolver is the shared limit+1 pagination response for every
 // signal connection. It avoids exact counts on list queries.

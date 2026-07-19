@@ -12,8 +12,7 @@ import {
 } from "@/stores/telemetry";
 import { traceSearchAtom } from "@/stores/filters";
 import { selectedTraceIdAtom } from "@/stores/navigation";
-import { makeTrace } from "@/test/factories";
-import { LIST_DISPLAY_CAP } from "@/lib/list-render-cap";
+import { makeTrace, TEST_RENDER_WINDOW_MAX } from "@/test/factories";
 import { SIGNAL_PAGE_SIZE } from "@/hooks/use-signal-list-page";
 import type { TracesPageQuery, TracesPageQueryVariables } from "@/gql/graphql";
 
@@ -49,7 +48,7 @@ beforeEach(() => {
   store.set(traceSearchAtom, "");
   store.set(selectedTraceAtom, null);
   store.set(selectedTraceIdAtom, null);
-  store.set(renderWindowMaxAtom, LIST_DISPLAY_CAP);
+  store.set(renderWindowMaxAtom, TEST_RENDER_WINDOW_MAX);
   requestMock.mockReset();
   requestMock.mockResolvedValue({ traces: { items: [], hasNextPage: false, endCursor: null } });
   pillRenders.current = 0;
@@ -114,21 +113,21 @@ describe("TraceList row rendering", () => {
     expect(rows).toHaveLength(4); // + header row
   });
 
-  it("caps rendered rows at LIST_DISPLAY_CAP on initial mount", () => {
+  it("caps rendered rows at TEST_RENDER_WINDOW_MAX on initial mount", () => {
     const store = getDefaultStore();
-    const total = LIST_DISPLAY_CAP + 7;
+    const total = TEST_RENDER_WINDOW_MAX + 7;
     store.set(tracesAtom, makeTraces(total));
 
     render(<TraceList />);
 
     const rows = screen.getAllByRole("row");
-    expect(rows).toHaveLength(LIST_DISPLAY_CAP + 1);
+    expect(rows).toHaveLength(TEST_RENDER_WINDOW_MAX + 1);
     expect(screen.getByRole("button", { name: "Load more" })).toBeTruthy();
   });
 
   it("does not show Load more when loaded rows are within the cap and there's no next page", () => {
     const store = getDefaultStore();
-    store.set(tracesAtom, makeTraces(LIST_DISPLAY_CAP));
+    store.set(tracesAtom, makeTraces(TEST_RENDER_WINDOW_MAX));
 
     render(<TraceList />);
 
@@ -169,7 +168,7 @@ describe("TraceList row rendering", () => {
 describe("TraceList render window (bounded sliding)", () => {
   it("slides onto already-loaded rows without fetching when Load more is clicked", () => {
     const store = getDefaultStore();
-    const total = LIST_DISPLAY_CAP + SIGNAL_PAGE_SIZE + 50;
+    const total = TEST_RENDER_WINDOW_MAX + SIGNAL_PAGE_SIZE + 50;
     store.set(tracesAtom, makeTraces(total));
 
     render(<TraceList />);
@@ -181,7 +180,7 @@ describe("TraceList render window (bounded sliding)", () => {
     });
 
     // The window slides by SIGNAL_PAGE_SIZE — it never grows past the max.
-    expect(screen.getAllByRole("row")).toHaveLength(LIST_DISPLAY_CAP + 1);
+    expect(screen.getAllByRole("row")).toHaveLength(TEST_RENDER_WINDOW_MAX + 1);
     expect(screen.queryByText("trace-0")).toBeNull();
     expect(screen.getByText(`trace-${SIGNAL_PAGE_SIZE}`)).toBeTruthy();
     // Sliding onto rows the store already has is client-side only.
@@ -192,7 +191,7 @@ describe("TraceList render window (bounded sliding)", () => {
     const store = getDefaultStore();
     requestMock.mockResolvedValueOnce({
       traces: {
-        items: makeQueryTraces(LIST_DISPLAY_CAP),
+        items: makeQueryTraces(TEST_RENDER_WINDOW_MAX),
         hasNextPage: true,
         endCursor: "cursor-1",
       },
@@ -206,7 +205,7 @@ describe("TraceList render window (bounded sliding)", () => {
     });
 
     render(<TraceList />);
-    await waitFor(() => expect(store.get(tracesAtom)).toHaveLength(LIST_DISPLAY_CAP));
+    await waitFor(() => expect(store.get(tracesAtom)).toHaveLength(TEST_RENDER_WINDOW_MAX));
 
     const button = await screen.findByRole("button", { name: "Load more" });
     await act(async () => {
@@ -220,14 +219,16 @@ describe("TraceList render window (bounded sliding)", () => {
     // a click must not silently do nothing just because the fetch itself
     // doesn't resolve synchronously.
     await waitFor(() =>
-      expect(store.get(tracesAtom)).toHaveLength(LIST_DISPLAY_CAP + SIGNAL_PAGE_SIZE),
+      expect(store.get(tracesAtom)).toHaveLength(TEST_RENDER_WINDOW_MAX + SIGNAL_PAGE_SIZE),
     );
-    await waitFor(() => expect(screen.getAllByRole("row")).toHaveLength(LIST_DISPLAY_CAP + 1));
+    await waitFor(() =>
+      expect(screen.getAllByRole("row")).toHaveLength(TEST_RENDER_WINDOW_MAX + 1),
+    );
   });
 
   it("resets the render window to the head when the search changes", () => {
     const store = getDefaultStore();
-    const total = LIST_DISPLAY_CAP + SIGNAL_PAGE_SIZE + 50;
+    const total = TEST_RENDER_WINDOW_MAX + SIGNAL_PAGE_SIZE + 50;
     store.set(tracesAtom, makeTraces(total));
 
     render(<TraceList />);
@@ -244,7 +245,7 @@ describe("TraceList render window (bounded sliding)", () => {
     });
 
     expect(screen.getByText("trace-0")).toBeTruthy();
-    expect(screen.getAllByRole("row")).toHaveLength(LIST_DISPLAY_CAP + 1);
+    expect(screen.getAllByRole("row")).toHaveLength(TEST_RENDER_WINDOW_MAX + 1);
   });
 
   it("never mounts more rows than the configured max, even immediately after repeated sliding", () => {

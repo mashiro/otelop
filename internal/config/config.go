@@ -45,6 +45,13 @@ const (
 	// the time.Duration/byte-count internal/storage.Options wants.
 	DefaultStorageRetention = "7d"
 	DefaultStorageMaxSize   = "4GB"
+
+	// DefaultRenderWindowMax is the ui section's default: how many rows the
+	// frontend's traces/metrics/logs tables mount at once (they render every
+	// row directly, no virtualization library — see
+	// frontend/src/hooks/use-render-window.ts). Surfaced to the frontend via
+	// the GraphQL `config` query.
+	DefaultRenderWindowMax = 500
 )
 
 type ProxyAuthConfig struct {
@@ -78,6 +85,21 @@ type StorageConfig struct {
 	MaxSize string `toml:"max_size"`
 }
 
+// UIConfig is the `[ui]` TOML section: settings that shape frontend
+// rendering behavior rather than storage/network configuration.
+type UIConfig struct {
+	// RenderWindowMax bounds how many rows the frontend mounts at once in
+	// the traces/metrics/logs tables (frontend/src/hooks/use-render-window.ts).
+	// Those tables render every row directly rather than virtualizing, so a
+	// live buffer sitting at its cap (stores/telemetry.ts's traceCap/
+	// metricCap/logCap) would otherwise mount thousands of <tr> elements in
+	// one paint. Must be >= 1; validated at startup (cmd/otelop's
+	// validateRenderWindowMax), not here, matching where retention/max-size
+	// values are only parsed to their typed form on load and validated by
+	// the command layer.
+	RenderWindowMax int `toml:"render_window_max"`
+}
+
 // Config is the on-disk shape of the TOML config file. Fields use snake_case
 // keys to match TOML conventions (CLI flags are kebab-case, env vars are
 // SCREAMING_SNAKE — pick whichever surface is most ergonomic).
@@ -96,6 +118,7 @@ type Config struct {
 	AllowedHosts []string      `toml:"allowed_hosts"`
 	Proxy        ProxyConfig   `toml:"proxy"`
 	Storage      StorageConfig `toml:"storage"`
+	UI           UIConfig      `toml:"ui"`
 	LogLevel     string        `toml:"log_level"`
 	Debug        bool          `toml:"debug"`
 }
@@ -111,6 +134,9 @@ func Defaults() Config {
 		Storage: StorageConfig{
 			Retention: DefaultStorageRetention,
 			MaxSize:   DefaultStorageMaxSize,
+		},
+		UI: UIConfig{
+			RenderWindowMax: DefaultRenderWindowMax,
 		},
 		LogLevel: DefaultLogLevel,
 	}

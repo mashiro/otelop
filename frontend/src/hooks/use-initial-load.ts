@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import { useSetAtom } from "jotai";
 import { graphql } from "@/gql";
 import { gqlClient } from "@/lib/graphql";
-import { setMetricsAtom, setTotalCountsAtom } from "@/stores/telemetry";
+import { setMetricsAtom, setTotalCountsAtom, renderWindowMaxAtom } from "@/stores/telemetry";
 import type { MetricData } from "@/types/telemetry";
 
 // Ring-buffer capacity config (traceCap/metricCap/logCap/maxDataPoints) was
@@ -30,12 +30,19 @@ import type { MetricData } from "@/types/telemetry";
 // stores/telemetry.ts's totalTraceCountAtom/totalMetricCountAtom/
 // totalLogCountAtom) — the server-side row/group totals, since the
 // traces/logs tabs' own paginated fetch only ever loads a page at a time.
+//
+// config { renderWindowMax } is the backend's --render-window-max/
+// OTELOP_RENDER_WINDOW_MAX/config.toml [ui] setting (internal/config/config.go),
+// seeded into stores/telemetry.ts's renderWindowMaxAtom below so the
+// traces/metrics/logs tables' mounted-row cap (hooks/use-render-window.ts) is
+// operator-configurable instead of a frontend-only constant.
 const InitialLoadQuery = graphql(`
   query InitialLoad {
     config {
       traceCount
       metricCount
       logCount
+      renderWindowMax
     }
     metrics(limit: 0) {
       items {
@@ -56,6 +63,7 @@ const InitialLoadQuery = graphql(`
 export function useInitialLoad() {
   const setMetrics = useSetAtom(setMetricsAtom);
   const setTotalCounts = useSetAtom(setTotalCountsAtom);
+  const setRenderWindowMax = useSetAtom(renderWindowMaxAtom);
   // StrictMode double-invokes effects in dev; guard so the bootstrap fetch
   // (and its Jotai writes) only runs once per real mount.
   const loadedRef = useRef(false);
@@ -67,6 +75,7 @@ export function useInitialLoad() {
       try {
         const data = await gqlClient.request(InitialLoadQuery);
         setTotalCounts(data.config);
+        setRenderWindowMax(data.config.renderWindowMax);
         // dataPoints wasn't selected above (see this file's doc comment);
         // every metric enters the buffer empty and fills in lazily — via a
         // detail view's use-metric-range-points fetch, or a WS delivery
@@ -78,5 +87,5 @@ export function useInitialLoad() {
       }
     };
     void load();
-  }, [setMetrics, setTotalCounts]);
+  }, [setMetrics, setTotalCounts, setRenderWindowMax]);
 }

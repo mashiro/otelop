@@ -18,7 +18,6 @@ import {
   selectedTraceIdAtom,
 } from "./navigation";
 import { DEFAULT_EVENT_TIME_WINDOW, type EventTimeWindow } from "@/lib/event-time-window";
-import { LIST_DISPLAY_CAP } from "@/lib/list-render-cap";
 
 // Client-side live-buffer bounds. These are NOT derived from the server: the
 // DuckDB backend (docs/design/duckdb-storage.md) has no per-signal caps —
@@ -49,7 +48,15 @@ export const bufferCapsAtom = atom<BufferCaps>(DEFAULT_CONFIG);
 // from mounting thousands of rows at once. A plain atom, like bufferCapsAtom,
 // with no settings UI backing it yet; tests override it the same way
 // (`store.set(renderWindowMaxAtom, …)`).
-export const renderWindowMaxAtom = atom<number>(LIST_DISPLAY_CAP);
+//
+// The 500 below is only a bootstrap fallback: rendering starts as soon as
+// this module loads, before hooks/use-initial-load.ts's Config fetch can
+// reach the server, so the atom can't start unset. Once that fetch resolves,
+// it overwrites this with the operator-configured value (backend
+// --render-window-max/OTELOP_RENDER_WINDOW_MAX/config.toml [ui], whose own
+// default is internal/config/config.go's DefaultRenderWindowMax) — that is
+// the actual source of truth.
+export const renderWindowMaxAtom = atom<number>(500);
 
 // WebSocket connection status
 export type WsStatus = "connecting" | "connected" | "disconnected";

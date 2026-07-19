@@ -11,8 +11,7 @@ import {
   logListWindowAtom,
 } from "@/stores/telemetry";
 import { logSearchAtom } from "@/stores/filters";
-import { makeLog } from "@/test/factories";
-import { LIST_DISPLAY_CAP } from "@/lib/list-render-cap";
+import { makeLog, TEST_RENDER_WINDOW_MAX } from "@/test/factories";
 import { SIGNAL_PAGE_SIZE } from "@/hooks/use-signal-list-page";
 import type { LogsPageQuery, LogsPageQueryVariables } from "@/gql/graphql";
 
@@ -47,7 +46,7 @@ beforeEach(() => {
   store.set(logsAtom, []);
   store.set(logSearchAtom, "");
   store.set(selectedLogAtom, null);
-  store.set(renderWindowMaxAtom, LIST_DISPLAY_CAP);
+  store.set(renderWindowMaxAtom, TEST_RENDER_WINDOW_MAX);
   requestMock.mockReset();
   requestMock.mockResolvedValue({ logs: { items: [], hasNextPage: false, endCursor: null } });
   pillRenders.current = 0;
@@ -97,21 +96,21 @@ describe("LogList row rendering", () => {
     expect(rows).toHaveLength(4);
   });
 
-  it("caps rendered rows at LIST_DISPLAY_CAP on initial mount", () => {
+  it("caps rendered rows at TEST_RENDER_WINDOW_MAX on initial mount", () => {
     const store = getDefaultStore();
-    const total = LIST_DISPLAY_CAP + 20;
+    const total = TEST_RENDER_WINDOW_MAX + 20;
     store.set(logsAtom, makeLogs(total));
 
     render(<LogList />);
 
     const rows = screen.getAllByRole("row");
-    expect(rows).toHaveLength(LIST_DISPLAY_CAP + 1); // + header row
+    expect(rows).toHaveLength(TEST_RENDER_WINDOW_MAX + 1); // + header row
     expect(screen.getByRole("button", { name: "Load more" })).toBeTruthy();
   });
 
   it("does not show Load more when loaded rows are within the cap and there's no next page", () => {
     const store = getDefaultStore();
-    store.set(logsAtom, makeLogs(LIST_DISPLAY_CAP));
+    store.set(logsAtom, makeLogs(TEST_RENDER_WINDOW_MAX));
 
     render(<LogList />);
 
@@ -198,7 +197,7 @@ function seedLiveLogs(store: ReturnType<typeof getDefaultStore>, ids: string[]) 
 describe("LogList render window (bounded sliding)", () => {
   it("slides onto already-loaded rows without fetching when Load more is clicked", () => {
     const store = getDefaultStore();
-    const total = LIST_DISPLAY_CAP + SIGNAL_PAGE_SIZE + 50;
+    const total = TEST_RENDER_WINDOW_MAX + SIGNAL_PAGE_SIZE + 50;
     store.set(logsAtom, makeLogs(total));
 
     render(<LogList />);
@@ -209,7 +208,7 @@ describe("LogList render window (bounded sliding)", () => {
       screen.getByRole("button", { name: "Load more" }).click();
     });
 
-    expect(screen.getAllByRole("row")).toHaveLength(LIST_DISPLAY_CAP + 1);
+    expect(screen.getAllByRole("row")).toHaveLength(TEST_RENDER_WINDOW_MAX + 1);
     expect(screen.queryByText("log-0")).toBeNull();
     expect(screen.getByText(`log-${SIGNAL_PAGE_SIZE}`)).toBeTruthy();
     expect(requestMock.mock.calls.length).toBe(callsAfterMount);
@@ -218,7 +217,11 @@ describe("LogList render window (bounded sliding)", () => {
   it("falls through to fetching another page once loaded rows run out, then slides onto it", async () => {
     const store = getDefaultStore();
     requestMock.mockResolvedValueOnce({
-      logs: { items: makeQueryLogs(LIST_DISPLAY_CAP), hasNextPage: true, endCursor: "cursor-1" },
+      logs: {
+        items: makeQueryLogs(TEST_RENDER_WINDOW_MAX),
+        hasNextPage: true,
+        endCursor: "cursor-1",
+      },
     });
     requestMock.mockResolvedValueOnce({
       logs: {
@@ -229,7 +232,7 @@ describe("LogList render window (bounded sliding)", () => {
     });
 
     render(<LogList />);
-    await waitFor(() => expect(store.get(logsAtom)).toHaveLength(LIST_DISPLAY_CAP));
+    await waitFor(() => expect(store.get(logsAtom)).toHaveLength(TEST_RENDER_WINDOW_MAX));
 
     const button = await screen.findByRole("button", { name: "Load more" });
     await act(async () => {
@@ -239,14 +242,16 @@ describe("LogList render window (bounded sliding)", () => {
     await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(2));
     expect(requestMock.mock.calls[1]?.[1]).toMatchObject({ after: "cursor-1" });
     await waitFor(() =>
-      expect(store.get(logsAtom)).toHaveLength(LIST_DISPLAY_CAP + SIGNAL_PAGE_SIZE),
+      expect(store.get(logsAtom)).toHaveLength(TEST_RENDER_WINDOW_MAX + SIGNAL_PAGE_SIZE),
     );
-    await waitFor(() => expect(screen.getAllByRole("row")).toHaveLength(LIST_DISPLAY_CAP + 1));
+    await waitFor(() =>
+      expect(screen.getAllByRole("row")).toHaveLength(TEST_RENDER_WINDOW_MAX + 1),
+    );
   });
 
   it("resets the render window to the head when the search changes", () => {
     const store = getDefaultStore();
-    store.set(logsAtom, makeLogs(LIST_DISPLAY_CAP + SIGNAL_PAGE_SIZE + 50));
+    store.set(logsAtom, makeLogs(TEST_RENDER_WINDOW_MAX + SIGNAL_PAGE_SIZE + 50));
 
     render(<LogList />);
     act(() => {
@@ -262,7 +267,7 @@ describe("LogList render window (bounded sliding)", () => {
     });
 
     expect(screen.getByText("log-0")).toBeTruthy();
-    expect(screen.getAllByRole("row")).toHaveLength(LIST_DISPLAY_CAP + 1);
+    expect(screen.getAllByRole("row")).toHaveLength(TEST_RENDER_WINDOW_MAX + 1);
   });
 
   it("stays at the head as live rows arrive, letting the oldest visible row fall out of the window", () => {

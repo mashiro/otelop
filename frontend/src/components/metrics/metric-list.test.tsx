@@ -11,8 +11,7 @@ import {
 } from "@/stores/telemetry";
 import { metricSearchAtom } from "@/stores/filters";
 import { selectedMetricKeyAtom } from "@/stores/navigation";
-import { makeMetric } from "@/test/factories";
-import { LIST_DISPLAY_CAP } from "@/lib/list-render-cap";
+import { makeMetric, TEST_RENDER_WINDOW_MAX } from "@/test/factories";
 import { SIGNAL_PAGE_SIZE } from "@/hooks/use-signal-list-page";
 import type { MetricsListQuery, MetricsListQueryVariables } from "@/gql/graphql";
 
@@ -55,7 +54,7 @@ beforeEach(() => {
   store.set(metricSearchAtom, "");
   store.set(selectedMetricKeyAtom, null);
   store.set(metricSearchResultAtom, { search: "", items: [] });
-  store.set(renderWindowMaxAtom, LIST_DISPLAY_CAP);
+  store.set(renderWindowMaxAtom, TEST_RENDER_WINDOW_MAX);
   requestMock.mockReset();
   requestMock.mockResolvedValue({ metrics: { items: [] } });
   pillRenders.current = 0;
@@ -203,21 +202,21 @@ describe("MetricList row rendering", () => {
     expect(rows).toHaveLength(4); // + header row
   });
 
-  it("caps rendered rows at LIST_DISPLAY_CAP on initial mount", () => {
+  it("caps rendered rows at TEST_RENDER_WINDOW_MAX on initial mount", () => {
     const store = getDefaultStore();
-    const total = LIST_DISPLAY_CAP + 3;
+    const total = TEST_RENDER_WINDOW_MAX + 3;
     store.set(metricsAtom, makeMetrics(total));
 
     render(<MetricList />);
 
     const rows = screen.getAllByRole("row");
-    expect(rows).toHaveLength(LIST_DISPLAY_CAP + 1);
+    expect(rows).toHaveLength(TEST_RENDER_WINDOW_MAX + 1);
     expect(screen.getByRole("button", { name: "Load more" })).toBeTruthy();
   });
 
   it("does not show Load more when loaded rows are within the cap", () => {
     const store = getDefaultStore();
-    store.set(metricsAtom, makeMetrics(LIST_DISPLAY_CAP));
+    store.set(metricsAtom, makeMetrics(TEST_RENDER_WINDOW_MAX));
 
     render(<MetricList />);
 
@@ -263,7 +262,7 @@ describe("MetricList row rendering", () => {
 describe("MetricList render window (bounded sliding)", () => {
   it("slides onto already-loaded rows when Load more is clicked", () => {
     const store = getDefaultStore();
-    const total = LIST_DISPLAY_CAP + SIGNAL_PAGE_SIZE + 50;
+    const total = TEST_RENDER_WINDOW_MAX + SIGNAL_PAGE_SIZE + 50;
     store.set(metricsAtom, makeMetrics(total));
 
     render(<MetricList />);
@@ -273,14 +272,14 @@ describe("MetricList render window (bounded sliding)", () => {
       screen.getByRole("button", { name: "Load more" }).click();
     });
 
-    expect(screen.getAllByRole("row")).toHaveLength(LIST_DISPLAY_CAP + 1);
+    expect(screen.getAllByRole("row")).toHaveLength(TEST_RENDER_WINDOW_MAX + 1);
     expect(screen.queryByText("metric-00000")).toBeNull();
     expect(screen.getByText(`metric-${String(SIGNAL_PAGE_SIZE).padStart(5, "0")}`)).toBeTruthy();
   });
 
   it("resets the render window to the head when the search changes", () => {
     const store = getDefaultStore();
-    store.set(metricsAtom, makeMetrics(LIST_DISPLAY_CAP + SIGNAL_PAGE_SIZE + 50));
+    store.set(metricsAtom, makeMetrics(TEST_RENDER_WINDOW_MAX + SIGNAL_PAGE_SIZE + 50));
 
     render(<MetricList />);
     act(() => {
@@ -296,7 +295,7 @@ describe("MetricList render window (bounded sliding)", () => {
     });
 
     expect(screen.getByText("metric-00000")).toBeTruthy();
-    expect(screen.getAllByRole("row")).toHaveLength(LIST_DISPLAY_CAP + 1);
+    expect(screen.getAllByRole("row")).toHaveLength(TEST_RENDER_WINDOW_MAX + 1);
   });
 
   it("never mounts more rows than the configured max, even immediately after repeated sliding", () => {

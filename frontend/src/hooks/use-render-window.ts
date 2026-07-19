@@ -32,7 +32,7 @@ interface UseRenderWindowOptions<T> {
 }
 
 // Bounded sliding window over a list that's too large to mount every row of
-// (lib/list-render-cap.ts's rationale). Unlike a simple `slice(0, max)`, the
+// (stores/telemetry.ts's renderWindowMaxAtom rationale). Unlike a simple `slice(0, max)`, the
 // window can move into history via "Load more" without growing without
 // bound — it always mounts at most `max` rows.
 //
