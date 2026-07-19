@@ -402,7 +402,7 @@ prebuilt per-target static libraries.
    batching, retention/max_size sweep. Tested against temp-file databases.
 2. Read query layer: trace aggregation, window-function derivation, dedup.
    The old `Merge`/`seriesStore` table tests are ported as query tests.
-3. Wire GraphQL/WebSocket/MCP to storage; config/CLI changes; delta broadcast.
+3. Wire GraphQL/WebSocket to storage; config/CLI changes; delta broadcast.
 4. Frontend: default recent time window, config surface.
 5. CI matrix + goreleaser rework; delete `internal/store`.
 
