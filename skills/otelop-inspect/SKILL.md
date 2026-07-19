@@ -7,7 +7,7 @@ description: Investigate OpenTelemetry signals (traces, metrics, logs) retained 
 
 otelop stores received telemetry in DuckDB and exposes it at
 `http://localhost:4319/graphql` by default. The HTTP address is configurable.
-Prefer public surfaces (`otelop status`, `/graphql`, `/mcp`, and the browser
+Prefer public surfaces (`otelop status`, `/graphql`, and the browser
 UI) over implementation details.
 
 ## Verify the server

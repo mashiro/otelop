@@ -15,7 +15,6 @@ import (
 	oteltrace "go.opentelemetry.io/otel/trace"
 
 	otelopgraphql "github.com/mashiro/otelop/internal/graphql"
-	"github.com/mashiro/otelop/internal/mcp"
 	"github.com/mashiro/otelop/internal/storage"
 	ws "github.com/mashiro/otelop/internal/websocket"
 )
@@ -24,7 +23,7 @@ import (
 // provider still see their own span recorder.
 func tracer() oteltrace.Tracer { return otel.Tracer("otelop/server") }
 
-// Server serves the GraphQL endpoint, MCP endpoint, WebSocket stream, and
+// Server serves the GraphQL endpoint, WebSocket stream, and
 // embedded frontend.
 type Server struct {
 	storage    *storage.Storage
@@ -35,8 +34,7 @@ type Server struct {
 }
 
 // New creates a new Server. When runtime.Debug is true, HTTP requests are
-// instrumented with OpenTelemetry spans via otelhttp. runtime.Version is
-// advertised via the MCP Implementation metadata at /mcp.
+// instrumented with OpenTelemetry spans via otelhttp.
 func New(s *storage.Storage, hub *ws.Hub, frontendFS fs.FS, runtime otelopgraphql.RuntimeInfo) *Server {
 	srv := &Server{
 		storage: s,
@@ -49,24 +47,17 @@ func New(s *storage.Storage, hub *ws.Hub, frontendFS fs.FS, runtime otelopgraphq
 	// GraphQL — primary data surface for the frontend and AI clients.
 	mux.Handle("POST /graphql", &relay.Handler{Schema: srv.schema})
 
-	// MCP — optional wrapper exposing the GraphQL schema as a single `query`
-	// tool. Shares the parsed schema with /graphql to avoid a second parse at
-	// startup.
-	mux.Handle("/mcp", mcp.NewHandler(srv.schema, runtime.Version))
-
 	mux.HandleFunc("GET /ws", srv.handleWebSocket)
 
 	// Static files with SPA fallback
 	mux.Handle("/", spaHandler(frontendFS))
 
-	// Wrap with brotli/gzip/deflate compression, skipping WebSocket upgrades
-	// and the MCP endpoint (which uses SSE for server→client streaming and
-	// would break if the compressor buffered the response).
+	// Wrap with brotli/gzip/deflate compression, skipping WebSocket upgrades.
 	var handler http.Handler = mux
 	if compress, err := httpcompression.DefaultAdapter(); err == nil {
 		compressed := compress(mux)
 		handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.Header.Get("Upgrade") == "websocket" || r.URL.Path == "/mcp" {
+			if r.Header.Get("Upgrade") == "websocket" {
 				mux.ServeHTTP(w, r)
 				return
 			}

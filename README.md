@@ -38,7 +38,6 @@ It's meant for the loop where you're writing instrumentation and just want to se
 - Embedded DuckDB storage with time-based retention
 - Live updates over WebSocket
 - GraphQL API at `/graphql`
-- Streamable HTTP MCP server at `/mcp`, so agents can query the same data
 - Persistent history across restarts with no external setup
 - Optional self-observability for otelop's own traces, metrics, and logs
 
@@ -106,12 +105,11 @@ Any AI coding agent that supports OpenTelemetry can export to `otelop`, so you c
 
 | Port | Purpose |
 |---|---|
-| `4319` | Web UI + GraphQL + MCP |
+| `4319` | Web UI + GraphQL |
 | `4317` | OTLP gRPC receiver |
 | `4318` | OTLP HTTP receiver |
 
-The GraphQL and Streamable HTTP MCP endpoints are available at
-`http://localhost:4319/graphql` and `http://localhost:4319/mcp`.
+The GraphQL endpoint is available at `http://localhost:4319/graphql`.
 
 ## Commands
 
