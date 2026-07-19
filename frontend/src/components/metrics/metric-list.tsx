@@ -1,4 +1,4 @@
-import { memo, useMemo } from "react";
+import { useMemo } from "react";
 import { useAtomValue, useSetAtom } from "jotai";
 import { metricsAtom, selectedMetricAtom } from "@/stores/telemetry";
 import { filteredMetricsAtom, metricSearchAtom } from "@/stores/filters";
@@ -100,11 +100,8 @@ interface MetricRowProps {
   onSelect: (metric: MetricData) => void;
 }
 
-// Memoized for the same reason as logs/log-list.tsx's LogRow: a WS delivery
-// or an unrelated re-render shouldn't force every already-rendered row to
-// re-render. `metric` is stable unless that specific group was updated;
-// `onSelect` is a jotai setter, stable by construction.
-const MetricRow = memo(function MetricRow({ metric, index, onSelect }: MetricRowProps) {
+// Row bail-out is provided by React Compiler.
+function MetricRow({ metric, index, onSelect }: MetricRowProps) {
   return (
     <TableRow
       className="stagger-row cursor-pointer border-b border-border/30 transition-colors hover:bg-metric/5"
@@ -131,4 +128,4 @@ const MetricRow = memo(function MetricRow({ metric, index, onSelect }: MetricRow
       </TableCell>
     </TableRow>
   );
-});
+}

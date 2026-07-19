@@ -20,10 +20,10 @@ vi.mock("@/components/ui/scroll-area", () => ({
 }));
 
 // A leaf every row renders (the type Pill) whose render count doubles as a
-// proxy for "how many rows actually re-rendered" — memoization is only
-// meaningful if the wrapped Row bails out of re-rendering its own children.
-// The mock preserves children as plain text, so every other test's text
-// assertions on a metric's type column are unaffected.
+// proxy for "how many rows actually re-rendered" — this guards the React
+// Compiler's row-level bail-out (MetricRow is a plain function; no
+// React.memo involved). The mock preserves children as plain text, so every
+// other test's text assertions on a metric's type column are unaffected.
 const { pillRenders } = vi.hoisted(() => ({ pillRenders: { current: 0 } }));
 vi.mock("@/components/common/pill", () => ({
   Pill: ({ children }: { children: ReactNode }) => {
@@ -212,7 +212,7 @@ describe("MetricList row rendering", () => {
     expect(screen.queryByText(/more —/)).toBeNull();
   });
 
-  it("memoizes rows: an unrelated store update that produces a new array of the same metric objects does not re-render every row", () => {
+  it("does not re-render every row when an unrelated store update produces a new array of the same metric objects (React Compiler bail-out)", () => {
     const store = getDefaultStore();
     store.set(metricsAtom, makeMetrics(5));
 

@@ -1,4 +1,3 @@
-import { memo } from "react";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { X } from "lucide-react";
 import {
@@ -141,20 +140,8 @@ interface LogRowProps {
   onNavigateToTrace: (traceId: string) => void;
 }
 
-// Memoized so a WS delivery that changes one log (or an unrelated store
-// update that recomputes filteredLogsAtom into a new array of otherwise
-// unchanged log objects) doesn't re-render every already-rendered row — only
-// props are compared, so `log`/`onSelect`/`onNavigateToTrace` must stay
-// reference-stable across parent renders (see LogList: onSelect/
-// onNavigateToTrace are jotai setters, stable by construction; `log` is
-// stable unless that specific record was updated).
-const LogRow = memo(function LogRow({
-  log,
-  index,
-  isSelected,
-  onSelect,
-  onNavigateToTrace,
-}: LogRowProps) {
+// Row bail-out is provided by React Compiler.
+function LogRow({ log, index, isSelected, onSelect, onNavigateToTrace }: LogRowProps) {
   const hasTrace = !isZeroId(log.traceId);
   return (
     <TableRow
@@ -190,7 +177,7 @@ const LogRow = memo(function LogRow({
       </TableCell>
     </TableRow>
   );
-});
+}
 
 function LogDetail({
   log,

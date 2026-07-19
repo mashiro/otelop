@@ -24,8 +24,9 @@ const { requestMock } = vi.hoisted(() => ({
 vi.mock("@/lib/graphql", () => ({ gqlClient: { request: requestMock } }));
 
 // A leaf every row renders (the severity Pill) whose render count doubles as
-// a proxy for "how many rows actually re-rendered" — memoization is only
-// meaningful if the wrapped Row bails out of re-rendering its own children.
+// a proxy for "how many rows actually re-rendered" — this guards the
+// React Compiler's row-level bail-out (LogRow is a plain function; no
+// React.memo involved).
 const { pillRenders } = vi.hoisted(() => ({ pillRenders: { current: 0 } }));
 vi.mock("@/components/common/pill", () => ({
   Pill: ({ children }: { children: ReactNode }) => {
@@ -84,7 +85,7 @@ describe("LogList row rendering", () => {
     expect(screen.queryByText(/more —/)).toBeNull();
   });
 
-  it("memoizes rows: an unrelated store update that produces a new array of the same log objects does not re-render every row", () => {
+  it("does not re-render every row when an unrelated store update produces a new array of the same log objects (React Compiler bail-out)", () => {
     const store = getDefaultStore();
     store.set(logsAtom, makeLogs(5));
 

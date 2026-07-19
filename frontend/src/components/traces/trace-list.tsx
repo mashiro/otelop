@@ -1,4 +1,3 @@
-import { memo } from "react";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { traceCountAtom, tracesAtom, selectedTraceAtom } from "@/stores/telemetry";
 import { eventTimeWindowAtom, selectedTraceIdAtom } from "@/stores/navigation";
@@ -117,11 +116,8 @@ interface TraceRowProps {
   onSelect: (trace: TraceData) => void;
 }
 
-// Memoized for the same reason as logs/log-list.tsx's LogRow: a WS delivery
-// or an unrelated re-render shouldn't force every already-rendered row to
-// re-render. `trace` is stable unless that specific trace was updated;
-// `onSelect` is a jotai setter, stable by construction.
-const TraceRow = memo(function TraceRow({ trace, index, onSelect }: TraceRowProps) {
+// Row bail-out is provided by React Compiler.
+function TraceRow({ trace, index, onSelect }: TraceRowProps) {
   const status = trace.rootSpan?.statusCode ?? "Unset";
   return (
     <TableRow
@@ -150,7 +146,7 @@ const TraceRow = memo(function TraceRow({ trace, index, onSelect }: TraceRowProp
       </TableCell>
     </TableRow>
   );
-});
+}
 
 function TraceLoadState({
   status,
