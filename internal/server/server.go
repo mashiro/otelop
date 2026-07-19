@@ -23,8 +23,8 @@ import (
 // provider still see their own span recorder.
 func tracer() oteltrace.Tracer { return otel.Tracer("otelop/server") }
 
-// Server serves the GraphQL endpoint, WebSocket stream, and
-// embedded frontend.
+// Server serves the GraphQL endpoint, WebSocket stream, and embedded
+// frontend.
 type Server struct {
 	storage    *storage.Storage
 	hub        *ws.Hub
@@ -44,10 +44,19 @@ func New(s *storage.Storage, hub *ws.Hub, frontendFS fs.FS, runtime otelopgraphq
 
 	mux := http.NewServeMux()
 
-	// GraphQL — primary data surface for the frontend and AI clients.
-	mux.Handle("POST /graphql", &relay.Handler{Schema: srv.schema})
+	// CSRF protection: otelop is a localhost dev tool, so any page open in the
+	// browser — including malicious ones — can reach it. Without this, a
+	// cross-site page could issue an unsafe /graphql request (no preflight
+	// required for simple POSTs) and otelop would happily execute it.
+	// NewCrossOriginProtection lets same-origin requests and non-browser
+	// clients (curl, scripts — no Sec-Fetch-Site/Origin headers) through, and
+	// rejects unsafe cross-site browser requests.
+	csrf := http.NewCrossOriginProtection()
 
-	mux.HandleFunc("GET /ws", srv.handleWebSocket)
+	// GraphQL — primary data surface for the frontend and AI clients.
+	mux.Handle("POST /graphql", requireLocalHost(csrf.Handler(&relay.Handler{Schema: srv.schema})))
+
+	mux.Handle("GET /ws", requireLocalHost(http.HandlerFunc(srv.handleWebSocket)))
 
 	// Static files with SPA fallback
 	mux.Handle("/", spaHandler(frontendFS))
