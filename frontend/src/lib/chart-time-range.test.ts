@@ -14,14 +14,16 @@ import {
 } from "./chart-time-range";
 
 describe("CHART_TIME_RANGES", () => {
-  it("lists 1m, 5m, 15m, 30m, 1h, 6h, 24h, all with an All label", () => {
+  it("lists 1m, 5m, 15m, 30m, 1h, 3h, 6h, 12h, 24h, all with an All label", () => {
     expect(CHART_TIME_RANGES).toEqual([
       { value: "1m", label: "1m" },
       { value: "5m", label: "5m" },
       { value: "15m", label: "15m" },
       { value: "30m", label: "30m" },
       { value: "1h", label: "1h" },
+      { value: "3h", label: "3h" },
       { value: "6h", label: "6h" },
+      { value: "12h", label: "12h" },
       { value: "24h", label: "24h" },
       { value: "all", label: "All" },
     ]);
@@ -39,7 +41,9 @@ describe("rangeToMs", () => {
     expect(rangeToMs("15m")).toBe(15 * 60_000);
     expect(rangeToMs("30m")).toBe(30 * 60_000);
     expect(rangeToMs("1h")).toBe(60 * 60_000);
+    expect(rangeToMs("3h")).toBe(3 * 60 * 60_000);
     expect(rangeToMs("6h")).toBe(6 * 60 * 60_000);
+    expect(rangeToMs("12h")).toBe(12 * 60 * 60_000);
     expect(rangeToMs("24h")).toBe(24 * 60 * 60_000);
   });
 });
@@ -49,7 +53,7 @@ describe("rangeToFrom", () => {
     expect(rangeToFrom("all")).toBeUndefined();
   });
 
-  it.each<ChartTimeRange>(["1m", "5m", "15m", "30m", "1h", "6h", "24h"])(
+  it.each<ChartTimeRange>(["1m", "5m", "15m", "30m", "1h", "3h", "6h", "12h", "24h"])(
     "subtracts the %s window from now",
     (range) => {
       const before = Temporal.Now.instant();
@@ -113,8 +117,12 @@ describe("bucketSecondsForRange", () => {
     expect(bucketSecondsForRange("1h")).toBe(24);
     // 5m / 150 = 2s.
     expect(bucketSecondsForRange("5m")).toBe(2);
+    // 3h / 150 = 72s.
+    expect(bucketSecondsForRange("3h")).toBe(72);
     // 6h / 150 = 144s.
     expect(bucketSecondsForRange("6h")).toBe(144);
+    // 12h / 150 = 288s.
+    expect(bucketSecondsForRange("12h")).toBe(288);
     // 24h / 150 = 576s.
     expect(bucketSecondsForRange("24h")).toBe(576);
   });

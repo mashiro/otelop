@@ -1,6 +1,16 @@
 import { Temporal } from "temporal-polyfill";
 
-export type ChartTimeRange = "1m" | "5m" | "15m" | "30m" | "1h" | "6h" | "24h" | "all";
+export type ChartTimeRange =
+  | "1m"
+  | "5m"
+  | "15m"
+  | "30m"
+  | "1h"
+  | "3h"
+  | "6h"
+  | "12h"
+  | "24h"
+  | "all";
 
 // No 7d option: the default retention window is 7d, so a 7d range would just
 // duplicate "all" instead of offering a genuinely narrower/wider choice.
@@ -10,7 +20,9 @@ export const CHART_TIME_RANGES: { value: ChartTimeRange; label: string }[] = [
   { value: "15m", label: "15m" },
   { value: "30m", label: "30m" },
   { value: "1h", label: "1h" },
+  { value: "3h", label: "3h" },
   { value: "6h", label: "6h" },
+  { value: "12h", label: "12h" },
   { value: "24h", label: "24h" },
   { value: "all", label: "All" },
 ];
@@ -21,7 +33,9 @@ const RANGE_MINUTES: Record<Exclude<ChartTimeRange, "all">, number> = {
   "15m": 15,
   "30m": 30,
   "1h": 60,
+  "3h": 3 * 60,
   "6h": 6 * 60,
+  "12h": 12 * 60,
   "24h": 24 * 60,
 };
 
