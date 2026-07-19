@@ -24,6 +24,14 @@ import (
 // port.
 func newTestServer(t *testing.T) *Server {
 	t.Helper()
+	return newTestServerWithAllowedHosts(t, nil)
+}
+
+// newTestServerWithAllowedHosts is newTestServer with a non-empty
+// allowed_hosts list, for tests exercising requireAllowedHost's allowlist
+// path.
+func newTestServerWithAllowedHosts(t *testing.T, allowedHosts []string) *Server {
+	t.Helper()
 
 	st, err := storage.Open(context.Background(), storage.Options{})
 	if err != nil {
@@ -41,7 +49,7 @@ func newTestServer(t *testing.T) *Server {
 	go hub.Run(ctx)
 
 	fsys := fstest.MapFS{"index.html": {Data: []byte("<html></html>")}}
-	return New(st, hub, fsys, otelopgraphql.RuntimeInfo{})
+	return New(st, hub, fsys, otelopgraphql.RuntimeInfo{}, allowedHosts)
 }
 
 func TestHandleWebSocket_OriginAllowlist(t *testing.T) {
@@ -188,6 +196,44 @@ func TestHostHeaderValidation(t *testing.T) {
 			if tc.method == http.MethodPost {
 				req.Header.Set("Content-Type", "application/json")
 			}
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatalf("Do: %v", err)
+			}
+			defer func() { _ = resp.Body.Close() }()
+			gotForbidden := resp.StatusCode == http.StatusForbidden
+			if gotForbidden != tc.wantForbidden {
+				t.Errorf("status = %d, wantForbidden = %v", resp.StatusCode, tc.wantForbidden)
+			}
+		})
+	}
+}
+
+func TestHostHeaderValidation_AllowedHosts(t *testing.T) {
+	srv := newTestServerWithAllowedHosts(t, []string{"otelop.internal", "*.example.com"})
+	ts := httptest.NewServer(srv.httpServer.Handler)
+	t.Cleanup(ts.Close)
+
+	tests := []struct {
+		name          string
+		host          string
+		wantForbidden bool
+	}{
+		{name: "exact allowlist match", host: "otelop.internal:4319", wantForbidden: false},
+		{name: "allowlist match is case-insensitive", host: "OTELOP.INTERNAL:4319", wantForbidden: false},
+		{name: "wildcard entry matches subdomain", host: "app.example.com:4319", wantForbidden: false},
+		{name: "wildcard entry matches bare domain", host: "example.com:4319", wantForbidden: false},
+		{name: "loopback still allowed alongside allowlist", host: "127.0.0.1:4319", wantForbidden: false},
+		{name: "host outside allowlist still blocked", host: "evil.com:4319", wantForbidden: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, ts.URL+"/graphql", strings.NewReader(`{"query":"{ status { version } }"}`))
+			if err != nil {
+				t.Fatalf("NewRequestWithContext: %v", err)
+			}
+			req.Host = tc.host
+			req.Header.Set("Content-Type", "application/json")
 			resp, err := http.DefaultClient.Do(req)
 			if err != nil {
 				t.Fatalf("Do: %v", err)
