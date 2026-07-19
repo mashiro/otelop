@@ -1,12 +1,13 @@
 import { useMemo } from "react";
 import { useAtomValue, useSetAtom } from "jotai";
-import { metricsAtom, selectedMetricAtom } from "@/stores/telemetry";
+import { metricsAtom, selectedMetricAtom, renderWindowMaxAtom } from "@/stores/telemetry";
 import { filteredMetricsAtom, metricSearchAtom } from "@/stores/filters";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { SearchFilter } from "@/components/filters/search-filter";
 import { ListPanel } from "@/components/common/list-panel";
 import { EmptyMatches } from "@/components/common/empty-state";
-import { ListOverflowNotice } from "@/components/common/list-overflow-notice";
+import { LoadMoreRow } from "@/components/common/load-more-row";
+import { BackToLatestRow } from "@/components/common/back-to-latest-row";
 import {
   Table,
   TableBody,
@@ -22,8 +23,13 @@ import { EmptyState } from "@/components/common/empty-state";
 import { Pill } from "@/components/common/pill";
 import { SIGNALS } from "@/lib/signals";
 import { useMetricListSearch } from "@/hooks/use-metric-list-search";
+import { SIGNAL_PAGE_SIZE } from "@/hooks/use-signal-list-page";
+import { useRenderWindow } from "@/hooks/use-render-window";
 import type { MetricData } from "@/types/telemetry";
-import { LIST_DISPLAY_CAP } from "@/lib/list-render-cap";
+
+function metricRowId(metric: MetricData): string {
+  return `${metric.serviceName}-${metric.name}`;
+}
 
 export function MetricList() {
   const allMetrics = useAtomValue(metricsAtom);
@@ -36,6 +42,19 @@ export function MetricList() {
   );
   const selectedMetric = useAtomValue(selectedMetricAtom);
   const setSelectedMetric = useSetAtom(selectedMetricAtom);
+  const renderWindowMax = useAtomValue(renderWindowMaxAtom);
+  // Metrics have no server-side pagination (filteredMetricsAtom's whole
+  // match set is already in memory), so "Load more" only ever slides the
+  // window over what's already loaded — see handleSlide below. The window
+  // resets to the top on a search change (its only filter scope).
+  const renderWindow = useRenderWindow({
+    items: metrics,
+    getId: metricRowId,
+    max: renderWindowMax,
+    pageSize: SIGNAL_PAGE_SIZE,
+    resetKey: search,
+  });
+  const handleSlide = () => renderWindow.slideOlder(metrics);
 
   if (selectedMetric) {
     // Remount when a different metric is picked so facet state in MetricDetail
@@ -54,15 +73,17 @@ export function MetricList() {
     return <EmptyState signal={SIGNALS.metrics} />;
   }
 
-  const visibleMetrics = metrics.slice(0, LIST_DISPLAY_CAP);
-  const hiddenMetricCount = metrics.length - visibleMetrics.length;
-
   return (
     <ListPanel toolbar={<SearchFilter atom={metricSearchAtom} placeholder="Search metrics..." />}>
       {metrics.length === 0 ? (
         <EmptyMatches label="metrics" />
       ) : (
         <ScrollArea className="min-h-0 flex-1">
+          <BackToLatestRow
+            count={renderWindow.newerCount}
+            label="earlier — back to top"
+            onClick={renderWindow.backToLatest}
+          />
           <Table>
             <TableHeader>
               <TableRow className="border-b border-border/50 bg-muted hover:bg-muted">
@@ -77,9 +98,9 @@ export function MetricList() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {visibleMetrics.map((metric, i) => (
+              {renderWindow.visible.map((metric, i) => (
                 <MetricRow
-                  key={`${metric.serviceName}-${metric.name}`}
+                  key={metricRowId(metric)}
                   metric={metric}
                   index={i}
                   onSelect={setSelectedMetric}
@@ -87,7 +108,11 @@ export function MetricList() {
               ))}
             </TableBody>
           </Table>
-          <ListOverflowNotice hiddenCount={hiddenMetricCount} />
+          <LoadMoreRow
+            visible={renderWindow.olderCount > 0}
+            loadingMore={false}
+            onClick={handleSlide}
+          />
         </ScrollArea>
       )}
     </ListPanel>

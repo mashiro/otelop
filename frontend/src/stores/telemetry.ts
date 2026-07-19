@@ -18,6 +18,7 @@ import {
   selectedTraceIdAtom,
 } from "./navigation";
 import { DEFAULT_EVENT_TIME_WINDOW, type EventTimeWindow } from "@/lib/event-time-window";
+import { LIST_DISPLAY_CAP } from "@/lib/list-render-cap";
 
 // Client-side live-buffer bounds. These are NOT derived from the server: the
 // DuckDB backend (docs/design/duckdb-storage.md) has no per-signal caps —
@@ -40,6 +41,15 @@ const DEFAULT_CONFIG: BufferCaps = {
 };
 
 export const bufferCapsAtom = atom<BufferCaps>(DEFAULT_CONFIG);
+
+// Same rationale as BufferCaps above, but bounds how many rows of a
+// *filtered* list actually mount as <tr> elements (hooks/use-render-window.ts)
+// rather than how many rows the live buffer retains — no virtualization
+// library is in play (see CLAUDE.md), so this is what keeps a huge match set
+// from mounting thousands of rows at once. A plain atom, like bufferCapsAtom,
+// with no settings UI backing it yet; tests override it the same way
+// (`store.set(renderWindowMaxAtom, …)`).
+export const renderWindowMaxAtom = atom<number>(LIST_DISPLAY_CAP);
 
 // WebSocket connection status
 export type WsStatus = "connecting" | "connected" | "disconnected";

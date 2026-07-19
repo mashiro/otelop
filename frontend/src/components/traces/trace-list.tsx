@@ -1,5 +1,11 @@
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
-import { traceCountAtom, tracesAtom, selectedTraceAtom } from "@/stores/telemetry";
+import { useState } from "react";
+import {
+  traceCountAtom,
+  tracesAtom,
+  selectedTraceAtom,
+  renderWindowMaxAtom,
+} from "@/stores/telemetry";
 import { eventTimeWindowAtom, selectedTraceIdAtom } from "@/stores/navigation";
 import { filteredTracesAtom, traceSearchAtom } from "@/stores/filters";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -8,8 +14,10 @@ import { ListPanel } from "@/components/common/list-panel";
 import { EmptyMatches } from "@/components/common/empty-state";
 import { EventWindowControls } from "@/components/common/event-window-controls";
 import { LoadMoreRow } from "@/components/common/load-more-row";
-import { ListOverflowNotice } from "@/components/common/list-overflow-notice";
+import { BackToLatestRow } from "@/components/common/back-to-latest-row";
 import { useTraceListPage } from "@/hooks/use-trace-list-page";
+import { SIGNAL_PAGE_SIZE } from "@/hooks/use-signal-list-page";
+import { useRenderWindow } from "@/hooks/use-render-window";
 import { useTraceById, type TraceByIdStatus } from "@/hooks/use-trace-by-id";
 import { Button } from "@/components/ui/button";
 import {
@@ -27,7 +35,6 @@ import { Pill } from "@/components/common/pill";
 import { SIGNALS } from "@/lib/signals";
 import { traceStatusTone } from "@/lib/tones";
 import type { TraceData } from "@/types/telemetry";
-import { LIST_DISPLAY_CAP } from "@/lib/list-render-cap";
 
 export function TraceList() {
   const allTraces = useAtomValue(tracesAtom);
@@ -40,6 +47,45 @@ export function TraceList() {
   const search = useAtomValue(traceSearchAtom);
   const page = useTraceListPage(window, search);
   const traceById = useTraceById(selectedTraceId, selectedTrace);
+  const renderWindowMax = useAtomValue(renderWindowMaxAtom);
+  const renderWindow = useRenderWindow({
+    items: traces,
+    getId: (trace) => trace.traceId,
+    max: renderWindowMax,
+    pageSize: SIGNAL_PAGE_SIZE,
+    resetKey: page.requestKey,
+  });
+  // Two-phase "Load more": slide onto rows the store already has (instant,
+  // no fetch) and only fall through to a server fetch once those run out.
+  // hooks/use-signal-list-page.ts's loadMore is fire-and-forget (its return
+  // value can't be awaited — see that file), so "slide once the fetch
+  // lands" is done by watching `loadingMore` fall back to false instead of
+  // awaiting anything: React's "storing information from previous renders"
+  // pattern (state adjustment during render, not a useEffect) — by the
+  // render where loadingMore turns false, `traces` already reflects the
+  // freshly appended rows (onAppend runs synchronously before that state
+  // flips in use-signal-list-page.ts).
+  const [pendingSlide, setPendingSlide] = useState(false);
+  const [wasLoadingMore, setWasLoadingMore] = useState(page.loadingMore);
+  if (page.loadingMore !== wasLoadingMore) {
+    setWasLoadingMore(page.loadingMore);
+    if (pendingSlide && !page.loadingMore) {
+      setPendingSlide(false);
+      renderWindow.slideOlder(traces);
+    }
+  }
+
+  const handleLoadMore = () => {
+    if (renderWindow.olderCount > 0) {
+      renderWindow.slideOlder(traces);
+      return;
+    }
+    if (page.hasMore) {
+      setPendingSlide(true);
+      page.loadMore();
+    }
+  };
+
   if (selectedTrace) {
     return <TraceDetail />;
   }
@@ -58,9 +104,6 @@ export function TraceList() {
     return <EmptyState signal={SIGNALS.traces} />;
   }
 
-  const visibleTraces = traces.slice(0, LIST_DISPLAY_CAP);
-  const hiddenTraceCount = traces.length - visibleTraces.length;
-
   return (
     <ListPanel
       toolbar={
@@ -75,10 +118,19 @@ export function TraceList() {
       {traces.length === 0 ? (
         <div className="flex min-h-0 flex-1 flex-col">
           <EmptyMatches label="traces" />
-          <LoadMoreRow {...page} />
+          <LoadMoreRow
+            visible={renderWindow.olderCount > 0 || page.hasMore}
+            loadingMore={page.loadingMore}
+            onClick={handleLoadMore}
+          />
         </div>
       ) : (
         <ScrollArea className="min-h-0 flex-1">
+          <BackToLatestRow
+            count={renderWindow.newerCount}
+            label="newer — back to latest"
+            onClick={renderWindow.backToLatest}
+          />
           <Table>
             <TableHeader>
               <TableRow className="border-b border-border/50 bg-muted hover:bg-muted">
@@ -92,7 +144,7 @@ export function TraceList() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {visibleTraces.map((trace, idx) => (
+              {renderWindow.visible.map((trace, idx) => (
                 <TraceRow
                   key={trace.traceId}
                   trace={trace}
@@ -102,8 +154,11 @@ export function TraceList() {
               ))}
             </TableBody>
           </Table>
-          <ListOverflowNotice hiddenCount={hiddenTraceCount} />
-          <LoadMoreRow {...page} />
+          <LoadMoreRow
+            visible={renderWindow.olderCount > 0 || page.hasMore}
+            loadingMore={page.loadingMore}
+            onClick={handleLoadMore}
+          />
         </ScrollArea>
       )}
     </ListPanel>

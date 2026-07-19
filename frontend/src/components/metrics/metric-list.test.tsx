@@ -3,11 +3,17 @@ import type { ReactNode } from "react";
 import { getDefaultStore } from "jotai";
 import { render, screen, cleanup, within, waitFor, act } from "@testing-library/react";
 import { MetricList } from "./metric-list";
-import { metricSearchResultAtom, metricsAtom } from "@/stores/telemetry";
+import {
+  metricSearchResultAtom,
+  metricsAtom,
+  renderWindowMaxAtom,
+  addMetricAtom,
+} from "@/stores/telemetry";
 import { metricSearchAtom } from "@/stores/filters";
 import { selectedMetricKeyAtom } from "@/stores/navigation";
 import { makeMetric } from "@/test/factories";
 import { LIST_DISPLAY_CAP } from "@/lib/list-render-cap";
+import { SIGNAL_PAGE_SIZE } from "@/hooks/use-signal-list-page";
 import type { MetricsListQuery, MetricsListQueryVariables } from "@/gql/graphql";
 
 // Base UI's ScrollArea calls Element.getAnimations(), which happy-dom (this
@@ -49,6 +55,7 @@ beforeEach(() => {
   store.set(metricSearchAtom, "");
   store.set(selectedMetricKeyAtom, null);
   store.set(metricSearchResultAtom, { search: "", items: [] });
+  store.set(renderWindowMaxAtom, LIST_DISPLAY_CAP);
   requestMock.mockReset();
   requestMock.mockResolvedValue({ metrics: { items: [] } });
   pillRenders.current = 0;
@@ -176,8 +183,13 @@ describe("MetricList", () => {
   });
 });
 
+// Zero-padded so string sort (MetricList sorts by name.localeCompare, not
+// insertion order) matches numeric/insertion order — needed for the render
+// window tests below to reason about which rows are visible after a slide.
 function makeMetrics(count: number) {
-  return Array.from({ length: count }, (_, i) => makeMetric({ name: `metric-${i}` }));
+  return Array.from({ length: count }, (_, i) =>
+    makeMetric({ name: `metric-${String(i).padStart(5, "0")}` }),
+  );
 }
 
 describe("MetricList row rendering", () => {
@@ -191,7 +203,7 @@ describe("MetricList row rendering", () => {
     expect(rows).toHaveLength(4); // + header row
   });
 
-  it("caps rendered rows at LIST_DISPLAY_CAP and reports the hidden count", () => {
+  it("caps rendered rows at LIST_DISPLAY_CAP on initial mount", () => {
     const store = getDefaultStore();
     const total = LIST_DISPLAY_CAP + 3;
     store.set(metricsAtom, makeMetrics(total));
@@ -200,16 +212,16 @@ describe("MetricList row rendering", () => {
 
     const rows = screen.getAllByRole("row");
     expect(rows).toHaveLength(LIST_DISPLAY_CAP + 1);
-    expect(screen.getByText(/\+3 more/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Load more" })).toBeTruthy();
   });
 
-  it("does not show the overflow notice when at or under the cap", () => {
+  it("does not show Load more when loaded rows are within the cap", () => {
     const store = getDefaultStore();
     store.set(metricsAtom, makeMetrics(LIST_DISPLAY_CAP));
 
     render(<MetricList />);
 
-    expect(screen.queryByText(/more —/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Load more" })).toBeNull();
   });
 
   it("does not re-render every row when an unrelated store update produces a new array of the same metric objects (React Compiler bail-out)", () => {
@@ -239,5 +251,151 @@ describe("MetricList row rendering", () => {
     });
 
     expect(screen.getByText("2")).toBeTruthy();
+  });
+});
+
+// MetricList has no server-side pagination — its render window only ever
+// slides over what's already in metricsAtom (metric-list.tsx's handleSlide).
+// Order comes from name.localeCompare, not arrival time, so a "live" metric
+// re-sorting to the front behaves exactly like a live prepend in
+// trace-list.tsx/log-list.tsx — the same anchor mechanic applies to a
+// re-sort as to a literal prepend.
+describe("MetricList render window (bounded sliding)", () => {
+  it("slides onto already-loaded rows when Load more is clicked", () => {
+    const store = getDefaultStore();
+    const total = LIST_DISPLAY_CAP + SIGNAL_PAGE_SIZE + 50;
+    store.set(metricsAtom, makeMetrics(total));
+
+    render(<MetricList />);
+    expect(screen.getByText("metric-00000")).toBeTruthy();
+
+    act(() => {
+      screen.getByRole("button", { name: "Load more" }).click();
+    });
+
+    expect(screen.getAllByRole("row")).toHaveLength(LIST_DISPLAY_CAP + 1);
+    expect(screen.queryByText("metric-00000")).toBeNull();
+    expect(screen.getByText(`metric-${String(SIGNAL_PAGE_SIZE).padStart(5, "0")}`)).toBeTruthy();
+  });
+
+  it("resets the render window to the head when the search changes", () => {
+    const store = getDefaultStore();
+    store.set(metricsAtom, makeMetrics(LIST_DISPLAY_CAP + SIGNAL_PAGE_SIZE + 50));
+
+    render(<MetricList />);
+    act(() => {
+      screen.getByRole("button", { name: "Load more" }).click();
+    });
+    expect(screen.queryByText("metric-00000")).toBeNull();
+
+    // "metric-" matches every preset name, so the filtered list stays
+    // populated purely client-side (stores/filters.ts's filteredMetricsAtom
+    // client-side substring branch — no need to wait on the search request).
+    act(() => {
+      store.set(metricSearchAtom, "metric-");
+    });
+
+    expect(screen.getByText("metric-00000")).toBeTruthy();
+    expect(screen.getAllByRole("row")).toHaveLength(LIST_DISPLAY_CAP + 1);
+  });
+
+  it("never mounts more rows than the configured max, even immediately after repeated sliding", () => {
+    const store = getDefaultStore();
+    store.set(renderWindowMaxAtom, 3);
+    store.set(metricsAtom, makeMetrics(1000));
+
+    render(<MetricList />);
+    expect(screen.getAllByRole("row")).toHaveLength(4);
+
+    act(() => {
+      screen.getByRole("button", { name: "Load more" }).click();
+    });
+    expect(screen.getAllByRole("row")).toHaveLength(4);
+
+    act(() => {
+      screen.getByRole("button", { name: "Load more" }).click();
+    });
+    expect(screen.getAllByRole("row")).toHaveLength(4);
+  });
+
+  it("stays at the head as a re-sorted-to-front metric arrives, letting the last visible row fall out of the window", () => {
+    const store = getDefaultStore();
+    store.set(renderWindowMaxAtom, 3);
+    store.set(metricsAtom, [
+      makeMetric({ serviceName: "svc", name: "b-metric" }),
+      makeMetric({ serviceName: "svc", name: "c-metric" }),
+      makeMetric({ serviceName: "svc", name: "d-metric" }),
+    ]);
+
+    render(<MetricList />);
+    expect(screen.getByText("b-metric")).toBeTruthy();
+    expect(screen.getByText("c-metric")).toBeTruthy();
+    expect(screen.getByText("d-metric")).toBeTruthy();
+
+    act(() => {
+      store.set(addMetricAtom, makeMetric({ serviceName: "svc", name: "a-metric" }));
+    });
+
+    expect(screen.getByText("a-metric")).toBeTruthy();
+    expect(screen.getByText("b-metric")).toBeTruthy();
+    expect(screen.getByText("c-metric")).toBeTruthy();
+    expect(screen.queryByText("d-metric")).toBeNull();
+  });
+
+  it("keeps the visible rows stable when a row is inserted while scrolled into history, growing the newer count instead of shifting content", () => {
+    const store = getDefaultStore();
+    store.set(renderWindowMaxAtom, 2);
+    store.set(metricsAtom, [
+      makeMetric({ serviceName: "svc", name: "b-metric" }),
+      makeMetric({ serviceName: "svc", name: "c-metric" }),
+      makeMetric({ serviceName: "svc", name: "d-metric" }),
+      makeMetric({ serviceName: "svc", name: "e-metric" }),
+      makeMetric({ serviceName: "svc", name: "f-metric" }),
+    ]);
+
+    render(<MetricList />);
+    expect(screen.getByText("b-metric")).toBeTruthy();
+    expect(screen.getByText("c-metric")).toBeTruthy();
+
+    act(() => {
+      screen.getByRole("button", { name: "Load more" }).click();
+    });
+    expect(screen.getByText("e-metric")).toBeTruthy();
+    expect(screen.getByText("f-metric")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /3 earlier/ })).toBeTruthy();
+
+    act(() => {
+      store.set(addMetricAtom, makeMetric({ serviceName: "svc", name: "a-metric" }));
+    });
+
+    expect(screen.getByText("e-metric")).toBeTruthy();
+    expect(screen.getByText("f-metric")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /4 earlier/ })).toBeTruthy();
+  });
+
+  it("returns to the head when 'back to top' is clicked", () => {
+    const store = getDefaultStore();
+    store.set(renderWindowMaxAtom, 2);
+    store.set(metricsAtom, [
+      makeMetric({ serviceName: "svc", name: "b-metric" }),
+      makeMetric({ serviceName: "svc", name: "c-metric" }),
+      makeMetric({ serviceName: "svc", name: "d-metric" }),
+      makeMetric({ serviceName: "svc", name: "e-metric" }),
+      makeMetric({ serviceName: "svc", name: "f-metric" }),
+    ]);
+
+    render(<MetricList />);
+    act(() => {
+      screen.getByRole("button", { name: "Load more" }).click();
+    });
+    expect(screen.getByText("e-metric")).toBeTruthy();
+
+    act(() => {
+      screen.getByRole("button", { name: /earlier — back to top/ }).click();
+    });
+
+    expect(screen.getByText("b-metric")).toBeTruthy();
+    expect(screen.getByText("c-metric")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /back to top/ })).toBeNull();
   });
 });
