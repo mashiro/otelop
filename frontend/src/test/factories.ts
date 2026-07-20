@@ -1,6 +1,12 @@
 import type { SpanData, TraceData, LogData, MetricData, DataPoint } from "@/types/telemetry";
 import type { AggregatePointData, AggregateSeriesData } from "@/hooks/use-metric-aggregate-series";
 
+// A convenient row count for list-rendering tests to set
+// stores/telemetry.ts's renderWindowMaxAtom to and build fixture lists
+// against — not tied to the backend's configurable default value, just a
+// round number comfortably larger than any test's assertions need.
+export const TEST_RENDER_WINDOW_MAX = 500;
+
 export function makeSpan(overrides: Partial<SpanData> = {}): SpanData {
   return {
     traceId: "t1",

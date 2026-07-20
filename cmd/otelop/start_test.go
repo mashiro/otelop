@@ -52,6 +52,22 @@ func TestValidateProxyOptions_BearerAuth(t *testing.T) {
 	}
 }
 
+func TestValidateRenderWindowMax_RejectsLessThanOne(t *testing.T) {
+	for _, v := range []int{0, -1, -500} {
+		if err := validateRenderWindowMax(v); err == nil {
+			t.Errorf("validateRenderWindowMax(%d) = nil, want error", v)
+		}
+	}
+}
+
+func TestValidateRenderWindowMax_AcceptsPositive(t *testing.T) {
+	for _, v := range []int{1, 500, 10_000} {
+		if err := validateRenderWindowMax(v); err != nil {
+			t.Errorf("validateRenderWindowMax(%d) = %v, want nil", v, err)
+		}
+	}
+}
+
 func TestBuildProxyHeaders(t *testing.T) {
 	headers := buildProxyHeaders(proxyAuthOptions{
 		Type:     "basic",

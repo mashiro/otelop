@@ -103,6 +103,8 @@ type Config {
   retention: String!
   "Configured on-disk size ceiling, as given in the TOML/CLI/env config (e.g. \"4GB\")."
   maxSize: String!
+  "Max rows the traces/metrics/logs tables render at once, as given in the TOML/CLI/env config."
+  renderWindowMax: Int!
   "Number of distinct retained trace groups."
   traceCount: Int!
   "Number of distinct retained (serviceName, metric name) groups."

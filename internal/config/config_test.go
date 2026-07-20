@@ -33,6 +33,9 @@ func TestDefaults_AppliedWhenFileMissing(t *testing.T) {
 	if len(cfg.AllowedHosts) != 0 {
 		t.Errorf("AllowedHosts = %v, want empty default (strict Host checking)", cfg.AllowedHosts)
 	}
+	if cfg.UI.RenderWindowMax != DefaultRenderWindowMax {
+		t.Errorf("UI.RenderWindowMax = %d, want %d", cfg.UI.RenderWindowMax, DefaultRenderWindowMax)
+	}
 }
 
 // TestDefaultHTTPAddr_IsLoopback pins the literal value (not just equality
@@ -147,6 +150,27 @@ allowed_hosts = ["otelop.internal", "*.example.com"]
 	want := []string{"otelop.internal", "*.example.com"}
 	if !slices.Equal(cfg.AllowedHosts, want) {
 		t.Errorf("AllowedHosts = %v, want %v", cfg.AllowedHosts, want)
+	}
+}
+
+func TestLoad_UIRenderWindowMax(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	body := `
+[ui]
+render_window_max = 200
+`
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	t.Setenv(EnvConfigFile, path)
+
+	cfg, _, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.UI.RenderWindowMax != 200 {
+		t.Errorf("UI.RenderWindowMax = %d, want 200", cfg.UI.RenderWindowMax)
 	}
 }
 

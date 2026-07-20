@@ -75,6 +75,7 @@ func startCommand() *cli.Command {
 			&cli.StringFlag{Name: "storage-path", Value: cfg.Storage.Path, Usage: "DuckDB database file path (empty = XDG default)", Sources: cli.EnvVars("OTELOP_STORAGE_PATH")},
 			&cli.StringFlag{Name: "retention", Value: cfg.Storage.Retention, Usage: "how long to keep telemetry (e.g. 7d, 168h)", Sources: cli.EnvVars("OTELOP_RETENTION")},
 			&cli.StringFlag{Name: "max-size", Value: cfg.Storage.MaxSize, Usage: "on-disk size ceiling (e.g. 4GB, 4GiB)", Sources: cli.EnvVars("OTELOP_MAX_SIZE")},
+			&cli.IntFlag{Name: "render-window-max", Value: cfg.UI.RenderWindowMax, Usage: "max rows the traces/metrics/logs tables render at once", Sources: cli.EnvVars("OTELOP_RENDER_WINDOW_MAX")},
 			&cli.StringFlag{Name: "log-level", Value: cfg.LogLevel, Usage: "log level (debug|info|warn|error)", Sources: cli.EnvVars("OTELOP_LOG_LEVEL")},
 			&cli.BoolFlag{Name: "debug", Value: cfg.Debug, Usage: "export otelop's own telemetry to itself", Sources: cli.EnvVars("OTELOP_DEBUG")},
 		},
@@ -92,19 +93,20 @@ type proxyAuthOptions struct {
 }
 
 type startOptions struct {
-	HTTPAddr      string
-	OTLPGRPCAddr  string
-	OTLPHTTPAddr  string
-	AllowedHosts  []string
-	ProxyURL      string
-	ProxyProtocol string
-	ProxyAuth     proxyAuthOptions
-	StoragePath   string
-	Retention     string
-	MaxSize       string
-	LogLevel      string
-	Debug         bool
-	Foreground    bool
+	HTTPAddr        string
+	OTLPGRPCAddr    string
+	OTLPHTTPAddr    string
+	AllowedHosts    []string
+	ProxyURL        string
+	ProxyProtocol   string
+	ProxyAuth       proxyAuthOptions
+	StoragePath     string
+	Retention       string
+	MaxSize         string
+	RenderWindowMax int
+	LogLevel        string
+	Debug           bool
+	Foreground      bool
 }
 
 func optionsFromCmd(cmd *cli.Command) startOptions {
@@ -122,12 +124,13 @@ func optionsFromCmd(cmd *cli.Command) startOptions {
 			Password: cmd.String("proxy-auth-password"),
 			Headers:  parseHeaderArgs(cmd.StringSlice("proxy-header")),
 		},
-		StoragePath: strings.TrimSpace(cmd.String("storage-path")),
-		Retention:   cmd.String("retention"),
-		MaxSize:     cmd.String("max-size"),
-		LogLevel:    cmd.String("log-level"),
-		Debug:       cmd.Bool("debug"),
-		Foreground:  cmd.Bool("foreground"),
+		StoragePath:     strings.TrimSpace(cmd.String("storage-path")),
+		Retention:       cmd.String("retention"),
+		MaxSize:         cmd.String("max-size"),
+		RenderWindowMax: cmd.Int("render-window-max"),
+		LogLevel:        cmd.String("log-level"),
+		Debug:           cmd.Bool("debug"),
+		Foreground:      cmd.Bool("foreground"),
 	}
 }
 
@@ -154,6 +157,9 @@ func splitCSV(v string) []string {
 func runStart(ctx context.Context, cmd *cli.Command) error {
 	opts := optionsFromCmd(cmd)
 	if err := validateProxyOptions(opts); err != nil {
+		return err
+	}
+	if err := validateRenderWindowMax(opts.RenderWindowMax); err != nil {
 		return err
 	}
 	if !daemon.IsDaemonChild() && !opts.Foreground {
@@ -319,6 +325,7 @@ func bootstrap(ctx context.Context, opts startOptions) (*runtime, error) {
 		StoragePath:      storagePath,
 		RetentionDisplay: opts.Retention,
 		MaxSizeDisplay:   opts.MaxSize,
+		RenderWindowMax:  opts.RenderWindowMax,
 	}
 	rt.srv = server.New(rt.storage, rt.hub, otelop.FrontendFS(), runtimeInfo, opts.AllowedHosts)
 
@@ -497,6 +504,18 @@ func resolveStorageOptions(opts startOptions) (path string, retention time.Durat
 		return "", 0, 0, err
 	}
 	return path, retention, maxSize, nil
+}
+
+// validateRenderWindowMax rejects a non-positive --render-window-max/
+// OTELOP_RENDER_WINDOW_MAX value at startup: the frontend mounts exactly this
+// many <tr> rows at once in the traces/metrics/logs tables (no virtualization
+// library — frontend/src/hooks/use-render-window.ts), so anything less than 1
+// would leave those tables permanently empty.
+func validateRenderWindowMax(v int) error {
+	if v < 1 {
+		return fmt.Errorf("render-window-max must be >= 1, got %d", v)
+	}
+	return nil
 }
 
 func normalizeProxyProtocol(v string) string {

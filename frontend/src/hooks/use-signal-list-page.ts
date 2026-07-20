@@ -4,13 +4,26 @@ import { eventWindowBounds, eventWindowKey, type EventTimeWindow } from "@/lib/e
 // Page size for the traces/logs tabs' server-side pagination (issue #160).
 // Small enough that the initial page load stays cheap even against 7d of
 // retained history, big enough that "Load more" isn't needed for a typical
-// recent-activity glance.
-const SIGNAL_PAGE_SIZE = 100;
+// recent-activity glance. Exported so components/common/load-more-row.tsx's
+// callers (trace-list.tsx, log-list.tsx) can widen their render window by the
+// same increment a fetched page adds, instead of picking an unrelated number.
+export const SIGNAL_PAGE_SIZE = 100;
 
 export interface SignalListPage {
   hasMore: boolean;
   loadingMore: boolean;
+  // Fire-and-forget, deliberately NOT promise-returning: React's `act()`
+  // treats a thenable return value from an updater specially, so making this
+  // awaitable would force every existing `act(() => loadMore())` call site
+  // (this hook's own tests) to switch to `await act(async () => ...)`.
+  // trace-list.tsx/log-list.tsx detect completion by watching `loadingMore`
+  // fall back to false instead — see their pendingSlide state.
   loadMore: () => void;
+  // Identifies the current browsing/search scope (mirrors the internal
+  // requestKey below). trace-list.tsx/log-list.tsx key their render-window
+  // state off this so it resets exactly when this hook's own session resets
+  // — a range or search change — rather than duplicating that logic.
+  requestKey: string;
 }
 
 // Exported so the traces/logs wrapper hooks (use-trace-list-page.ts,
@@ -188,5 +201,6 @@ export function useSignalListPage<T>({
     hasMore: state.hasMore,
     loadingMore: state.loadingMore,
     loadMore,
+    requestKey,
   };
 }

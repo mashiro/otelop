@@ -154,6 +154,7 @@ func TestStatusQuery(t *testing.T) {
 	runtime.StoragePath = "/tmp/otelop.duckdb"
 	runtime.RetentionDisplay = "7d"
 	runtime.MaxSizeDisplay = "4GB"
+	runtime.RenderWindowMax = 250
 
 	schema := otelopgraphql.MustNewSchema(s, runtime)
 	resp := schema.Exec(context.Background(), `{
@@ -168,7 +169,7 @@ func TestStatusQuery(t *testing.T) {
 			debug
 			logLevel
 			dbSizeBytes
-			config { traceCount metricCount logCount storagePath retention maxSize }
+			config { traceCount metricCount logCount storagePath retention maxSize renderWindowMax }
 		}
 	}`, "", nil)
 	if len(resp.Errors) > 0 {
@@ -216,17 +217,25 @@ func TestStatusQuery(t *testing.T) {
 	if cfg["maxSize"] != "4GB" {
 		t.Errorf("config.maxSize = %v, want 4GB", cfg["maxSize"])
 	}
+	if cfg["renderWindowMax"].(float64) != 250 {
+		t.Errorf("config.renderWindowMax = %v, want 250", cfg["renderWindowMax"])
+	}
 }
 
 func TestConfig(t *testing.T) {
 	s := seedStorage(t)
-	data := exec(t, s, `{ config { storagePath retention maxSize traceCount logCount } }`, nil)
+	data := exec(t, s, `{ config { storagePath retention maxSize renderWindowMax traceCount logCount } }`, nil)
 	cfg := data["config"].(map[string]any)
 	if cfg["traceCount"].(float64) != 2 {
 		t.Errorf("traceCount = %v, want 2", cfg["traceCount"])
 	}
 	if cfg["logCount"].(float64) != 2 {
 		t.Errorf("logCount = %v, want 2", cfg["logCount"])
+	}
+	// testRuntime() leaves RenderWindowMax at its zero value — resolver.go's
+	// int32() conversion must still round-trip that, not fail/omit the field.
+	if cfg["renderWindowMax"].(float64) != 0 {
+		t.Errorf("renderWindowMax = %v, want 0 (unset in testRuntime)", cfg["renderWindowMax"])
 	}
 }
 

@@ -153,6 +153,7 @@ otelop version
   --storage-path     DuckDB database path             (default: XDG data directory)
   --retention        telemetry retention period       (default 7d)
   --max-size         database size ceiling            (default 4GB)
+  --render-window-max max rows the traces/metrics/logs tables render at once (default 500)
   --log-level        debug|info|warn|error           (default warn)
   --debug            export otelop's own telemetry to itself
 ```
@@ -186,6 +187,9 @@ path = "" # empty uses $XDG_DATA_HOME/otelop/otelop.duckdb
 retention = "7d"
 max_size = "4GB"
 
+[ui]
+render_window_max = 500 # max rows the traces/metrics/logs tables render at once
+
 [proxy]
 url = "https://collector.internal:4318"
 protocol = "http"
@@ -195,7 +199,7 @@ type = "bearer"
 token = "replace-me"
 ```
 
-The matching environment variables are `OTELOP_HTTP`, `OTELOP_OTLP_GRPC`, `OTELOP_OTLP_HTTP`, `OTELOP_PROXY_URL`, `OTELOP_PROXY_PROTOCOL`, `OTELOP_PROXY_AUTH_TYPE`, `OTELOP_PROXY_AUTH_TOKEN`, `OTELOP_PROXY_AUTH_USERNAME`, `OTELOP_PROXY_AUTH_PASSWORD`, `OTELOP_PROXY_HEADERS`, `OTELOP_STORAGE_PATH`, `OTELOP_RETENTION`, `OTELOP_MAX_SIZE`, `OTELOP_LOG_LEVEL`, `OTELOP_DEBUG`, and `OTELOP_ALLOWED_HOSTS` (comma-separated).
+The matching environment variables are `OTELOP_HTTP`, `OTELOP_OTLP_GRPC`, `OTELOP_OTLP_HTTP`, `OTELOP_PROXY_URL`, `OTELOP_PROXY_PROTOCOL`, `OTELOP_PROXY_AUTH_TYPE`, `OTELOP_PROXY_AUTH_TOKEN`, `OTELOP_PROXY_AUTH_USERNAME`, `OTELOP_PROXY_AUTH_PASSWORD`, `OTELOP_PROXY_HEADERS`, `OTELOP_STORAGE_PATH`, `OTELOP_RETENTION`, `OTELOP_MAX_SIZE`, `OTELOP_RENDER_WINDOW_MAX`, `OTELOP_LOG_LEVEL`, `OTELOP_DEBUG`, and `OTELOP_ALLOWED_HOSTS` (comma-separated).
 
 When proxying is enabled, `otelop` still stores incoming telemetry locally for the UI and also forwards the same traces, metrics, and logs to the configured upstream OTLP endpoint.
 

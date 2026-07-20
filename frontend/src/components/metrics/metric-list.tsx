@@ -1,11 +1,13 @@
 import { useMemo } from "react";
 import { useAtomValue, useSetAtom } from "jotai";
-import { metricsAtom, selectedMetricAtom } from "@/stores/telemetry";
+import { metricsAtom, selectedMetricAtom, renderWindowMaxAtom } from "@/stores/telemetry";
 import { filteredMetricsAtom, metricSearchAtom } from "@/stores/filters";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { SearchFilter } from "@/components/filters/search-filter";
 import { ListPanel } from "@/components/common/list-panel";
 import { EmptyMatches } from "@/components/common/empty-state";
+import { LoadMoreRow } from "@/components/common/load-more-row";
+import { BackToLatestRow } from "@/components/common/back-to-latest-row";
 import {
   Table,
   TableBody,
@@ -21,6 +23,13 @@ import { EmptyState } from "@/components/common/empty-state";
 import { Pill } from "@/components/common/pill";
 import { SIGNALS } from "@/lib/signals";
 import { useMetricListSearch } from "@/hooks/use-metric-list-search";
+import { SIGNAL_PAGE_SIZE } from "@/hooks/use-signal-list-page";
+import { useRenderWindow } from "@/hooks/use-render-window";
+import type { MetricData } from "@/types/telemetry";
+
+function metricRowId(metric: MetricData): string {
+  return `${metric.serviceName}-${metric.name}`;
+}
 
 export function MetricList() {
   const allMetrics = useAtomValue(metricsAtom);
@@ -33,6 +42,19 @@ export function MetricList() {
   );
   const selectedMetric = useAtomValue(selectedMetricAtom);
   const setSelectedMetric = useSetAtom(selectedMetricAtom);
+  const renderWindowMax = useAtomValue(renderWindowMaxAtom);
+  // Metrics have no server-side pagination (filteredMetricsAtom's whole
+  // match set is already in memory), so "Load more" only ever slides the
+  // window over what's already loaded — see handleSlide below. The window
+  // resets to the top on a search change (its only filter scope).
+  const renderWindow = useRenderWindow({
+    items: metrics,
+    getId: metricRowId,
+    max: renderWindowMax,
+    pageSize: SIGNAL_PAGE_SIZE,
+    resetKey: search,
+  });
+  const handleSlide = () => renderWindow.slideOlder(metrics);
 
   if (selectedMetric) {
     // Remount when a different metric is picked so facet state in MetricDetail
@@ -57,6 +79,11 @@ export function MetricList() {
         <EmptyMatches label="metrics" />
       ) : (
         <ScrollArea className="min-h-0 flex-1">
+          <BackToLatestRow
+            count={renderWindow.newerCount}
+            label="earlier — back to top"
+            onClick={renderWindow.backToLatest}
+          />
           <Table>
             <TableHeader>
               <TableRow className="border-b border-border/50 bg-muted hover:bg-muted">
@@ -71,39 +98,59 @@ export function MetricList() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {metrics.map((metric, i) => (
-                <TableRow
-                  key={`${metric.serviceName}-${metric.name}`}
-                  className="stagger-row cursor-pointer border-b border-border/30 transition-colors hover:bg-metric/5"
-                  style={{ animationDelay: `${Math.min(i * 20, 200)}ms` }}
-                  onClick={() => setSelectedMetric(metric)}
-                >
-                  <TableCell className="font-medium">{metric.serviceName || "-"}</TableCell>
-                  <TableCell className="text-foreground/80">{metric.name}</TableCell>
-                  <TableCell className="max-w-xs truncate text-muted-foreground">
-                    {metric.description || "-"}
-                  </TableCell>
-                  <TableCell>
-                    <Pill tone="metric">{metric.type}</Pill>
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">
-                    {resolveMetricUnit(metric.name, metric.unit) || "-"}
-                  </TableCell>
-                  <TableCell className="text-right font-mono text-xs">
-                    {metric.pointCount}
-                  </TableCell>
-                  <TableCell className="text-right font-mono text-xs text-metric">
-                    {metric.latestValue != null ? metric.latestValue.toLocaleString() : "-"}
-                  </TableCell>
-                  <TableCell className="text-xs text-muted-foreground">
-                    {formatRelativeTime(metric.receivedAt)}
-                  </TableCell>
-                </TableRow>
+              {renderWindow.visible.map((metric, i) => (
+                <MetricRow
+                  key={metricRowId(metric)}
+                  metric={metric}
+                  index={i}
+                  onSelect={setSelectedMetric}
+                />
               ))}
             </TableBody>
           </Table>
+          <LoadMoreRow
+            visible={renderWindow.olderCount > 0}
+            loadingMore={false}
+            onClick={handleSlide}
+          />
         </ScrollArea>
       )}
     </ListPanel>
+  );
+}
+
+interface MetricRowProps {
+  metric: MetricData;
+  index: number;
+  onSelect: (metric: MetricData) => void;
+}
+
+// Row bail-out is provided by React Compiler.
+function MetricRow({ metric, index, onSelect }: MetricRowProps) {
+  return (
+    <TableRow
+      className="stagger-row cursor-pointer border-b border-border/30 transition-colors hover:bg-metric/5"
+      style={{ animationDelay: `${Math.min(index * 20, 200)}ms` }}
+      onClick={() => onSelect(metric)}
+    >
+      <TableCell className="font-medium">{metric.serviceName || "-"}</TableCell>
+      <TableCell className="text-foreground/80">{metric.name}</TableCell>
+      <TableCell className="max-w-xs truncate text-muted-foreground">
+        {metric.description || "-"}
+      </TableCell>
+      <TableCell>
+        <Pill tone="metric">{metric.type}</Pill>
+      </TableCell>
+      <TableCell className="text-muted-foreground">
+        {resolveMetricUnit(metric.name, metric.unit) || "-"}
+      </TableCell>
+      <TableCell className="text-right font-mono text-xs">{metric.pointCount}</TableCell>
+      <TableCell className="text-right font-mono text-xs text-metric">
+        {metric.latestValue != null ? metric.latestValue.toLocaleString() : "-"}
+      </TableCell>
+      <TableCell className="text-xs text-muted-foreground">
+        {formatRelativeTime(metric.receivedAt)}
+      </TableCell>
+    </TableRow>
   );
 }

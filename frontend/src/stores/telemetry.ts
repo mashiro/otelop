@@ -40,6 +40,23 @@ const DEFAULT_CONFIG: BufferCaps = {
 
 export const bufferCapsAtom = atom<BufferCaps>(DEFAULT_CONFIG);
 
+// Same rationale as BufferCaps above, but bounds how many rows of a
+// *filtered* list actually mount as <tr> elements (hooks/use-render-window.ts)
+// rather than how many rows the live buffer retains — no virtualization
+// library is in play (see CLAUDE.md), so this is what keeps a huge match set
+// from mounting thousands of rows at once. A plain atom, like bufferCapsAtom,
+// with no settings UI backing it yet; tests override it the same way
+// (`store.set(renderWindowMaxAtom, …)`).
+//
+// The 500 below is only a bootstrap fallback: rendering starts as soon as
+// this module loads, before hooks/use-initial-load.ts's Config fetch can
+// reach the server, so the atom can't start unset. Once that fetch resolves,
+// it overwrites this with the operator-configured value (backend
+// --render-window-max/OTELOP_RENDER_WINDOW_MAX/config.toml [ui], whose own
+// default is internal/config/config.go's DefaultRenderWindowMax) — that is
+// the actual source of truth.
+export const renderWindowMaxAtom = atom<number>(500);
+
 // WebSocket connection status
 export type WsStatus = "connecting" | "connected" | "disconnected";
 export const wsStatusAtom = atom<WsStatus>("disconnected");
