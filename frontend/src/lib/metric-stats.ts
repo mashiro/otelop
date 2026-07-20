@@ -2,7 +2,7 @@ import type { DataPoint } from "@/types/telemetry";
 import type { MetricFacet } from "@/lib/metric-catalog";
 import { type ChartTimeRange, filterDataPointsInRange } from "@/lib/chart-time-range";
 import type { AggregateSeriesData } from "@/hooks/use-metric-aggregate-series";
-import { Temporal } from "temporal-polyfill";
+import { parseEpochNs } from "@/lib/normalize";
 
 /** Serialize attributes to a stable string key for grouping. */
 export function attrKey(attrs: Record<string, unknown>): string {
@@ -114,6 +114,7 @@ export function hasIncreaseStatTileSignal(dataPoints: DataPoint[]): boolean {
 
 interface StatTilePoint {
   timestamp: string;
+  epochNs: bigint;
   value: number;
   count?: number | null;
 }
@@ -129,12 +130,9 @@ export type StatTileMode = "increase" | "latest";
 
 function latestPoint(points: StatTilePoint[]): StatTilePoint | undefined {
   let latest: StatTilePoint | undefined;
-  let latestInstant: Temporal.Instant | undefined;
   for (const point of points) {
-    const instant = Temporal.Instant.from(point.timestamp);
-    if (!latestInstant || Temporal.Instant.compare(instant, latestInstant) > 0) {
+    if (!latest || point.epochNs > latest.epochNs) {
       latest = point;
-      latestInstant = instant;
     }
   }
   return latest;
@@ -188,13 +186,23 @@ export function statTileGroupsFromAggregate(
   const resolved = resolveFacetGroupColorIndex(aggregatedSeries, rangeDataPoints, facet);
   return aggregatedSeries.map((s, i) => {
     const { label, colorIndex } = resolved[i]!;
-    const windowed = filterDataPointsInRange(s.points, range);
+    // AggregatePointData is an ephemeral server-fetch result (not a store
+    // view model — see hooks/use-metric-aggregate-series.ts), so it has no
+    // pre-parsed epoch field; parseEpochNs is called explicitly here, the
+    // one sanctioned per-call-site exception to lib/normalize.ts owning
+    // every Temporal.Instant.from call (this array tops out around 150
+    // server-aggregated buckets, not the capped live buffer the trace/log
+    // filters run over). Parsed once per point, then reused for both the
+    // range filter and the returned points.
+    const withEpoch = s.points.map((p) => ({ ...p, epochNs: parseEpochNs(p.timestamp) }));
+    const windowed = filterDataPointsInRange(withEpoch, range, (p) => p.epochNs);
     return {
       key: label,
       label,
       colorIndex,
       points: windowed.map((p) => ({
         timestamp: p.timestamp,
+        epochNs: p.epochNs,
         value: p.value,
         count: p.count,
       })),
@@ -211,7 +219,9 @@ export function statTileGroupsFromRawPoints(
   range: ChartTimeRange,
 ): StatTileGroup[] {
   const order = facetGroupOrder(rangeDataPoints, facet);
-  const windowed = filterDataPointsInRange(rangeDataPoints, range);
+  // rangeDataPoints is already the store's DataPoint view model, so its
+  // epochNs is a pre-parsed field, not re-parsed here (see lib/normalize.ts).
+  const windowed = filterDataPointsInRange(rangeDataPoints, range, (dp) => dp.epochNs);
   const groups = new Map<string, StatTileGroup>();
   for (const dp of windowed) {
     const key = facetSeriesKey(dp.attributes, facet);
@@ -220,7 +230,12 @@ export function statTileGroupsFromRawPoints(
       group = { key, label: key || "(no attributes)", colorIndex: order.get(key) ?? 0, points: [] };
       groups.set(key, group);
     }
-    group.points.push({ timestamp: dp.timestamp, value: dp.value, count: dp.count });
+    group.points.push({
+      timestamp: dp.timestamp,
+      epochNs: dp.epochNs,
+      value: dp.value,
+      count: dp.count,
+    });
   }
   return [...groups.values()];
 }

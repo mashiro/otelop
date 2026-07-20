@@ -9,6 +9,7 @@ import {
   type StatTilesInput,
 } from "./metric-stats";
 import { makeDataPoint, makeAggregatePoint, makeAggregateSeries } from "@/test/factories";
+import { parseEpochNs } from "@/lib/normalize";
 
 const MODEL_FACET = { attributes: ["model"], label: "model" };
 
@@ -282,7 +283,12 @@ describe("computeStatTiles — aggregate (facet active) path", () => {
     );
 
     expect(groups[0]?.points).toEqual([
-      { timestamp: "2024-01-01T00:10:00Z", value: 5, count: null },
+      {
+        timestamp: "2024-01-01T00:10:00Z",
+        epochNs: parseEpochNs("2024-01-01T00:10:00Z"),
+        value: 5,
+        count: null,
+      },
     ]);
   });
 });

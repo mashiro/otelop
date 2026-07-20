@@ -41,6 +41,7 @@ import {
   selectedLogIdAtom,
 } from "./navigation";
 import { makeMetric, makeDataPoint, makeTrace, makeLog, makeSpan } from "@/test/factories";
+import { parseEpochNs } from "@/lib/normalize";
 
 describe("addMetricAtom", () => {
   it("merges data points by id, dropping re-delivered duplicates", () => {
@@ -244,6 +245,29 @@ describe("header badge totals (traceCountAtom/metricCountAtom/logCountAtom)", ()
 
     expect(store.get(tracesAtom).map((trace) => trace.traceId)).toEqual(["stable", "moving"]);
     expect(store.get(tracesAtom)[1].startTime).toBe("2024-01-01T00:00:00Z");
+    // Regression guard: startEpochNs is a derived field mergeTrace must keep
+    // in lockstep with startTime — a stale spread would leave it pointing at
+    // the pre-merge instant even though startTime moved, silently breaking
+    // every consumer that reads the epoch instead of re-parsing startTime
+    // (newestTraceStartFirst's sort, stores/filters.ts's range filter).
+    expect(store.get(tracesAtom)[1].startEpochNs).toBe(parseEpochNs("2024-01-01T00:00:00Z"));
+  });
+
+  it("orders traces that differ only in sub-millisecond precision (ns precision preserved through the sort)", () => {
+    const store = createStore();
+    store.set(
+      addTraceAtom,
+      makeTrace({ traceId: "a", startTime: "2024-01-01T00:00:00.000000001Z" }),
+    );
+    store.set(
+      addTraceAtom,
+      makeTrace({ traceId: "b", startTime: "2024-01-01T00:00:00.000000002Z" }),
+    );
+
+    // "b" is 1ns newer than "a" — a millisecond-truncating comparison (e.g.
+    // Date.parse) would see these as simultaneous and could return either
+    // order; the epoch-ns field must keep them correctly ordered.
+    expect(store.get(tracesAtom).map((trace) => trace.traceId)).toEqual(["b", "a"]);
   });
 
   it("appendTracesAtom (Load more) does not increment the badge — those rows are already in the total", () => {

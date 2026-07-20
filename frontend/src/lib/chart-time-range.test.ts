@@ -181,69 +181,105 @@ describe("isChartTimeRange", () => {
   });
 });
 
+// Every point carries a pre-parsed epoch-ns field (see lib/normalize.ts) —
+// these tests build that field directly with Temporal rather than going
+// through a view model, since chart-time-range.ts is agnostic to which
+// record type it's filtering.
+function ns(iso: string): bigint {
+  return Temporal.Instant.from(iso).epochNanoseconds;
+}
+
 describe("filterDataPointsInRange", () => {
   it("returns everything unfiltered for 'all'", () => {
-    const points = [{ timestamp: "2024-01-01T00:00:00Z" }, { timestamp: "2024-01-01T00:10:00Z" }];
+    const points = [
+      { epochNs: ns("2024-01-01T00:00:00Z") },
+      { epochNs: ns("2024-01-01T00:10:00Z") },
+    ];
 
-    expect(filterDataPointsInRange(points, "all")).toEqual(points);
+    expect(filterDataPointsInRange(points, "all", (p) => p.epochNs)).toEqual(points);
   });
 
   it("returns [] unchanged for an empty input", () => {
-    expect(filterDataPointsInRange([], "5m")).toEqual([]);
+    expect(filterDataPointsInRange([], "5m", (p: { epochNs: bigint }) => p.epochNs)).toEqual([]);
   });
 
-  it("anchors the window on the max timestamp, not wall-clock", () => {
-    const inWindow = { timestamp: "2024-01-01T00:19:00Z" };
-    const outOfWindow = { timestamp: "2024-01-01T00:00:00Z" };
-    const max = { timestamp: "2024-01-01T00:20:00Z" };
+  it("anchors the window on the max epoch, not wall-clock", () => {
+    const inWindow = { epochNs: ns("2024-01-01T00:19:00Z") };
+    const outOfWindow = { epochNs: ns("2024-01-01T00:00:00Z") };
+    const max = { epochNs: ns("2024-01-01T00:20:00Z") };
 
-    expect(filterDataPointsInRange([outOfWindow, inWindow, max], "5m")).toEqual([inWindow, max]);
+    expect(filterDataPointsInRange([outOfWindow, inWindow, max], "5m", (p) => p.epochNs)).toEqual([
+      inWindow,
+      max,
+    ]);
   });
 
   it("includes a point exactly at the window boundary", () => {
-    const max = { timestamp: "2024-01-01T00:05:00Z" };
-    const boundary = { timestamp: "2024-01-01T00:00:00Z" };
+    const max = { epochNs: ns("2024-01-01T00:05:00Z") };
+    const boundary = { epochNs: ns("2024-01-01T00:00:00Z") };
 
-    expect(filterDataPointsInRange([boundary, max], "5m")).toEqual([boundary, max]);
+    expect(filterDataPointsInRange([boundary, max], "5m", (p) => p.epochNs)).toEqual([
+      boundary,
+      max,
+    ]);
+  });
+
+  it("distinguishes points that differ only in sub-millisecond precision (ns precision preserved)", () => {
+    const earlier = { epochNs: ns("2024-01-01T00:00:00.000000001Z") };
+    const later = { epochNs: ns("2024-01-01T00:00:00.000000002Z") };
+
+    // A 0-width-in-ms range anchored on `later` still excludes `earlier`
+    // once the range is smaller than their 1ns gap in wall-clock terms —
+    // exercised here via "all" (no filtering) to assert the two epochs
+    // themselves are distinguishable, not collapsed to the same millisecond.
+    expect(later.epochNs - earlier.epochNs).toBe(1n);
+    expect(filterDataPointsInRange([earlier, later], "all", (p) => p.epochNs)).toEqual([
+      earlier,
+      later,
+    ]);
   });
 
   it("preserves extra fields on the filtered items", () => {
-    const points = [{ timestamp: "2024-01-01T00:00:00Z", value: 42 }];
+    const points = [{ epochNs: ns("2024-01-01T00:00:00Z"), value: 42 }];
 
-    expect(filterDataPointsInRange(points, "all")).toEqual(points);
+    expect(filterDataPointsInRange(points, "all", (p) => p.epochNs)).toEqual(points);
   });
 
-  it("parses each point's timestamp exactly once (single pass, not a max-finding pass plus a filter pass)", () => {
+  it("reads each point's epoch exactly once (single pass, not a max-finding pass plus a filter pass)", () => {
     const points = [
-      { timestamp: "2024-01-01T00:00:00Z" },
-      { timestamp: "2024-01-01T00:10:00Z" },
-      { timestamp: "2024-01-01T00:20:00Z" },
+      { epochNs: ns("2024-01-01T00:00:00Z") },
+      { epochNs: ns("2024-01-01T00:10:00Z") },
+      { epochNs: ns("2024-01-01T00:20:00Z") },
     ];
-    const getTimestamp = vi.fn((p: (typeof points)[number]) => p.timestamp);
+    const getEpochNs = vi.fn((p: (typeof points)[number]) => p.epochNs);
 
-    filterDataPointsInRange(points, "5m", getTimestamp);
+    filterDataPointsInRange(points, "5m", getEpochNs);
 
-    expect(getTimestamp).toHaveBeenCalledTimes(points.length);
+    expect(getEpochNs).toHaveBeenCalledTimes(points.length);
   });
 
-  describe("with an explicit getTimestamp selector", () => {
-    // Trace rows carry their instant under `startTime`, not `timestamp` (see
-    // types/telemetry.ts) — the trace/log list's live-tail display filter
-    // (stores/filters.ts) passes a selector rather than reshaping every row.
+  describe("with an explicit getEpochNs selector", () => {
+    // Trace rows carry their instant under `startEpochNs`, not `epochNs`
+    // (see types/telemetry.ts) — the trace/log list's live-tail display
+    // filter (stores/filters.ts) passes a selector rather than reshaping
+    // every row.
     it("anchors the window on the max value the selector returns", () => {
-      const inWindow = { startTime: "2024-01-01T00:19:00Z" };
-      const outOfWindow = { startTime: "2024-01-01T00:00:00Z" };
-      const max = { startTime: "2024-01-01T00:20:00Z" };
+      const inWindow = { startEpochNs: ns("2024-01-01T00:19:00Z") };
+      const outOfWindow = { startEpochNs: ns("2024-01-01T00:00:00Z") };
+      const max = { startEpochNs: ns("2024-01-01T00:20:00Z") };
 
       expect(
-        filterDataPointsInRange([outOfWindow, inWindow, max], "5m", (p) => p.startTime),
+        filterDataPointsInRange([outOfWindow, inWindow, max], "5m", (p) => p.startEpochNs),
       ).toEqual([inWindow, max]);
     });
 
     it("returns everything unfiltered for 'all'", () => {
-      const points = [{ startTime: "2024-01-01T00:00:00Z" }, { startTime: "2024-01-01T00:10:00Z" }];
+      const points = [
+        { startEpochNs: ns("2024-01-01T00:00:00Z") },
+        { startEpochNs: ns("2024-01-01T00:10:00Z") },
+      ];
 
-      expect(filterDataPointsInRange(points, "all", (p) => p.startTime)).toEqual(points);
+      expect(filterDataPointsInRange(points, "all", (p) => p.startEpochNs)).toEqual(points);
     });
   });
 });

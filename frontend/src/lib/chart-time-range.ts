@@ -135,49 +135,43 @@ export function filterPointsInDomain<T extends { time: Date }>(
 // timestamped rows (DataPoint / AggregatePointData) instead of the chart's
 // {time: Date} shape — so callers computing range-scoped totals (stat tiles,
 // the data points table) can filter without going through the chart's
-// render pipeline. Uses Temporal, not Date.parse, per the project's
-// OTel-timestamp convention (Date truncates the nanosecond precision OTel
-// timestamps carry).
+// render pipeline.
 //
-// getTimestamp defaults to reading `.timestamp` (DataPoint/AggregatePoint's
-// shape); trace rows carry their instant under `startTime` instead, so the
-// trace/log list's live-tail display filter (components/traces/trace-list.tsx,
-// components/logs/log-list.tsx) passes an explicit selector rather than
-// reshaping every row just to satisfy this function's default field name.
-export function filterDataPointsInRange<T extends { timestamp: string }>(
-  points: T[],
-  range: ChartTimeRange,
-): T[];
+// getEpochNs is mandatory (no default field-name guess): every store view
+// model (TraceData/LogData/DataPoint — see types/telemetry.ts) already
+// carries a pre-parsed epoch-ns field via lib/normalize.ts, so callers pass a
+// trivial field accessor instead of a timestamp string this function would
+// have to re-parse. A caller with no such field (e.g. the ephemeral
+// AggregatePointData from a server-aggregated fetch) parses via
+// lib/normalize.ts's parseEpochNs at the call site instead — still the
+// single Temporal.Instant.from call site, just invoked explicitly rather
+// than implicitly by this function.
 export function filterDataPointsInRange<T>(
   points: T[],
   range: ChartTimeRange,
-  getTimestamp: (point: T) => string,
-): T[];
-export function filterDataPointsInRange<T>(
-  points: T[],
-  range: ChartTimeRange,
-  getTimestamp: (point: T) => string = (p) => (p as { timestamp: string }).timestamp,
+  getEpochNs: (point: T) => bigint,
 ): T[] {
   const rangeMs = rangeToMs(range);
   if (rangeMs === null || points.length === 0) return points;
+  const rangeNs = BigInt(rangeMs) * 1_000_000n;
 
-  // Single pass: parse each point's timestamp exactly once, caching the
-  // epoch value alongside it while tracking the max, then filter against the
-  // cached values instead of re-parsing every point a second time. Called on
-  // every WS message via stores/filters.ts's rangeFilteredTracesAtom/
-  // rangeFilteredLogsAtom over the full capped buffer, so halving the
-  // Temporal.Instant.from calls matters here.
-  let maxMs = -Infinity;
-  const withMs: { point: T; ms: number }[] = [];
+  // Single pass: read each point's epoch exactly once, caching it alongside
+  // the point while tracking the max, then filter against the cached values
+  // instead of reading every point a second time. Called on every WS message
+  // via stores/filters.ts's rangeFilteredTracesAtom/rangeFilteredLogsAtom
+  // over the full capped buffer.
+  const withNs: { point: T; ns: bigint }[] = [];
+  let maxNs: bigint | undefined;
   for (const point of points) {
-    const ms = Temporal.Instant.from(getTimestamp(point)).epochMilliseconds;
-    withMs.push({ point, ms });
-    if (ms > maxMs) maxMs = ms;
+    const ns = getEpochNs(point);
+    withNs.push({ point, ns });
+    if (maxNs === undefined || ns > maxNs) maxNs = ns;
   }
-  const minMs = maxMs - rangeMs;
+  // maxNs is always set here: the empty-input case already returned above.
+  const minNs = maxNs! - rangeNs;
   const result: T[] = [];
-  for (const { point, ms } of withMs) {
-    if (ms >= minMs) result.push(point);
+  for (const { point, ns } of withNs) {
+    if (ns >= minNs) result.push(point);
   }
   return result;
 }

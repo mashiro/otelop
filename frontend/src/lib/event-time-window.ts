@@ -104,16 +104,16 @@ export function eventWindowEquals(a: EventTimeWindow, b: EventTimeWindow): boole
 export function filterPointsInEventWindow<T>(
   points: T[],
   window: EventTimeWindow,
-  getTimestamp: (point: T) => string,
+  getEpochNs: (point: T) => bigint,
 ): T[] {
-  if (window.mode === "live") return filterDataPointsInRange(points, window.range, getTimestamp);
-  const from = Temporal.Instant.from(window.from);
-  const to = Temporal.Instant.from(window.to);
+  if (window.mode === "live") return filterDataPointsInRange(points, window.range, getEpochNs);
+  // window.from/to are parsed once here (not per point) — a window's bounds
+  // change far less often than the points filtered against them.
+  const fromNs = Temporal.Instant.from(window.from).epochNanoseconds;
+  const toNs = Temporal.Instant.from(window.to).epochNanoseconds;
   return points.filter((point) => {
-    const instant = Temporal.Instant.from(getTimestamp(point));
-    return (
-      Temporal.Instant.compare(instant, from) >= 0 && Temporal.Instant.compare(instant, to) <= 0
-    );
+    const ns = getEpochNs(point);
+    return ns >= fromNs && ns <= toNs;
   });
 }
 

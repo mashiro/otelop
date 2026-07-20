@@ -160,7 +160,9 @@ function ChartInner({
     for (const dp of metric.dataPoints) {
       const key = facetSeriesKey(dp.attributes, facet);
       if (!groups.has(key)) groups.set(key, []);
-      groups.get(key)!.push({ time: new Date(dp.timestamp), value: dp.value });
+      // dp.epochNs is already parsed (see lib/normalize.ts) — building the
+      // chart's Date from it avoids re-parsing dp.timestamp as a string.
+      groups.get(key)!.push({ time: new Date(Number(dp.epochNs / 1_000_000n)), value: dp.value });
     }
     const result: SeriesData[] = [];
     let i = 0;

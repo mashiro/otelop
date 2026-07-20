@@ -2,7 +2,6 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import { Group } from "@visx/group";
 import { scaleLinear } from "@visx/scale";
 import { ParentSize } from "@visx/responsive";
-import { Temporal } from "temporal-polyfill";
 import { useTooltip, TooltipWithBounds } from "@visx/tooltip";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { formatDuration, createDurationFormatter } from "@/lib/format";
@@ -50,25 +49,15 @@ interface TooltipData {
   name: string;
 }
 
-/** Parse ISO timestamp to nanoseconds relative to a base instant. */
-function toNsOffset(iso: string, baseNs: bigint): number {
-  try {
-    const ns = Temporal.Instant.from(iso).epochNanoseconds;
-    return Number(ns - baseNs);
-  } catch {
-    return -1;
-  }
+/** Offset of a span's pre-parsed start epoch relative to a base instant. */
+function toNsOffset(startEpochNs: bigint, baseNs: bigint): number {
+  return Number(startEpochNs - baseNs);
 }
 
 function compareByStartTime(a: SpanData, b: SpanData): number {
-  try {
-    return Temporal.Instant.compare(
-      Temporal.Instant.from(a.startTime),
-      Temporal.Instant.from(b.startTime),
-    );
-  } catch {
-    return 0;
-  }
+  if (a.startEpochNs < b.startEpochNs) return -1;
+  if (a.startEpochNs > b.startEpochNs) return 1;
+  return 0;
 }
 
 export function buildTree(spans: SpanData[]): FlatSpan[] {
@@ -169,29 +158,20 @@ function WaterfallInner({
     // full trace range (min start → max end) even for multi-root Codex traces.
     // Anchoring the waterfall to trace.rootSpan would truncate long-running
     // sibling branches when the representative root is short.
-    try {
-      const start = Temporal.Instant.from(trace.startTime).epochNanoseconds;
-      if (trace.duration > 0) return { baseNs: start, totalNs: trace.duration };
-    } catch {
-      /* fall through */
-    }
+    if (trace.duration > 0) return { baseNs: trace.startEpochNs, totalNs: trace.duration };
     let minNs: bigint | null = null;
     let maxNs: bigint | null = null;
     for (const f of flatSpans) {
-      try {
-        const s = Temporal.Instant.from(f.span.startTime).epochNanoseconds;
-        const e = Temporal.Instant.from(f.span.endTime).epochNanoseconds;
-        if (minNs === null || s < minNs) minNs = s;
-        if (maxNs === null || e > maxNs) maxNs = e;
-      } catch {
-        /* skip */
-      }
+      const s = f.span.startEpochNs;
+      const e = f.span.endEpochNs;
+      if (minNs === null || s < minNs) minNs = s;
+      if (maxNs === null || e > maxNs) maxNs = e;
     }
     if (minNs !== null && maxNs !== null && maxNs > minNs) {
       return { baseNs: minNs, totalNs: Number(maxNs - minNs) };
     }
     return { baseNs: 0n, totalNs: 1 };
-  }, [trace.startTime, trace.duration, flatSpans]);
+  }, [trace.startEpochNs, trace.duration, flatSpans]);
 
   const barWidth = width - LABEL_WIDTH;
   const xScale = useMemo(
@@ -347,7 +327,7 @@ function WaterfallInner({
           ))}
 
           {visibleSpans.map((f, i) => {
-            const startOffset = toNsOffset(f.span.startTime, baseNs);
+            const startOffset = toNsOffset(f.span.startEpochNs, baseNs);
             const spanDurNs = f.span.duration > 0 ? f.span.duration : 0;
             const x = xScale(Math.max(startOffset, 0));
             const w = Math.max(xScale(spanDurNs) - xScale(0), MIN_BAR_WIDTH);
