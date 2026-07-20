@@ -304,17 +304,17 @@ describe("LogList render window (bounded sliding)", () => {
     act(() => {
       screen.getByRole("button", { name: "Load more" }).click();
     });
+    expect(screen.getByText("c")).toBeTruthy();
     expect(screen.getByText("b")).toBeTruthy();
-    expect(screen.getByText("a")).toBeTruthy();
-    expect(screen.getByRole("button", { name: /3 newer/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /2 newer/ })).toBeTruthy();
 
     act(() => {
       store.set(addLogAtom, makeLiveLog("f"));
     });
 
+    expect(screen.getByText("c")).toBeTruthy();
     expect(screen.getByText("b")).toBeTruthy();
-    expect(screen.getByText("a")).toBeTruthy();
-    expect(screen.getByRole("button", { name: /4 newer/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /3 newer/ })).toBeTruthy();
   });
 
   it("returns to the head when 'back to latest' is clicked", () => {

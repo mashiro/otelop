@@ -309,25 +309,26 @@ describe("TraceList render window (bounded sliding)", () => {
     expect(screen.getByText("e")).toBeTruthy();
     expect(screen.getByText("d")).toBeTruthy();
 
-    // 5 loaded rows, window of 2: sliding by SIGNAL_PAGE_SIZE clamps
-    // straight to the oldest available page (b, a).
+    // 5 loaded rows, window of 2: a slide advances by min(pageSize, max) = 2
+    // so the new window (c, b) adjoins the old one (e, d) with no skipped
+    // rows — see use-render-window.test.ts for the continuity guarantee.
     act(() => {
       screen.getByRole("button", { name: "Load more" }).click();
     });
+    expect(screen.getByText("c")).toBeTruthy();
     expect(screen.getByText("b")).toBeTruthy();
-    expect(screen.getByText("a")).toBeTruthy();
     expect(screen.queryByText("e")).toBeNull();
-    expect(screen.getByRole("button", { name: /3 newer/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /2 newer/ })).toBeTruthy();
 
     act(() => {
       store.set(addTraceAtom, makeLiveTrace("f", 5));
     });
 
-    // The anchor (row "b") holds — still showing b, a — while the newer
+    // The anchor (row "c") holds — still showing c, b — while the newer
     // count grows to include the freshly arrived row.
+    expect(screen.getByText("c")).toBeTruthy();
     expect(screen.getByText("b")).toBeTruthy();
-    expect(screen.getByText("a")).toBeTruthy();
-    expect(screen.getByRole("button", { name: /4 newer/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /3 newer/ })).toBeTruthy();
   });
 
   it("returns to the head when 'back to latest' is clicked", () => {

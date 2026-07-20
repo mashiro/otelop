@@ -88,7 +88,11 @@ export function useRenderWindow<T>({
       // valid in `currentItems` even when it's a fresher array read after an
       // intervening fetch.
       const nextMaxK = Math.max(0, currentItems.length - max);
-      const nextK = Math.min(k + pageSize, nextMaxK);
+      // Advance by at most `max` rows: a window smaller than the page size
+      // (render_window_max is user-configurable) would otherwise jump past
+      // rows that were never mounted — the new window's top must adjoin the
+      // old window's bottom.
+      const nextK = Math.min(k + Math.min(pageSize, max), nextMaxK);
       const nextAnchor = currentItems[nextK];
       setAnchorId(nextAnchor ? getId(nextAnchor) : null);
     },

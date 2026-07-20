@@ -359,17 +359,17 @@ describe("MetricList render window (bounded sliding)", () => {
     act(() => {
       screen.getByRole("button", { name: "Load more" }).click();
     });
+    expect(screen.getByText("d-metric")).toBeTruthy();
     expect(screen.getByText("e-metric")).toBeTruthy();
-    expect(screen.getByText("f-metric")).toBeTruthy();
-    expect(screen.getByRole("button", { name: /3 earlier/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /2 earlier/ })).toBeTruthy();
 
     act(() => {
       store.set(addMetricAtom, makeMetric({ serviceName: "svc", name: "a-metric" }));
     });
 
+    expect(screen.getByText("d-metric")).toBeTruthy();
     expect(screen.getByText("e-metric")).toBeTruthy();
-    expect(screen.getByText("f-metric")).toBeTruthy();
-    expect(screen.getByRole("button", { name: /4 earlier/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /3 earlier/ })).toBeTruthy();
   });
 
   it("returns to the head when 'back to top' is clicked", () => {
