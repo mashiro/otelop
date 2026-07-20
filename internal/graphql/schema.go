@@ -51,6 +51,13 @@ type RuntimeInfo struct {
 	StoragePath      string
 	RetentionDisplay string
 	MaxSizeDisplay   string
+
+	// RenderWindowMax is the configured max rows the frontend's traces/
+	// metrics/logs tables mount at once (frontend/src/hooks/use-render-window.ts),
+	// surfaced as-is by the `config` query so the frontend doesn't rely on
+	// its own hardcoded value beyond a load-time fallback (see
+	// frontend/src/stores/telemetry.ts's renderWindowMaxAtom).
+	RenderWindowMax int
 }
 
 // maxQueryDepth bounds field nesting depth (graph-gophers counts the
