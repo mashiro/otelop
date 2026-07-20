@@ -2,8 +2,8 @@ allowBuilds:
   msw: false
 minimumReleaseAge: 4320
 catalog:
-  vite: npm:@voidzero-dev/vite-plus-core@0.2.4
-  vite-plus: 0.2.4
+  vite: npm:@voidzero-dev/vite-plus-core@0.2.5
+  vite-plus: 0.2.5
 overrides:
   vite: "catalog:"
 peerDependencyRules:
