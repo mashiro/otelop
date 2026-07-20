@@ -9,6 +9,7 @@ import {
   type EventTimeWindow,
 } from "@/lib/event-time-window";
 import { useStableArray } from "@/hooks/use-stable-array";
+import { normalizeDataPoint } from "@/lib/normalize";
 import type { DataPoint, MetricData } from "@/types/telemetry";
 
 const MetricPointsQuery = graphql(`
@@ -73,7 +74,7 @@ export function useMetricRangePoints(metric: MetricData, window: EventTimeWindow
           ...queryBounds,
         });
         if (!cancelled) {
-          setSnapshot({ metricKey, points: data.metricPoints });
+          setSnapshot({ metricKey, points: data.metricPoints.map(normalizeDataPoint) });
         }
       } catch {
         // Fall back to whatever the live buffer already holds.
@@ -98,7 +99,7 @@ export function useMetricRangePoints(metric: MetricData, window: EventTimeWindow
   // MetricSummary, DataPointsTable — driven off this hook's return value)
   // skip re-rendering when the window's actual content didn't move.
   const windowed = useMemo(
-    () => filterPointsInEventWindow(merged, window, (dp) => dp.timestamp),
+    () => filterPointsInEventWindow(merged, window, (dp) => dp.epochNs),
     [merged, window],
   );
   return useStableArray(windowed, (dp) => dp.id);

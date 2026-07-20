@@ -285,6 +285,24 @@ describe("filteredLogsAtom", () => {
     expect(store.get(filteredLogsAtom).map((log) => log.id)).toEqual(["current"]);
   });
 
+  it("excludes a log 1ns before the fixed window's lower bound (ns precision preserved)", () => {
+    const store = createStore();
+    store.set(logsAtom, [
+      makeLog({ id: "just-before", timestamp: "2024-01-01T00:59:59.999999999Z" }),
+      makeLog({ id: "at-boundary", timestamp: "2024-01-01T01:00:00.000000000Z" }),
+    ]);
+    store.set(logListWindowAtom, {
+      mode: "fixed",
+      from: "2024-01-01T01:00:00.000000000Z",
+      to: "2024-01-01T02:00:00Z",
+    });
+
+    // A millisecond-truncating comparison (e.g. Date.parse) would round
+    // "just-before" up to the same millisecond as the boundary and wrongly
+    // include it; the epoch-ns field must exclude it.
+    expect(store.get(filteredLogsAtom).map((log) => log.id)).toEqual(["at-boundary"]);
+  });
+
   it("filters by body text", () => {
     const store = createStore();
     store.set(logsAtom, [makeLog({ body: "error occurred" }), makeLog({ body: "all ok" })]);

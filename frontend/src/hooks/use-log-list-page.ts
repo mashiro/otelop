@@ -10,6 +10,7 @@ import {
 } from "@/stores/telemetry";
 import type { LogData } from "@/types/telemetry";
 import type { EventTimeWindow } from "@/lib/event-time-window";
+import { normalizeLog } from "@/lib/normalize";
 import {
   useSignalListPage,
   type FetchPageArgs,
@@ -76,7 +77,7 @@ export function useLogListPage(
         traceId,
       });
       return {
-        items: data.logs.items,
+        items: data.logs.items.map(normalizeLog),
         hasNextPage: data.logs.hasNextPage,
         endCursor: data.logs.endCursor ?? null,
       };

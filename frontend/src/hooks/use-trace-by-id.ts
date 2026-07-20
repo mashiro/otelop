@@ -4,6 +4,7 @@ import { graphql } from "@/gql";
 import type { TraceByIdQuery } from "@/gql/graphql";
 import { gqlClient } from "@/lib/graphql";
 import { MS_TO_NS, toSpan } from "@/lib/span-mapping";
+import { normalizeTrace } from "@/lib/normalize";
 import { cacheTraceAtom } from "@/stores/telemetry";
 import type { SpanStatus, TraceData } from "@/types/telemetry";
 
@@ -37,7 +38,7 @@ interface LoadState {
 }
 
 function toTraceData(trace: NonNullable<TraceByIdQuery["trace"]>): TraceData {
-  return {
+  return normalizeTrace({
     traceId: trace.traceId,
     serviceName: trace.serviceName,
     spanCount: trace.spanCount,
@@ -51,8 +52,12 @@ function toTraceData(trace: NonNullable<TraceByIdQuery["trace"]>): TraceData {
           duration: trace.rootSpan.durationMs * MS_TO_NS,
         }
       : undefined,
+    // toSpan already normalizes each span; normalizeTrace's own per-span map
+    // below just re-derives the same epoch values from startTime/endTime
+    // (idempotent) rather than trusting them as pre-parsed, so this stays
+    // the single normalizeTrace call site for every TraceData construction.
     spans: trace.spans.map(toSpan),
-  };
+  });
 }
 
 async function loadTrace(traceId: string) {

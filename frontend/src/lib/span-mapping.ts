@@ -1,6 +1,7 @@
 import { graphql } from "@/gql";
 import type { SpanFieldsFragment } from "@/gql/graphql";
 import type { SpanData, SpanStatus } from "@/types/telemetry";
+import { normalizeSpan } from "@/lib/normalize";
 
 // GraphQL reports span duration as durationMs; SpanData's `duration` field is
 // nanosecond-precision (matching the OTel wire format internal/broadcast
@@ -34,5 +35,9 @@ export const SpanFieldsFragmentDoc = graphql(`
 `);
 
 export function toSpan({ durationMs, statusCode, ...rest }: SpanFieldsFragment): SpanData {
-  return { ...rest, statusCode: statusCode as SpanStatus, duration: durationMs * MS_TO_NS };
+  return normalizeSpan({
+    ...rest,
+    statusCode: statusCode as SpanStatus,
+    duration: durationMs * MS_TO_NS,
+  });
 }

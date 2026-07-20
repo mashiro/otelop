@@ -3,6 +3,7 @@ import { useSetAtom } from "jotai";
 import { graphql } from "@/gql";
 import { gqlClient } from "@/lib/graphql";
 import { metricSearchResultAtom } from "@/stores/telemetry";
+import { normalizeMetric } from "@/lib/normalize";
 import type { MetricData } from "@/types/telemetry";
 
 const MetricsListQuery = graphql(`
@@ -46,7 +47,9 @@ export function useMetricListSearch(search: string): void {
       try {
         const data = await gqlClient.request(MetricsListQuery, { search });
         if (ignore) return;
-        const items: MetricData[] = data.metrics.items.map((m) => ({ ...m, dataPoints: [] }));
+        const items: MetricData[] = data.metrics.items.map((m) =>
+          normalizeMetric({ ...m, dataPoints: [] }),
+        );
         setSearchResult({ search, items });
       } catch {
         // Keep the previous result; the next search edit retries.

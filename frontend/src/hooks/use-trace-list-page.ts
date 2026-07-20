@@ -12,6 +12,7 @@ import {
 import type { EventTimeWindow } from "@/lib/event-time-window";
 import type { TraceData, SpanStatus } from "@/types/telemetry";
 import { MS_TO_NS } from "@/lib/span-mapping";
+import { normalizeTrace } from "@/lib/normalize";
 import {
   useSignalListPage,
   type FetchPageArgs,
@@ -50,7 +51,7 @@ function toTraceData({
   rootSpan,
   ...rest
 }: TracesPageQueryType["traces"]["items"][number]): TraceData {
-  return {
+  return normalizeTrace({
     ...rest,
     duration: durationMs * MS_TO_NS,
     rootSpan: rootSpan
@@ -64,7 +65,7 @@ function toTraceData({
     // Full span data is fetched lazily once a trace's detail view needs it —
     // see hooks/use-trace-spans.ts.
     spans: [],
-  };
+  });
 }
 
 // Fetches the traces tab page-by-page: browsing starts within `range`, then

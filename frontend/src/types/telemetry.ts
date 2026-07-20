@@ -8,7 +8,10 @@ export interface SpanEvent {
 // it as a union so exhaustiveness checks in the UI catch missing cases.
 export type SpanStatus = "Unset" | "Ok" | "Error";
 
-export interface SpanData {
+// Wire shape: exactly what arrives over the WebSocket / GraphQL, before
+// lib/normalize.ts parses its ISO-8601 timestamp fields into the epoch-ns
+// fields the view model below adds.
+export interface SpanDataWire {
   traceId: string;
   spanId: string;
   parentSpanId: string;
@@ -23,6 +26,17 @@ export interface SpanData {
   attributes: Record<string, unknown>;
   events: SpanEvent[];
   resource: Record<string, unknown>;
+}
+
+// View model: SpanDataWire plus the epoch-nanosecond fields the waterfall's
+// sort/offset math (components/traces/span-waterfall.tsx) compares against.
+// Required (not optional) so a new ingest entry point that forgets to run
+// lib/normalize.ts's normalizeSpan fails to compile, instead of silently
+// falling back to a per-comparison Temporal.Instant.from parse — see that
+// module's doc comment for the full rationale.
+export interface SpanData extends SpanDataWire {
+  startEpochNs: bigint;
+  endEpochNs: bigint;
 }
 
 // Trace list/detail-header display fields for the trace's representative
@@ -42,14 +56,14 @@ export interface TraceRootSpan {
   duration: number;
 }
 
-export interface TraceData {
+export interface TraceDataWire {
   traceId: string;
   rootSpan?: TraceRootSpan;
   // Empty until the trace detail view lazily fetches it (see
   // hooks/use-trace-spans.ts). Both list queries and live WebSocket updates
   // carry summary fields only, avoiding a TraceByID query per committed
   // trace. Never derive count/duration from this array.
-  spans: SpanData[];
+  spans: SpanDataWire[];
   serviceName: string;
   // Lightweight values from spans in the latest WebSocket batch, used to
   // preserve live search without shipping full span detail.
@@ -59,12 +73,22 @@ export interface TraceData {
   duration: number;
 }
 
+export interface TraceData extends Omit<TraceDataWire, "spans"> {
+  spans: SpanData[];
+  // Parsed once at the ingest boundary (lib/normalize.ts's normalizeTrace) so
+  // stores/telemetry.ts's newestTraceStartFirst sort and stores/filters.ts's
+  // range filter compare bigints instead of re-parsing startTime on every
+  // recompute. mergeTrace must keep this in sync whenever startTime changes —
+  // see that function's doc comment.
+  startEpochNs: bigint;
+}
+
 // Distribution-only fields are null for Gauge/Sum. See schema.graphql for
 // semantics of value/count/sum/min/max across metric types.
 // The cumulative family carries the exporter's raw running total for
 // cumulative inputs, or a query-window accumulation for delta inputs. The
 // backend derives both from persisted raw observations at read time.
-export interface DataPoint {
+export interface DataPointWire {
   // Stable, globally unique identity (UUIDv7) assigned by the backend at
   // ingestion. Use it as the React key: it survives client-buffer eviction and
   // reconnects, unlike timestamp/attributes (which can collide) or array index.
@@ -81,7 +105,11 @@ export interface DataPoint {
   attributes: Record<string, unknown>;
 }
 
-export interface MetricData {
+export interface DataPoint extends DataPointWire {
+  epochNs: bigint;
+}
+
+export interface MetricDataWire {
   name: string;
   description: string;
   unit: string;
@@ -93,7 +121,7 @@ export interface MetricData {
   // the initial metrics-list load only fetches pointCount/latestValue below
   // (issue #162), never the full series, to avoid an N-metric fetch of every
   // group's entire retained history just to render list rows.
-  dataPoints: DataPoint[];
+  dataPoints: DataPointWire[];
   // Cheap server-computed summary fields the metrics LIST renders instead of
   // dataPoints.length / dataPoints.at(-1)?.value (see MetricList) — kept
   // current across a WS delivery by addMetricAtom's genuinely-new-points
@@ -104,7 +132,11 @@ export interface MetricData {
   receivedAt: string;
 }
 
-export interface LogData {
+export interface MetricData extends Omit<MetricDataWire, "dataPoints"> {
+  dataPoints: DataPoint[];
+}
+
+export interface LogDataWire {
   // Stable, globally unique identity (UUIDv7) assigned by the backend at
   // ingestion. Log records have no natural id, so use this as the React key:
   // it stays put as new logs are prepended, unlike an array index.
@@ -121,9 +153,15 @@ export interface LogData {
   resource: Record<string, unknown>;
 }
 
+export interface LogData extends LogDataWire {
+  epochNs: bigint;
+}
+
 export interface WsMessage {
   type: "traces" | "trace-deletes" | "metrics" | "logs";
-  data: TraceData | TraceDeleteData | MetricData | LogData;
+  // Wire shapes: hooks/use-websocket.ts is the single place that normalizes
+  // these into view models before writing them into the store.
+  data: TraceDataWire | TraceDeleteData | MetricDataWire | LogDataWire;
 }
 
 export interface TraceDeleteData {

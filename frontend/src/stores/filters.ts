@@ -1,7 +1,7 @@
 import { atom } from "jotai";
 import type { Atom, PrimitiveAtom } from "jotai";
-import { Temporal } from "temporal-polyfill";
 import { filterDataPointsInRange } from "@/lib/chart-time-range";
+import { parseEpochNs } from "@/lib/normalize";
 import { eventWindowBounds } from "@/lib/event-time-window";
 import {
   tracesAtom,
@@ -64,12 +64,12 @@ export const traceSearchAtom = atom("");
 // mirrors the metric chart's rolling window (see metric-detail.tsx's
 // windowedDataPoints) and keeps re-deriving the true visible window as new
 // data arrives.
-function inEventWindow(timestamp: string, from: string | undefined, to: string): boolean {
-  const instant = Temporal.Instant.from(timestamp);
-  return (
-    (!from || Temporal.Instant.compare(instant, Temporal.Instant.from(from)) >= 0) &&
-    Temporal.Instant.compare(instant, Temporal.Instant.from(to)) < 0
-  );
+//
+// fromNs/toNs are parsed once by the caller (outside the per-row filter),
+// not per row — epochNs itself is already a pre-parsed view-model field (see
+// lib/normalize.ts), so this whole check is pure bigint comparison.
+function inEventWindow(epochNs: bigint, fromNs: bigint | undefined, toNs: bigint): boolean {
+  return (fromNs === undefined || epochNs >= fromNs) && epochNs < toNs;
 }
 
 const rangeFilteredTracesAtom = atom((get) => {
@@ -79,7 +79,7 @@ const rangeFilteredTracesAtom = atom((get) => {
   if (window.mode === "live") {
     if (window.range === "all") return traces;
     const inRangeIds = new Set(
-      filterDataPointsInRange(traces, window.range, (trace) => trace.startTime).map(
+      filterDataPointsInRange(traces, window.range, (trace) => trace.startEpochNs).map(
         (trace) => trace.traceId,
       ),
     );
@@ -88,8 +88,10 @@ const rangeFilteredTracesAtom = atom((get) => {
     );
   }
   const { from, to } = eventWindowBounds(window);
+  const fromNs = from === undefined ? undefined : parseEpochNs(from);
+  const toNs = parseEpochNs(to);
   return traces.filter(
-    (trace) => loadedOlderIds.has(trace.traceId) || inEventWindow(trace.startTime, from, to),
+    (trace) => loadedOlderIds.has(trace.traceId) || inEventWindow(trace.startEpochNs, fromNs, toNs),
   );
 });
 
@@ -126,12 +128,16 @@ const rangeFilteredLogsAtom = atom((get) => {
   const loadedOlderIds = get(loadedOlderLogIdsAtom);
   if (window.mode === "live") {
     if (window.range === "all") return logs;
-    const inRangeIds = new Set(filterDataPointsInRange(logs, window.range).map((log) => log.id));
+    const inRangeIds = new Set(
+      filterDataPointsInRange(logs, window.range, (log) => log.epochNs).map((log) => log.id),
+    );
     return logs.filter((log) => loadedOlderIds.has(log.id) || inRangeIds.has(log.id));
   }
   const { from, to } = eventWindowBounds(window);
+  const fromNs = from === undefined ? undefined : parseEpochNs(from);
+  const toNs = parseEpochNs(to);
   return get(logsAtom).filter(
-    (log) => loadedOlderIds.has(log.id) || inEventWindow(log.timestamp, from, to),
+    (log) => loadedOlderIds.has(log.id) || inEventWindow(log.epochNs, fromNs, toNs),
   );
 });
 

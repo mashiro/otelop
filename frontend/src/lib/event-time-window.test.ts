@@ -101,12 +101,12 @@ describe("event time window", () => {
       to: "2026-07-12T02:00:00Z",
     };
     const points = [
-      { timestamp: "2026-07-12T00:59:59Z" },
-      { timestamp: "2026-07-12T01:30:00Z" },
-      { timestamp: "2026-07-12T02:00:01Z" },
+      { epochNs: Temporal.Instant.from("2026-07-12T00:59:59Z").epochNanoseconds },
+      { epochNs: Temporal.Instant.from("2026-07-12T01:30:00Z").epochNanoseconds },
+      { epochNs: Temporal.Instant.from("2026-07-12T02:00:01Z").epochNanoseconds },
     ];
 
-    expect(filterPointsInEventWindow(points, window, (point) => point.timestamp)).toEqual([
+    expect(filterPointsInEventWindow(points, window, (point) => point.epochNs)).toEqual([
       points[1],
     ]);
     expect(eventWindowDomain([], window)).toEqual([

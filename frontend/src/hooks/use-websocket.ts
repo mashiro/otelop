@@ -7,7 +7,13 @@ import {
   addLogAtom,
   wsStatusAtom,
 } from "@/stores/telemetry";
-import type { TraceData, TraceDeleteData, MetricData, LogData } from "@/types/telemetry";
+import type {
+  TraceDataWire,
+  TraceDeleteData,
+  MetricDataWire,
+  LogDataWire,
+} from "@/types/telemetry";
+import { normalizeTrace, normalizeMetric, normalizeLog } from "@/lib/normalize";
 import { wsManager } from "@/lib/websocket-manager";
 
 // useWebSocket is a thin adapter that bridges the module-level WsManager to
@@ -25,19 +31,24 @@ export function useWebSocket(): void {
   useEffect(() => {
     const unsubscribe = wsManager.subscribe({
       onStatus: setWsStatus,
+      // The manager only JSON.parses the WS payload — it's still wire-shaped
+      // (ISO timestamp strings, no epoch fields). This is the single place
+      // that normalizes a live delivery before it reaches the store, so
+      // addTraceAtom/addMetricAtom/addLogAtom never see an un-normalized
+      // record (see lib/normalize.ts).
       onMessage: (msg) => {
         switch (msg.type) {
           case "traces":
-            addTrace(msg.data as TraceData);
+            addTrace(normalizeTrace(msg.data as TraceDataWire));
             break;
           case "trace-deletes":
             removeTrace((msg.data as TraceDeleteData).traceId);
             break;
           case "metrics":
-            addMetric(msg.data as MetricData);
+            addMetric(normalizeMetric(msg.data as MetricDataWire));
             break;
           case "logs":
-            addLog(msg.data as LogData);
+            addLog(normalizeLog(msg.data as LogDataWire));
             break;
         }
       },

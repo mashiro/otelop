@@ -3,6 +3,7 @@ import { useSetAtom } from "jotai";
 import { graphql } from "@/gql";
 import { gqlClient } from "@/lib/graphql";
 import { setMetricsAtom, setTotalCountsAtom, renderWindowMaxAtom } from "@/stores/telemetry";
+import { normalizeMetric } from "@/lib/normalize";
 import type { MetricData } from "@/types/telemetry";
 
 // Ring-buffer capacity config (traceCap/metricCap/logCap/maxDataPoints) was
@@ -80,7 +81,9 @@ export function useInitialLoad() {
         // every metric enters the buffer empty and fills in lazily — via a
         // detail view's use-metric-range-points fetch, or a WS delivery
         // merging in through addMetricAtom.
-        const metrics: MetricData[] = data.metrics.items.map((m) => ({ ...m, dataPoints: [] }));
+        const metrics: MetricData[] = data.metrics.items.map((m) =>
+          normalizeMetric({ ...m, dataPoints: [] }),
+        );
         setMetrics(metrics);
       } catch {
         // WebSocket will deliver data later.

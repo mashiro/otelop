@@ -1,6 +1,5 @@
 import { atom } from "jotai";
 import type { Atom, PrimitiveAtom, WritableAtom } from "jotai";
-import { Temporal } from "temporal-polyfill";
 import type {
   TraceData,
   TraceRootSpan,
@@ -95,13 +94,15 @@ function mergeSearchValues(
   return [...new Set([...existing, ...incoming])];
 }
 
+// Compares pre-parsed epoch-ns fields (see lib/normalize.ts) instead of
+// re-parsing startTime on every sort — this runs on every WS delivery over
+// the whole capped trace buffer, so the parse cost used to matter.
 function newestTraceStartFirst(traces: TraceData[]): TraceData[] {
-  return traces.toSorted((a, b) =>
-    Temporal.Instant.compare(
-      Temporal.Instant.from(b.startTime),
-      Temporal.Instant.from(a.startTime),
-    ),
-  );
+  return traces.toSorted((a, b) => {
+    if (b.startEpochNs > a.startEpochNs) return 1;
+    if (b.startEpochNs < a.startEpochNs) return -1;
+    return 0;
+  });
 }
 
 // Write-only: add single item from WebSocket
@@ -190,10 +191,10 @@ function isBetterRoot(
 function mergeTrace(existing: TraceData, incoming: TraceData): TraceData | null {
   const spans = mergeSpans(existing.spans, incoming.spans);
   const rootChanged = isBetterRoot(existing.rootSpan, incoming.rootSpan);
-  // OTel timestamps are nanosecond-precision ISO strings; compare via
-  // Temporal.Instant to avoid Date's millisecond truncation.
-  const incomingStart = Temporal.Instant.from(incoming.startTime).epochNanoseconds;
-  const existingStart = Temporal.Instant.from(existing.startTime).epochNanoseconds;
+  // Both sides are already-normalized view models (see lib/normalize.ts), so
+  // this reads their pre-parsed startEpochNs instead of re-parsing startTime.
+  const incomingStart = incoming.startEpochNs;
+  const existingStart = existing.startEpochNs;
   if (
     spans.length === existing.spans.length &&
     !rootChanged &&
@@ -203,6 +204,12 @@ function mergeTrace(existing: TraceData, incoming: TraceData): TraceData | null 
   ) {
     return null;
   }
+
+  // Multi-root traces can grow past the originally-reported root span
+  // duration. Always retain the complete observed time range — and keep
+  // startEpochNs in lockstep with startTime so a stale epoch can never
+  // survive a merge (the bug this derived field's staleness risk is about).
+  const startsEarlier = incomingStart < existingStart;
 
   return {
     ...existing,
@@ -214,9 +221,8 @@ function mergeTrace(existing: TraceData, incoming: TraceData): TraceData | null 
     spanCount: Math.max(existing.spanCount, incoming.spanCount),
     rootSpan: rootChanged ? incoming.rootSpan : existing.rootSpan,
     serviceName: rootChanged ? incoming.serviceName : existing.serviceName,
-    // Multi-root traces can grow past the originally-reported root span
-    // duration. Always retain the complete observed time range.
-    startTime: incomingStart < existingStart ? incoming.startTime : existing.startTime,
+    startTime: startsEarlier ? incoming.startTime : existing.startTime,
+    startEpochNs: startsEarlier ? incoming.startEpochNs : existing.startEpochNs,
     duration: Math.max(existing.duration, incoming.duration),
   };
 }
