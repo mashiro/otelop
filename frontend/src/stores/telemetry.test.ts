@@ -3,10 +3,13 @@ import { createStore } from "jotai";
 import {
   metricsAtom,
   addMetricAtom,
+  addMetricsAtom,
   addTraceAtom,
+  addTracesAtom,
   cacheTraceAtom,
   removeTraceAtom,
   addLogAtom,
+  addLogsAtom,
   bufferCapsAtom,
   tracesAtom,
   logsAtom,
@@ -652,5 +655,227 @@ describe("appendLogsAtom", () => {
     store.set(setLogsAtom, [makeLog({ id: "new-page" })]);
 
     expect(store.get(loadedOlderLogIdsAtom)).toEqual(new Set());
+  });
+});
+
+// hooks/use-websocket.ts applies a whole WS flush window's worth of
+// deliveries through these atoms in one store update instead of one atom
+// call per message (see that file's doc comment on why: an unbounded
+// per-message write during a burst forces a full array-rebuild + sort +
+// derived-atom recompute + React reconcile per message). addTraceAtom/
+// addMetricAtom/addLogAtom above are kept as thin single-item wrappers so
+// existing single-delivery call sites (and their tests) keep working
+// unchanged.
+describe("addTracesAtom", () => {
+  it("applies a whole batch against one working array, sorting/capping once at the end", () => {
+    const store = createStore();
+
+    store.set(addTracesAtom, [
+      makeTrace({ traceId: "later", startTime: "2024-01-01T00:20:00Z" }),
+      makeTrace({ traceId: "earlier", startTime: "2024-01-01T00:10:00Z" }),
+    ]);
+
+    expect(store.get(tracesAtom).map((t) => t.traceId)).toEqual(["later", "earlier"]);
+  });
+
+  it("merges a later batch entry into an earlier entry for the same traceId within one batch", () => {
+    const store = createStore();
+
+    store.set(addTracesAtom, [
+      makeTrace({ traceId: "t1", spanCount: 1, spans: [] }),
+      makeTrace({ traceId: "t1", spanCount: 2, spans: [makeSpan({ spanId: "s2" })] }),
+    ]);
+
+    const traces = store.get(tracesAtom);
+    expect(traces).toHaveLength(1);
+    expect(traces[0].spanCount).toBe(2);
+  });
+
+  it("increments newTraceCountAtom once per genuinely-new trace in the batch, not per merge", () => {
+    const store = createStore();
+    store.set(setTotalCountsAtom, { traceCount: 0, metricCount: 0, logCount: 0 });
+    store.set(tracesAtom, [makeTrace({ traceId: "existing", spanCount: 1 })]);
+
+    store.set(addTracesAtom, [
+      makeTrace({ traceId: "existing", spanCount: 2, spans: [makeSpan({ spanId: "s2" })] }),
+      makeTrace({ traceId: "new-a" }),
+      makeTrace({ traceId: "new-b" }),
+    ]);
+
+    expect(store.get(newTraceCountAtom)).toBe(2);
+    expect(store.get(traceCountAtom)).toBe(2);
+  });
+
+  it("caps the buffer once after the whole batch, keeping the newest by start time", () => {
+    const store = createStore();
+    store.set(bufferCapsAtom, { traceCap: 2, metricCap: 10, logCap: 10, maxDataPoints: 10 });
+    store.set(tracesAtom, [makeTrace({ traceId: "a", startTime: "2024-01-01T00:10:00Z" })]);
+
+    store.set(addTracesAtom, [
+      makeTrace({ traceId: "b", startTime: "2024-01-01T00:20:00Z" }),
+      makeTrace({ traceId: "c", startTime: "2024-01-01T00:30:00Z" }),
+    ]);
+
+    expect(store.get(tracesAtom).map((t) => t.traceId)).toEqual(["c", "b"]);
+  });
+
+  it("is a no-op for an empty batch", () => {
+    const store = createStore();
+    const traces = [makeTrace({ traceId: "a" })];
+    store.set(tracesAtom, traces);
+
+    store.set(addTracesAtom, []);
+
+    expect(store.get(tracesAtom)).toBe(traces);
+  });
+
+  it("addTraceAtom (single-item) produces the same result as a one-element addTracesAtom batch", () => {
+    const single = createStore();
+    const batch = createStore();
+    const trace = makeTrace({ traceId: "t1" });
+
+    single.set(addTraceAtom, trace);
+    batch.set(addTracesAtom, [trace]);
+
+    expect(single.get(tracesAtom)).toEqual(batch.get(tracesAtom));
+  });
+});
+
+describe("addMetricsAtom", () => {
+  it("updates an existing group and inserts a new group in one batch", () => {
+    const store = createStore();
+    store.set(metricsAtom, [
+      makeMetric({ name: "existing", dataPoints: [makeDataPoint({ id: "a" })] }),
+    ]);
+
+    store.set(addMetricsAtom, [
+      makeMetric({ name: "existing", dataPoints: [makeDataPoint({ id: "b" })] }),
+      makeMetric({ name: "brand-new", dataPoints: [makeDataPoint({ id: "c" })] }),
+    ]);
+
+    const metrics = store.get(metricsAtom);
+    expect(metrics.map((m) => m.name)).toEqual(["brand-new", "existing"]);
+    expect(metrics.find((m) => m.name === "existing")?.dataPoints.map((p) => p.id)).toEqual([
+      "a",
+      "b",
+    ]);
+  });
+
+  it("prepends new groups in the same order a sequence of single addMetricAtom calls would produce", () => {
+    const single = createStore();
+    const batch = createStore();
+    const first = makeMetric({ name: "m1" });
+    const second = makeMetric({ name: "m2" });
+
+    single.set(addMetricAtom, first);
+    single.set(addMetricAtom, second);
+    batch.set(addMetricsAtom, [first, second]);
+
+    expect(batch.get(metricsAtom).map((m) => m.name)).toEqual(
+      single.get(metricsAtom).map((m) => m.name),
+    );
+    expect(batch.get(metricsAtom).map((m) => m.name)).toEqual(["m2", "m1"]);
+  });
+
+  it("merges a second occurrence of the same key within one batch into the first occurrence's (new) entry", () => {
+    const store = createStore();
+
+    store.set(addMetricsAtom, [
+      makeMetric({ name: "m", dataPoints: [makeDataPoint({ id: "a" })] }),
+      makeMetric({ name: "m", dataPoints: [makeDataPoint({ id: "b" })] }),
+    ]);
+
+    const metrics = store.get(metricsAtom);
+    expect(metrics).toHaveLength(1);
+    expect(metrics[0].dataPoints.map((p) => p.id)).toEqual(["a", "b"]);
+  });
+
+  it("increments newMetricCountAtom once per genuinely-new group in the batch", () => {
+    const store = createStore();
+    store.set(setTotalCountsAtom, { traceCount: 0, metricCount: 0, logCount: 0 });
+
+    store.set(addMetricsAtom, [makeMetric({ name: "m1" }), makeMetric({ name: "m2" })]);
+
+    expect(store.get(newMetricCountAtom)).toBe(2);
+  });
+
+  it("caps the buffer once after the whole batch", () => {
+    const store = createStore();
+    store.set(bufferCapsAtom, { traceCap: 10, metricCap: 1, logCap: 10, maxDataPoints: 10 });
+
+    store.set(addMetricsAtom, [makeMetric({ name: "m1" }), makeMetric({ name: "m2" })]);
+
+    expect(store.get(metricsAtom)).toHaveLength(1);
+  });
+
+  it("is a no-op for an empty batch", () => {
+    const store = createStore();
+    const metrics = [makeMetric({ name: "m" })];
+    store.set(metricsAtom, metrics);
+
+    store.set(addMetricsAtom, []);
+
+    expect(store.get(metricsAtom)).toBe(metrics);
+  });
+
+  it("addMetricAtom (single-item) produces the same result as a one-element addMetricsAtom batch", () => {
+    const single = createStore();
+    const batch = createStore();
+    const metric = makeMetric({ name: "m" });
+
+    single.set(addMetricAtom, metric);
+    batch.set(addMetricsAtom, [metric]);
+
+    expect(single.get(metricsAtom)).toEqual(batch.get(metricsAtom));
+  });
+});
+
+describe("addLogsAtom", () => {
+  it("prepends a whole batch in one store write, newest (last-arriving) first", () => {
+    const store = createStore();
+    store.set(logsAtom, [makeLog({ id: "existing" })]);
+
+    store.set(addLogsAtom, [makeLog({ id: "a" }), makeLog({ id: "b" })]);
+
+    expect(store.get(logsAtom).map((l) => l.id)).toEqual(["b", "a", "existing"]);
+  });
+
+  it("increments newLogCountAtom by the batch size", () => {
+    const store = createStore();
+    store.set(setTotalCountsAtom, { traceCount: 0, metricCount: 0, logCount: 0 });
+
+    store.set(addLogsAtom, [makeLog({ id: "a" }), makeLog({ id: "b" }), makeLog({ id: "c" })]);
+
+    expect(store.get(newLogCountAtom)).toBe(3);
+  });
+
+  it("caps the buffer once after the whole batch", () => {
+    const store = createStore();
+    store.set(bufferCapsAtom, { traceCap: 10, metricCap: 10, logCap: 1, maxDataPoints: 10 });
+
+    store.set(addLogsAtom, [makeLog({ id: "a" }), makeLog({ id: "b" })]);
+
+    expect(store.get(logsAtom).map((l) => l.id)).toEqual(["b"]);
+  });
+
+  it("is a no-op for an empty batch", () => {
+    const store = createStore();
+    const logs = [makeLog({ id: "a" })];
+    store.set(logsAtom, logs);
+
+    store.set(addLogsAtom, []);
+
+    expect(store.get(logsAtom)).toBe(logs);
+  });
+
+  it("addLogAtom (single-item) produces the same result as a one-element addLogsAtom batch", () => {
+    const single = createStore();
+    const batch = createStore();
+    const log = makeLog({ id: "log-1" });
+
+    single.set(addLogAtom, log);
+    batch.set(addLogsAtom, [log]);
+
+    expect(single.get(logsAtom)).toEqual(batch.get(logsAtom));
   });
 });
