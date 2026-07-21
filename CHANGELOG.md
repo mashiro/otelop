@@ -1,5 +1,31 @@
 # Changelog
 
+## [1.1.0](https://github.com/mashiro/otelop/compare/v1.0.0...v1.1.0) (2026-07-21)
+
+
+### Features
+
+* **frontend:** add 3h and 12h time range options ([#177](https://github.com/mashiro/otelop/issues/177)) ([07993fd](https://github.com/mashiro/otelop/commit/07993fd808d75b030e9d8e63d3da1ae39dda9fe6))
+* **frontend:** bounded sliding render window with configurable size ([#189](https://github.com/mashiro/otelop/issues/189)) ([66b6556](https://github.com/mashiro/otelop/commit/66b6556c9e282a1be1d15404fbd0efd501666501))
+* **server:** remove MCP server endpoint ([#179](https://github.com/mashiro/otelop/issues/179)) ([c6fa723](https://github.com/mashiro/otelop/commit/c6fa723bb508c2375c4cb89a66f5a0258a6c3c01))
+
+
+### Bug Fixes
+
+* **cli:** shut down daemon when collector fails after startup ([#182](https://github.com/mashiro/otelop/issues/182)) ([9733f7c](https://github.com/mashiro/otelop/commit/9733f7c557f4ae3982abf3dd84b82341b0264bd2))
+* **config:** bind Web UI/API to loopback by default ([#181](https://github.com/mashiro/otelop/issues/181)) ([f2c65c9](https://github.com/mashiro/otelop/commit/f2c65c9e4c3fdc63a3180c92d1961b22e9e29b9c))
+* **deps:** update all non-major dependencies ([#190](https://github.com/mashiro/otelop/issues/190)) ([a30f21f](https://github.com/mashiro/otelop/commit/a30f21f2a6dd1c749d5dbbb970d26728d3b3d85b))
+* **deps:** update dependency jotai to v2.20.2 ([#173](https://github.com/mashiro/otelop/issues/173)) ([4e61f8e](https://github.com/mashiro/otelop/commit/4e61f8eabdecadaac06bf9f85658a7d76fb1874f))
+* **frontend:** show time range labels instead of raw values in select trigger ([#178](https://github.com/mashiro/otelop/issues/178)) ([014a2df](https://github.com/mashiro/otelop/commit/014a2df1271155cbc56942f76c9d0f7c55b1b38b))
+* **graphql:** bound query depth, length, and page limits ([#183](https://github.com/mashiro/otelop/issues/183)) ([801627c](https://github.com/mashiro/otelop/commit/801627c512ed955606353e3d03352b911b3287fe))
+* **server:** restrict WS origins, add CSRF and Host validation ([#180](https://github.com/mashiro/otelop/issues/180)) ([8ee6dde](https://github.com/mashiro/otelop/commit/8ee6dde8666a99dae16c56fb65952caad36ee556))
+
+
+### Performance Improvements
+
+* **frontend:** batch WebSocket deliveries into throttled store updates ([#192](https://github.com/mashiro/otelop/issues/192)) ([ddfb57d](https://github.com/mashiro/otelop/commit/ddfb57d968cdeccc89edd2bbf5ddc9ae3f676bd7))
+* **frontend:** parse timestamps once at the ingest boundary ([#191](https://github.com/mashiro/otelop/issues/191)) ([47be9a9](https://github.com/mashiro/otelop/commit/47be9a9927f5f8386cac5b8057f0cf9bb1787cb8))
+
 ## [1.0.0](https://github.com/mashiro/otelop/compare/v0.7.0...v1.0.0) (2026-07-15)
 
 
