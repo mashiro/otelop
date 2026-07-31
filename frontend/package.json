@@ -32,9 +32,9 @@
     "lucide-react": "1.27.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",
-    "shadcn": "4.15.0",
+    "shadcn": "4.16.0",
     "tailwind-merge": "3.6.0",
-    "temporal-polyfill": "1.0.1"
+    "temporal-polyfill": "1.0.2"
   },
   "devDependencies": {
     "@graphql-codegen/cli": "7.2.0",
