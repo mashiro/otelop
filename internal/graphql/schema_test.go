@@ -462,9 +462,9 @@ func TestMetricPoints_ReturnsDerivedPointsForOneGroup(t *testing.T) {
 	}
 }
 
-// TestMetricPoints_RespectsFromTo verifies the query's time-range args are
-// plumbed through to storage.MetricPoints rather than always fetching the
-// full retention window.
+// TestMetricPoints_RespectsFromTo verifies the query uses the immediately
+// preceding counter point to derive the first in-window delta without
+// returning that out-of-window predecessor.
 func TestMetricPoints_RespectsFromTo(t *testing.T) {
 	s := newTestStorage(t)
 	ctx := context.Background()
@@ -484,14 +484,11 @@ func TestMetricPoints_RespectsFromTo(t *testing.T) {
 	})
 
 	points := data["metricPoints"].([]any)
-	// from/to excludes the t0 observation entirely, so the t0+1h point is the
-	// only row the window ever sees — with no in-window predecessor to lag
-	// against, it's a fresh (filtered) baseline within this window, same as
-	// storage's TestMetricPoints_TimeRangeFiltering. This proves from/to
-	// actually reached storage.MetricPoints: an unbounded query would have
-	// included the t0 point and derived a non-baseline value=1 for this one.
-	if len(points) != 0 {
-		t.Fatalf("metricPoints len = %d, want 0 (windowed out the earlier point this delta needs)", len(points))
+	if len(points) != 1 {
+		t.Fatalf("metricPoints len = %d, want 1 derived in-window point", len(points))
+	}
+	if value := points[0].(map[string]any)["value"].(float64); value != 1 {
+		t.Fatalf("metricPoints value = %v, want 1 (2-1 from predecessor)", value)
 	}
 }
 

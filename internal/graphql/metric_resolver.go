@@ -33,21 +33,31 @@ func (r *MetricResolver) ReceivedAt() gql.Time { return gql.Time{Time: r.m.LastS
 
 func (r *MetricResolver) Resource() JSONMap { return attrsToJSON(r.m.Resource) }
 
-// filteredPoints fetches every derived point in [from, to) and drops
-// baseline observations (storage.FilterDerivedPoints — the same rule
-// internal/broadcast's WebSocket path applies) so the GraphQL surface
-// matches what the WebSocket path ever broadcasts and what the old store
-// package used to return.
+// filteredPoints includes one older observation while deriving cumulative
+// metrics, then removes it from the result. Without that predecessor, the
+// first counter point in every selected chart window becomes a fresh
+// baseline and disappears.
 func (r *MetricResolver) filteredPoints(ctx context.Context) ([]storage.DerivedPoint, error) {
 	r.once.Do(func() {
-		points, err := r.storage.MetricPoints(ctx, r.m.ServiceName, r.m.MetricName, r.from, r.to)
+		points, err := r.storage.MetricPointsWithPredecessors(ctx, r.m.ServiceName, r.m.MetricName, r.from, r.to)
 		if err != nil {
 			r.err = err
 			return
 		}
-		r.points = storage.FilterDerivedPoints(points)
+		r.points = filterDerivedPointsInWindow(points, r.from, r.to)
 	})
 	return r.points, r.err
+}
+
+func filterDerivedPointsInWindow(points []storage.DerivedPoint, from, to time.Time) []storage.DerivedPoint {
+	derived := storage.FilterDerivedPoints(points)
+	out := make([]storage.DerivedPoint, 0, len(derived))
+	for _, point := range derived {
+		if !point.TS.Before(from) && point.TS.Before(to) {
+			out = append(out, point)
+		}
+	}
+	return out
 }
 
 func (r *MetricResolver) LatestValue() *float64 { return r.m.LatestValue }

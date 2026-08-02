@@ -295,17 +295,17 @@ type MetricPointsArgs struct {
 }
 
 // MetricPoints is the single-metric counterpart to metrics { dataPoints }
-// (issue #162): it calls the same storage.MetricPoints + storage.FilterDerivedPoints
+// (issue #162): it calls the same predecessor-aware derivation
 // path MetricResolver.DataPoints does, so a metric detail view can fetch just
 // the group it's displaying instead of the whole metrics page to extract one
 // group client-side (see hooks/use-metric-range-points.ts).
 func (r *Resolver) MetricPoints(ctx context.Context, args MetricPointsArgs) ([]*DataPointResolver, error) {
 	from, to := r.resolveWindow(args.From, args.To)
-	points, err := r.storage.MetricPoints(ctx, args.ServiceName, args.Name, from, to)
+	points, err := r.storage.MetricPointsWithPredecessors(ctx, args.ServiceName, args.Name, from, to)
 	if err != nil {
 		return nil, err
 	}
-	filtered := storage.FilterDerivedPoints(points)
+	filtered := filterDerivedPointsInWindow(points, from, to)
 	out := make([]*DataPointResolver, len(filtered))
 	for i := range filtered {
 		out[i] = &DataPointResolver{dp: filtered[i]}

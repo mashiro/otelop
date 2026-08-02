@@ -59,10 +59,11 @@ type Query {
   """
   Facet-aggregated series for one (serviceName, name) metric: every
   attribute-series is delta/cumulative-derived first (the same derivation
-  `metrics.dataPoints` uses), THEN summed within each distinct combination of
-  groupBy attribute values and bucketed into bucketSeconds-wide time windows —
-  the server-side fix for a chart line that would otherwise zigzag between
-  multiple raw series sharing a facet value. from/to default to the full
+  `metrics.dataPoints` uses), then bucketed and combined within each distinct
+  combination of groupBy attribute values. Gauge samples are averaged within
+  each underlying series before series are summed; Sum deltas are summed. This
+  is the server-side fix for chart lines that would otherwise zigzag between
+  multiple raw series or inflate as bucket widths grow. from/to default to the full
   retention window, matching the other list queries. bucketSeconds is
   optional: omitted or null auto-sizes the bucket to target ~150 buckets
   across the metric's actual data extent within from/to, rather than the
@@ -76,8 +77,10 @@ type Query {
   single-metric counterpart to `metrics { dataPoints }`, added (issue #162)
   so a metric detail view can fetch just the metric it's displaying instead
   of the whole metrics page to extract one group client-side. Applies the
-  identical NULL-baseline filtering `metrics.dataPoints` does. from/to
-  default to the full retention window, matching the other list queries.
+  identical NULL-baseline filtering `metrics.dataPoints` does. Cumulative
+  metrics use the immediately preceding point to derive the first in-window
+  delta without returning that predecessor. from/to default to the full
+  retention window, matching the other list queries.
   """
   metricPoints(serviceName: String!, name: String!, from: Time, to: Time): [DataPoint!]!
 
@@ -304,7 +307,8 @@ total only makes sense per series, not summed across a facet group over time.
 type AggregatePoint {
   timestamp: Time!
   """
-  Gauge/Sum: summed per-window delta across every series in the group.
+  Gauge: sum of each underlying series' sample mean within the bucket.
+  Sum: summed per-window delta across every series in the group.
   Histogram/Summary/ExponentialHistogram: summed-sum / summed-count (0 when
   the summed count is 0), so the metric's declared unit still applies
   directly.

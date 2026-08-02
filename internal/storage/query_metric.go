@@ -392,7 +392,7 @@ func decodeSeriesKeys(raw any) []uint64 {
 const metricDerivedFormula = `
 derived AS (
 	SELECT
-		request_index, id, ts, attrs_json, metric_type,
+		request_index, id, series_key, ts, attrs_json, metric_type,
 		CASE
 			WHEN metric_type = 'Sum' AND temporality = 'cumulative' AND is_monotonic THEN
 				CASE WHEN lag(value) OVER w IS NULL THEN NULL
@@ -485,7 +485,7 @@ const metricPointsQuery = metricDerivedCTE + metricPointsSelect
 // metricPointsWithPredecessorsQuery adds the immediately preceding point for
 // each series represented in the requested window. Broadcast derivation needs
 // those rows for lag() but must not assume any maximum collection interval.
-const metricPointsWithPredecessorsQuery = `
+const metricPointsWithPredecessorsCTE = `
 WITH target_series AS (
 	SELECT series_key, metric_type, temporality, is_monotonic, attributes::VARCHAR AS attrs_json
 	FROM metric_series
@@ -525,7 +525,9 @@ points AS (
 	)
 	WHERE predecessor_rank = 1
 ),
-` + metricDerivedFormula + metricPointsSelect
+` + metricDerivedFormula
+
+const metricPointsWithPredecessorsQuery = metricPointsWithPredecessorsCTE + metricPointsSelect
 
 const metricPointsWithPredecessorsBatchQuery = `
 WITH requested(request_index, service_name, metric_name, from_ns, to_ns) AS (VALUES %s),

@@ -15,10 +15,11 @@ import (
 // the facet-aggregated counterpart to DerivedPoint. Unlike DerivedPoint it
 // carries no Cumulative field: a running total only makes sense per series,
 // not summed across a facet group over time (see docs/design/duckdb-storage.md
-// and the task this implements). Value is the scalar sum for Gauge/Sum
-// metrics, or the summed-sum/summed-count mean for distributions; Count/Sum
-// mirror the per-bucket summed deltas for distributions (nil for Gauge/Sum);
-// Min/Max are the per-bucket min/max across every contributing series.
+// and the task this implements). Value is the sum of each series' sample mean
+// for Gauge metrics, the scalar delta sum for Sum metrics, or the
+// summed-sum/summed-count mean for distributions; Count/Sum mirror the
+// per-bucket summed deltas for distributions (nil for Gauge/Sum); Min/Max are
+// the per-bucket min/max across every contributing series.
 type AggregatePoint struct {
 	TS    time.Time
 	Value *float64
@@ -41,9 +42,12 @@ type AggregateSeries struct {
 // fallback window.
 const metricAggregateTargetBuckets = 150
 
-// MetricAggregate sums metricDerivedCTE's per-series derivation (deltas
+// MetricAggregate sums metricDerivedFormula's per-series derivation (deltas
 // already resolved per attribute-series — counter resets included, see
-// metricDerivedCTE's doc comment) into one bucketed, per-facet-group series.
+// metricDerivedFormula's doc comment) into one bucketed, per-facet-group
+// series. Gauge samples are averaged over time per underlying series before
+// those series are summed, so a wider bucket does not inflate an
+// instantaneous value merely because it contains more samples.
 // This is the fix for the chart's facet view concatenating raw points from
 // every underlying series instead of summing them: summing must happen AFTER
 // the per-series delta derivation, never before, or a counter reset in one
@@ -106,19 +110,33 @@ func (s *Storage) MetricAggregate(ctx context.Context, serviceName, metricName s
 		selectGroupCols[i] = fmt.Sprintf("COALESCE(attrs_json::JSON->>?, '') AS %s", groupCols[i])
 	}
 
-	query := metricDerivedCTE + `,
-aggregated AS (
+	query := metricPointsWithPredecessorsCTE + `,
+per_series_bucket AS (
 	SELECT
 		time_bucket(?::BIGINT * INTERVAL '1 second', ts) AS bucket,
 		` + strings.Join(selectGroupCols, ",\n\t\t") + `,
+		series_key,
 		max(metric_type) AS metric_type,
-		sum(scalar_value) AS scalar_value_sum,
+		CASE WHEN max(metric_type) = 'Gauge' THEN avg(scalar_value) ELSE sum(scalar_value) END AS scalar_value,
 		sum(count_delta) AS count_sum,
 		sum(sum_delta) AS sum_sum,
 		min(min) AS min_min,
 		max(max) AS max_max
 	FROM derived
-	GROUP BY 1, ` + strings.Join(groupOrdinals, ", ") + `
+	WHERE ts >= ?
+	GROUP BY 1, ` + strings.Join(groupOrdinals, ", ") + `, series_key
+),
+aggregated AS (
+	SELECT
+		bucket, ` + groupColList + `,
+		max(metric_type) AS metric_type,
+		sum(scalar_value) AS scalar_value_sum,
+		sum(count_sum) AS count_sum,
+		sum(sum_sum) AS sum_sum,
+		min(min_min) AS min_min,
+		max(max_max) AS max_max
+	FROM per_series_bucket
+	GROUP BY bucket, ` + groupColList + `
 	HAVING NOT (scalar_value_sum IS NULL AND count_sum IS NULL AND sum_sum IS NULL)
 )
 SELECT
@@ -135,11 +153,12 @@ FROM aggregated
 ORDER BY ` + groupColList + `, bucket
 `
 
-	args := make([]any, 0, 5+len(groupBy))
-	args = append(args, serviceName, metricName, from, to, int64(bucket/time.Second))
+	args := make([]any, 0, 7+len(groupBy))
+	args = append(args, serviceName, metricName, from, to, from, int64(bucket/time.Second))
 	for _, k := range groupBy {
 		args = append(args, k)
 	}
+	args = append(args, from)
 
 	rows, err := s.DB().QueryContext(ctx, query, args...)
 	if err != nil {
