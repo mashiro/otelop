@@ -47,12 +47,12 @@ type Query {
   """
   List log records newest-first. If traceId is given, only logs whose TraceID
   matches are returned — the standard observability trace↔log correlation —
-  and from/to and search are ignored (matching the trace's own retained
-  lifetime). Otherwise from/to bound the query to a time range, defaulting to
-  the full retention window, and search, if given, case-insensitively matches
-  a log whose body, resource service name, severity text, or trace ID
+  and from/to are ignored (matching the trace's own retained lifetime).
+  Otherwise from/to bound the query to a time range, defaulting to the full
+  retention window. In either mode search, if given, case-insensitively
+  matches a log whose body, resource service name, severity text, or trace ID
   contains it (substring match; % and _ are treated literally, not as
-  wildcards). An empty/omitted search matches every log in range.
+  wildcards). An empty/omitted search matches every selected log.
   """
   logs(limit: Int = 50, after: String, traceId: String, from: Time, to: Time, search: String): LogConnection!
 
@@ -61,10 +61,12 @@ type Query {
   attribute-series is delta/cumulative-derived first (the same derivation
   `metrics.dataPoints` uses), then bucketed and combined within each distinct
   combination of groupBy attribute values. Gauge samples are averaged within
-  each underlying series before series are summed; Sum deltas are summed. This
-  is the server-side fix for chart lines that would otherwise zigzag between
-  multiple raw series or inflate as bucket widths grow. from/to default to the full
-  retention window, matching the other list queries. bucketSeconds is
+  each underlying series before series are summed. Delta and cumulative
+  monotonic Sums contribute interval values; cumulative non-monotonic Sums
+  contribute their raw source values. This is the server-side fix for chart
+  lines that would otherwise zigzag between multiple raw series or inflate as
+  bucket widths grow. from/to default to the full retention window, matching
+  the other list queries. bucketSeconds is
   optional: omitted or null auto-sizes the bucket to target ~150 buckets
   across the metric's actual data extent within from/to, rather than the
   from/to window itself — the fix for a short-lived metric queried over a
@@ -250,9 +252,11 @@ type DataPoint {
   id: ID!
   timestamp: Time!
   """
-  The primary scalar for this point. Gauge: instantaneous value. Sum: per-window
-  delta. Histogram / Summary / ExponentialHistogram: per-window arithmetic mean
-  (sum / count) so the metric's declared unit applies directly.
+  The primary scalar for this point. Gauge: instantaneous value. A delta Sum is
+  already an interval value; a cumulative monotonic Sum is delta-derived; a
+  cumulative non-monotonic Sum is its raw source value. Histogram / Summary /
+  ExponentialHistogram: interval arithmetic mean (sum / count), or 0 when no
+  average can be derived. Inspect count and sum before interpreting that 0.
   """
   value: Float!
   """
@@ -279,9 +283,9 @@ type DataPoint {
   observations from the start of the selected query window. Null otherwise.
   """
   sumCumulative: Float
-  "Minimum observation in this window, as reported by the SDK. Null when unavailable."
+  "Sender-reported minimum on this point; not delta-derived. Null when unavailable."
   min: Float
-  "Maximum observation in this window, as reported by the SDK. Null when unavailable."
+  "Sender-reported maximum on this point; not delta-derived. Null when unavailable."
   max: Float
   attributes: JSON!
 }
@@ -306,19 +310,19 @@ type AggregatePoint {
   timestamp: Time!
   """
   Gauge: sum of each underlying series' sample mean within the bucket.
-  Sum: summed per-window delta across every series in the group.
-  Histogram/Summary/ExponentialHistogram: summed-sum / summed-count (0 when
-  the summed count is 0), so the metric's declared unit still applies
-  directly.
+  Sum: delta and cumulative monotonic inputs are summed as per-window values;
+  cumulative non-monotonic inputs are summed as their raw source values.
+  Histogram/Summary/ExponentialHistogram: summed-sum / summed-count, or 0 when
+  no average can be derived. Inspect count and sum before interpreting that 0.
   """
   value: Float!
   "Summed per-window observation count for distribution metrics. Null for Gauge/Sum."
   count: Float
   "Summed per-window observation sum for distribution metrics. Null for Gauge/Sum."
   sum: Float
-  "Minimum observation across every contributing series in this window. Null when unavailable."
+  "Minimum sender-reported point extremum across contributors; not delta-derived. Null when unavailable."
   min: Float
-  "Maximum observation across every contributing series in this window. Null when unavailable."
+  "Maximum sender-reported point extremum across contributors; not delta-derived. Null when unavailable."
   max: Float
 }
 

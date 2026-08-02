@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 
@@ -11,10 +12,20 @@ import (
 var version = "dev"
 
 func main() {
-	app := &cli.Command{
-		Name:    "otelop",
-		Usage:   "Browser-based OpenTelemetry viewer",
-		Version: version,
+	cli.VersionPrinter = printVersionWithDocsHint
+	if err := newApp(version).Run(context.Background(), os.Args); err != nil {
+		slog.Error("fatal", "error", err)
+		slog.Info(docsHint)
+		os.Exit(1)
+	}
+}
+
+func newApp(version string) *cli.Command {
+	return &cli.Command{
+		Name:        "otelop",
+		Usage:       "Browser-based OpenTelemetry viewer",
+		Version:     version,
+		Description: docsHint,
 		Commands: []*cli.Command{
 			startCommand(version),
 			restartCommand(version),
@@ -23,11 +34,12 @@ func main() {
 			infoCommand(),
 			logsCommand(),
 			versionCommand(version),
+			docsCommand(),
 		},
 	}
+}
 
-	if err := app.Run(context.Background(), os.Args); err != nil {
-		slog.Error("fatal", "error", err)
-		os.Exit(1)
-	}
+func printVersionWithDocsHint(cmd *cli.Command) {
+	_, _ = fmt.Fprintf(cmd.Root().Writer, "%s version %s\n", cmd.Name, cmd.Version)
+	_, _ = fmt.Fprintln(cmd.Root().ErrWriter, docsHint)
 }

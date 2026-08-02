@@ -301,30 +301,18 @@ ORDER BY start_ts DESC, first_seen DESC, trace_id DESC
 LIMIT $limit;
 ```
 
-Metric chart — delta/cumulative derived per series:
+Metric reads derive values independently per `series_key` before combining
+series. For each cumulative monotonic Sum or cumulative distribution series
+represented in the requested window, the query also loads its immediately
+preceding retained observation. `lag()` uses that observation to derive the
+first in-window interval value; when no predecessor exists, the first point is
+a `NULL` baseline and callers omit it. Counter resets emit the raw current
+value. Cumulative non-monotonic Sums remain raw source values.
 
-```sql
-SELECT p.ts, p.id,
-  CASE WHEN s.temporality = 'cumulative' AND s.is_monotonic
-       THEN CASE WHEN value < lag(value) OVER w THEN value  -- counter reset
-                 ELSE value - lag(value) OVER w END
-       ELSE value END                                  AS value,
-  CASE WHEN s.temporality = 'delta' AND s.is_monotonic
-       THEN sum(value) OVER w
-       ELSE value END                                  AS cumulative
-FROM (
-  SELECT *, coalesce(value_double, cast(value_int AS DOUBLE)) AS value
-  FROM metric_points
-) p
-JOIN metric_series s USING (series_key)
-WHERE p.series_key = $key AND p.ts >= $from AND p.ts < $to
-WINDOW w AS (PARTITION BY p.series_key ORDER BY p.ts);
-```
-
-Histogram/Summary `count`/`sum` columns get the same window treatment. The
-first observation of a cumulative series yields `NULL` delta (`lag` has no
-predecessor) — the UI skips it, matching the old "baseline dropped" behavior
-while keeping the raw row.
+Delta-temporality inputs do not load a predecessor. Their running
+`cumulative`, `countCumulative`, and `sumCumulative` fields start at the query
+window, while cumulative-temporality inputs preserve exporter totals. Gauge
+and cumulative non-monotonic Sum points do not expose a cumulative field.
 
 ## Retention and disk management
 
@@ -341,8 +329,9 @@ while keeping the raw row.
 - `clearSignals` deletes from all tables and checkpoints. The database lives at
   `$XDG_DATA_HOME/otelop/otelop.duckdb` (falling back to
   `~/.local/share/otelop/`); deleting the file remains a valid reset.
-- GraphQL `status` and CLI `otelop info` report file size and per-table row
-  counts.
+- GraphQL `status` reports file size and logical signal counts. CLI
+  `otelop info` reports config-file values, built-in defaults, and the resolved
+  storage path without inspecting the running database.
 
 Sizing: DuckDB compresses spans to roughly 100–300 B/row. A very busy week
 (~10 M spans) lands around 1–3 GB, comfortably inside the default ceiling.
