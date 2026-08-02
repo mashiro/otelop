@@ -12,10 +12,7 @@ func versionCommand(version string) *cli.Command {
 		Name:  "version",
 		Usage: "Print version",
 		Action: func(_ context.Context, cmd *cli.Command) error {
-			if _, err := fmt.Fprintln(cmd.Writer, version); err != nil {
-				return err
-			}
-			_, err := fmt.Fprintln(cmd.ErrWriter, docsHint)
+			_, err := fmt.Fprintln(cmd.Writer, version)
 			return err
 		},
 	}
