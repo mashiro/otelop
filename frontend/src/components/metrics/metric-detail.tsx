@@ -229,6 +229,7 @@ export function MetricDetailBody({ metric }: { metric: MetricData }) {
                 facet={effectiveFacet}
                 window={window}
                 aggregatedSeries={aggregatedSeries}
+                onWindowChange={setWindow}
               />
             </div>
           </div>
