@@ -3,6 +3,7 @@ import type { MetricFacet } from "@/lib/metric-catalog";
 import { type ChartTimeRange, filterDataPointsInRange } from "@/lib/chart-time-range";
 import type { AggregateSeriesData } from "@/hooks/use-metric-aggregate-series";
 import { parseEpochNs } from "@/lib/normalize";
+import { facetGroupColorIndexes, seriesColorIndexes } from "@/lib/metric-series-colors";
 
 /** Serialize attributes to a stable string key for grouping. */
 export function attrKey(attrs: Record<string, unknown>): string {
@@ -43,47 +44,23 @@ export function facetGroupLabel(groupValues: string[]): string {
 }
 
 /**
- * First-appearance order of each facet group across metric.dataPoints — the
- * same ordering statTiles derives its colorIndex from. metric-chart.tsx's
- * server-aggregated path needs this too: the aggregate query orders its
- * result alphabetically by group value (see internal/storage's
- * MetricAggregate), which does NOT generally match first-appearance order,
- * so using it directly for color assignment would desync the chart's line
- * colors from the stat tiles above it.
- */
-export function facetGroupOrder(
-  dataPoints: DataPoint[],
-  facet?: MetricFacet | null,
-): Map<string, number> {
-  const order = new Map<string, number>();
-  for (const dp of dataPoints) {
-    const key = facetSeriesKey(dp.attributes, facet);
-    if (!order.has(key)) order.set(key, order.size);
-  }
-  return order;
-}
-
-/**
  * Resolves each server-aggregated facet group's display label and chart
  * colorIndex, in aggregatedSeries order — shared by metric-chart.tsx's
- * facet-active line series and statTileGroupsFromAggregate below, so the
- * chart and the stat tiles above it can't desync on color assignment. Colors
- * come from first-appearance order in rangeDataPoints (the raw live/fetched
- * buffer), not the aggregate query's own alphabetical group ordering (see
- * facetGroupOrder); a group present server-side but absent from the raw
- * buffer falls back to an index appended after every known one.
+ * facet-active line series and statTileGroupsFromAggregate below. The color
+ * is derived only from the facet identity and group values, so moving the
+ * time window cannot recolor a group when response membership/order changes.
  */
 export function resolveFacetGroupColorIndex(
   aggregatedSeries: AggregateSeriesData[],
-  rangeDataPoints: DataPoint[],
   facet: MetricFacet,
 ): { label: string; colorIndex: number }[] {
-  const rawOrder = facetGroupOrder(rangeDataPoints, facet);
-  let nextIndex = rawOrder.size;
-  return aggregatedSeries.map((s) => {
+  const colorIndexes = facetGroupColorIndexes(
+    facet,
+    aggregatedSeries.map((series) => series.groupValues),
+  );
+  return aggregatedSeries.map((s, index) => {
     const label = facetGroupLabel(s.groupValues) || "(no attributes)";
-    const colorIndex = rawOrder.has(label) ? rawOrder.get(label)! : nextIndex++;
-    return { label, colorIndex };
+    return { label, colorIndex: colorIndexes[index]! };
   });
 }
 
@@ -167,23 +144,19 @@ function combineStatTileGroups(
       count: null,
     };
   });
-  return tiles.sort((a, b) => a.colorIndex - b.colorIndex);
+  return tiles;
 }
 
 // Builds one group per server-aggregated facet series (see
 // hooks/use-metric-aggregate-series.ts) — the facet-active path, mirroring
-// exactly what the chart renders for the same facet/range. rangeDataPoints
-// (the range-scoped raw buffer, unfiltered by the visible window) supplies
-// the same first-appearance color ordering the chart's ChartInner derives
-// via facetGroupOrder, so tile colors stay aligned with the chart's lines
-// even before every group has landed server-side.
+// exactly what the chart renders for the same facet/range. Both surfaces use
+// the same identity-derived color, independent of the selected time window.
 export function statTileGroupsFromAggregate(
   aggregatedSeries: AggregateSeriesData[],
-  rangeDataPoints: DataPoint[],
   facet: MetricFacet,
   range: ChartTimeRange,
 ): StatTileGroup[] {
-  const resolved = resolveFacetGroupColorIndex(aggregatedSeries, rangeDataPoints, facet);
+  const resolved = resolveFacetGroupColorIndex(aggregatedSeries, facet);
   return aggregatedSeries.map((s, i) => {
     const { label, colorIndex } = resolved[i]!;
     // AggregatePointData is an ephemeral server-fetch result (not a store
@@ -218,7 +191,6 @@ export function statTileGroupsFromRawPoints(
   facet: MetricFacet | null,
   range: ChartTimeRange,
 ): StatTileGroup[] {
-  const order = facetGroupOrder(rangeDataPoints, facet);
   // rangeDataPoints is already the store's DataPoint view model, so its
   // epochNs is a pre-parsed field, not re-parsed here (see lib/normalize.ts).
   const windowed = filterDataPointsInRange(rangeDataPoints, range, (dp) => dp.epochNs);
@@ -227,7 +199,7 @@ export function statTileGroupsFromRawPoints(
     const key = facetSeriesKey(dp.attributes, facet);
     let group = groups.get(key);
     if (!group) {
-      group = { key, label: key || "(no attributes)", colorIndex: order.get(key) ?? 0, points: [] };
+      group = { key, label: key || "(no attributes)", colorIndex: 0, points: [] };
       groups.set(key, group);
     }
     group.points.push({
@@ -237,7 +209,9 @@ export function statTileGroupsFromRawPoints(
       count: dp.count,
     });
   }
-  return [...groups.values()];
+  const result = [...groups.values()];
+  const colorIndexes = seriesColorIndexes(result.map((group) => group.key));
+  return result.map((group, index) => ({ ...group, colorIndex: colorIndexes[index]! }));
 }
 
 // Discriminated input for computeStatTiles: "aggregate" when a facet is
@@ -249,7 +223,6 @@ export type StatTilesInput =
   | {
       kind: "aggregate";
       aggregatedSeries: AggregateSeriesData[];
-      rangeDataPoints: DataPoint[];
       facet: MetricFacet;
       range: ChartTimeRange;
       mode: StatTileMode;
@@ -270,12 +243,7 @@ export type StatTilesInput =
 export function computeStatTiles(input: StatTilesInput): StatTile[] {
   const groups =
     input.kind === "aggregate"
-      ? statTileGroupsFromAggregate(
-          input.aggregatedSeries,
-          input.rangeDataPoints,
-          input.facet,
-          input.range,
-        )
+      ? statTileGroupsFromAggregate(input.aggregatedSeries, input.facet, input.range)
       : statTileGroupsFromRawPoints(input.rangeDataPoints, input.facet, input.range);
   return combineStatTileGroups(groups, input.mode, input.includeLatestCount);
 }
