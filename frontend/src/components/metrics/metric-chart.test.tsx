@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from "vite-plus/test";
 import { render, cleanup } from "@testing-library/react";
-import { MetricChart } from "./metric-chart";
+import { MetricChart, timeWindowFromDrag } from "./metric-chart";
 import { makeDataPoint, makeMetric } from "@/test/factories";
 import type { MetricFacet } from "@/lib/metric-catalog";
 
@@ -20,6 +20,33 @@ const REGION_FACET: MetricFacet = { attributes: ["region"], label: "Region" };
 afterEach(cleanup);
 
 describe("MetricChart", () => {
+  it("converts a horizontal drag into an ordered fixed time window", () => {
+    const domain: [Date, Date] = [
+      new Date("2024-01-01T00:00:00Z"),
+      new Date("2024-01-01T01:00:00Z"),
+    ];
+
+    expect(timeWindowFromDrag(domain, 75, 25, 100)).toEqual({
+      mode: "fixed",
+      from: "2024-01-01T00:15:00.000Z",
+      to: "2024-01-01T00:45:00.000Z",
+    });
+  });
+
+  it("ignores clicks and clamps a drag to the plot bounds", () => {
+    const domain: [Date, Date] = [
+      new Date("2024-01-01T00:00:00Z"),
+      new Date("2024-01-01T01:00:00Z"),
+    ];
+
+    expect(timeWindowFromDrag(domain, 20, 22, 100)).toBeNull();
+    expect(timeWindowFromDrag(domain, -20, 120, 100)).toEqual({
+      mode: "fixed",
+      from: "2024-01-01T00:00:00.000Z",
+      to: "2024-01-01T01:00:00.000Z",
+    });
+  });
+
   it("renders with raw range points and no facet", () => {
     const metric = makeMetric({
       dataPoints: [makeDataPoint({ id: "dp-1", timestamp: "2024-01-01T00:00:00Z", value: 1 })],
@@ -32,6 +59,7 @@ describe("MetricChart", () => {
           facet={null}
           window={{ mode: "live", range: "all" }}
           aggregatedSeries={null}
+          onWindowChange={() => {}}
         />,
       ),
     ).not.toThrow();
@@ -52,6 +80,7 @@ describe("MetricChart", () => {
           facet={REGION_FACET}
           window={{ mode: "live", range: "5m" }}
           aggregatedSeries={[]}
+          onWindowChange={() => {}}
         />,
       ),
     ).not.toThrow();
@@ -69,6 +98,7 @@ describe("MetricChart", () => {
           facet={REGION_FACET}
           window={{ mode: "live", range: "all" }}
           aggregatedSeries={null}
+          onWindowChange={() => {}}
         />,
       ),
     ).not.toThrow();

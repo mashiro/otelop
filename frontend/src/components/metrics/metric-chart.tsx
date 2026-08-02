@@ -1,4 +1,4 @@
-import { memo, useCallback, useMemo, useRef } from "react";
+import { memo, useCallback, useMemo, useRef, useState } from "react";
 import { Group } from "@visx/group";
 import { scaleLinear, scaleTime } from "@visx/scale";
 import { LinePath } from "@visx/shape";
@@ -58,6 +58,32 @@ interface Props {
   // Server-aggregated facet series (null when facet is null, or while a
   // fetch for the active facet/range hasn't landed yet).
   aggregatedSeries: AggregateSeriesData[] | null;
+  onWindowChange: (window: EventTimeWindow) => void;
+}
+
+const MIN_DRAG_DISTANCE_PX = 4;
+
+export function timeWindowFromDrag(
+  domain: [Date, Date],
+  startX: number,
+  endX: number,
+  width: number,
+): EventTimeWindow | null {
+  if (width <= 0 || Math.abs(endX - startX) < MIN_DRAG_DISTANCE_PX) return null;
+
+  const left = Math.max(0, Math.min(width, Math.min(startX, endX)));
+  const right = Math.max(0, Math.min(width, Math.max(startX, endX)));
+  if (right - left < MIN_DRAG_DISTANCE_PX) return null;
+
+  const domainStart = domain[0].getTime();
+  const domainWidth = domain[1].getTime() - domainStart;
+  if (domainWidth <= 0) return null;
+
+  const from = new Date(domainStart + (left / width) * domainWidth);
+  const to = new Date(domainStart + (right / width) * domainWidth);
+  if (from.getTime() >= to.getTime()) return null;
+
+  return { mode: "fixed", from: from.toISOString(), to: to.toISOString() };
 }
 
 /** Find the point in a series closest to a given time. */
@@ -84,6 +110,7 @@ export const MetricChart = memo(function MetricChart({
   facet,
   window,
   aggregatedSeries,
+  onWindowChange,
 }: Props) {
   return (
     <div className="flex h-full flex-col">
@@ -96,6 +123,7 @@ export const MetricChart = memo(function MetricChart({
                 facet={facet}
                 aggregatedSeries={aggregatedSeries}
                 window={window}
+                onWindowChange={onWindowChange}
                 width={width}
                 height={height}
               />
@@ -112,6 +140,7 @@ function ChartInner({
   facet,
   aggregatedSeries,
   window,
+  onWindowChange,
   width,
   height,
 }: {
@@ -119,10 +148,13 @@ function ChartInner({
   facet?: MetricFacet | null;
   aggregatedSeries: AggregateSeriesData[] | null;
   window: EventTimeWindow;
+  onWindowChange: (window: EventTimeWindow) => void;
   width: number;
   height: number;
 }) {
   const svgRef = useRef<SVGSVGElement>(null);
+  const dragStartRef = useRef<number | null>(null);
+  const [dragSelection, setDragSelection] = useState<{ startX: number; endX: number } | null>(null);
   const unit = resolveMetricUnit(metric.name, metric.unit);
 
   const series = useMemo(() => {
@@ -216,6 +248,59 @@ function ChartInner({
 
   const { showTooltip, hideTooltip, tooltipData, tooltipLeft, tooltipTop, tooltipOpen } =
     useTooltip<TooltipData>();
+
+  const plotX = useCallback((clientX: number) => {
+    const svg = svgRef.current;
+    if (!svg) return null;
+    return clientX - svg.getBoundingClientRect().left - MARGIN.left;
+  }, []);
+
+  const handlePointerDown = useCallback(
+    (event: React.PointerEvent<SVGRectElement>) => {
+      if (event.button !== 0 || !domain) return;
+      const x = plotX(event.clientX);
+      if (x === null) return;
+      const clampedX = Math.max(0, Math.min(innerWidth, x));
+      dragStartRef.current = clampedX;
+      setDragSelection({ startX: clampedX, endX: clampedX });
+      hideTooltip();
+      event.currentTarget.setPointerCapture(event.pointerId);
+    },
+    [domain, hideTooltip, innerWidth, plotX],
+  );
+
+  const handlePointerMove = useCallback(
+    (event: React.PointerEvent<SVGRectElement>) => {
+      const startX = dragStartRef.current;
+      if (startX === null) return;
+      const x = plotX(event.clientX);
+      if (x === null) return;
+      setDragSelection({ startX, endX: Math.max(0, Math.min(innerWidth, x)) });
+    },
+    [innerWidth, plotX],
+  );
+
+  const finishDrag = useCallback(
+    (event: React.PointerEvent<SVGRectElement>) => {
+      const startX = dragStartRef.current;
+      dragStartRef.current = null;
+      setDragSelection(null);
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
+      if (startX === null || !domain) return;
+      const x = plotX(event.clientX);
+      if (x === null) return;
+      const nextWindow = timeWindowFromDrag(domain, startX, x, innerWidth);
+      if (nextWindow) onWindowChange(nextWindow);
+    },
+    [domain, innerWidth, onWindowChange, plotX],
+  );
+
+  const cancelDrag = useCallback(() => {
+    dragStartRef.current = null;
+    setDragSelection(null);
+  }, []);
 
   // Show all series values at the nearest timestamp.
   const handleMouseMove = useCallback(
@@ -340,6 +425,20 @@ function ChartInner({
             </g>
           ))}
 
+          {dragSelection && (
+            <rect
+              x={Math.min(dragSelection.startX, dragSelection.endX)}
+              y={0}
+              width={Math.abs(dragSelection.endX - dragSelection.startX)}
+              height={innerHeight}
+              fill="var(--metric)"
+              fillOpacity={0.14}
+              stroke="var(--metric)"
+              strokeWidth={1}
+              pointerEvents="none"
+            />
+          )}
+
           {/* Hover crosshair + highlighted points */}
           {tooltipOpen && nearestMs != null && (
             <>
@@ -387,8 +486,15 @@ function ChartInner({
             width={innerWidth}
             height={innerHeight}
             fill="transparent"
-            onMouseMove={handleMouseMove}
+            className="cursor-crosshair"
+            style={{ touchAction: "none" }}
+            onMouseMove={dragSelection ? undefined : handleMouseMove}
             onMouseLeave={hideTooltip}
+            onPointerDown={handlePointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={finishDrag}
+            onPointerCancel={cancelDrag}
+            aria-label="Metric chart. Drag horizontally to select a time range."
           />
         </Group>
       </svg>
