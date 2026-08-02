@@ -13,6 +13,7 @@ import (
 	"github.com/urfave/cli/v3"
 
 	"github.com/mashiro/otelop/internal/daemon"
+	"github.com/mashiro/otelop/internal/netutil"
 )
 
 func statusCommand() *cli.Command {
@@ -98,7 +99,7 @@ func runStatus(ctx context.Context, cmd *cli.Command) error {
 }
 
 func queryStatus(ctx context.Context, httpAddr string) (*statusPayload, error) {
-	endpoint, err := resolveLoopback(httpAddr)
+	endpoint, err := netutil.Loopback(httpAddr)
 	if err != nil {
 		return nil, err
 	}

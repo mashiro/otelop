@@ -3,7 +3,8 @@ package main
 import (
 	"fmt"
 	"io"
-	"net"
+
+	"github.com/mashiro/otelop/internal/netutil"
 )
 
 const (
@@ -22,26 +23,11 @@ func writeBanner(w io.Writer, suffix string, rows bannerRows) {
 	_, _ = fmt.Fprintln(w)
 }
 
-// resolveLoopback converts a listen address (e.g. "0.0.0.0:4317") to a
-// connectable loopback address (e.g. "localhost:4317"). Shared by the banner
-// renderer, self-telemetry setup, and the GraphQL client so they all agree
-// on what "localhost" means.
-func resolveLoopback(listenAddr string) (string, error) {
-	host, port, err := net.SplitHostPort(listenAddr)
-	if err != nil {
-		return "", err
-	}
-	if host == "" || host == "0.0.0.0" || host == "::" {
-		host = "localhost"
-	}
-	return host + ":" + port, nil
-}
-
-// webUIDisplay is resolveLoopback with an "on error, fall back to the raw
+// webUIDisplay is netutil.Loopback with an "on error, fall back to the raw
 // address" safety net for cosmetic output where a parse error shouldn't
 // replace the address with an empty string.
 func webUIDisplay(addr string) string {
-	display, err := resolveLoopback(addr)
+	display, err := netutil.Loopback(addr)
 	if err != nil {
 		return addr
 	}

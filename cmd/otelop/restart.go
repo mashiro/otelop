@@ -13,16 +13,18 @@ import (
 
 const restartStopTimeout = 10 * time.Second
 
-func restartCommand() *cli.Command {
-	cmd := startCommand()
+func restartCommand(version string) *cli.Command {
+	cmd := startCommand(version)
 	cmd.Name = "restart"
 	cmd.Usage = "Stop the running otelop server and start it again"
-	cmd.Action = runRestart
+	cmd.Action = func(ctx context.Context, cmd *cli.Command) error {
+		return runRestart(ctx, cmd, version)
+	}
 	cmd.Description = "Stops any running otelop daemon and re-runs `start` with the current flags, env vars, and config file values."
 	return cmd
 }
 
-func runRestart(ctx context.Context, cmd *cli.Command) error {
+func runRestart(ctx context.Context, cmd *cli.Command, version string) error {
 	// The daemon child re-execs itself with the same argv, so without this
 	// guard it would re-enter runRestart, see no running daemon, and call
 	// runStart from the wrong layer. Skip the stop in the child and let
@@ -32,7 +34,7 @@ func runRestart(ctx context.Context, cmd *cli.Command) error {
 			return err
 		}
 	}
-	return runStart(ctx, cmd)
+	return runStart(ctx, cmd, version)
 }
 
 // stopForRestart is the quiet variant of stop. It only prints a message when
