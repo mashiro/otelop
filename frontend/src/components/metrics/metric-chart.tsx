@@ -264,6 +264,7 @@ function ChartInner({
       dragStartRef.current = clampedX;
       setDragSelection({ startX: clampedX, endX: clampedX });
       hideTooltip();
+      event.currentTarget.focus();
       event.currentTarget.setPointerCapture(event.pointerId);
     },
     [domain, hideTooltip, innerWidth, plotX],
@@ -494,7 +495,13 @@ function ChartInner({
             onPointerMove={handlePointerMove}
             onPointerUp={finishDrag}
             onPointerCancel={cancelDrag}
-            aria-label="Metric chart. Drag horizontally to select a time range."
+            onKeyDown={(event) => {
+              if (event.key !== "Escape" || dragStartRef.current === null) return;
+              event.preventDefault();
+              cancelDrag();
+            }}
+            tabIndex={-1}
+            aria-label="Metric chart. Drag horizontally to select a time range. Press Escape to cancel."
           />
         </Group>
       </svg>
