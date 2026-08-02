@@ -164,6 +164,54 @@ func TestMetricPoints_DeltaSumAccumulatesToCumulative(t *testing.T) {
 	}
 }
 
+func TestMetricPointsWithPredecessors_DeltaHistogramStartsAtWindow(t *testing.T) {
+	s := openTestStorage(t, Options{})
+	ctx := context.Background()
+	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	s.AddMetrics(ctx, explicitHistogram("latency", pmetric.AggregationTemporalityDelta, []uint64{1, 1, 0}, 10, 1, 9, t0))
+	s.AddMetrics(ctx, explicitHistogram("latency", pmetric.AggregationTemporalityDelta, []uint64{1, 1, 1}, 30, 1, 21, t0.Add(time.Hour)))
+	s.AddMetrics(ctx, explicitHistogram("latency", pmetric.AggregationTemporalityDelta, []uint64{2, 1, 1}, 50, 1, 25, t0.Add(2*time.Hour)))
+	s.Sync()
+
+	from, to := t0.Add(30*time.Minute), t0.Add(3*time.Hour)
+	assertWindow := func(t *testing.T, points []DerivedPoint) {
+		t.Helper()
+		if len(points) != 2 {
+			t.Fatalf("points len = %d, want 2 window points and no delta predecessor", len(points))
+		}
+		for i, want := range []struct {
+			count, sum float64
+		}{{3, 30}, {7, 80}} {
+			if points[i].CountCumulative == nil || *points[i].CountCumulative != want.count ||
+				points[i].SumCumulative == nil || *points[i].SumCumulative != want.sum {
+				t.Errorf("point %d cumulative = count %v sum %v, want count %v sum %v",
+					i, points[i].CountCumulative, points[i].SumCumulative, want.count, want.sum)
+			}
+		}
+	}
+
+	t.Run("single", func(t *testing.T) {
+		points, err := s.MetricPointsWithPredecessors(ctx, "svc", "latency", from, to)
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertWindow(t, points)
+	})
+	t.Run("batch", func(t *testing.T) {
+		batches, err := s.MetricPointsWithPredecessorsBatch(ctx, []MetricPointWindow{{
+			ServiceName: "svc", MetricName: "latency", From: from, To: to,
+		}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(batches) != 1 {
+			t.Fatalf("batches len = %d, want 1", len(batches))
+		}
+		assertWindow(t, batches[0])
+	})
+}
+
 func TestMetricPoints_GaugePassthrough(t *testing.T) {
 	s := openTestStorage(t, Options{})
 	ctx := context.Background()
