@@ -193,12 +193,12 @@ func TestMetricAggregate_SeriesMissingFromOneBucket(t *testing.T) {
 	}
 }
 
-func TestMetricAggregate_GaugeSum(t *testing.T) {
+func TestMetricAggregate_GaugeAveragesOverTimeThenSumsSeries(t *testing.T) {
 	s := openTestStorage(t, Options{})
 	ctx := context.Background()
 	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 
-	build := func(v float64, region string) pmetric.Metrics {
+	build := func(v float64, ts time.Time, region, worker string) pmetric.Metrics {
 		md := pmetric.NewMetrics()
 		rm := md.ResourceMetrics().AppendEmpty()
 		rm.Resource().Attributes().PutStr("service.name", "svc")
@@ -207,12 +207,19 @@ func TestMetricAggregate_GaugeSum(t *testing.T) {
 		m.SetName("cpu.usage")
 		dp := m.SetEmptyGauge().DataPoints().AppendEmpty()
 		dp.SetDoubleValue(v)
-		dp.SetTimestamp(pcommon.NewTimestampFromTime(t0))
+		dp.SetTimestamp(pcommon.NewTimestampFromTime(ts))
 		dp.Attributes().PutStr("region", region)
+		dp.Attributes().PutStr("worker", worker)
 		return md
 	}
-	s.AddMetrics(ctx, build(0.3, "A"))
-	s.AddMetrics(ctx, build(0.5, "A"))
+	// Each worker is one underlying Gauge series. Temporal samples must be
+	// averaged per worker before workers in the shared region are summed:
+	// avg(2,4) + avg(6,8) = 10. Summing all samples would incorrectly yield 20
+	// and make the displayed value depend on the selected bucket width.
+	s.AddMetrics(ctx, build(2, t0, "A", "1"))
+	s.AddMetrics(ctx, build(4, t0.Add(10*time.Second), "A", "1"))
+	s.AddMetrics(ctx, build(6, t0, "A", "2"))
+	s.AddMetrics(ctx, build(8, t0.Add(10*time.Second), "A", "2"))
 	s.Sync()
 
 	out, err := s.MetricAggregate(ctx, "svc", "cpu.usage", []string{"region"}, time.Minute, t0.Add(-time.Minute), t0.Add(time.Minute))
@@ -222,8 +229,8 @@ func TestMetricAggregate_GaugeSum(t *testing.T) {
 	if len(out) != 1 || len(out[0].Points) != 1 {
 		t.Fatalf("unexpected shape: %+v", out)
 	}
-	if out[0].Points[0].Value == nil || *out[0].Points[0].Value != 0.8 {
-		t.Errorf("Value = %v, want 0.8 (0.3+0.5)", out[0].Points[0].Value)
+	if out[0].Points[0].Value == nil || *out[0].Points[0].Value != 10 {
+		t.Errorf("Value = %v, want 10 (avg(2,4) + avg(6,8))", out[0].Points[0].Value)
 	}
 }
 
@@ -406,15 +413,10 @@ func TestMetricAggregate_BucketBoundaryAlignment(t *testing.T) {
 	}
 }
 
-// TestMetricAggregate_TimeRangeFiltering verifies out-of-range points never
-// contribute to a bucket. The very first point (t0) sits before the queried
-// range and must be fully excluded — not just from the output but from the
-// window function's lag() predecessor lookup, since metricDerivedCTE filters
-// `points` before computing deltas (the same window-truncation behavior
-// TestMetricPoints_TimeRangeFiltering documents for the per-point query).
-// Two more points landing INSIDE the range give the in-window delta
-// something real to compute, sidestepping that quirk rather than exercising
-// it here.
+// TestMetricAggregate_TimeRangeFiltering verifies the point immediately
+// before the window contributes only as the cumulative counter baseline. It
+// must produce the first in-window delta without surfacing an out-of-window
+// bucket of its own.
 func TestMetricAggregate_TimeRangeFiltering(t *testing.T) {
 	s := openTestStorage(t, Options{})
 	ctx := context.Background()
@@ -429,13 +431,13 @@ func TestMetricAggregate_TimeRangeFiltering(t *testing.T) {
 	if err != nil {
 		t.Fatalf("MetricAggregate: %v", err)
 	}
-	if len(out) != 1 || len(out[0].Points) != 1 {
-		t.Fatalf("expected 1 group with 1 point in range (the in-window baseline at t0+40m is dropped), got %+v", out)
+	if len(out) != 1 || len(out[0].Points) != 2 {
+		t.Fatalf("expected 1 group with 2 derived points in range, got %+v", out)
 	}
-	if !out[0].Points[0].TS.Equal(t0.Add(50 * time.Minute)) {
-		t.Errorf("TS = %v, want %v", out[0].Points[0].TS, t0.Add(50*time.Minute))
+	if !out[0].Points[0].TS.Equal(t0.Add(40*time.Minute)) || out[0].Points[0].Value == nil || *out[0].Points[0].Value != 2 {
+		t.Errorf("first point = %+v, want t0+40m with value 2 (3-1)", out[0].Points[0])
 	}
-	if out[0].Points[0].Value == nil || *out[0].Points[0].Value != 4 {
-		t.Errorf("Value = %v, want 4 (7-3, the t0 baseline outside the range never contributes)", out[0].Points[0].Value)
+	if !out[0].Points[1].TS.Equal(t0.Add(50*time.Minute)) || out[0].Points[1].Value == nil || *out[0].Points[1].Value != 4 {
+		t.Errorf("second point = %+v, want t0+50m with value 4 (7-3)", out[0].Points[1])
 	}
 }
