@@ -29,138 +29,444 @@ func buildDeltaSumWithAttrs(name, service string, v float64, ts time.Time, attrs
 	return md
 }
 
-func TestMetricAggregate_RequiresGroupBy(t *testing.T) {
+func buildSumWithAttrs(name, service string, v float64, ts time.Time, temporality pmetric.AggregationTemporality, monotonic bool, attrs map[string]string) pmetric.Metrics {
+	md := buildDeltaSum(name, service, v, ts)
+	sum := md.ResourceMetrics().At(0).ScopeMetrics().At(0).Metrics().At(0).Sum()
+	sum.SetAggregationTemporality(temporality)
+	sum.SetIsMonotonic(monotonic)
+	for k, v := range attrs {
+		sum.DataPoints().At(0).Attributes().PutStr(k, v)
+	}
+	return md
+}
+
+func buildGaugeWithAttrs(name, service string, v float64, ts time.Time, attrs map[string]string) pmetric.Metrics {
+	md := pmetric.NewMetrics()
+	rm := md.ResourceMetrics().AppendEmpty()
+	rm.Resource().Attributes().PutStr("service.name", service)
+	metric := rm.ScopeMetrics().AppendEmpty().Metrics().AppendEmpty()
+	metric.SetName(name)
+	dp := metric.SetEmptyGauge().DataPoints().AppendEmpty()
+	dp.SetDoubleValue(v)
+	dp.SetTimestamp(pcommon.NewTimestampFromTime(ts))
+	for k, v := range attrs {
+		dp.Attributes().PutStr(k, v)
+	}
+	return md
+}
+
+func TestMetricAggregate_Validation(t *testing.T) {
 	s := openTestStorage(t, Options{})
 	ctx := context.Background()
 	now := time.Now()
 
-	_, err := s.MetricAggregate(ctx, "svc", "m", nil, time.Minute, now.Add(-time.Hour), now.Add(time.Hour))
-	if err == nil {
-		t.Fatal("expected an error for empty groupBy, got nil")
+	for _, tt := range []struct {
+		name    string
+		groupBy []string
+		bucket  time.Duration
+	}{
+		{name: "groupBy is required", bucket: time.Minute},
+		{name: "bucket cannot be negative", groupBy: []string{"region"}, bucket: -time.Second},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := s.MetricAggregate(ctx, "svc", "m", tt.groupBy, tt.bucket, now.Add(-time.Hour), now.Add(time.Hour))
+			if err == nil {
+				t.Fatal("expected an error, got nil")
+			}
+		})
 	}
 }
 
-func TestMetricAggregate_RequiresNonNegativeBucket(t *testing.T) {
-	s := openTestStorage(t, Options{})
-	ctx := context.Background()
-	now := time.Now()
+// TestMetricAggregate_ScalarSemantics covers the four scalar meanings
+// the chart query supports. Multiple temporal samples and multiple underlying
+// series deliberately land in one bucket so the test distinguishes averaging
+// an instantaneous Gauge from summing interval/raw Sum values.
+func TestMetricAggregate_ScalarSemantics(t *testing.T) {
+	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	attrs := func(worker string) map[string]string {
+		return map[string]string{"region": "A", "worker": worker}
+	}
 
-	_, err := s.MetricAggregate(ctx, "svc", "m", []string{"region"}, -time.Second, now.Add(-time.Hour), now.Add(time.Hour))
-	if err == nil {
-		t.Fatal("expected an error for a negative bucket, got nil")
+	tests := []struct {
+		name  string
+		add   func(*Storage, context.Context)
+		value float64
+	}{
+		{
+			name: "gauge averages each series over time then sums series",
+			add: func(s *Storage, ctx context.Context) {
+				s.AddMetrics(ctx, buildGaugeWithAttrs("metric", "svc", 2, t0, attrs("1")))
+				s.AddMetrics(ctx, buildGaugeWithAttrs("metric", "svc", 4, t0.Add(10*time.Second), attrs("1")))
+				s.AddMetrics(ctx, buildGaugeWithAttrs("metric", "svc", 10, t0, attrs("2")))
+				s.AddMetrics(ctx, buildGaugeWithAttrs("metric", "svc", 14, t0.Add(10*time.Second), attrs("2")))
+			},
+			value: 15, // avg(2,4) + avg(10,14)
+		},
+		{
+			name: "delta monotonic sum adds every interval",
+			add: func(s *Storage, ctx context.Context) {
+				for _, point := range []struct {
+					worker string
+					offset time.Duration
+					value  float64
+				}{{"1", 0, 2}, {"1", 10 * time.Second, 4}, {"2", 0, 10}, {"2", 10 * time.Second, 14}} {
+					s.AddMetrics(ctx, buildSumWithAttrs("metric", "svc", point.value, t0.Add(point.offset), pmetric.AggregationTemporalityDelta, true, attrs(point.worker)))
+				}
+			},
+			value: 30,
+		},
+		{
+			name: "cumulative monotonic sum derives each series before combining",
+			add: func(s *Storage, ctx context.Context) {
+				for _, point := range []struct {
+					worker string
+					offset time.Duration
+					value  float64
+				}{{"1", -time.Second, 100}, {"1", 0, 103}, {"1", 10 * time.Second, 108}, {"2", -time.Second, 1000}, {"2", 0, 1007}, {"2", 10 * time.Second, 1018}} {
+					s.AddMetrics(ctx, buildSumWithAttrs("metric", "svc", point.value, t0.Add(point.offset), pmetric.AggregationTemporalityCumulative, true, attrs(point.worker)))
+				}
+			},
+			value: 26, // (3+5) + (7+11)
+		},
+		{
+			name: "cumulative non-monotonic sum adds raw source values",
+			add: func(s *Storage, ctx context.Context) {
+				for _, point := range []struct {
+					worker string
+					offset time.Duration
+					value  float64
+				}{{"1", 0, 2}, {"1", 10 * time.Second, 4}, {"2", 0, 10}, {"2", 10 * time.Second, 14}} {
+					s.AddMetrics(ctx, buildSumWithAttrs("metric", "svc", point.value, t0.Add(point.offset), pmetric.AggregationTemporalityCumulative, false, attrs(point.worker)))
+				}
+			},
+			value: 30,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := openTestStorage(t, Options{})
+			ctx := context.Background()
+			tt.add(s, ctx)
+			s.Sync()
+
+			out, err := s.MetricAggregate(ctx, "svc", "metric", []string{"region"}, time.Minute, t0, t0.Add(time.Minute))
+			if err != nil {
+				t.Fatalf("MetricAggregate: %v", err)
+			}
+			if len(out) != 1 || len(out[0].Points) != 1 {
+				t.Fatalf("shape = %+v, want one group with one bucket", out)
+			}
+			point := out[0].Points[0]
+			if point.Value == nil || *point.Value != tt.value {
+				t.Errorf("Value = %v, want %v", point.Value, tt.value)
+			}
+			if point.Count != nil || point.Sum != nil {
+				t.Errorf("Count/Sum = %v/%v, want nil/nil for scalar metric", point.Count, point.Sum)
+			}
+		})
 	}
 }
 
-// TestMetricAggregate_AutoBucketFitsDataExtent is the regression test for the
-// facet-view bucketing bug: with bucket == 0 ("auto") and a query window far
-// wider than the data itself (mirroring the frontend's "All" range querying
-// the full retention window), the bucket width must be derived from the
-// metric's actual min/max timestamp — not the query window — or ~90 minutes
-// of 60s-cadence points collapse into a handful of giant buckets instead of
-// the ~80+ that should come out.
-func TestMetricAggregate_AutoBucketFitsDataExtent(t *testing.T) {
-	s := openTestStorage(t, Options{})
-	ctx := context.Background()
+// TestMetricAggregate_DistributionSemantics verifies that all three
+// distribution families expose the same chart contract: interval count/sum,
+// their weighted mean, and only the extrema the source type actually carries.
+func TestMetricAggregate_DistributionSemantics(t *testing.T) {
 	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 
-	const points = 90
-	for i := 0; i < points; i++ {
-		s.AddMetrics(ctx, buildCumulativeSumWithAttr("reqs", "svc", float64(i), t0.Add(time.Duration(i)*60*time.Second), "region", "A"))
+	tests := []struct {
+		name   string
+		metric string
+		add    func(*Storage, context.Context)
+		count  float64
+		sum    float64
+		value  float64
+		min    *float64
+		max    *float64
+	}{
+		{
+			name:   "delta histogram combines series as a weighted mean",
+			metric: "histogram",
+			add: func(s *Storage, ctx context.Context) {
+				for _, point := range []struct {
+					worker        string
+					count         uint64
+					sum, min, max float64
+				}{{"1", 2, 6, 1, 5}, {"2", 3, 15, 2, 9}} {
+					md := buildHistogram("histogram", "svc", point.count, point.sum, point.min, point.max, t0)
+					h := md.ResourceMetrics().At(0).ScopeMetrics().At(0).Metrics().At(0).Histogram()
+					h.SetAggregationTemporality(pmetric.AggregationTemporalityDelta)
+					dp := h.DataPoints().At(0)
+					dp.Attributes().PutStr("region", "A")
+					dp.Attributes().PutStr("worker", point.worker)
+					s.AddMetrics(ctx, md)
+				}
+			},
+			count: 5,
+			sum:   21,
+			value: 4.2,
+			min:   float64Ptr(1),
+			max:   float64Ptr(9),
+		},
+		{
+			name:   "cumulative histogram derives an interval from its predecessor",
+			metric: "cumulative-histogram",
+			add: func(s *Storage, ctx context.Context) {
+				for _, point := range []struct {
+					offset        time.Duration
+					count         uint64
+					sum, min, max float64
+				}{{-time.Second, 10, 2.5, 0.01, 0.8}, {0, 15, 4, 0.02, 0.9}} {
+					md := buildHistogram("cumulative-histogram", "svc", point.count, point.sum, point.min, point.max, t0.Add(point.offset))
+					dp := md.ResourceMetrics().At(0).ScopeMetrics().At(0).Metrics().At(0).Histogram().DataPoints().At(0)
+					dp.Attributes().PutStr("region", "A")
+					s.AddMetrics(ctx, md)
+				}
+			},
+			count: 5,
+			sum:   1.5,
+			value: 0.3,
+			min:   float64Ptr(0.02),
+			max:   float64Ptr(0.9),
+		},
+		{
+			name:   "delta exponential histogram",
+			metric: "exponential-histogram",
+			add: func(s *Storage, ctx context.Context) {
+				md := pmetric.NewMetrics()
+				rm := md.ResourceMetrics().AppendEmpty()
+				rm.Resource().Attributes().PutStr("service.name", "svc")
+				metric := rm.ScopeMetrics().AppendEmpty().Metrics().AppendEmpty()
+				metric.SetName("exponential-histogram")
+				h := metric.SetEmptyExponentialHistogram()
+				h.SetAggregationTemporality(pmetric.AggregationTemporalityDelta)
+				dp := h.DataPoints().AppendEmpty()
+				dp.SetTimestamp(pcommon.NewTimestampFromTime(t0))
+				dp.SetCount(4)
+				dp.SetSum(20)
+				dp.SetMin(2)
+				dp.SetMax(8)
+				dp.Attributes().PutStr("region", "A")
+				s.AddMetrics(ctx, md)
+			},
+			count: 4,
+			sum:   20,
+			value: 5,
+			min:   float64Ptr(2),
+			max:   float64Ptr(8),
+		},
+		{
+			name:   "cumulative summary",
+			metric: "summary",
+			add: func(s *Storage, ctx context.Context) {
+				for _, point := range []struct {
+					offset time.Duration
+					count  uint64
+					sum    float64
+				}{{-time.Second, 10, 50}, {0, 13, 71}} {
+					md := pmetric.NewMetrics()
+					rm := md.ResourceMetrics().AppendEmpty()
+					rm.Resource().Attributes().PutStr("service.name", "svc")
+					metric := rm.ScopeMetrics().AppendEmpty().Metrics().AppendEmpty()
+					metric.SetName("summary")
+					dp := metric.SetEmptySummary().DataPoints().AppendEmpty()
+					dp.SetTimestamp(pcommon.NewTimestampFromTime(t0.Add(point.offset)))
+					dp.SetCount(point.count)
+					dp.SetSum(point.sum)
+					dp.Attributes().PutStr("region", "A")
+					s.AddMetrics(ctx, md)
+				}
+			},
+			count: 3,
+			sum:   21,
+			value: 7,
+		},
+		{
+			name:   "zero-count distribution returns a defined zero mean",
+			metric: "empty-histogram",
+			add: func(s *Storage, ctx context.Context) {
+				md := buildHistogram("empty-histogram", "svc", 0, 0, 0, 0, t0)
+				h := md.ResourceMetrics().At(0).ScopeMetrics().At(0).Metrics().At(0).Histogram()
+				h.SetAggregationTemporality(pmetric.AggregationTemporalityDelta)
+				h.DataPoints().At(0).Attributes().PutStr("region", "A")
+				s.AddMetrics(ctx, md)
+			},
+			min: float64Ptr(0),
+			max: float64Ptr(0),
+		},
 	}
-	s.Sync()
 
-	// Query window: a week, mimicking the frontend's full-retention "All"
-	// range — vastly wider than the ~80 minutes the data actually spans.
-	out, err := s.MetricAggregate(ctx, "svc", "reqs", []string{"region"}, 0, t0.Add(-7*24*time.Hour), t0.Add(7*24*time.Hour))
-	if err != nil {
-		t.Fatalf("MetricAggregate: %v", err)
-	}
-	if len(out) != 1 {
-		t.Fatalf("expected 1 group, got %d: %+v", len(out), out)
-	}
-	// The very first point is a baseline (NULL delta) and gets dropped, so at
-	// most points-1 buckets come out. The bug produced 2-4; a correct auto
-	// bucket derived from the real ~80min extent (not the 2-week window)
-	// should produce most of them.
-	if n := len(out[0].Points); n <= 40 {
-		t.Fatalf("expected > 40 buckets from auto-bucketing against the real data extent, got %d", n)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := openTestStorage(t, Options{})
+			ctx := context.Background()
+			tt.add(s, ctx)
+			s.Sync()
+
+			out, err := s.MetricAggregate(ctx, "svc", tt.metric, []string{"region"}, time.Minute, t0, t0.Add(time.Minute))
+			if err != nil {
+				t.Fatalf("MetricAggregate: %v", err)
+			}
+			if len(out) != 1 || len(out[0].Points) != 1 {
+				t.Fatalf("shape = %+v, want one group with one bucket", out)
+			}
+			point := out[0].Points[0]
+			if point.Count == nil || *point.Count != tt.count || point.Sum == nil || *point.Sum != tt.sum {
+				t.Errorf("Count/Sum = %v/%v, want %v/%v", point.Count, point.Sum, tt.count, tt.sum)
+			}
+			if point.Value == nil || *point.Value != tt.value {
+				t.Errorf("Value = %v, want weighted mean %v", point.Value, tt.value)
+			}
+			assertOptionalFloat(t, "Min", point.Min, tt.min)
+			assertOptionalFloat(t, "Max", point.Max, tt.max)
+		})
 	}
 }
 
-// TestMetricAggregate_AutoBucketSinglePointExtent verifies a single-instant
-// extent (min == max, nothing to divide) falls back to the smallest bucket
-// (1s) rather than erroring or dividing by zero.
-func TestMetricAggregate_AutoBucketSinglePointExtent(t *testing.T) {
-	s := openTestStorage(t, Options{})
-	ctx := context.Background()
+func TestMetricAggregate_GroupingAndScope(t *testing.T) {
 	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 
-	s.AddMetrics(ctx, buildCumulativeSumWithAttr("reqs", "svc", 5, t0, "region", "A"))
-	s.Sync()
+	t.Run("groups by ordered attribute tuple and represents a missing key as empty", func(t *testing.T) {
+		s := openTestStorage(t, Options{})
+		ctx := context.Background()
+		for _, point := range []struct {
+			value float64
+			attrs map[string]string
+		}{
+			{1, map[string]string{"region": "A", "zone": "1", "worker": "x"}},
+			{2, map[string]string{"region": "A", "zone": "1", "worker": "y"}},
+			{4, map[string]string{"region": "A", "zone": "2"}},
+			{8, map[string]string{"region": "B"}},
+		} {
+			s.AddMetrics(ctx, buildDeltaSumWithAttrs("reqs", "svc", point.value, t0, point.attrs))
+		}
+		s.Sync()
 
-	out, err := s.MetricAggregate(ctx, "svc", "reqs", []string{"region"}, 0, t0.Add(-time.Hour), t0.Add(time.Hour))
-	if err != nil {
-		t.Fatalf("MetricAggregate: %v", err)
+		out, err := s.MetricAggregate(ctx, "svc", "reqs", []string{"region", "zone"}, time.Minute, t0, t0.Add(time.Minute))
+		if err != nil {
+			t.Fatalf("MetricAggregate: %v", err)
+		}
+		assertAggregateGroups(t, out, []aggregateGroupWant{
+			{values: []string{"A", "1"}, value: 3},
+			{values: []string{"A", "2"}, value: 4},
+			{values: []string{"B", ""}, value: 8},
+		})
+	})
+
+	t.Run("filters by service metric and half-open time range", func(t *testing.T) {
+		s := openTestStorage(t, Options{})
+		ctx := context.Background()
+		for _, point := range []struct {
+			service, metric string
+			value           float64
+			ts              time.Time
+		}{
+			{"svc", "reqs", 1, t0},
+			{"other-service", "reqs", 2, t0},
+			{"svc", "other-metric", 4, t0},
+			{"svc", "reqs", 8, t0.Add(-time.Nanosecond)},
+			{"svc", "reqs", 16, t0.Add(time.Minute)},
+		} {
+			s.AddMetrics(ctx, buildDeltaSumWithAttrs(point.metric, point.service, point.value, point.ts, map[string]string{"region": "A"}))
+		}
+		s.Sync()
+
+		out, err := s.MetricAggregate(ctx, "svc", "reqs", []string{"region"}, time.Minute, t0, t0.Add(time.Minute))
+		if err != nil {
+			t.Fatalf("MetricAggregate: %v", err)
+		}
+		assertAggregateGroups(t, out, []aggregateGroupWant{{values: []string{"A"}, value: 1}})
+	})
+}
+
+type aggregateGroupWant struct {
+	values []string
+	value  float64
+}
+
+func assertAggregateGroups(t *testing.T, got []AggregateSeries, want []aggregateGroupWant) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("groups = %+v, want %+v", got, want)
 	}
-	// The single point is a baseline (NULL delta) and gets dropped entirely —
-	// this test only asserts auto-bucketing didn't error/divide-by-zero on a
-	// single-instant extent.
-	if len(out) != 0 {
-		t.Fatalf("expected no non-baseline output, got %+v", out)
+	for i, expected := range want {
+		if len(got[i].GroupValues) != len(expected.values) {
+			t.Fatalf("group %d values = %v, want %v", i, got[i].GroupValues, expected.values)
+		}
+		for j := range expected.values {
+			if got[i].GroupValues[j] != expected.values[j] {
+				t.Errorf("group %d values = %v, want %v", i, got[i].GroupValues, expected.values)
+			}
+		}
+		if len(got[i].Points) != 1 || got[i].Points[0].Value == nil || *got[i].Points[0].Value != expected.value {
+			t.Errorf("group %v points = %+v, want one point with value %v", expected.values, got[i].Points, expected.value)
+		}
 	}
 }
 
-// TestMetricAggregate_AutoBucketEmptyExtent verifies a query window with no
-// matching points at all (empty extent) also falls back to 1s rather than
-// erroring.
-func TestMetricAggregate_AutoBucketEmptyExtent(t *testing.T) {
-	s := openTestStorage(t, Options{})
-	ctx := context.Background()
-	now := time.Now()
+func float64Ptr(value float64) *float64 {
+	return &value
+}
 
-	out, err := s.MetricAggregate(ctx, "svc", "does-not-exist", []string{"region"}, 0, now.Add(-time.Hour), now.Add(time.Hour))
-	if err != nil {
-		t.Fatalf("MetricAggregate: %v", err)
+func assertOptionalFloat(t *testing.T, name string, got, want *float64) {
+	t.Helper()
+	if got == nil || want == nil {
+		if got != nil || want != nil {
+			t.Errorf("%s = %v, want %v", name, got, want)
+		}
+		return
 	}
-	if len(out) != 0 {
-		t.Fatalf("expected no output for an empty extent, got %+v", out)
+	if *got != *want {
+		t.Errorf("%s = %v, want %v", name, *got, *want)
 	}
 }
 
-// TestMetricAggregate_SumsLockstepSeries is the core regression test for the
-// zigzag bug: two attribute-series emitting at the SAME timestamps must sum
-// into one value per timestamp, not alternate between the two raw values.
-func TestMetricAggregate_SumsLockstepSeries(t *testing.T) {
-	s := openTestStorage(t, Options{})
-	ctx := context.Background()
+func TestMetricAggregate_AutoBucket(t *testing.T) {
 	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 
-	// Two delta-Sum series under the same region, emitting at the same
-	// instants: worker=1 emits 5s and worker=2 emits 3s at each tick.
-	s.AddMetrics(ctx, buildDeltaSumWithAttrs("reqs", "svc", 5, t0, map[string]string{"region": "A", "worker": "1"}))
-	s.AddMetrics(ctx, buildDeltaSumWithAttrs("reqs", "svc", 3, t0, map[string]string{"region": "A", "worker": "2"}))
-	s.AddMetrics(ctx, buildDeltaSumWithAttrs("reqs", "svc", 7, t0.Add(time.Minute), map[string]string{"region": "A", "worker": "1"}))
-	s.AddMetrics(ctx, buildDeltaSumWithAttrs("reqs", "svc", 2, t0.Add(time.Minute), map[string]string{"region": "A", "worker": "2"}))
-	s.Sync()
+	t.Run("uses actual data extent instead of a much wider query window", func(t *testing.T) {
+		s := openTestStorage(t, Options{})
+		ctx := context.Background()
+		const points = 90
+		for i := range points {
+			s.AddMetrics(ctx, buildCumulativeSumWithAttr("reqs", "svc", float64(i), t0.Add(time.Duration(i)*time.Minute), "region", "A"))
+		}
+		s.Sync()
 
-	out, err := s.MetricAggregate(ctx, "svc", "reqs", []string{"region"}, time.Minute, t0.Add(-time.Minute), t0.Add(2*time.Minute))
-	if err != nil {
-		t.Fatalf("MetricAggregate: %v", err)
-	}
-	if len(out) != 1 {
-		t.Fatalf("expected 1 group (region=A), got %d: %+v", len(out), out)
-	}
-	if len(out[0].GroupValues) != 1 || out[0].GroupValues[0] != "A" {
-		t.Fatalf("GroupValues = %v, want [A]", out[0].GroupValues)
-	}
-	if len(out[0].Points) != 2 {
-		t.Fatalf("expected 2 buckets, got %d: %+v", len(out[0].Points), out[0].Points)
-	}
-	if out[0].Points[0].Value == nil || *out[0].Points[0].Value != 8 {
-		t.Errorf("bucket 1 Value = %v, want 8 (5+3)", out[0].Points[0].Value)
-	}
-	if out[0].Points[1].Value == nil || *out[0].Points[1].Value != 9 {
-		t.Errorf("bucket 2 Value = %v, want 9 (7+2)", out[0].Points[1].Value)
+		out, err := s.MetricAggregate(ctx, "svc", "reqs", []string{"region"}, 0, t0.Add(-7*24*time.Hour), t0.Add(7*24*time.Hour))
+		if err != nil {
+			t.Fatalf("MetricAggregate: %v", err)
+		}
+		// The old query-window-based sizing produced only 2-4 buckets here.
+		if len(out) != 1 || len(out[0].Points) <= 40 {
+			t.Fatalf("output = %+v, want one group with >40 data-extent-sized buckets", out)
+		}
+	})
+
+	for _, tt := range []struct {
+		name   string
+		metric string
+		seed   bool
+	}{
+		{name: "single-point extent falls back to one second", metric: "reqs", seed: true},
+		{name: "empty extent falls back to one second", metric: "does-not-exist"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			s := openTestStorage(t, Options{})
+			ctx := context.Background()
+			if tt.seed {
+				s.AddMetrics(ctx, buildCumulativeSumWithAttr(tt.metric, "svc", 5, t0, "region", "A"))
+				s.Sync()
+			}
+
+			out, err := s.MetricAggregate(ctx, "svc", tt.metric, []string{"region"}, 0, t0.Add(-time.Hour), t0.Add(time.Hour))
+			if err != nil {
+				t.Fatalf("MetricAggregate: %v", err)
+			}
+			if len(out) != 0 {
+				t.Fatalf("output = %+v, want no derived points", out)
+			}
+		})
 	}
 }
 
@@ -193,97 +499,9 @@ func TestMetricAggregate_SeriesMissingFromOneBucket(t *testing.T) {
 	}
 }
 
-func TestMetricAggregate_GaugeAveragesOverTimeThenSumsSeries(t *testing.T) {
-	s := openTestStorage(t, Options{})
-	ctx := context.Background()
-	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-
-	build := func(v float64, ts time.Time, region, worker string) pmetric.Metrics {
-		md := pmetric.NewMetrics()
-		rm := md.ResourceMetrics().AppendEmpty()
-		rm.Resource().Attributes().PutStr("service.name", "svc")
-		sm := rm.ScopeMetrics().AppendEmpty()
-		m := sm.Metrics().AppendEmpty()
-		m.SetName("cpu.usage")
-		dp := m.SetEmptyGauge().DataPoints().AppendEmpty()
-		dp.SetDoubleValue(v)
-		dp.SetTimestamp(pcommon.NewTimestampFromTime(ts))
-		dp.Attributes().PutStr("region", region)
-		dp.Attributes().PutStr("worker", worker)
-		return md
-	}
-	// Each worker is one underlying Gauge series. Temporal samples must be
-	// averaged per worker before workers in the shared region are summed:
-	// avg(2,4) + avg(6,8) = 10. Summing all samples would incorrectly yield 20
-	// and make the displayed value depend on the selected bucket width.
-	s.AddMetrics(ctx, build(2, t0, "A", "1"))
-	s.AddMetrics(ctx, build(4, t0.Add(10*time.Second), "A", "1"))
-	s.AddMetrics(ctx, build(6, t0, "A", "2"))
-	s.AddMetrics(ctx, build(8, t0.Add(10*time.Second), "A", "2"))
-	s.Sync()
-
-	out, err := s.MetricAggregate(ctx, "svc", "cpu.usage", []string{"region"}, time.Minute, t0.Add(-time.Minute), t0.Add(time.Minute))
-	if err != nil {
-		t.Fatalf("MetricAggregate: %v", err)
-	}
-	if len(out) != 1 || len(out[0].Points) != 1 {
-		t.Fatalf("unexpected shape: %+v", out)
-	}
-	if out[0].Points[0].Value == nil || *out[0].Points[0].Value != 10 {
-		t.Errorf("Value = %v, want 10 (avg(2,4) + avg(6,8))", out[0].Points[0].Value)
-	}
-}
-
-func TestMetricAggregate_HistogramCountSumMean(t *testing.T) {
-	s := openTestStorage(t, Options{})
-	ctx := context.Background()
-	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-
-	buildAt := func(count uint64, sum, mn, mx float64, ts time.Time, region string) pmetric.Metrics {
-		md := buildHistogram("http.server.request.duration", "svc", count, sum, mn, mx, ts)
-		dp := md.ResourceMetrics().At(0).ScopeMetrics().At(0).Metrics().At(0).Histogram().DataPoints().At(0)
-		dp.Attributes().PutStr("region", region)
-		return md
-	}
-
-	// Series "worker-1": baseline then a real delta at t0+1s.
-	s.AddMetrics(ctx, buildAt(10, 2.5, 0.01, 0.8, t0, "A"))
-	s.AddMetrics(ctx, buildAt(15, 4.0, 0.02, 0.9, t0.Add(time.Minute), "A"))
-	s.Sync()
-
-	out, err := s.MetricAggregate(ctx, "svc", "http.server.request.duration", []string{"region"}, time.Minute, t0.Add(-time.Minute), t0.Add(2*time.Minute))
-	if err != nil {
-		t.Fatalf("MetricAggregate: %v", err)
-	}
-	if len(out) != 1 {
-		t.Fatalf("expected 1 group, got %d: %+v", len(out), out)
-	}
-	// The baseline bucket (t0) should be dropped (all-NULL aggregate); only
-	// the t0+1min bucket carries a real delta.
-	if len(out[0].Points) != 1 {
-		t.Fatalf("expected 1 non-baseline bucket, got %d: %+v", len(out[0].Points), out[0].Points)
-	}
-	p := out[0].Points[0]
-	if p.Count == nil || *p.Count != 5 {
-		t.Errorf("Count = %v, want 5 (15-10)", p.Count)
-	}
-	if p.Sum == nil || *p.Sum != 1.5 {
-		t.Errorf("Sum = %v, want 1.5 (4.0-2.5)", p.Sum)
-	}
-	if p.Value == nil || *p.Value != 0.3 {
-		t.Errorf("Value (mean) = %v, want 0.3 (1.5/5)", p.Value)
-	}
-	if p.Min == nil || *p.Min != 0.02 || p.Max == nil || *p.Max != 0.9 {
-		t.Errorf("Min/Max = %v/%v, want 0.02/0.9", p.Min, p.Max)
-	}
-}
-
-// TestMetricAggregate_CounterResetIsolatedWithinSharedGroup groups both
-// series under one shared facet value and checks bucket 3 (the reset bucket)
-// sums to the reset series' raw delta (5, since lag=NULL->raw... wait the
-// window function treats reset as emitting the raw value directly) plus the
-// unaffected series' normal delta, rather than a corrupted/negative number.
-func TestMetricAggregate_CounterResetIsolatedWithinSharedGroup(t *testing.T) {
+// A reset is derived independently per source series before facet aggregation;
+// it must not turn the shared group's value negative or reset its sibling.
+func TestMetricAggregate_CounterResetDoesNotCorruptSiblingSeries(t *testing.T) {
 	s := openTestStorage(t, Options{})
 	ctx := context.Background()
 	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -328,54 +546,7 @@ func TestMetricAggregate_CounterResetIsolatedWithinSharedGroup(t *testing.T) {
 	}
 }
 
-func TestMetricAggregate_GroupByKeyMissingFromOneSeries(t *testing.T) {
-	s := openTestStorage(t, Options{})
-	ctx := context.Background()
-	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-
-	// Series 1 has "region"; series 2 does not.
-	s.AddMetrics(ctx, buildCumulativeSumWithAttr("reqs", "svc", 100, t0, "region", "A"))
-	md := buildCumulativeSum("reqs", "svc", 50, t0)
-	dp := md.ResourceMetrics().At(0).ScopeMetrics().At(0).Metrics().At(0).Sum().DataPoints().At(0)
-	dp.Attributes().PutStr("worker", "2") // no "region" key at all
-	s.AddMetrics(ctx, md)
-	s.Sync()
-
-	if _, err := s.MetricAggregate(ctx, "svc", "reqs", []string{"region"}, time.Minute, t0.Add(-time.Minute), t0.Add(time.Minute)); err != nil {
-		t.Fatalf("MetricAggregate: %v", err)
-	}
-	// Both points above are baseline (NULL delta), so no non-empty aggregate
-	// rows should be emitted at all — but the grouping itself (before HAVING
-	// drops rows) must not error out on the missing key. Verify by adding a
-	// second wave of points that are real deltas.
-	s.AddMetrics(ctx, buildCumulativeSumWithAttr("reqs", "svc", 110, t0.Add(time.Minute), "region", "A"))
-	md2 := buildCumulativeSum("reqs", "svc", 60, t0.Add(time.Minute))
-	dp2 := md2.ResourceMetrics().At(0).ScopeMetrics().At(0).Metrics().At(0).Sum().DataPoints().At(0)
-	dp2.Attributes().PutStr("worker", "2")
-	s.AddMetrics(ctx, md2)
-	s.Sync()
-
-	out, err := s.MetricAggregate(ctx, "svc", "reqs", []string{"region"}, time.Minute, t0.Add(-time.Minute), t0.Add(2*time.Minute))
-	if err != nil {
-		t.Fatalf("MetricAggregate (2nd): %v", err)
-	}
-	groups := map[string]float64{}
-	for _, g := range out {
-		for _, p := range g.Points {
-			if p.Value != nil {
-				groups[g.GroupValues[0]] = *p.Value
-			}
-		}
-	}
-	if v, ok := groups["A"]; !ok || v != 10 {
-		t.Errorf(`group "A" Value = %v (ok=%v), want 10`, v, ok)
-	}
-	if v, ok := groups[""]; !ok || v != 10 {
-		t.Errorf(`group "" (missing region key) Value = %v (ok=%v), want 10`, v, ok)
-	}
-}
-
-func TestMetricAggregate_BucketBoundaryAlignment(t *testing.T) {
+func TestMetricAggregate_FixedBucketBoundaries(t *testing.T) {
 	s := openTestStorage(t, Options{})
 	ctx := context.Background()
 	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -413,11 +584,9 @@ func TestMetricAggregate_BucketBoundaryAlignment(t *testing.T) {
 	}
 }
 
-// TestMetricAggregate_TimeRangeFiltering verifies the point immediately
-// before the window contributes only as the cumulative counter baseline. It
-// must produce the first in-window delta without surfacing an out-of-window
-// bucket of its own.
-func TestMetricAggregate_TimeRangeFiltering(t *testing.T) {
+// The point immediately before the window contributes only as the cumulative
+// counter baseline; it must not surface as an out-of-window bucket itself.
+func TestMetricAggregate_WindowUsesPredecessor(t *testing.T) {
 	s := openTestStorage(t, Options{})
 	ctx := context.Background()
 	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
