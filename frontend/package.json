@@ -29,7 +29,7 @@
     "clsx": "2.1.1",
     "graphql-request": "7.4.0",
     "jotai": "2.20.2",
-    "lucide-react": "1.27.0",
+    "lucide-react": "1.28.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "shadcn": "4.16.0",
