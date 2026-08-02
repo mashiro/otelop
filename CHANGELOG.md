@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.2.0](https://github.com/mashiro/otelop/compare/v1.1.0...v1.2.0) (2026-08-02)
+
+
+### Features
+
+* **cli:** add embedded agent-friendly docs ([#217](https://github.com/mashiro/otelop/issues/217)) ([52f4650](https://github.com/mashiro/otelop/commit/52f4650c8b2afb24dc361dd946b49d92df012dc1))
+* **frontend:** select chart time range by dragging ([#221](https://github.com/mashiro/otelop/issues/221)) ([57a50de](https://github.com/mashiro/otelop/commit/57a50de7205924fbd1b130815ea52fbebbe5ab73))
+
+
+### Bug Fixes
+
+* **deps:** update all non-major dependencies ([#201](https://github.com/mashiro/otelop/issues/201)) ([48b6873](https://github.com/mashiro/otelop/commit/48b68733863ab0bc63ae18b06efefe1d3ab94ddc))
+* **deps:** update all non-major dependencies ([#203](https://github.com/mashiro/otelop/issues/203)) ([30ac325](https://github.com/mashiro/otelop/commit/30ac325747c0e87a40ad69bf7862a1f9dd0a28ba))
+* **deps:** update all non-major dependencies ([#208](https://github.com/mashiro/otelop/issues/208)) ([3c263ac](https://github.com/mashiro/otelop/commit/3c263acff13309416f0f3d1755d613a61078f0c4))
+* **deps:** update all non-major dependencies ([#210](https://github.com/mashiro/otelop/issues/210)) ([8c98dfa](https://github.com/mashiro/otelop/commit/8c98dfafd833d8140962993facfc5c3e26bf8f2e))
+* **deps:** update all non-major dependencies ([#218](https://github.com/mashiro/otelop/issues/218)) ([82ae17a](https://github.com/mashiro/otelop/commit/82ae17a3589954d7a7b7261c20fcd09bb7d95309))
+* **deps:** update all non-major dependencies to v19.2.8 ([#198](https://github.com/mashiro/otelop/issues/198)) ([281415b](https://github.com/mashiro/otelop/commit/281415b3568d3a01565d61a09b906418d35ed657))
+* **deps:** update all non-major dependencies to v5.3.0 ([#194](https://github.com/mashiro/otelop/issues/194)) ([566f5ad](https://github.com/mashiro/otelop/commit/566f5ad2320a51b152a1004ada16a880c9ac06d8))
+* **deps:** update opentelemetry-go ([#199](https://github.com/mashiro/otelop/issues/199)) ([29a2ed3](https://github.com/mashiro/otelop/commit/29a2ed3bddc71ba1d199dfb99fb7e9bb743daaf3))
+* **frontend:** stabilize metric series colors ([#219](https://github.com/mashiro/otelop/issues/219)) ([c4aeb90](https://github.com/mashiro/otelop/commit/c4aeb90e44f94ed80381dded177e9479934d8eab))
+* **metrics:** correct query window semantics ([#216](https://github.com/mashiro/otelop/issues/216)) ([c9630ba](https://github.com/mashiro/otelop/commit/c9630babd6c1605c7c86f1fdf0e8a459e58fda0c))
+* **metrics:** preserve chart meaning across time windows ([#215](https://github.com/mashiro/otelop/issues/215)) ([404f697](https://github.com/mashiro/otelop/commit/404f697bb9b1884d5bf50e8d47317acb15360b1e))
+
 ## [1.1.0](https://github.com/mashiro/otelop/compare/v1.0.0...v1.1.0) (2026-07-21)
 
 
