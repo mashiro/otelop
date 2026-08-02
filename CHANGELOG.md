@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.1](https://github.com/mashiro/otelop/compare/v1.2.0...v1.2.1) (2026-08-02)
+
+
+### Bug Fixes
+
+* **cli:** remove unsolicited docs promotion ([#223](https://github.com/mashiro/otelop/issues/223)) ([51e8608](https://github.com/mashiro/otelop/commit/51e86086205c15edbf55e3f042557fc5c1b2cc57))
+
 ## [1.2.0](https://github.com/mashiro/otelop/compare/v1.1.0...v1.2.0) (2026-08-02)
 
 
