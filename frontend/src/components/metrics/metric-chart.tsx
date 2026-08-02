@@ -487,7 +487,7 @@ function ChartInner({
             width={innerWidth}
             height={innerHeight}
             fill="transparent"
-            className="cursor-crosshair"
+            className="cursor-crosshair outline-none"
             style={{ touchAction: "none" }}
             onMouseMove={dragSelection ? undefined : handleMouseMove}
             onMouseLeave={hideTooltip}
