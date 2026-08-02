@@ -3,7 +3,6 @@ import {
   attrKey,
   computeStatTiles,
   facetGroupLabel,
-  facetGroupOrder,
   hasIncreaseStatTileSignal,
   type StatTile,
   type StatTilesInput,
@@ -11,7 +10,11 @@ import {
 import { isDistributionMetric, resolveMetricUnit, type MetricFacet } from "@/lib/metric-catalog";
 import { formatMetricValue } from "@/lib/format-metric";
 import { CHART_TIME_RANGES, type ChartTimeRange } from "@/lib/chart-time-range";
-import { SERIES_COLORS } from "./metric-chart";
+import {
+  facetGroupColorIdentity,
+  SERIES_COLORS,
+  seriesColorIndexes,
+} from "@/lib/metric-series-colors";
 import type { AggregateSeriesData } from "@/hooks/use-metric-aggregate-series";
 import type { MetricDistributionSeriesData } from "@/hooks/use-metric-distribution-stats";
 import type { DataPoint, MetricData } from "@/types/telemetry";
@@ -55,7 +58,6 @@ export const MetricSummary = memo(function MetricSummary({
       ? {
           kind: "aggregate",
           aggregatedSeries: aggregatedSeries ?? [],
-          rangeDataPoints,
           facet,
           range,
           mode: showsLatest ? "latest" : "increase",
@@ -78,7 +80,6 @@ export const MetricSummary = memo(function MetricSummary({
         series={distributionStats}
         groupBy={distributionGroupBy}
         facet={facet}
-        rangeDataPoints={rangeDataPoints}
         range={range}
         unit={unit}
       />
@@ -120,25 +121,26 @@ function HistogramSummary({
   series,
   groupBy,
   facet,
-  rangeDataPoints,
   range,
   unit,
 }: {
   series: MetricDistributionSeriesData[];
   groupBy: string[] | null;
   facet?: MetricFacet | null;
-  rangeDataPoints: DataPoint[];
   range: ChartTimeRange;
   unit: string;
 }) {
-  const colorOrder = facetGroupOrder(rangeDataPoints, facet);
-  const rows = series.map((item, index) => {
+  const rows = series.map((item) => {
     const label = facet
       ? facetGroupLabel(item.groupValues) || "(no attributes)"
       : attrKey(item.attributes) || "(no attributes)";
-    return { item, label, colorIndex: colorOrder.get(label) ?? colorOrder.size + index };
+    const colorIdentity = facet
+      ? facetGroupColorIdentity(facet, item.groupValues)
+      : attrKey(item.attributes);
+    return { item, label, colorIdentity };
   });
   if (rows.length === 0) return null;
+  const colorIndexes = seriesColorIndexes(rows.map((row) => row.colorIdentity));
 
   const columns = [
     ["Average", (item: MetricDistributionSeriesData) => item.mean],
@@ -168,13 +170,13 @@ function HistogramSummary({
             </tr>
           </thead>
           <tbody className="divide-y divide-border/20">
-            {rows.map(({ item, label, colorIndex }) => (
+            {rows.map(({ item, label }, index) => (
               <tr key={JSON.stringify(groupBy ? item.groupValues : item.attributes)}>
                 <td className="max-w-64 px-3 py-2.5">
                   <div className="flex items-center gap-1.5">
                     <span
                       className="size-2 shrink-0 rounded-full"
-                      style={{ backgroundColor: SERIES_COLORS[colorIndex % SERIES_COLORS.length] }}
+                      style={{ backgroundColor: SERIES_COLORS[colorIndexes[index]!] }}
                     />
                     <span className="truncate font-mono text-foreground/70" title={label}>
                       {label}
@@ -216,7 +218,7 @@ function Tile({
   isDistribution: boolean;
   showLabel: boolean;
 }) {
-  const color = SERIES_COLORS[tile.colorIndex % SERIES_COLORS.length];
+  const color = SERIES_COLORS[tile.colorIndex];
   const main = mainText(tile, unit);
   const count = isDistribution && tile.count != null ? tile.count.toLocaleString() : null;
 

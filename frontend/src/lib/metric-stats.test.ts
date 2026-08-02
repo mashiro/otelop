@@ -2,7 +2,6 @@ import { describe, it, expect } from "vite-plus/test";
 import {
   computeStatTiles,
   facetGroupLabel,
-  facetGroupOrder,
   hasIncreaseStatTileSignal,
   statTileGroupsFromAggregate,
   statTileGroupsFromRawPoints,
@@ -10,6 +9,11 @@ import {
 } from "./metric-stats";
 import { makeDataPoint, makeAggregatePoint, makeAggregateSeries } from "@/test/factories";
 import { parseEpochNs } from "@/lib/normalize";
+import {
+  facetGroupColorIdentity,
+  facetGroupColorIndexes,
+  seriesColorIndexes,
+} from "@/lib/metric-series-colors";
 
 const MODEL_FACET = { attributes: ["model"], label: "model" };
 
@@ -27,18 +31,56 @@ describe("facetGroupLabel", () => {
   });
 });
 
-describe("facetGroupOrder", () => {
-  it("orders groups by first appearance across dataPoints", () => {
-    const dataPoints = [
-      makeDataPoint({ id: "a", attributes: { model: "haiku" } }),
-      makeDataPoint({ id: "b", attributes: { model: "opus" } }),
-      makeDataPoint({ id: "c", attributes: { model: "haiku" } }),
+describe("metric series colors", () => {
+  it("keeps raw series colors stable when response order changes", () => {
+    const firstWindow = statTileGroupsFromRawPoints(
+      [
+        makeDataPoint({ id: "a", attributes: { model: "opus" } }),
+        makeDataPoint({ id: "b", attributes: { model: "haiku" } }),
+      ],
+      null,
+      "all",
+    );
+    const shiftedWindow = statTileGroupsFromRawPoints(
+      [
+        makeDataPoint({ id: "c", attributes: { model: "haiku" } }),
+        makeDataPoint({ id: "d", attributes: { model: "opus" } }),
+      ],
+      null,
+      "all",
+    );
+
+    expect(firstWindow.find((group) => group.key === 'model="opus"')?.colorIndex).toBe(
+      shiftedWindow.find((group) => group.key === 'model="opus"')?.colorIndex,
+    );
+  });
+
+  it("includes facet identity and raw group values in the stable color", () => {
+    const regionFacet = { attributes: ["region"], label: "region" };
+    expect(facetGroupColorIdentity(MODEL_FACET, ["opus"])).not.toBe(
+      facetGroupColorIdentity(regionFacet, ["opus"]),
+    );
+    expect(facetGroupColorIdentity(MODEL_FACET, [""])).toBe(
+      facetGroupColorIdentity(MODEL_FACET, ["(unset)"]),
+    );
+  });
+
+  it("uses distinct colors for every token type in the reported seven-series case", () => {
+    const tokenTypes = [
+      "cache_write_input",
+      "cached_input",
+      "input",
+      "non_cached_input",
+      "output",
+      "reasoning_output",
+      "total",
     ];
+    const colors = facetGroupColorIndexes(
+      { attributes: ["token_type"], label: "token_type" },
+      tokenTypes.map((value) => [value]),
+    );
 
-    const order = facetGroupOrder(dataPoints, MODEL_FACET);
-
-    expect(order.get("haiku")).toBe(0);
-    expect(order.get("opus")).toBe(1);
+    expect(new Set(colors).size).toBe(tokenTypes.length);
   });
 });
 
@@ -91,9 +133,10 @@ describe("computeStatTiles — raw (facet=All) path", () => {
 
     const tiles = computeStatTiles(increaseInput({ rangeDataPoints }));
 
+    const colors = seriesColorIndexes(['model="opus"', 'model="haiku"']);
     expect(tiles.map((t) => [t.label, t.value, t.colorIndex])).toEqual([
-      ['model="opus"', 3.0, 0],
-      ['model="haiku"', 0.5, 1],
+      ['model="opus"', 3.0, colors[0]],
+      ['model="haiku"', 0.5, colors[1]],
     ]);
   });
 
@@ -147,7 +190,7 @@ describe("computeStatTiles — raw (facet=All) path", () => {
       {
         key: "opus",
         label: "opus",
-        colorIndex: 0,
+        colorIndex: seriesColorIndexes(["opus"])[0],
         value: 2,
         count: 20,
       },
@@ -196,24 +239,31 @@ describe("computeStatTiles — aggregate (facet active) path", () => {
         points: [makeAggregatePoint({ timestamp: "2024-01-01T00:00:00Z", value: 1 })],
       }),
     ];
-    const rangeDataPoints = [
-      makeDataPoint({ id: "a", attributes: { model: "opus" } }),
-      makeDataPoint({ id: "b", attributes: { model: "haiku" } }),
-    ];
-
     const tiles = computeStatTiles({
       kind: "aggregate",
       aggregatedSeries,
-      rangeDataPoints,
       facet: MODEL_FACET,
       range: "all",
       mode: "increase",
       includeLatestCount: false,
     });
 
+    const colors = facetGroupColorIndexes(MODEL_FACET, [["opus"], ["haiku"]]);
     expect(tiles).toEqual([
-      { key: "opus", label: "opus", colorIndex: 0, value: 5, count: null },
-      { key: "haiku", label: "haiku", colorIndex: 1, value: 1, count: null },
+      {
+        key: "opus",
+        label: "opus",
+        colorIndex: colors[0],
+        value: 5,
+        count: null,
+      },
+      {
+        key: "haiku",
+        label: "haiku",
+        colorIndex: colors[1],
+        value: 1,
+        count: null,
+      },
     ]);
   });
 
@@ -231,37 +281,37 @@ describe("computeStatTiles — aggregate (facet active) path", () => {
     const tiles = computeStatTiles({
       kind: "aggregate",
       aggregatedSeries,
-      rangeDataPoints: [makeDataPoint({ id: "a", attributes: { model: "opus" } })],
       facet: MODEL_FACET,
       range: "all",
       mode: "latest",
       includeLatestCount: true,
     });
 
-    expect(tiles).toEqual([{ key: "opus", label: "opus", colorIndex: 0, value: 20, count: 2 }]);
+    expect(tiles).toEqual([
+      {
+        key: "opus",
+        label: "opus",
+        colorIndex: facetGroupColorIndexes(MODEL_FACET, [["opus"]])[0],
+        value: 20,
+        count: 2,
+      },
+    ]);
   });
 
-  it("assigns colorIndex from first-appearance order in the raw range points, matching the chart", () => {
+  it("assigns stable colors independent of aggregate and raw point order", () => {
     const aggregatedSeries = [
       makeAggregateSeries({ groupValues: ["haiku"], points: [makeAggregatePoint({ value: 1 })] }),
       makeAggregateSeries({ groupValues: ["opus"], points: [makeAggregatePoint({ value: 2 })] }),
     ];
-    // Opus appears first in the raw buffer, even though the aggregate query
-    // (alphabetical) returns haiku first.
-    const rangeDataPoints = [
-      makeDataPoint({ id: "a", attributes: { model: "opus" } }),
-      makeDataPoint({ id: "b", attributes: { model: "haiku" } }),
-    ];
+    const groups = statTileGroupsFromAggregate(aggregatedSeries, MODEL_FACET, "all");
+    const reversed = statTileGroupsFromAggregate(aggregatedSeries.toReversed(), MODEL_FACET, "all");
 
-    const groups = statTileGroupsFromAggregate(
-      aggregatedSeries,
-      rangeDataPoints,
-      MODEL_FACET,
-      "all",
+    expect(groups.find((g) => g.key === "opus")?.colorIndex).toBe(
+      reversed.find((g) => g.key === "opus")?.colorIndex,
     );
-
-    expect(groups.find((g) => g.key === "opus")?.colorIndex).toBe(0);
-    expect(groups.find((g) => g.key === "haiku")?.colorIndex).toBe(1);
+    expect(groups.find((g) => g.key === "haiku")?.colorIndex).toBe(
+      reversed.find((g) => g.key === "haiku")?.colorIndex,
+    );
   });
 
   it("excludes aggregate points outside the selected range window", () => {
@@ -275,12 +325,7 @@ describe("computeStatTiles — aggregate (facet active) path", () => {
       }),
     ];
 
-    const groups = statTileGroupsFromAggregate(
-      aggregatedSeries,
-      [makeDataPoint({ id: "a", attributes: { model: "opus" } })],
-      MODEL_FACET,
-      "1m",
-    );
+    const groups = statTileGroupsFromAggregate(aggregatedSeries, MODEL_FACET, "1m");
 
     expect(groups[0]?.points).toEqual([
       {

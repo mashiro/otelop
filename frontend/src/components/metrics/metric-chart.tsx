@@ -13,20 +13,13 @@ import { facetSeriesKey, resolveFacetGroupColorIndex } from "@/lib/metric-stats"
 import { filterPointsInDomain } from "@/lib/chart-time-range";
 import { eventWindowDomain, type EventTimeWindow } from "@/lib/event-time-window";
 import type { AggregateSeriesData } from "@/hooks/use-metric-aggregate-series";
+import { SERIES_COLORS, seriesColorIndexes } from "@/lib/metric-series-colors";
 
 const MARGIN = { top: 10, right: 20, bottom: 40, left: 72 };
 
 function formatTick(d: Date): string {
   return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
-
-export const SERIES_COLORS = [
-  "var(--chart-1)",
-  "var(--chart-2)",
-  "var(--chart-3)",
-  "var(--chart-4)",
-  "var(--chart-5)",
-];
 
 interface SeriesData {
   key: string;
@@ -140,15 +133,13 @@ function ChartInner({
     // (unsummed) grouping, which would reintroduce the zigzag.
     if (facet) {
       if (!aggregatedSeries) return [];
-      // Colors from first-appearance order in the raw buffer, same as the
-      // stat tiles above — see metric-stats.ts's resolveFacetGroupColorIndex.
-      const resolved = resolveFacetGroupColorIndex(aggregatedSeries, metric.dataPoints, facet);
+      const resolved = resolveFacetGroupColorIndex(aggregatedSeries, facet);
       return aggregatedSeries.map((s, i) => {
         const { label, colorIndex } = resolved[i]!;
         return {
           key: label,
           label,
-          color: SERIES_COLORS[colorIndex % SERIES_COLORS.length],
+          color: SERIES_COLORS[colorIndex],
           points: [...s.points]
             .map((p) => ({ time: new Date(p.timestamp), value: p.value }))
             .sort((a, b) => a.time.getTime() - b.time.getTime()),
@@ -165,16 +156,17 @@ function ChartInner({
       groups.get(key)!.push({ time: new Date(Number(dp.epochNs / 1_000_000n)), value: dp.value });
     }
     const result: SeriesData[] = [];
-    let i = 0;
+    const colorIndexes = seriesColorIndexes([...groups.keys()]);
+    let index = 0;
     for (const [key, points] of groups) {
       points.sort((a, b) => a.time.getTime() - b.time.getTime());
       result.push({
         key,
         label: key || "(no attributes)",
-        color: SERIES_COLORS[i % SERIES_COLORS.length],
+        color: SERIES_COLORS[colorIndexes[index]!],
         points,
       });
-      i++;
+      index++;
     }
     return result;
   }, [metric.dataPoints, facet, aggregatedSeries]);
