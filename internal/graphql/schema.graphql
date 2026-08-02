@@ -240,12 +240,10 @@ One point in a metric's series. The primary fields describe per-interval
 activity: for cumulative OTLP inputs (monotonic Sum, Histogram, Summary,
 ExponentialHistogram) the server delta-izes against the previous observation
 before returning; delta inputs are already per-interval. The `cumulative`
-family carries the running total "since otelop started observing this series"
-so clients can show retained-history totals without re-summing the delta column — for
-cumulative-temporality input it's the exporter's raw cumulative, for
-delta-temporality input otelop accumulates the retained deltas itself. Retention
-or max-size cleanup can therefore change that derived total; cumulative input
-continues to expose the exporter's raw cumulative value.
+family carries the exporter's raw running total for cumulative-temporality
+inputs. For delta-temporality inputs it accumulates from the start of the
+selected query window, so it is window-dependent and is not a retained-lifetime
+total.
 """
 type DataPoint {
   "Stable, globally unique identity (UUIDv7) assigned at ingestion. Persists with the retained database row, so clients can use it as a key across reconnects."
@@ -258,27 +256,27 @@ type DataPoint {
   """
   value: Float!
   """
-  Running total for this series since otelop started observing it. For
-  cumulative temporality it's the exporter's raw cumulative; for delta
-  temporality otelop sums the deltas itself. Populated for monotonic Sum;
-  null for Gauge, non-monotonic Sum, and distribution metrics.
+  Running total for a monotonic Sum. For cumulative temporality this is the
+  exporter's raw cumulative. For delta temporality this sums observations from
+  the start of the selected query window.
+  Null for Gauge, non-monotonic Sum, and distribution metrics.
   """
   cumulative: Float
   "Delta observation count for distribution metrics. Null for Gauge/Sum."
   count: Float
   """
-  Running total observation count since otelop started observing this series.
-  For cumulative Histogram / Summary / ExponentialHistogram it's the
-  exporter's raw cumulative; for delta temporality otelop sums the deltas
-  itself. Null for Gauge and Sum.
+  Running observation count. For cumulative Histogram / Summary /
+  ExponentialHistogram this is the exporter's raw cumulative; for delta
+  temporality this sums observations from the start of the selected query
+  window. Null for Gauge and Sum.
   """
   countCumulative: Float
   "Delta of observation sums for distribution metrics. Null for Gauge/Sum."
   sum: Float
   """
-  Running total of observation sums since otelop started observing this
-  series, for distributions that report a sum. Raw cumulative for cumulative
-  temporality; accumulated by otelop for delta temporality. Null otherwise.
+  Running total of observation sums for distributions that report a sum. Raw
+  cumulative for cumulative temporality. For delta temporality this sums
+  observations from the start of the selected query window. Null otherwise.
   """
   sumCumulative: Float
   "Minimum observation in this window, as reported by the SDK. Null when unavailable."

@@ -79,6 +79,12 @@ type DerivedPoint struct {
 // OTLP metric type names, is what keeps them from drifting apart.
 const distributionTypesSQL = `('Histogram', 'ExponentialHistogram', 'Summary')`
 
+// predecessorRequiredSQL identifies source series whose first selected point
+// needs an older observation for lag-based delta derivation. Delta sources,
+// Gauges, and non-monotonic Sums derive entirely from the selected window.
+const predecessorRequiredSQL = `(temporality = 'cumulative' AND (` +
+	`(metric_type = 'Sum' AND is_monotonic) OR metric_type IN ` + distributionTypesSQL + `))`
+
 // IsDistributionType reports whether metricType names one of the
 // distribution shapes (Histogram/ExponentialHistogram/Summary), which carry
 // Count/Sum instead of a plain Value — see DataPoint's schema doc comment
@@ -226,7 +232,7 @@ func (s *Storage) populateMetricSummaryStats(ctx context.Context, items []Metric
 		return nil
 	}
 	values := make([]string, len(items))
-	args := make([]any, 0, len(items)*2+2)
+	args := make([]any, 0, len(items)*2+3)
 	for i := range items {
 		values[i] = "(?, ?)"
 		args = append(args, items[i].ServiceName, items[i].MetricName)
@@ -235,15 +241,32 @@ func (s *Storage) populateMetricSummaryStats(ctx context.Context, items []Metric
 
 	countQuery := `
 WITH selected(service_name, metric_name) AS (VALUES ` + selected + `),
-points AS (
+target_series AS (
+	SELECT s.service_name, s.metric_name, s.series_key, s.metric_type,
+		s.temporality, s.is_monotonic
+	FROM selected x
+	JOIN metric_series s USING (service_name, metric_name)
+), window_points AS (
 	SELECT s.service_name, s.metric_name, s.series_key, s.metric_type,
 		s.temporality, s.is_monotonic, p.ts,
 		coalesce(p.value_double, cast(p.value_int AS DOUBLE)) AS value,
 		cast(p.count AS DOUBLE) AS count
-	FROM selected x
-	JOIN metric_series s USING (service_name, metric_name)
+	FROM target_series s
 	JOIN metric_points p USING (series_key)
 	WHERE p.ts >= make_timestamp_ns(?) AND p.ts < make_timestamp_ns(?)
+), represented_series AS (
+	SELECT DISTINCT series_key FROM window_points
+	WHERE ` + predecessorRequiredSQL + `
+), predecessor_series AS (
+	SELECT DISTINCT p.series_key
+	FROM metric_points p
+	JOIN represented_series r USING (series_key)
+	WHERE p.ts < make_timestamp_ns(?)
+), points AS (
+	SELECT window_points.*,
+		predecessor_series.series_key IS NOT NULL AS has_predecessor
+	FROM window_points
+	LEFT JOIN predecessor_series USING (series_key)
 ), ranked AS (
 	SELECT *, row_number() OVER (PARTITION BY series_key ORDER BY ts) AS point_rank
 	FROM points
@@ -251,15 +274,17 @@ points AS (
 SELECT service_name, metric_name, sum(
 	CASE
 		WHEN metric_type IN ` + distributionTypesSQL + `
-			AND count IS NOT NULL AND (temporality <> 'cumulative' OR point_rank > 1) THEN 1
+			AND count IS NOT NULL
+			AND (temporality <> 'cumulative' OR point_rank > 1 OR has_predecessor) THEN 1
 		WHEN metric_type NOT IN ` + distributionTypesSQL + ` AND value IS NOT NULL
-			AND (metric_type <> 'Sum' OR temporality <> 'cumulative' OR NOT is_monotonic OR point_rank > 1) THEN 1
+			AND (metric_type <> 'Sum' OR temporality <> 'cumulative' OR NOT is_monotonic
+				OR point_rank > 1 OR has_predecessor) THEN 1
 		ELSE 0
 	END
 )
 FROM ranked
 GROUP BY service_name, metric_name`
-	countArgs := append(args, from.UnixNano(), to.UnixNano())
+	countArgs := append(args, from.UnixNano(), to.UnixNano(), from.UnixNano())
 	rows, err := s.DB().QueryContext(ctx, countQuery, countArgs...)
 	if err != nil {
 		return fmt.Errorf("storage: query metric summary point counts: %w", err)
@@ -482,9 +507,9 @@ ORDER BY ts
 
 const metricPointsQuery = metricDerivedCTE + metricPointsSelect
 
-// metricPointsWithPredecessorsQuery adds the immediately preceding point for
-// each series represented in the requested window. Broadcast derivation needs
-// those rows for lag() but must not assume any maximum collection interval.
+// metricPointsWithPredecessorsQuery adds the immediately preceding point only
+// for represented cumulative source series whose delta derivation uses lag().
+// Gauge, delta, and cumulative non-monotonic Sum series stay window-only.
 const metricPointsWithPredecessorsCTE = `
 WITH target_series AS (
 	SELECT series_key, metric_type, temporality, is_monotonic, attributes::VARCHAR AS attrs_json
@@ -504,6 +529,7 @@ window_points AS (
 ),
 represented_series AS (
 	SELECT DISTINCT series_key FROM window_points
+	WHERE ` + predecessorRequiredSQL + `
 ),
 points AS (
 	SELECT * FROM window_points
@@ -550,6 +576,7 @@ window_points AS (
 ),
 represented_series AS (
 	SELECT DISTINCT request_index, series_key FROM window_points
+	WHERE ` + predecessorRequiredSQL + `
 ),
 points AS (
 	SELECT * FROM window_points
@@ -612,7 +639,7 @@ func (s *Storage) MetricPoints(ctx context.Context, serviceName, metricName stri
 }
 
 // MetricPointsWithPredecessors returns the requested points plus at most one
-// older point per series so cumulative values in the window can be derived.
+// older point for each represented cumulative source series that needs lag().
 func (s *Storage) MetricPointsWithPredecessors(ctx context.Context, serviceName, metricName string, from, to time.Time) (points []DerivedPoint, err error) {
 	ctx, span := startStorageSpan(ctx, "storage.MetricPointsWithPredecessors")
 	defer func() { endStorageSpan(span, err) }()

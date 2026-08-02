@@ -405,6 +405,18 @@ func buildCumulativeSumMetric(name, service string, v float64, ts time.Time) pme
 	return md
 }
 
+func buildDeltaSumMetric(name, service string, v float64, ts time.Time) pmetric.Metrics {
+	md := buildCumulativeSumMetric(name, service, v, ts)
+	md.ResourceMetrics().At(0).ScopeMetrics().At(0).Metrics().At(0).Sum().SetAggregationTemporality(pmetric.AggregationTemporalityDelta)
+	return md
+}
+
+func buildCumulativeSumMetricWithAttribute(name, service, key, value string, v float64, ts time.Time) pmetric.Metrics {
+	md := buildCumulativeSumMetric(name, service, v, ts)
+	md.ResourceMetrics().At(0).ScopeMetrics().At(0).Metrics().At(0).Sum().DataPoints().At(0).Attributes().PutStr(key, value)
+	return md
+}
+
 // TestMetric_LatestValueWithoutFetchingPoints is the GraphQL-level companion
 // to TestMetrics_PointCountWithoutFetchingPoints: latestValue must resolve
 // without the query selecting dataPoints (issue #162's whole point).
@@ -489,6 +501,156 @@ func TestMetricPoints_RespectsFromTo(t *testing.T) {
 	}
 	if value := points[0].(map[string]any)["value"].(float64); value != 1 {
 		t.Fatalf("metricPoints value = %v, want 1 (2-1 from predecessor)", value)
+	}
+}
+
+func TestMetricPointCountMatchesDataPointsInHistoricalWindow(t *testing.T) {
+	s := newTestStorage(t)
+	ctx := context.Background()
+	t0 := time.Date(2026, 4, 11, 12, 0, 0, 0, time.UTC)
+
+	s.AddMetrics(ctx, buildCumulativeSumMetric("m", "svc-count", 100, t0))
+	s.AddMetrics(ctx, buildCumulativeSumMetric("m", "svc-count", 150, t0.Add(time.Hour)))
+	s.Sync()
+	if _, err := s.DB().ExecContext(ctx,
+		`UPDATE metric_series SET first_seen = ?, last_seen = ? WHERE service_name = 'svc-count' AND metric_name = 'm'`,
+		t0, t0.Add(time.Hour),
+	); err != nil {
+		t.Fatalf("set metric series lifetime: %v", err)
+	}
+
+	data := exec(t, s, `
+		query($from: Time!, $to: Time!) {
+			metrics(from: $from, to: $to) {
+				items { name pointCount dataPoints { value } }
+			}
+		}
+	`, map[string]any{
+		"from": t0.Add(30 * time.Minute).Format(time.RFC3339),
+		"to":   t0.Add(90 * time.Minute).Format(time.RFC3339),
+	})
+
+	items := data["metrics"].(map[string]any)["items"].([]any)
+	if len(items) != 1 {
+		t.Fatalf("metrics len = %d, want 1", len(items))
+	}
+	metric := items[0].(map[string]any)
+	points := metric["dataPoints"].([]any)
+	if metric["pointCount"].(float64) != float64(len(points)) || len(points) != 1 {
+		t.Fatalf("pointCount = %v, dataPoints len = %d, want both 1", metric["pointCount"], len(points))
+	}
+	if value := points[0].(map[string]any)["value"].(float64); value != 50 {
+		t.Fatalf("dataPoints[0].value = %v, want 50", value)
+	}
+}
+
+func TestMetricPointCountMatchesDataPointsWhenOnlyOneSeriesHasPredecessor(t *testing.T) {
+	s := newTestStorage(t)
+	ctx := context.Background()
+	t0 := time.Date(2026, 4, 11, 12, 0, 0, 0, time.UTC)
+
+	s.AddMetrics(ctx, buildCumulativeSumMetricWithAttribute("m", "svc-count-series", "instance", "a", 100, t0))
+	s.AddMetrics(ctx, buildCumulativeSumMetricWithAttribute("m", "svc-count-series", "instance", "a", 150, t0.Add(time.Hour)))
+	s.AddMetrics(ctx, buildCumulativeSumMetricWithAttribute("m", "svc-count-series", "instance", "b", 200, t0.Add(time.Hour)))
+	s.Sync()
+	if _, err := s.DB().ExecContext(ctx,
+		`UPDATE metric_series SET first_seen = ?, last_seen = ? WHERE service_name = 'svc-count-series' AND metric_name = 'm'`,
+		t0, t0.Add(time.Hour),
+	); err != nil {
+		t.Fatalf("set metric series lifetime: %v", err)
+	}
+
+	data := exec(t, s, `
+		query($from: Time!, $to: Time!) {
+			metrics(from: $from, to: $to) {
+				items { pointCount dataPoints { value attributes } }
+			}
+		}
+	`, map[string]any{
+		"from": t0.Add(30 * time.Minute).Format(time.RFC3339),
+		"to":   t0.Add(90 * time.Minute).Format(time.RFC3339),
+	})
+
+	items := data["metrics"].(map[string]any)["items"].([]any)
+	if len(items) != 1 {
+		t.Fatalf("metrics len = %d, want 1", len(items))
+	}
+	metric := items[0].(map[string]any)
+	points := metric["dataPoints"].([]any)
+	if metric["pointCount"].(float64) != float64(len(points)) || len(points) != 1 {
+		t.Fatalf("pointCount = %v, dataPoints len = %d, want both 1", metric["pointCount"], len(points))
+	}
+	point := points[0].(map[string]any)
+	if point["value"].(float64) != 50 || point["attributes"].(map[string]any)["instance"] != "a" {
+		t.Fatalf("dataPoints[0] = %+v, want instance a with value 50", point)
+	}
+}
+
+func TestMetricPointsDeltaCumulativeStartsAtQueryWindow(t *testing.T) {
+	s := newTestStorage(t)
+	ctx := context.Background()
+	t0 := time.Date(2026, 4, 11, 12, 0, 0, 0, time.UTC)
+
+	s.AddMetrics(ctx, buildDeltaSumMetric("m", "svc-delta-window", 5, t0))
+	s.AddMetrics(ctx, buildDeltaSumMetric("m", "svc-delta-window", 3, t0.Add(time.Hour)))
+	s.AddMetrics(ctx, buildDeltaSumMetric("m", "svc-delta-window", 2, t0.Add(2*time.Hour)))
+	s.Sync()
+
+	data := exec(t, s, `
+		query($from: Time!, $to: Time!) {
+			metricPoints(serviceName: "svc-delta-window", name: "m", from: $from, to: $to) {
+				value cumulative
+			}
+		}
+	`, map[string]any{
+		"from": t0.Add(30 * time.Minute).Format(time.RFC3339),
+		"to":   t0.Add(3 * time.Hour).Format(time.RFC3339),
+	})
+
+	points := data["metricPoints"].([]any)
+	if len(points) != 2 {
+		t.Fatalf("metricPoints len = %d, want 2", len(points))
+	}
+	for i, want := range []struct {
+		value      float64
+		cumulative float64
+	}{{3, 3}, {2, 5}} {
+		point := points[i].(map[string]any)
+		if point["value"].(float64) != want.value || point["cumulative"].(float64) != want.cumulative {
+			t.Errorf("point %d = value %v cumulative %v, want value %v cumulative %v",
+				i, point["value"], point["cumulative"], want.value, want.cumulative)
+		}
+	}
+}
+
+func TestMetricPointsWindowIsFromInclusiveToExclusive(t *testing.T) {
+	s := newTestStorage(t)
+	ctx := context.Background()
+	t0 := time.Date(2026, 4, 11, 12, 0, 0, 0, time.UTC)
+
+	s.AddMetrics(ctx, buildCumulativeSumMetric("m", "svc-boundary", 100, t0))
+	s.AddMetrics(ctx, buildCumulativeSumMetric("m", "svc-boundary", 150, t0.Add(time.Hour)))
+	s.AddMetrics(ctx, buildCumulativeSumMetric("m", "svc-boundary", 225, t0.Add(2*time.Hour)))
+	s.Sync()
+
+	data := exec(t, s, `
+		query($from: Time!, $to: Time!) {
+			metricPoints(serviceName: "svc-boundary", name: "m", from: $from, to: $to) {
+				timestamp value
+			}
+		}
+	`, map[string]any{
+		"from": t0.Add(time.Hour).Format(time.RFC3339),
+		"to":   t0.Add(2 * time.Hour).Format(time.RFC3339),
+	})
+
+	points := data["metricPoints"].([]any)
+	if len(points) != 1 {
+		t.Fatalf("metricPoints len = %d, want only the point exactly at from", len(points))
+	}
+	point := points[0].(map[string]any)
+	if point["timestamp"] != t0.Add(time.Hour).Format(time.RFC3339Nano) || point["value"].(float64) != 50 {
+		t.Fatalf("metricPoints[0] = %+v, want from-boundary point with derived value 50", point)
 	}
 }
 

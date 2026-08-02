@@ -265,9 +265,11 @@ A single writer goroutine owns the write connection. Per OTLP batch:
 
 WebSocket payloads still carry per-point deltas for live charts. After a
 metric batch commits, the broadcast adapter queries the committed points plus
-the immediately preceding observation for each represented series and applies
-the same SQL derivation used by GraphQL. Duplicate spans from OTLP re-sends are
-filtered by the indexed candidate lookup, so a restart or a resend cannot
+the immediately preceding observation only for represented cumulative source
+series whose delta derivation needs `lag`. Gauge, delta, and cumulative
+non-monotonic Sum series remain window-only. The adapter then applies the same
+SQL derivation used by GraphQL. Duplicate spans from OTLP re-sends are filtered
+by the indexed candidate lookup, so a restart or a resend cannot
 inflate stored spans or summaries.
 
 A trace that crosses 10,000 retained spans is not useful as an interactive
