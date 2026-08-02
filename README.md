@@ -137,10 +137,6 @@ otelop docs list       # list documentation bundled with this binary (--json for
 otelop docs show <name> # print one document as Markdown
 ```
 
-The bundled documentation always matches the installed otelop version. This is
-also the preferred entry point for coding agents: run `otelop docs list --json`,
-then `otelop docs show <name>` for the relevant topic.
-
 `start` flags:
 
 ```

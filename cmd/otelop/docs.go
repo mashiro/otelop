@@ -11,8 +11,6 @@ import (
 	otelopdocs "github.com/mashiro/otelop/docs"
 )
 
-const docsHint = "Run `otelop docs list` to list the bundled documentation and `otelop docs show <name>` to read a topic. Add `--json` to the list command for machine-readable output."
-
 func docsCommand() *cli.Command {
 	return &cli.Command{
 		Name:  "docs",
@@ -54,21 +52,11 @@ func runDocsList(_ context.Context, cmd *cli.Command) error {
 				return err
 			}
 		}
-		if _, err := fmt.Fprintln(writer, "\nRun `otelop docs show <name>` to read a document."); err != nil {
-			return err
-		}
 		return writer.Flush()
-	}
-	output := struct {
-		Results []otelopdocs.Document `json:"results"`
-		Help    string                `json:"help"`
-	}{
-		Results: documents,
-		Help:    "Run `otelop docs show {name}` to read a document.",
 	}
 	encoder := json.NewEncoder(cmd.Writer)
 	encoder.SetIndent("", "  ")
-	return encoder.Encode(output)
+	return encoder.Encode(documents)
 }
 
 func runDocsShow(_ context.Context, cmd *cli.Command) error {

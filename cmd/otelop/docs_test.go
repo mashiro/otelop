@@ -17,10 +17,13 @@ func TestDocsListCommand(t *testing.T) {
 	if err := command.Run(context.Background(), []string{"list"}); err != nil {
 		t.Fatalf("run docs list: %v", err)
 	}
-	for _, want := range []string{"configuration", "getting-started", "docs show <name>"} {
+	for _, want := range []string{"configuration", "getting-started"} {
 		if !strings.Contains(output.String(), want) {
 			t.Errorf("plain-text output missing %q:\n%s", want, output.String())
 		}
+	}
+	if strings.Contains(output.String(), "docs show") {
+		t.Errorf("plain-text output contains redundant usage hint:\n%s", output.String())
 	}
 	if json.Valid(output.Bytes()) {
 		t.Fatalf("default output is JSON, want plain text:\n%s", output.String())
@@ -34,14 +37,11 @@ func TestDocsListCommandJSON(t *testing.T) {
 	if err := command.Run(context.Background(), []string{"list", "--json"}); err != nil {
 		t.Fatalf("run docs list --json: %v", err)
 	}
-	var result struct {
-		Results []otelopdocs.Document `json:"results"`
-		Help    string                `json:"help"`
-	}
+	var result []otelopdocs.Document
 	if err := json.Unmarshal(output.Bytes(), &result); err != nil {
 		t.Fatalf("decode output: %v\n%s", err, output.String())
 	}
-	if len(result.Results) == 0 || !strings.Contains(result.Help, "docs show") {
+	if len(result) == 0 {
 		t.Fatalf("unexpected output: %#v", result)
 	}
 }
