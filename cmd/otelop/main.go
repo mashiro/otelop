@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"os"
 
@@ -17,20 +16,13 @@ func main() {
 		Usage:   "Browser-based OpenTelemetry viewer",
 		Version: version,
 		Commands: []*cli.Command{
-			startCommand(),
-			restartCommand(),
+			startCommand(version),
+			restartCommand(version),
 			stopCommand(),
 			statusCommand(),
 			infoCommand(),
 			logsCommand(),
-			{
-				Name:  "version",
-				Usage: "Print version",
-				Action: func(_ context.Context, _ *cli.Command) error {
-					fmt.Println(version)
-					return nil
-				},
-			},
+			versionCommand(version),
 		},
 	}
 

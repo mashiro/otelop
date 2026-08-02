@@ -1,10 +1,8 @@
-package main
+package netutil
 
-import (
-	"testing"
-)
+import "testing"
 
-func TestResolveLoopback(t *testing.T) {
+func TestLoopback(t *testing.T) {
 	tests := []struct {
 		input   string
 		want    string
@@ -21,12 +19,12 @@ func TestResolveLoopback(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			got, err := resolveLoopback(tt.input)
+			got, err := Loopback(tt.input)
 			if (err != nil) != tt.wantErr {
-				t.Fatalf("resolveLoopback(%q) error = %v, wantErr %v", tt.input, err, tt.wantErr)
+				t.Fatalf("Loopback(%q) error = %v, wantErr %v", tt.input, err, tt.wantErr)
 			}
 			if got != tt.want {
-				t.Errorf("resolveLoopback(%q) = %q, want %q", tt.input, got, tt.want)
+				t.Errorf("Loopback(%q) = %q, want %q", tt.input, got, tt.want)
 			}
 		})
 	}
