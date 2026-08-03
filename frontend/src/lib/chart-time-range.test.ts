@@ -9,6 +9,7 @@ import {
   filterPointsInDomain,
   filterDataPointsInRange,
   bucketSecondsForRange,
+  bucketSecondsForDataExtent,
   isChartTimeRange,
   type ChartTimeRange,
 } from "./chart-time-range";
@@ -133,6 +134,14 @@ describe("bucketSecondsForRange", () => {
 
   it("returns null for the all range (server auto-sizes against the real data extent)", () => {
     expect(bucketSecondsForRange("all")).toBeNull();
+  });
+});
+
+describe("bucketSecondsForDataExtent", () => {
+  it("matches server auto-bucketing against the real point extent", () => {
+    expect(bucketSecondsForDataExtent([0n, 300_000_000_000n])).toBe(2);
+    expect(bucketSecondsForDataExtent([0n, 150_000_000_000n])).toBe(1);
+    expect(bucketSecondsForDataExtent([42n])).toBe(1);
   });
 });
 

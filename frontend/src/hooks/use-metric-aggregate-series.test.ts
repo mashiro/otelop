@@ -1,7 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vite-plus/test";
-import { renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { useMetricAggregateSeries } from "./use-metric-aggregate-series";
-import { makeMetric, makeDataPoint, makeAggregateSeries } from "@/test/factories";
+import {
+  makeMetric,
+  makeDataPoint,
+  makeAggregatePoint,
+  makeAggregateSeries,
+} from "@/test/factories";
 import type { MetricAggregateQuery, MetricAggregateQueryVariables } from "@/gql/graphql";
 import type { MetricFacet } from "@/lib/metric-catalog";
 import type { ChartTimeRange } from "@/lib/chart-time-range";
@@ -90,6 +95,26 @@ describe("useMetricAggregateSeries", () => {
     });
   });
 
+  it("sizes buckets from an arbitrary fixed window instead of falling back to 1h", async () => {
+    requestMock.mockResolvedValue({ metricAggregate: [] });
+    const metric = makeMetric();
+    const window = {
+      mode: "fixed" as const,
+      from: "2026-07-12T01:00:00Z",
+      to: "2026-07-12T02:40:00Z",
+    };
+
+    renderHook(() => useMetricAggregateSeries(metric, REGION_FACET, window));
+
+    await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(1));
+    expect(requestMock.mock.calls[0]?.[1]).toMatchObject({
+      from: window.from,
+      to: window.to,
+      // 100 minutes / 150 target buckets = 40 seconds.
+      bucketSeconds: 40,
+    });
+  });
+
   it("returns the fetched aggregate series", async () => {
     const series = [makeAggregateSeries({ groupValues: ["us-east"] })];
     requestMock.mockResolvedValue({ metricAggregate: series });
@@ -160,7 +185,42 @@ describe("useMetricAggregateSeries", () => {
     expect(requestMock).toHaveBeenCalledTimes(2);
   });
 
-  it("does not refetch a fixed historical window when live points arrive", async () => {
+  it("publishes a delayed revision to a middle facet group when response edges are unchanged", async () => {
+    const middle = makeAggregateSeries({
+      groupValues: ["b"],
+      points: [
+        makeAggregatePoint({ timestamp: "2024-01-01T00:00:00Z", value: 1 }),
+        makeAggregatePoint({ timestamp: "2024-01-01T00:00:10Z", value: 2 }),
+      ],
+    });
+    const first = makeAggregateSeries({ groupValues: ["a"] });
+    const last = makeAggregateSeries({ groupValues: ["c"] });
+    const revisedMiddle = {
+      ...middle,
+      points: [{ ...middle.points[0]!, value: 9 }, middle.points[1]!],
+    };
+    requestMock
+      .mockResolvedValueOnce({ metricAggregate: [first, middle, last] })
+      .mockResolvedValueOnce({ metricAggregate: [first, revisedMiddle, last] });
+    const metric = makeMetric({ dataPoints: [makeDataPoint({ id: "a" })] });
+    const { result, rerender } = renderHook(
+      ({ m }: { m: typeof metric }) => useMetricAggregateSeries(m, REGION_FACET, liveWindow("all")),
+      { initialProps: { m: metric } },
+    );
+    await waitFor(() => expect(result.current?.[1]?.points[0]?.value).toBe(1));
+
+    vi.useFakeTimers();
+    rerender({
+      m: { ...metric, dataPoints: [...metric.dataPoints, makeDataPoint({ id: "late" })] },
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+
+    expect(result.current?.[1]?.points[0]?.value).toBe(9);
+  });
+
+  it("does not refetch a fixed historical window when an out-of-window point arrives", async () => {
     requestMock.mockResolvedValue({ metricAggregate: [] });
     const metric = makeMetric({ dataPoints: [makeDataPoint({ id: "a" })] });
     const window = {
@@ -181,6 +241,35 @@ describe("useMetricAggregateSeries", () => {
     await vi.advanceTimersByTimeAsync(5000);
 
     expect(requestMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("debounces a fixed-window refetch when a delayed in-window point arrives", async () => {
+    requestMock.mockResolvedValue({ metricAggregate: [] });
+    const metric = makeMetric({ dataPoints: [makeDataPoint({ id: "a" })] });
+    const window = {
+      mode: "fixed" as const,
+      from: "2026-07-12T01:00:00Z",
+      to: "2026-07-12T02:00:00Z",
+    };
+    const { rerender } = renderHook(
+      ({ m }: { m: typeof metric }) => useMetricAggregateSeries(m, REGION_FACET, window),
+      { initialProps: { m: metric } },
+    );
+    await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(1));
+
+    vi.useFakeTimers();
+    rerender({
+      m: {
+        ...metric,
+        dataPoints: [
+          ...metric.dataPoints,
+          makeDataPoint({ id: "late", timestamp: "2026-07-12T01:30:00Z" }),
+        ],
+      },
+    });
+    await vi.advanceTimersByTimeAsync(2000);
+
+    expect(requestMock).toHaveBeenCalledTimes(2);
   });
 
   it("clears the debounce timer on unmount (no refetch after unmount)", async () => {
@@ -217,7 +306,7 @@ describe("useMetricAggregateSeries", () => {
     expect(result.current).toBeNull();
   });
 
-  it("keeps rendering the previous series during a range-change refetch (no intermediate null emission)", async () => {
+  it("hides a previous window's series during a range-change refetch", async () => {
     const series = [makeAggregateSeries({ groupValues: ["us-east"] })];
     requestMock.mockResolvedValueOnce({ metricAggregate: series });
     const metric = makeMetric();
@@ -238,16 +327,14 @@ describe("useMetricAggregateSeries", () => {
 
     rerender({ range: "5m" });
 
-    // Still showing the previous series while the range-change fetch is in
-    // flight — not blanked to null.
-    expect(result.current).toEqual(series);
+    expect(result.current).toBeNull();
 
     resolveSecond({ metricAggregate: [] });
     await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(result.current).toEqual([]));
   });
 
-  it("keeps rendering the previous series across a facet-value change (still faceted, same metric)", async () => {
+  it("hides the previous facet's series during a facet-change refetch", async () => {
     const series = [makeAggregateSeries({ groupValues: ["us-east"] })];
     requestMock.mockResolvedValueOnce({ metricAggregate: series });
     const metric = makeMetric();
@@ -267,7 +354,7 @@ describe("useMetricAggregateSeries", () => {
 
     rerender({ facet: { attributes: ["worker"], label: "Worker" } });
 
-    expect(result.current).toEqual(series);
+    expect(result.current).toBeNull();
 
     resolveSecond({ metricAggregate: [] });
     await waitFor(() => expect(result.current).toEqual([]));

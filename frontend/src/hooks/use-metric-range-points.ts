@@ -16,6 +16,7 @@ const MetricPointsQuery = graphql(`
   query MetricPoints($serviceName: String!, $name: String!, $from: Time, $to: Time) {
     metricPoints(serviceName: $serviceName, name: $name, from: $from, to: $to) {
       id
+      seriesKey
       timestamp
       value
       cumulative

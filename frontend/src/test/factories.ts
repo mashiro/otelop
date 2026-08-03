@@ -79,6 +79,7 @@ export function makeLog(overrides: Partial<LogData> = {}): LogData {
 export function makeDataPoint(overrides: Partial<DataPoint> = {}): DataPoint {
   return normalizeDataPoint({
     id: "dp-1",
+    seriesKey: "series-1",
     timestamp: "2024-01-01T00:00:00Z",
     value: 0,
     attributes: {},

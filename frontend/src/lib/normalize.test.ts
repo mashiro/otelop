@@ -96,6 +96,7 @@ describe("normalizeTrace", () => {
 function makeDataPointWire(overrides: Partial<DataPointWire> = {}): DataPointWire {
   return {
     id: "dp-1",
+    seriesKey: "series-1",
     timestamp: "2024-01-01T00:00:00.999999999Z",
     value: 1,
     attributes: {},

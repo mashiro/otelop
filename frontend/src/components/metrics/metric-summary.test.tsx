@@ -10,6 +10,7 @@ import {
 import type { MetricFacet } from "@/lib/metric-catalog";
 
 const MODEL_FACET: MetricFacet = { attributes: ["model"], label: "Model" };
+const liveWindow = (range: "5m" | "1h" | "all") => ({ mode: "live" as const, range });
 
 afterEach(cleanup);
 
@@ -24,7 +25,7 @@ describe("MetricSummary", () => {
       <MetricSummary
         metric={metric}
         facet={null}
-        range="5m"
+        window={liveWindow("5m")}
         rangeDataPoints={metric.dataPoints}
         aggregatedSeries={null}
       />,
@@ -47,7 +48,7 @@ describe("MetricSummary", () => {
       <MetricSummary
         metric={metric}
         facet={null}
-        range="all"
+        window={liveWindow("all")}
         rangeDataPoints={metric.dataPoints}
         aggregatedSeries={null}
       />,
@@ -55,6 +56,82 @@ describe("MetricSummary", () => {
 
     expect(screen.getByText("Latest · All")).toBeTruthy();
     expect(screen.getByText("2")).toBeTruthy();
+  });
+
+  it("uses the latest Gauge observation in a breakdown, not the latest bucket mean", () => {
+    const rangeDataPoints = [
+      makeDataPoint({
+        id: "a",
+        timestamp: "2024-01-01T00:00:01Z",
+        attributes: { model: "opus" },
+        value: 0,
+      }),
+      makeDataPoint({
+        id: "b",
+        timestamp: "2024-01-01T00:00:02Z",
+        attributes: { model: "opus" },
+        value: 100,
+      }),
+    ];
+    const metric = makeMetric({ type: "Gauge", dataPoints: rangeDataPoints });
+
+    render(
+      <MetricSummary
+        metric={metric}
+        facet={MODEL_FACET}
+        window={liveWindow("1h")}
+        rangeDataPoints={rangeDataPoints}
+        aggregatedSeries={[
+          makeAggregateSeries({
+            groupValues: ["opus"],
+            points: [makeAggregatePoint({ value: 50 })],
+          }),
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("100")).toBeTruthy();
+    expect(screen.queryByText("50")).toBeNull();
+  });
+
+  it("sums the latest observation from every underlying Gauge series in a breakdown", () => {
+    const rangeDataPoints = [
+      makeDataPoint({
+        id: "worker-1-old",
+        seriesKey: "worker-1",
+        timestamp: "2024-01-01T00:00:01Z",
+        attributes: { model: "opus", worker: "1" },
+        value: 5,
+      }),
+      makeDataPoint({
+        id: "worker-1-latest",
+        seriesKey: "worker-1",
+        timestamp: "2024-01-01T00:00:02Z",
+        attributes: { model: "opus", worker: "1" },
+        value: 10,
+      }),
+      makeDataPoint({
+        id: "worker-2-latest",
+        seriesKey: "worker-2",
+        timestamp: "2024-01-01T00:00:03Z",
+        attributes: { model: "opus", worker: "2" },
+        value: 20,
+      }),
+    ];
+    const metric = makeMetric({ type: "Gauge", dataPoints: rangeDataPoints });
+
+    render(
+      <MetricSummary
+        metric={metric}
+        facet={MODEL_FACET}
+        window={liveWindow("all")}
+        rangeDataPoints={rangeDataPoints}
+        aggregatedSeries={null}
+      />,
+    );
+
+    expect(screen.getByText("30")).toBeTruthy();
+    expect(screen.queryByText("20")).toBeNull();
   });
 
   it("sums range-scoped raw point values per attribute combo for facet=All", () => {
@@ -69,7 +146,7 @@ describe("MetricSummary", () => {
       <MetricSummary
         metric={metric}
         facet={null}
-        range="all"
+        window={liveWindow("all")}
         rangeDataPoints={rangeDataPoints}
         aggregatedSeries={null}
       />,
@@ -79,6 +156,41 @@ describe("MetricSummary", () => {
     expect(screen.getByText("5")).toBeTruthy();
     expect(screen.getByText('model="haiku"')).toBeTruthy();
     expect(screen.getByText("1")).toBeTruthy();
+  });
+
+  it("keeps every point from an arbitrary fixed window in the Increase total", () => {
+    const rangeDataPoints = [
+      makeDataPoint({
+        id: "older",
+        timestamp: "2024-01-01T00:10:00Z",
+        value: 5.4,
+        cumulative: 5.4,
+      }),
+      makeDataPoint({
+        id: "newer",
+        timestamp: "2024-01-01T01:50:00Z",
+        value: 1.7,
+        cumulative: 7.1,
+      }),
+    ];
+    const metric = makeMetric({ type: "Sum", unit: "USD", dataPoints: rangeDataPoints });
+
+    render(
+      <MetricSummary
+        metric={metric}
+        facet={null}
+        window={{
+          mode: "fixed",
+          from: "2024-01-01T00:00:00Z",
+          to: "2024-01-01T02:00:00Z",
+        }}
+        rangeDataPoints={rangeDataPoints}
+        aggregatedSeries={null}
+      />,
+    );
+
+    expect(screen.getByText("Increase · Custom")).toBeTruthy();
+    expect(screen.getByText("7.1 USD")).toBeTruthy();
   });
 
   it("sums the fetched aggregate series' value per group when a facet is active", () => {
@@ -99,7 +211,7 @@ describe("MetricSummary", () => {
       <MetricSummary
         metric={metric}
         facet={MODEL_FACET}
-        range="all"
+        window={liveWindow("all")}
         rangeDataPoints={rangeDataPoints}
         aggregatedSeries={aggregatedSeries}
       />,
@@ -135,7 +247,7 @@ describe("MetricSummary", () => {
       <MetricSummary
         metric={metric}
         facet={MODEL_FACET}
-        range="all"
+        window={liveWindow("all")}
         rangeDataPoints={rangeDataPoints}
         aggregatedSeries={aggregatedSeries}
       />,
@@ -157,7 +269,7 @@ describe("MetricSummary", () => {
       <MetricSummary
         metric={metric}
         facet={null}
-        range="1h"
+        window={liveWindow("1h")}
         rangeDataPoints={metric.dataPoints}
         aggregatedSeries={null}
         distributionGroupBy={null}
@@ -197,7 +309,7 @@ describe("MetricSummary", () => {
       <MetricSummary
         metric={metric}
         facet={MODEL_FACET}
-        range="5m"
+        window={liveWindow("5m")}
         rangeDataPoints={rangeDataPoints}
         aggregatedSeries={null}
         distributionGroupBy={["model"]}
@@ -247,7 +359,7 @@ describe("MetricSummary", () => {
       <MetricSummary
         metric={metric}
         facet={null}
-        range="all"
+        window={liveWindow("all")}
         rangeDataPoints={metric.dataPoints}
         aggregatedSeries={null}
       />,

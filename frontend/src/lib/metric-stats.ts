@@ -1,6 +1,7 @@
 import type { DataPoint } from "@/types/telemetry";
 import type { MetricFacet } from "@/lib/metric-catalog";
-import { type ChartTimeRange, filterDataPointsInRange } from "@/lib/chart-time-range";
+import { filterDataPointsInRange } from "@/lib/chart-time-range";
+import type { EventTimeWindow } from "@/lib/event-time-window";
 import type { AggregateSeriesData } from "@/hooks/use-metric-aggregate-series";
 import { parseEpochNs } from "@/lib/normalize";
 import { facetGroupColorIndexes, seriesColorIndexes } from "@/lib/metric-series-colors";
@@ -92,6 +93,7 @@ export function hasIncreaseStatTileSignal(dataPoints: DataPoint[]): boolean {
 interface StatTilePoint {
   timestamp: string;
   epochNs: bigint;
+  seriesKey: string;
   value: number;
   count?: number | null;
 }
@@ -103,7 +105,7 @@ interface StatTileGroup {
   points: StatTilePoint[];
 }
 
-export type StatTileMode = "increase" | "latest";
+export type StatTileMode = "increase" | "latest" | "latest-sum-series";
 
 function latestPoint(points: StatTilePoint[]): StatTilePoint | undefined {
   let latest: StatTilePoint | undefined;
@@ -124,7 +126,25 @@ function combineStatTileGroups(
   includeLatestCount: boolean,
 ): StatTile[] {
   const tiles = groups.map((g): StatTile => {
-    if (mode === "latest") {
+    if (mode === "latest" || mode === "latest-sum-series") {
+      if (mode === "latest-sum-series") {
+        const latestBySeries = new Map<string, StatTilePoint>();
+        for (const point of g.points) {
+          const latest = latestBySeries.get(point.seriesKey);
+          if (!latest || point.epochNs > latest.epochNs) {
+            latestBySeries.set(point.seriesKey, point);
+          }
+        }
+        let value: number | null = null;
+        for (const point of latestBySeries.values()) value = (value ?? 0) + point.value;
+        return {
+          key: g.key,
+          label: g.label,
+          colorIndex: g.colorIndex,
+          value,
+          count: null,
+        };
+      }
       const latest = latestPoint(g.points);
       return {
         key: g.key,
@@ -154,7 +174,7 @@ function combineStatTileGroups(
 export function statTileGroupsFromAggregate(
   aggregatedSeries: AggregateSeriesData[],
   facet: MetricFacet,
-  range: ChartTimeRange,
+  window: EventTimeWindow,
 ): StatTileGroup[] {
   const resolved = resolveFacetGroupColorIndex(aggregatedSeries, facet);
   return aggregatedSeries.map((s, i) => {
@@ -168,7 +188,13 @@ export function statTileGroupsFromAggregate(
     // filters run over). Parsed once per point, then reused for both the
     // range filter and the returned points.
     const withEpoch = s.points.map((p) => ({ ...p, epochNs: parseEpochNs(p.timestamp) }));
-    const windowed = filterDataPointsInRange(withEpoch, range, (p) => p.epochNs);
+    // Fixed-window aggregate responses are already scoped by the server.
+    // Filtering their bucket-start timestamps against the selected bounds
+    // would incorrectly drop a boundary bucket that contains in-window data.
+    const windowed =
+      window.mode === "live"
+        ? filterDataPointsInRange(withEpoch, window.range, (p) => p.epochNs)
+        : withEpoch;
     return {
       key: label,
       label,
@@ -176,6 +202,8 @@ export function statTileGroupsFromAggregate(
       points: windowed.map((p) => ({
         timestamp: p.timestamp,
         epochNs: p.epochNs,
+        // Aggregate points have already combined every underlying series.
+        seriesKey: label,
         value: p.value,
         count: p.count,
       })),
@@ -189,28 +217,46 @@ export function statTileGroupsFromAggregate(
 export function statTileGroupsFromRawPoints(
   rangeDataPoints: DataPoint[],
   facet: MetricFacet | null,
-  range: ChartTimeRange,
+  window: EventTimeWindow,
 ): StatTileGroup[] {
   // rangeDataPoints is already the store's DataPoint view model, so its
   // epochNs is a pre-parsed field, not re-parsed here (see lib/normalize.ts).
-  const windowed = filterDataPointsInRange(rangeDataPoints, range, (dp) => dp.epochNs);
+  // useMetricRangePoints has already applied exact fixed-window bounds. Live
+  // data still needs max-point anchoring so a stopped stream remains visible.
+  const windowed =
+    window.mode === "live"
+      ? filterDataPointsInRange(rangeDataPoints, window.range, (dp) => dp.epochNs)
+      : rangeDataPoints;
   const groups = new Map<string, StatTileGroup>();
+  const groupValues = new Map<string, string[]>();
   for (const dp of windowed) {
     const key = facetSeriesKey(dp.attributes, facet);
     let group = groups.get(key);
     if (!group) {
       group = { key, label: key || "(no attributes)", colorIndex: 0, points: [] };
       groups.set(key, group);
+      if (facet) {
+        groupValues.set(
+          key,
+          facet.attributes.map((attribute) => formatAttrValue(dp.attributes[attribute])),
+        );
+      }
     }
     group.points.push({
       timestamp: dp.timestamp,
       epochNs: dp.epochNs,
+      seriesKey: dp.seriesKey,
       value: dp.value,
       count: dp.count,
     });
   }
   const result = [...groups.values()];
-  const colorIndexes = seriesColorIndexes(result.map((group) => group.key));
+  const colorIndexes = facet
+    ? facetGroupColorIndexes(
+        facet,
+        result.map((group) => groupValues.get(group.key)!),
+      )
+    : seriesColorIndexes(result.map((group) => group.key));
   return result.map((group, index) => ({ ...group, colorIndex: colorIndexes[index]! }));
 }
 
@@ -224,7 +270,7 @@ export type StatTilesInput =
       kind: "aggregate";
       aggregatedSeries: AggregateSeriesData[];
       facet: MetricFacet;
-      range: ChartTimeRange;
+      window: EventTimeWindow;
       mode: StatTileMode;
       includeLatestCount: boolean;
     }
@@ -232,7 +278,7 @@ export type StatTilesInput =
       kind: "raw";
       rangeDataPoints: DataPoint[];
       facet: MetricFacet | null;
-      range: ChartTimeRange;
+      window: EventTimeWindow;
       mode: StatTileMode;
       includeLatestCount: boolean;
     };
@@ -243,7 +289,7 @@ export type StatTilesInput =
 export function computeStatTiles(input: StatTilesInput): StatTile[] {
   const groups =
     input.kind === "aggregate"
-      ? statTileGroupsFromAggregate(input.aggregatedSeries, input.facet, input.range)
-      : statTileGroupsFromRawPoints(input.rangeDataPoints, input.facet, input.range);
+      ? statTileGroupsFromAggregate(input.aggregatedSeries, input.facet, input.window)
+      : statTileGroupsFromRawPoints(input.rangeDataPoints, input.facet, input.window);
   return combineStatTileGroups(groups, input.mode, input.includeLatestCount);
 }

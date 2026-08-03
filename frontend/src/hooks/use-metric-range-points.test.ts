@@ -17,6 +17,7 @@ function liveWindow(range: ChartTimeRange) {
 function toQueryPoint(dp: DataPoint) {
   return {
     id: dp.id,
+    seriesKey: dp.seriesKey,
     timestamp: dp.timestamp,
     value: dp.value,
     cumulative: dp.cumulative ?? null,

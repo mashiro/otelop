@@ -9,7 +9,8 @@ import {
 } from "@/lib/metric-stats";
 import { isDistributionMetric, resolveMetricUnit, type MetricFacet } from "@/lib/metric-catalog";
 import { formatMetricValue } from "@/lib/format-metric";
-import { CHART_TIME_RANGES, type ChartTimeRange } from "@/lib/chart-time-range";
+import { CHART_TIME_RANGES } from "@/lib/chart-time-range";
+import { eventWindowRange, type EventTimeWindow } from "@/lib/event-time-window";
 import {
   facetGroupColorIdentity,
   SERIES_COLORS,
@@ -19,7 +20,9 @@ import type { AggregateSeriesData } from "@/hooks/use-metric-aggregate-series";
 import type { MetricDistributionSeriesData } from "@/hooks/use-metric-distribution-stats";
 import type { DataPoint, MetricData } from "@/types/telemetry";
 
-function rangeLabel(range: ChartTimeRange): string {
+function rangeLabel(window: EventTimeWindow): string {
+  const range = eventWindowRange(window);
+  if (range === null) return "Custom";
   return CHART_TIME_RANGES.find((r) => r.value === range)?.label ?? range;
 }
 
@@ -30,7 +33,7 @@ function rangeLabel(range: ChartTimeRange): string {
 export const MetricSummary = memo(function MetricSummary({
   metric,
   facet,
-  range,
+  window,
   rangeDataPoints,
   aggregatedSeries,
   distributionStats,
@@ -38,7 +41,7 @@ export const MetricSummary = memo(function MetricSummary({
 }: {
   metric: MetricData;
   facet?: MetricFacet | null;
-  range: ChartTimeRange;
+  window: EventTimeWindow;
   rangeDataPoints: DataPoint[];
   aggregatedSeries: AggregateSeriesData[] | null;
   distributionStats?: MetricDistributionSeriesData[] | null;
@@ -54,25 +57,30 @@ export const MetricSummary = memo(function MetricSummary({
     // Latest mode only needs a point and therefore applies to Gauge and
     // distribution metrics without a cumulative-family field.
     if (!showsLatest && !hasIncreaseStatTileSignal(rangeDataPoints)) return [];
-    const input: StatTilesInput = facet
-      ? {
-          kind: "aggregate",
-          aggregatedSeries: aggregatedSeries ?? [],
-          facet,
-          range,
-          mode: showsLatest ? "latest" : "increase",
-          includeLatestCount: isDistribution,
-        }
-      : {
-          kind: "raw",
-          rangeDataPoints,
-          facet: null,
-          range,
-          mode: showsLatest ? "latest" : "increase",
-          includeLatestCount: isDistribution,
-        };
+    // A Gauge's "Latest" is the latest underlying observation, not the mean
+    // of whichever aggregate bucket happens to be last. Bucket width may
+    // change when the window changes; the summary value must not.
+    const input: StatTilesInput =
+      facet && metric.type !== "Gauge"
+        ? {
+            kind: "aggregate",
+            aggregatedSeries: aggregatedSeries ?? [],
+            facet,
+            window,
+            mode: showsLatest ? "latest" : "increase",
+            includeLatestCount: isDistribution,
+          }
+        : {
+            kind: "raw",
+            rangeDataPoints,
+            facet: facet ?? null,
+            window,
+            mode:
+              metric.type === "Gauge" ? "latest-sum-series" : showsLatest ? "latest" : "increase",
+            includeLatestCount: isDistribution,
+          };
     return computeStatTiles(input);
-  }, [facet, aggregatedSeries, rangeDataPoints, range, isDistribution, showsLatest]);
+  }, [facet, aggregatedSeries, rangeDataPoints, window, isDistribution, showsLatest, metric.type]);
 
   if (isHistogram && distributionStats) {
     return (
@@ -80,7 +88,7 @@ export const MetricSummary = memo(function MetricSummary({
         series={distributionStats}
         groupBy={distributionGroupBy}
         facet={facet}
-        range={range}
+        window={window}
         unit={unit}
       />
     );
@@ -96,11 +104,11 @@ export const MetricSummary = memo(function MetricSummary({
         className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground"
         title={
           showsLatest
-            ? `Latest value in the selected ${rangeLabel(range)} window`
-            : `Increase over the selected ${rangeLabel(range)} window`
+            ? `Latest value in the selected ${rangeLabel(window)} window`
+            : `Increase over the selected ${rangeLabel(window)} window`
         }
       >
-        {showsLatest ? "Latest" : "Increase"} · {rangeLabel(range)}
+        {showsLatest ? "Latest" : "Increase"} · {rangeLabel(window)}
       </div>
       <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-2">
         {tiles.map((tile) => (
@@ -121,13 +129,13 @@ function HistogramSummary({
   series,
   groupBy,
   facet,
-  range,
+  window,
   unit,
 }: {
   series: MetricDistributionSeriesData[];
   groupBy: string[] | null;
   facet?: MetricFacet | null;
-  range: ChartTimeRange;
+  window: EventTimeWindow;
   unit: string;
 }) {
   const rows = series.map((item) => {
@@ -154,7 +162,7 @@ function HistogramSummary({
   return (
     <div className="mb-4">
       <div className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-        Distribution · {rangeLabel(range)}
+        Distribution · {rangeLabel(window)}
       </div>
       <div className="overflow-x-auto rounded-lg border border-border/30 bg-muted/50">
         <table className="w-full min-w-[880px] text-left text-xs">

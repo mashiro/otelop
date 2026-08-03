@@ -93,6 +93,9 @@ export interface DataPointWire {
   // ingestion. Use it as the React key: it survives client-buffer eviction and
   // reconnects, unlike timestamp/attributes (which can collide) or array index.
   id: string;
+  // Opaque identity of the underlying OTel series. Equal point attributes
+  // can still belong to independent resource/scope series.
+  seriesKey: string;
   timestamp: string;
   value: number;
   cumulative?: number | null;

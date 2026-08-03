@@ -1,9 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { graphql } from "@/gql";
 import { gqlClient } from "@/lib/graphql";
-import { rangeToFrom, bucketSecondsForRange } from "@/lib/chart-time-range";
-import { eventWindowRange, type EventTimeWindow } from "@/lib/event-time-window";
-import { useStableArray } from "@/hooks/use-stable-array";
+import { rangeToFrom } from "@/lib/chart-time-range";
+import {
+  bucketSecondsForEventWindow,
+  eventWindowKey,
+  filterPointsInEventWindow,
+  type EventTimeWindow,
+} from "@/lib/event-time-window";
 import type { MetricFacet } from "@/lib/metric-catalog";
 import type { MetricData } from "@/types/telemetry";
 
@@ -61,20 +65,13 @@ export interface AggregateSeriesData {
 // trailing debounce keeps a bursty metric from re-querying on every message.
 const LIVE_REFETCH_DEBOUNCE_MS = 2000;
 
-// Shared reference so useStableArray's "both empty" comparison short-circuits
-// to the same object instead of a fresh `[]` literal defeating its own
-// reference check.
-const EMPTY_SERIES: AggregateSeriesData[] = [];
-
-// Cheap identity for a facet group's series: group membership plus its last
-// bucket's timestamp/value. A debounced live refetch or a range/facet-value
-// change often returns data that's identical to what's already rendered
-// (e.g. no new bucket landed yet); comparing just the edges (not every
-// bucket) is enough to catch that without walking every group's full point
-// list on every fetch.
+// Include every bucket field: a delayed point can revise an earlier bucket
+// without changing the series length or last point. Aggregate responses top
+// out around 150 buckets, so this correctness check stays bounded.
 function seriesKey(s: AggregateSeriesData): string {
-  const last = s.points.at(-1);
-  return `${s.groupValues.join("\u0000")}|${s.points.length}|${last?.timestamp ?? ""}|${last?.value ?? ""}`;
+  return `${s.groupValues.join("\u0000")}|${s.points
+    .map((p) => [p.timestamp, p.value, p.count, p.sum, p.min, p.max].join("\u0001"))
+    .join("\u0002")}`;
 }
 
 // useMetricAggregateSeries fetches server-side facet aggregation (see
@@ -95,7 +92,7 @@ export function useMetricAggregateSeries(
   const { serviceName, name, dataPoints } = metric;
   const metricKey = `${serviceName}::${name}`;
   const [snapshot, setSnapshot] = useState<{
-    metricKey: string;
+    queryKey: string;
     series: AggregateSeriesData[];
   } | null>(null);
   const groupBy = facet?.attributes ?? null;
@@ -104,22 +101,23 @@ export function useMetricAggregateSeries(
   // attribute list's content so effects don't refire every render.
   const groupByKey = groupBy?.join("\u0000") ?? null;
   const requestIdRef = useRef(0);
-  const range = eventWindowRange(window) ?? "1h";
   const windowMode = window.mode;
+  const liveRange = window.mode === "live" ? window.range : undefined;
   const fixedFrom = window.mode === "fixed" ? window.from : undefined;
   const fixedTo = window.mode === "fixed" ? window.to : undefined;
   const queryBounds = useMemo(
     () => ({
-      from: windowMode === "fixed" ? fixedFrom : rangeToFrom(range),
+      from: windowMode === "fixed" ? fixedFrom : liveRange ? rangeToFrom(liveRange) : undefined,
       to: fixedTo,
     }),
-    [windowMode, fixedFrom, fixedTo, range],
+    [windowMode, fixedFrom, fixedTo, liveRange],
   );
+  const bucketSeconds = bucketSecondsForEventWindow(window);
+  const queryKey = `${metricKey}|${groupByKey ?? ""}|${eventWindowKey(window)}|${bucketSeconds ?? "auto"}`;
 
   const fetchNow = useCallback(() => {
     if (!groupBy) return;
     const requestId = ++requestIdRef.current;
-    const bucketSeconds = bucketSecondsForRange(range);
     void (async () => {
       try {
         const data = await gqlClient.request(MetricAggregateQuery, {
@@ -135,7 +133,7 @@ export function useMetricAggregateSeries(
           ...queryBounds,
         });
         if (requestIdRef.current === requestId) {
-          setSnapshot({ metricKey, series: data.metricAggregate });
+          setSnapshot({ queryKey, series: data.metricAggregate });
         }
       } catch {
         if (requestIdRef.current === requestId) {
@@ -146,12 +144,11 @@ export function useMetricAggregateSeries(
     // groupBy's identity isn't stable across renders; groupByKey is the
     // real dependency (see above).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [serviceName, name, metricKey, groupByKey, range, queryBounds]);
+  }, [serviceName, name, queryKey, groupByKey, bucketSeconds, queryBounds]);
 
   // Immediate fetch on mount and whenever the metric/facet/range identity
-  // changes. Snapshot keys invalidate another metric's data synchronously;
-  // range and facet changes for the same metric keep the previous series on
-  // screen until the guarded request settles.
+  // changes. The query-scoped snapshot below prevents a previous window or
+  // facet from being rendered under the newly selected controls.
   useEffect(() => {
     if (!groupByKey) {
       requestIdRef.current += 1;
@@ -160,7 +157,7 @@ export function useMetricAggregateSeries(
     fetchNow();
   }, [fetchNow, groupByKey]);
 
-  // Debounced refetch on live WS delivery for this metric. dataPoints is a
+  // Debounced refetch on a relevant WS delivery for this metric. dataPoints is a
   // new array identity each time addMetricAtom merges in a WS message, so
   // its reference change is the live-update signal; the timer is cleared on
   // unmount/re-trigger per the project's useRef-timer convention.
@@ -168,8 +165,18 @@ export function useMetricAggregateSeries(
   const mountedDataPoints = useRef(dataPoints);
   useEffect(() => {
     if (mountedDataPoints.current === dataPoints) return;
+    const previous = mountedDataPoints.current;
     mountedDataPoints.current = dataPoints;
-    if (!groupByKey || windowMode !== "live") return;
+    if (!groupByKey) return;
+
+    // A fixed historical view should not poll on unrelated current traffic,
+    // but a late-arriving point inside that exact window must invalidate its
+    // server aggregate. GraphQL and this predicate both use [from, to).
+    if (windowMode === "fixed") {
+      const previousIds = new Set(previous.map((point) => point.id));
+      const added = dataPoints.filter((point) => !previousIds.has(point.id));
+      if (filterPointsInEventWindow(added, window, (point) => point.epochNs).length === 0) return;
+    }
 
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = setTimeout(() => {
@@ -179,13 +186,21 @@ export function useMetricAggregateSeries(
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
     };
-  }, [dataPoints, groupByKey, fetchNow, windowMode]);
+  }, [dataPoints, groupByKey, fetchNow, window, windowMode]);
 
   // A debounced live refetch or a range/facet-value change frequently comes
   // back byte-for-byte identical (no new bucket landed yet); stabilizing
   // here lets memoized consumers (MetricChart, MetricSummary) skip
   // re-rendering when it did.
-  const series = snapshot?.metricKey === metricKey ? snapshot.series : null;
-  const stableSeries = useStableArray(series ?? EMPTY_SERIES, seriesKey);
-  return groupByKey && series ? stableSeries : null;
+  const series = snapshot?.queryKey === queryKey ? snapshot.series : null;
+  const stableSeriesRef = useRef<{ key: string; series: AggregateSeriesData[] } | null>(null);
+  if (series) {
+    // Compare every facet group, not only the response array's first/last
+    // element: a late point can revise any middle group in place.
+    const responseKey = `${queryKey}|${series.map(seriesKey).join("\u0003")}`;
+    if (stableSeriesRef.current?.key !== responseKey) {
+      stableSeriesRef.current = { key: responseKey, series };
+    }
+  }
+  return groupByKey && series ? stableSeriesRef.current!.series : null;
 }

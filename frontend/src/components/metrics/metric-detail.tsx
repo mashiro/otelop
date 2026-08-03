@@ -23,8 +23,6 @@ import {
 } from "@/lib/metric-catalog";
 import { formatMetricValue } from "@/lib/format-metric";
 import { formatTimestamp } from "@/lib/format";
-import { DEFAULT_CHART_TIME_RANGE } from "@/lib/chart-time-range";
-import { eventWindowRange } from "@/lib/event-time-window";
 import { useMetricRangePoints } from "@/hooks/use-metric-range-points";
 import { useMetricAggregateSeries } from "@/hooks/use-metric-aggregate-series";
 import { useMetricDistributionStats } from "@/hooks/use-metric-distribution-stats";
@@ -70,7 +68,6 @@ export function MetricDetailBody({ metric }: { metric: MetricData }) {
   // Synced to the URL (unlike pickedId below) so a shared/reloaded link
   // reopens the same window — see metricTimeWindowAtom in navigation.ts.
   const [window, setWindow] = useAtom(metricTimeWindowAtom);
-  const range = eventWindowRange(window) ?? DEFAULT_CHART_TIME_RANGE;
   // rangeDataPoints (the fetched-range + live-buffer merge, already stable by
   // id — see use-metric-range-points.ts) is the source of truth for
   // everything below, not metric.dataPoints: the metrics list's initial load
@@ -215,7 +212,7 @@ export function MetricDetailBody({ metric }: { metric: MetricData }) {
           <MetricSummary
             metric={stableMetric}
             facet={effectiveFacet}
-            range={range}
+            window={window}
             rangeDataPoints={rangeDataPoints}
             aggregatedSeries={aggregatedSeries}
             distributionStats={distributionStats}

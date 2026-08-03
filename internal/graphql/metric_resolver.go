@@ -2,6 +2,7 @@ package graphql
 
 import (
 	"context"
+	"strconv"
 	"sync"
 	"time"
 
@@ -81,6 +82,7 @@ type DataPointResolver struct {
 }
 
 func (r *DataPointResolver) ID() gql.ID                { return gql.ID(r.dp.ID.String()) }
+func (r *DataPointResolver) SeriesKey() string         { return strconv.FormatUint(r.dp.SeriesKey, 10) }
 func (r *DataPointResolver) Timestamp() gql.Time       { return gql.Time{Time: r.dp.TS} }
 func (r *DataPointResolver) Value() float64            { return floatOrZero(r.dp.Value) }
 func (r *DataPointResolver) Cumulative() *float64      { return r.dp.Cumulative }
