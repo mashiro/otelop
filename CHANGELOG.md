@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.2](https://github.com/mashiro/otelop/compare/v1.2.1...v1.2.2) (2026-08-03)
+
+
+### Bug Fixes
+
+* **frontend:** stabilize metric chart aggregation ([#228](https://github.com/mashiro/otelop/issues/228)) ([b03e38d](https://github.com/mashiro/otelop/commit/b03e38db835af9956aaae1647b9305b1750b73f5))
+
 ## [1.2.1](https://github.com/mashiro/otelop/compare/v1.2.0...v1.2.1) (2026-08-02)
 
 
