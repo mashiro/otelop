@@ -121,6 +121,7 @@ type DataPoint struct {
 	// consumers (e.g. React keys) get a key that never collides and never
 	// changes across WebSocket replay or persistence.
 	ID              string         `json:"id"`
+	SeriesKey       string         `json:"seriesKey"`
 	Timestamp       time.Time      `json:"timestamp"`
 	Value           float64        `json:"value"`
 	Cumulative      *float64       `json:"cumulative,omitempty"`

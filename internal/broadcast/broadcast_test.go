@@ -358,7 +358,7 @@ func TestBroadcast_Metrics_WireShapeAndBaselineOmission(t *testing.T) {
 	dpKeys := keySet(t, dp)
 	// Non-distribution Sum data point: count/sum/min/max must stay omitted
 	// (omitempty), not present-as-null, matching telemetry.ts's optional fields.
-	requireExactKeys(t, dpKeys, "id", "timestamp", "value", "cumulative", "attributes")
+	requireExactKeys(t, dpKeys, "id", "seriesKey", "timestamp", "value", "cumulative", "attributes")
 	if dp.Value != 40 {
 		t.Errorf("value = %v, want 40 (140-100 delta)", dp.Value)
 	}
@@ -367,6 +367,9 @@ func TestBroadcast_Metrics_WireShapeAndBaselineOmission(t *testing.T) {
 	}
 	if dp.ID == "" {
 		t.Errorf("id must be non-empty")
+	}
+	if dp.SeriesKey == "" {
+		t.Errorf("seriesKey must be non-empty")
 	}
 }
 

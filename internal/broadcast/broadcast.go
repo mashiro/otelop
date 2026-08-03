@@ -10,6 +10,7 @@ package broadcast
 import (
 	"context"
 	"log/slog"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -251,7 +252,8 @@ func broadcastMetricPlan(plan metricBroadcastPlan, derivedByMetric map[metricKey
 				continue
 			}
 			dataPoints = append(dataPoints, DataPoint{
-				ID: point.ID.String(), Timestamp: point.TS, Value: *point.Value,
+				ID: point.ID.String(), SeriesKey: strconv.FormatUint(point.SeriesKey, 10),
+				Timestamp: point.TS, Value: *point.Value,
 				Cumulative: point.Cumulative, Count: point.Count, CountCumulative: point.CountCumulative,
 				Sum: point.Sum, SumCumulative: point.SumCumulative, Min: point.Min, Max: point.Max,
 				Attributes: point.Attributes,

@@ -114,7 +114,27 @@ const MIN_BUCKET_SECONDS = 1;
 export function bucketSecondsForRange(range: ChartTimeRange): number | null {
   const rangeMs = rangeToMs(range);
   if (rangeMs === null) return null;
-  return Math.max(MIN_BUCKET_SECONDS, Math.round(rangeMs / TARGET_BUCKETS / 1000));
+  return bucketSecondsForDurationMs(rangeMs);
+}
+
+export function bucketSecondsForDurationMs(durationMs: number): number {
+  return Math.max(MIN_BUCKET_SECONDS, Math.round(durationMs / TARGET_BUCKETS / 1000));
+}
+
+// Mirrors storage.metricAggregateAutoBucket for the raw "All" chart path:
+// auto-size against the points' real extent, not an arbitrary retention
+// window. The server passes a whole-second width to DuckDB, so truncate the
+// candidate here as well.
+export function bucketSecondsForDataExtent(epochNs: bigint[]): number {
+  if (epochNs.length < 2) return MIN_BUCKET_SECONDS;
+  let min = epochNs[0]!;
+  let max = min;
+  for (const ns of epochNs.slice(1)) {
+    if (ns < min) min = ns;
+    if (ns > max) max = ns;
+  }
+  const seconds = Number((max - min) / 1_000_000_000n) / TARGET_BUCKETS;
+  return Math.max(MIN_BUCKET_SECONDS, Math.floor(seconds));
 }
 
 export function filterPointsInDomain<T extends { time: Date }>(

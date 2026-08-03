@@ -452,6 +452,7 @@ func TestMetricPoints_ReturnsDerivedPointsForOneGroup(t *testing.T) {
 	data := exec(t, s, `
 		query($from: Time!) {
 			metricPoints(serviceName: "svc-mp", name: "requests.total", from: $from) {
+				seriesKey
 				value
 				cumulative
 			}
@@ -466,6 +467,9 @@ func TestMetricPoints_ReturnsDerivedPointsForOneGroup(t *testing.T) {
 		t.Fatalf("metricPoints len = %d, want 1 (baseline dropped)", len(points))
 	}
 	p := points[0].(map[string]any)
+	if p["seriesKey"] == "" {
+		t.Errorf("seriesKey must be non-empty")
+	}
 	if p["value"].(float64) != 50 {
 		t.Errorf("value = %v, want 50 (150-100)", p["value"])
 	}

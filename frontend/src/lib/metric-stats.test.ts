@@ -16,6 +16,7 @@ import {
 } from "@/lib/metric-series-colors";
 
 const MODEL_FACET = { attributes: ["model"], label: "model" };
+const liveWindow = (range: "1m" | "all") => ({ mode: "live" as const, range });
 
 describe("facetGroupLabel", () => {
   it("joins group values with a space, matching facetSeriesKey's display format", () => {
@@ -39,7 +40,7 @@ describe("metric series colors", () => {
         makeDataPoint({ id: "b", attributes: { model: "haiku" } }),
       ],
       null,
-      "all",
+      liveWindow("all"),
     );
     const shiftedWindow = statTileGroupsFromRawPoints(
       [
@@ -47,7 +48,7 @@ describe("metric series colors", () => {
         makeDataPoint({ id: "d", attributes: { model: "opus" } }),
       ],
       null,
-      "all",
+      liveWindow("all"),
     );
 
     expect(firstWindow.find((group) => group.key === 'model="opus"')?.colorIndex).toBe(
@@ -111,7 +112,7 @@ function increaseInput(overrides: Partial<StatTilesInput & { kind: "raw" }> = {}
     kind: "raw",
     rangeDataPoints: [],
     facet: null,
-    range: "all",
+    window: liveWindow("all"),
     mode: "increase",
     includeLatestCount: false,
     ...overrides,
@@ -190,7 +191,7 @@ describe("computeStatTiles — raw (facet=All) path", () => {
       {
         key: "opus",
         label: "opus",
-        colorIndex: seriesColorIndexes(["opus"])[0],
+        colorIndex: facetGroupColorIndexes(MODEL_FACET, [["opus"]])[0],
         value: 2,
         count: 20,
       },
@@ -210,7 +211,7 @@ describe("computeStatTiles — raw (facet=All) path", () => {
       makeDataPoint({ id: "b", timestamp: "2024-01-01T00:10:00Z", value: 2 }),
     ];
 
-    const tiles = computeStatTiles(increaseInput({ rangeDataPoints, range: "1m" }));
+    const tiles = computeStatTiles(increaseInput({ rangeDataPoints, window: liveWindow("1m") }));
 
     expect(tiles).toEqual([
       {
@@ -243,7 +244,7 @@ describe("computeStatTiles — aggregate (facet active) path", () => {
       kind: "aggregate",
       aggregatedSeries,
       facet: MODEL_FACET,
-      range: "all",
+      window: liveWindow("all"),
       mode: "increase",
       includeLatestCount: false,
     });
@@ -282,7 +283,7 @@ describe("computeStatTiles — aggregate (facet active) path", () => {
       kind: "aggregate",
       aggregatedSeries,
       facet: MODEL_FACET,
-      range: "all",
+      window: liveWindow("all"),
       mode: "latest",
       includeLatestCount: true,
     });
@@ -303,8 +304,12 @@ describe("computeStatTiles — aggregate (facet active) path", () => {
       makeAggregateSeries({ groupValues: ["haiku"], points: [makeAggregatePoint({ value: 1 })] }),
       makeAggregateSeries({ groupValues: ["opus"], points: [makeAggregatePoint({ value: 2 })] }),
     ];
-    const groups = statTileGroupsFromAggregate(aggregatedSeries, MODEL_FACET, "all");
-    const reversed = statTileGroupsFromAggregate(aggregatedSeries.toReversed(), MODEL_FACET, "all");
+    const groups = statTileGroupsFromAggregate(aggregatedSeries, MODEL_FACET, liveWindow("all"));
+    const reversed = statTileGroupsFromAggregate(
+      aggregatedSeries.toReversed(),
+      MODEL_FACET,
+      liveWindow("all"),
+    );
 
     expect(groups.find((g) => g.key === "opus")?.colorIndex).toBe(
       reversed.find((g) => g.key === "opus")?.colorIndex,
@@ -325,12 +330,13 @@ describe("computeStatTiles — aggregate (facet active) path", () => {
       }),
     ];
 
-    const groups = statTileGroupsFromAggregate(aggregatedSeries, MODEL_FACET, "1m");
+    const groups = statTileGroupsFromAggregate(aggregatedSeries, MODEL_FACET, liveWindow("1m"));
 
     expect(groups[0]?.points).toEqual([
       {
         timestamp: "2024-01-01T00:10:00Z",
         epochNs: parseEpochNs("2024-01-01T00:10:00Z"),
+        seriesKey: "opus",
         value: 5,
         count: null,
       },
@@ -340,7 +346,11 @@ describe("computeStatTiles — aggregate (facet active) path", () => {
 
 describe("statTileGroupsFromRawPoints", () => {
   it("labels an attribute-less group '(no attributes)'", () => {
-    const groups = statTileGroupsFromRawPoints([makeDataPoint({ id: "a", value: 1 })], null, "all");
+    const groups = statTileGroupsFromRawPoints(
+      [makeDataPoint({ id: "a", value: 1 })],
+      null,
+      liveWindow("all"),
+    );
 
     expect(groups).toHaveLength(1);
     expect(groups[0]).toMatchObject({ key: "", label: "(no attributes)", colorIndex: 0 });

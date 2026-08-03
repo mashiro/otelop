@@ -14,6 +14,12 @@ import { filterPointsInDomain } from "@/lib/chart-time-range";
 import { eventWindowDomain, type EventTimeWindow } from "@/lib/event-time-window";
 import type { AggregateSeriesData } from "@/hooks/use-metric-aggregate-series";
 import { SERIES_COLORS, seriesColorIndexes } from "@/lib/metric-series-colors";
+import {
+  bucketRawMetricPoints,
+  bucketSecondsForRawMetricPoints,
+  chartTimeForAggregateTimestamp,
+  type MetricChartPoint,
+} from "@/lib/metric-chart-series";
 
 const MARGIN = { top: 10, right: 20, bottom: 40, left: 72 };
 
@@ -28,10 +34,7 @@ interface SeriesData {
   points: PointData[];
 }
 
-interface PointData {
-  time: Date;
-  value: number;
-}
+type PointData = MetricChartPoint;
 
 interface TooltipRow {
   label: string;
@@ -173,35 +176,38 @@ function ChartInner({
           label,
           color: SERIES_COLORS[colorIndex],
           points: [...s.points]
-            .map((p) => ({ time: new Date(p.timestamp), value: p.value }))
+            .map((p) => ({
+              time: chartTimeForAggregateTimestamp(p.timestamp, window),
+              value: p.value,
+            }))
             .sort((a, b) => a.time.getTime() - b.time.getTime()),
         };
       });
     }
 
-    const groups = new Map<string, PointData[]>();
+    const groups = new Map<string, typeof metric.dataPoints>();
     for (const dp of metric.dataPoints) {
       const key = facetSeriesKey(dp.attributes, facet);
       if (!groups.has(key)) groups.set(key, []);
-      // dp.epochNs is already parsed (see lib/normalize.ts) — building the
-      // chart's Date from it avoids re-parsing dp.timestamp as a string.
-      groups.get(key)!.push({ time: new Date(Number(dp.epochNs / 1_000_000n)), value: dp.value });
+      groups.get(key)!.push(dp);
     }
     const result: SeriesData[] = [];
     const colorIndexes = seriesColorIndexes([...groups.keys()]);
+    // Match the server's auto mode: derive one shared grid from the whole
+    // metric extent, not a different bucket width for each All-view series.
+    const bucketSeconds = bucketSecondsForRawMetricPoints(metric.dataPoints, window);
     let index = 0;
     for (const [key, points] of groups) {
-      points.sort((a, b) => a.time.getTime() - b.time.getTime());
       result.push({
         key,
         label: key || "(no attributes)",
         color: SERIES_COLORS[colorIndexes[index]!],
-        points,
+        points: bucketRawMetricPoints(points, metric.type, window, bucketSeconds),
       });
       index++;
     }
     return result;
-  }, [metric.dataPoints, facet, aggregatedSeries]);
+  }, [metric.dataPoints, metric.type, facet, aggregatedSeries, window]);
 
   // Kept unfiltered: the "No data points" branch reflects the raw metric,
   // not the current time-range window.

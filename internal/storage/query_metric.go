@@ -52,8 +52,9 @@ type MetricCursor struct {
 // except every field that could be a baseline observation is a pointer so
 // SQL NULL round-trips instead of being silently coerced to zero.
 type DerivedPoint struct {
-	ID uuid.UUID
-	TS time.Time
+	ID        uuid.UUID
+	SeriesKey uint64
+	TS        time.Time
 	// Type is this point's series' metric_type (e.g. "Sum", "Histogram"),
 	// carried per-row rather than only at the MetricSummary/group level so a
 	// caller filtering baseline observations (see FilterDerivedPoints) can
@@ -488,7 +489,7 @@ WITH points AS (
 // DerivedPoint.Type and internal/storage's FilterDerivedPoints.
 const metricPointsSelect = `
 SELECT
-	id, ts, attrs_json, metric_type,
+	id, series_key, ts, attrs_json, metric_type,
 	CASE
 		WHEN metric_type IN ` + distributionTypesSQL + ` THEN
 			CASE WHEN sum_delta IS NULL OR count_delta IS NULL OR count_delta <= 0 THEN 0
@@ -601,7 +602,7 @@ points AS (
 ),
 ` + metricDerivedFormula + `
 SELECT
-	request_index, id, ts, attrs_json, metric_type,
+	request_index, id, series_key, ts, attrs_json, metric_type,
 	CASE
 		WHEN metric_type IN ` + distributionTypesSQL + ` THEN
 			CASE WHEN sum_delta IS NULL OR count_delta IS NULL OR count_delta <= 0 THEN 0
@@ -677,12 +678,13 @@ func (s *Storage) MetricPointsWithPredecessorsBatch(ctx context.Context, windows
 		var (
 			requestIndex                                              int
 			id                                                        duckdb.UUID
+			seriesKey                                                 uint64
 			ts                                                        time.Time
 			attrsRaw                                                  *string
 			metricType                                                string
 			value, cumulative, count, countCum, sum, sumCum, min, max sql.NullFloat64
 		)
-		if err := rows.Scan(&requestIndex, &id, &ts, &attrsRaw, &metricType, &value, &cumulative, &count, &countCum, &sum, &sumCum, &min, &max); err != nil {
+		if err := rows.Scan(&requestIndex, &id, &seriesKey, &ts, &attrsRaw, &metricType, &value, &cumulative, &count, &countCum, &sum, &sumCum, &min, &max); err != nil {
 			return nil, fmt.Errorf("storage: scan metric point batch: %w", err)
 		}
 		attrs, err := decodeAttrs(attrsRaw)
@@ -690,7 +692,7 @@ func (s *Storage) MetricPointsWithPredecessorsBatch(ctx context.Context, windows
 			return nil, err
 		}
 		result[requestIndex] = append(result[requestIndex], DerivedPoint{
-			ID: uuid.UUID(id), TS: ts, Type: metricType,
+			ID: uuid.UUID(id), SeriesKey: seriesKey, TS: ts, Type: metricType,
 			Value: nullFloatPtr(value), Cumulative: nullFloatPtr(cumulative),
 			Count: nullFloatPtr(count), CountCumulative: nullFloatPtr(countCum),
 			Sum: nullFloatPtr(sum), SumCumulative: nullFloatPtr(sumCum),
@@ -714,12 +716,13 @@ func (s *Storage) queryMetricPoints(ctx context.Context, query string, args ...a
 	for rows.Next() {
 		var (
 			id                                                        duckdb.UUID
+			seriesKey                                                 uint64
 			ts                                                        time.Time
 			attrsRaw                                                  *string
 			metricType                                                string
 			value, cumulative, count, countCum, sum, sumCum, min, max sql.NullFloat64
 		)
-		if err := rows.Scan(&id, &ts, &attrsRaw, &metricType, &value, &cumulative, &count, &countCum, &sum, &sumCum, &min, &max); err != nil {
+		if err := rows.Scan(&id, &seriesKey, &ts, &attrsRaw, &metricType, &value, &cumulative, &count, &countCum, &sum, &sumCum, &min, &max); err != nil {
 			return nil, fmt.Errorf("storage: scan metric point: %w", err)
 		}
 		attrs, err := decodeAttrs(attrsRaw)
@@ -728,6 +731,7 @@ func (s *Storage) queryMetricPoints(ctx context.Context, query string, args ...a
 		}
 		points = append(points, DerivedPoint{
 			ID:              uuid.UUID(id),
+			SeriesKey:       seriesKey,
 			TS:              ts,
 			Type:            metricType,
 			Value:           nullFloatPtr(value),

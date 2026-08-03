@@ -106,6 +106,12 @@ func TestMetricPoints_DerivesIndependentResourceSeriesSeparately(t *testing.T) {
 	if points[3].Value == nil || *points[3].Value != 100 {
 		t.Fatalf("instance b delta = %v, want 100", points[3].Value)
 	}
+	if points[0].SeriesKey == 0 || points[1].SeriesKey == 0 ||
+		points[0].SeriesKey != points[2].SeriesKey || points[1].SeriesKey != points[3].SeriesKey ||
+		points[0].SeriesKey == points[1].SeriesKey {
+		t.Fatalf("resource series identities were not preserved: %d %d %d %d",
+			points[0].SeriesKey, points[1].SeriesKey, points[2].SeriesKey, points[3].SeriesKey)
+	}
 }
 
 // TestMetricPoints_CounterResetEmitsRawValue documents the deliberate

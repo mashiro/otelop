@@ -2,6 +2,8 @@ import { Temporal } from "temporal-polyfill";
 import {
   CHART_TIME_RANGES,
   DEFAULT_CHART_TIME_RANGE,
+  bucketSecondsForDurationMs,
+  bucketSecondsForRange,
   filterDataPointsInRange,
   rangeToMs,
   timeRangeDomain,
@@ -43,6 +45,12 @@ export function eventWindowWidthMs(window: EventTimeWindow): number {
       .since(Temporal.Instant.from(window.from))
       .total("milliseconds"),
   );
+}
+
+export function bucketSecondsForEventWindow(window: EventTimeWindow): number | null {
+  return window.mode === "live"
+    ? bucketSecondsForRange(window.range)
+    : bucketSecondsForDurationMs(eventWindowWidthMs(window));
 }
 
 export function eventWindowRange(window: EventTimeWindow): ChartTimeRange | null {
@@ -113,7 +121,7 @@ export function filterPointsInEventWindow<T>(
   const toNs = Temporal.Instant.from(window.to).epochNanoseconds;
   return points.filter((point) => {
     const ns = getEpochNs(point);
-    return ns >= fromNs && ns <= toNs;
+    return ns >= fromNs && ns < toNs;
   });
 }
 

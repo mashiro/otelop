@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 import { Temporal } from "temporal-polyfill";
 import {
+  bucketSecondsForEventWindow,
   eventWindowAround,
   eventWindowBounds,
   eventWindowDomain,
@@ -11,6 +12,16 @@ import {
 } from "./event-time-window";
 
 describe("event time window", () => {
+  it("sizes aggregate buckets from a custom fixed window's exact width", () => {
+    expect(
+      bucketSecondsForEventWindow({
+        mode: "fixed",
+        from: "2026-07-12T01:00:00Z",
+        to: "2026-07-12T02:40:00Z",
+      }),
+    ).toBe(40);
+  });
+
   it("resolves a live range against the current instant", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-07-12T00:00:00Z"));
@@ -103,6 +114,7 @@ describe("event time window", () => {
     const points = [
       { epochNs: Temporal.Instant.from("2026-07-12T00:59:59Z").epochNanoseconds },
       { epochNs: Temporal.Instant.from("2026-07-12T01:30:00Z").epochNanoseconds },
+      { epochNs: Temporal.Instant.from("2026-07-12T02:00:00Z").epochNanoseconds },
       { epochNs: Temporal.Instant.from("2026-07-12T02:00:01Z").epochNanoseconds },
     ];
 
