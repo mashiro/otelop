@@ -43,6 +43,29 @@
       "matchManagers": ["github-actions"],
       "groupName": "github-actions",
     },
+    // The Go SDK and contrib release trains share the same logging API. Include
+    // their indirect modules so packages such as otelconf and otlploghttp don't
+    // remain on the previous API version, then update the compatibility set in
+    // one PR instead of the two default monorepo groups.
+    {
+      "matchManagers": ["gomod"],
+      "matchDepTypes": ["indirect"],
+      "matchPackageNames": [
+        "go.opentelemetry.io/otel",
+        "go.opentelemetry.io/otel/**",
+        "go.opentelemetry.io/contrib/**",
+      ],
+      "enabled": true,
+    },
+    {
+      "matchManagers": ["gomod"],
+      "matchPackageNames": [
+        "go.opentelemetry.io/otel",
+        "go.opentelemetry.io/otel/**",
+        "go.opentelemetry.io/contrib/**",
+      ],
+      "groupName": "opentelemetry-go",
+    },
     // Collector's paired 1.x/0.x modules aren't covered by Renovate's known
     // monorepos, so keep them together without coupling them to the Go SDK and
     // contrib release trains.
