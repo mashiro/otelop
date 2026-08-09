@@ -43,6 +43,29 @@
       "matchManagers": ["github-actions"],
       "groupName": "github-actions",
     },
+    {
+      "matchManagers": ["gomod"],
+      "matchDepTypes": ["indirect"],
+      "matchPackageNames": [
+        "go.opentelemetry.io/otel",
+        "go.opentelemetry.io/otel/**",
+        "go.opentelemetry.io/contrib/**",
+      ],
+      // Renovate disables indirect Go module updates by default. Re-enable only
+      // the OpenTelemetry modules that must remain compatible with the direct SDK.
+      "enabled": true,
+    },
+    {
+      "matchManagers": ["gomod"],
+      "matchPackageNames": [
+        "go.opentelemetry.io/otel",
+        "go.opentelemetry.io/otel/**",
+        "go.opentelemetry.io/contrib/**",
+      ],
+      // Keep matchDepTypes out of this rule so direct and indirect modules share
+      // one PR. Indirect matches also merge with enabled: true from the rule above.
+      "groupName": "opentelemetry-go",
+    },
     // Collector's paired 1.x/0.x modules aren't covered by Renovate's known
     // monorepos, so keep them together without coupling them to the Go SDK and
     // contrib release trains.
