@@ -43,10 +43,10 @@
       "matchManagers": ["github-actions"],
       "groupName": "github-actions",
     },
-    // The Go SDK and contrib release trains share the same logging API. Include
-    // their indirect modules so packages such as otelconf and otlploghttp don't
-    // remain on the previous API version, then update the compatibility set in
-    // one PR instead of the two default monorepo groups.
+    // Renovate disables indirect Go module updates by default. Re-enable only
+    // the OpenTelemetry modules whose APIs must stay compatible with the direct
+    // SDK dependencies. Keep this separate from the grouping rule below: adding
+    // matchDepTypes there would exclude direct dependencies from the group.
     {
       "matchManagers": ["gomod"],
       "matchDepTypes": ["indirect"],
@@ -57,6 +57,9 @@
       ],
       "enabled": true,
     },
+    // This rule matches both direct and indirect OpenTelemetry Go modules. For
+    // indirect modules it merges with the rule above, so they are both enabled
+    // and placed in the same PR as the direct SDK and contrib updates.
     {
       "matchManagers": ["gomod"],
       "matchPackageNames": [
