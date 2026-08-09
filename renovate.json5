@@ -1,9 +1,11 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
+    // Preset order is significant: keep the catch-all before best-practices so
+    // its known-monorepo groups override the generic non-major group.
+    "group:allNonMajor",
     "config:best-practices",
     "helpers:pinGitHubActionDigestsToSemver",
-    "group:allNonMajor",
     ":pinAllExceptPeerDependencies",
     ":separateMultipleMajorReleases",
     ":disableRateLimiting",
