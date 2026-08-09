@@ -41,15 +41,14 @@
       "matchManagers": ["github-actions"],
       "groupName": "github-actions",
     },
-    // OpenTelemetry Go modules release in lockstep (collector 1.x/0.x pairs,
-    // otel SDK and contrib instrumentation track each other). Group them so a
-    // collector bump lands as one PR instead of dominating the catch-all group.
+    // Collector's paired 1.x/0.x modules aren't covered by Renovate's known
+    // monorepos, so keep them together without coupling them to the Go SDK and
+    // contrib release trains.
     {
-      "matchPackageNames": [
-        "go.opentelemetry.io/**",
-        "github.com/open-telemetry/**",
+      "matchSourceUrls": [
+        "https://github.com/open-telemetry/opentelemetry-collector",
       ],
-      "groupName": "opentelemetry-go",
+      "groupName": "opentelemetry-collector",
     },
     // The @voidzero-dev/vite-plus suite must move in lockstep: vite-plus-test
     // pins vite-plus-core to an exact version. Group them so a partial bump is
