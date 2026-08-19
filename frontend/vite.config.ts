@@ -8,7 +8,7 @@ const generatedSources = ["src/gql/**"];
 
 // Overridable so e2e verification runs can point the dev proxy at an
 // isolated backend instance instead of the developer's live :4319 server
-// (see .mise/tasks/e2e-env). The ws:// target is derived from the same
+// (see mise-tasks/e2e-env). The ws:// target is derived from the same
 // origin rather than duplicated, so the two proxies can never drift apart.
 // 127.0.0.1, not localhost: the backend now binds loopback-only
 // (internal/config.DefaultHTTPAddr), and Node's DNS resolution order can
