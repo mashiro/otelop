@@ -7,7 +7,7 @@
 A local OpenTelemetry viewer for traces, metrics, and logs.
 Single binary, persistent local storage, browser UI.
 
-[![Go](https://img.shields.io/badge/go-1.26-00ADD8?logo=go&logoColor=white)](go.mod)
+[![Go](https://img.shields.io/badge/go-1.27-00ADD8?logo=go&logoColor=white)](go.mod)
 [![React](https://img.shields.io/badge/react-19-61DAFB?logo=react&logoColor=white)](frontend/package.json)
 [![License](https://img.shields.io/badge/license-MIT-black)](LICENSE)
 
