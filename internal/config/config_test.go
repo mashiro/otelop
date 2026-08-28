@@ -3,7 +3,6 @@ package config
 import (
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -29,9 +28,6 @@ func TestDefaults_AppliedWhenFileMissing(t *testing.T) {
 	}
 	if cfg.LogLevel != DefaultLogLevel {
 		t.Errorf("LogLevel = %q, want %q", cfg.LogLevel, DefaultLogLevel)
-	}
-	if len(cfg.AllowedHosts) != 0 {
-		t.Errorf("AllowedHosts = %v, want empty default (strict Host checking)", cfg.AllowedHosts)
 	}
 	if cfg.UI.RenderWindowMax != DefaultRenderWindowMax {
 		t.Errorf("UI.RenderWindowMax = %d, want %d", cfg.UI.RenderWindowMax, DefaultRenderWindowMax)
@@ -129,27 +125,6 @@ X-Api-Key = "secret"
 	}
 	if got := cfg.Proxy.Auth.Headers["Authorization"]; got != "Bearer abc" {
 		t.Errorf("Proxy.Auth.Headers[Authorization] = %q", got)
-	}
-}
-
-func TestLoad_AllowedHosts(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "config.toml")
-	body := `
-allowed_hosts = ["otelop.internal", "*.example.com"]
-`
-	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
-		t.Fatalf("write config: %v", err)
-	}
-	t.Setenv(EnvConfigFile, path)
-
-	cfg, _, err := Load()
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	want := []string{"otelop.internal", "*.example.com"}
-	if !slices.Equal(cfg.AllowedHosts, want) {
-		t.Errorf("AllowedHosts = %v, want %v", cfg.AllowedHosts, want)
 	}
 }
 

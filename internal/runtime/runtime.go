@@ -101,7 +101,7 @@ func Start(ctx context.Context, opts Options) (*Runtime, error) {
 		MaxSizeDisplay:   opts.MaxSize,
 		RenderWindowMax:  opts.RenderWindowMax,
 	}
-	rt.srv = server.New(rt.storage, rt.hub, otelop.FrontendFS(), runtimeInfo, opts.AllowedHosts)
+	rt.srv = server.New(rt.storage, rt.hub, otelop.FrontendFS(), runtimeInfo)
 
 	if err := rt.srv.Listen(ctx); err != nil {
 		rt.Shutdown()
