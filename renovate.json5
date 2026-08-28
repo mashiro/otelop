@@ -37,6 +37,14 @@
       "matchUpdateTypes": ["pinDigest", "digest"],
       "minimumReleaseAge": null,
     },
+    // The go directive is a minimum supported version, so Renovate leaves it
+    // unchanged by default. Keep it current along with the project toolchain.
+    {
+      "matchManagers": ["gomod"],
+      "matchDepNames": ["go"],
+      "matchDepTypes": ["golang"],
+      "rangeStrategy": "bump",
+    },
     // Split GitHub Actions out of the catch-all group so workflow bumps land
     // independently and aren't blocked by an unrelated failing dependency.
     {
