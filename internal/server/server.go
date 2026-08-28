@@ -34,13 +34,8 @@ type Server struct {
 }
 
 // New creates a new Server. When runtime.Debug is true, HTTP requests are
-// instrumented with OpenTelemetry spans via otelhttp. allowedHosts extends
-// the Host header allowlist enforced by requireAllowedHost beyond IP
-// literals/localhost — see internal/server/host_check.go and
-// config.Config.AllowedHosts. It's a plain parameter rather than a field on
-// otelopgraphql.RuntimeInfo because RuntimeInfo is graphql's own
-// status/config query payload, not a general server-config bag.
-func New(s *storage.Storage, hub *ws.Hub, frontendFS fs.FS, runtime otelopgraphql.RuntimeInfo, allowedHosts []string) *Server {
+// instrumented with OpenTelemetry spans via otelhttp.
+func New(s *storage.Storage, hub *ws.Hub, frontendFS fs.FS, runtime otelopgraphql.RuntimeInfo) *Server {
 	srv := &Server{
 		storage: s,
 		hub:     hub,
@@ -59,9 +54,14 @@ func New(s *storage.Storage, hub *ws.Hub, frontendFS fs.FS, runtime otelopgraphq
 	csrf := http.NewCrossOriginProtection()
 
 	// GraphQL — primary data surface for the frontend and AI clients.
-	mux.Handle("POST /graphql", requireAllowedHost(allowedHosts, csrf.Handler(&relay.Handler{Schema: srv.schema})))
-
-	mux.Handle("GET /ws", requireAllowedHost(allowedHosts, http.HandlerFunc(srv.handleWebSocket)))
+	graphqlHandler := csrf.Handler(&relay.Handler{Schema: srv.schema})
+	websocketHandler := http.Handler(http.HandlerFunc(srv.handleWebSocket))
+	if isLoopbackListenAddr(runtime.HTTPAddr) {
+		graphqlHandler = requireLocalHost(graphqlHandler)
+		websocketHandler = requireLocalHost(websocketHandler)
+	}
+	mux.Handle("POST /graphql", graphqlHandler)
+	mux.Handle("GET /ws", websocketHandler)
 
 	// Static files with SPA fallback
 	mux.Handle("/", spaHandler(frontendFS))

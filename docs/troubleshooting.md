@@ -1,5 +1,5 @@
 ---
-description: Diagnose common otelop startup, connectivity, ingestion, storage, and hostname problems. Use when otelop is unreachable, telemetry is missing, or the UI and GraphQL API reject a request.
+description: Diagnose common otelop startup, connectivity, ingestion, and storage problems. Use when otelop is unreachable, telemetry is missing, or the UI and GraphQL API reject a request.
 ---
 # Troubleshooting
 
@@ -21,13 +21,6 @@ for that state change.
   `otelop stop` removes stale metadata, but changes state and needs permission.
 - The default HTTP listener is loopback-only. Remote clients need an explicit
   non-loopback `--http` address and appropriate network controls.
-
-## A hostname is rejected
-
-`/graphql` and `/ws` reject unknown `Host` headers to prevent DNS rebinding.
-Add reverse-proxy or internal hostnames to `allowed_hosts`,
-`--allowed-hosts`, or `OTELOP_ALLOWED_HOSTS`. IP literals and `localhost` do
-not need an entry.
 
 ## Telemetry is missing
 

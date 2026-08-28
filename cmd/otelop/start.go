@@ -35,7 +35,6 @@ func startCommand(version string) *cli.Command {
 			&cli.StringFlag{Name: "http", Value: cfg.HTTPAddr, Usage: "Web UI + REST API listen address", Sources: cli.EnvVars("OTELOP_HTTP")},
 			&cli.StringFlag{Name: "otlp-grpc", Value: cfg.OTLPGRPCAddr, Usage: "OTLP gRPC receiver endpoint", Sources: cli.EnvVars("OTELOP_OTLP_GRPC")},
 			&cli.StringFlag{Name: "otlp-http", Value: cfg.OTLPHTTPAddr, Usage: "OTLP HTTP receiver endpoint", Sources: cli.EnvVars("OTELOP_OTLP_HTTP")},
-			&cli.StringFlag{Name: "allowed-hosts", Value: strings.Join(cfg.AllowedHosts, ","), Usage: "comma-separated hostnames to allow beyond loopback/IP literals, e.g. otelop.internal,*.example.com", Sources: cli.EnvVars("OTELOP_ALLOWED_HOSTS")},
 			&cli.StringFlag{Name: "proxy-url", Value: cfg.Proxy.URL, Usage: "upstream OTLP endpoint for forwarding", Sources: cli.EnvVars("OTELOP_PROXY_URL")},
 			&cli.StringFlag{Name: "proxy-protocol", Value: cfg.Proxy.Protocol, Usage: "upstream OTLP protocol (grpc|http)", Sources: cli.EnvVars("OTELOP_PROXY_PROTOCOL")},
 			&cli.StringFlag{Name: "proxy-auth-type", Value: cfg.Proxy.Auth.Type, Usage: "upstream OTLP auth type (bearer|basic|headers)", Sources: cli.EnvVars("OTELOP_PROXY_AUTH_TYPE")},
@@ -69,7 +68,6 @@ func optionsFromCmd(cmd *cli.Command, version string) startOptions {
 			HTTPAddr:        cmd.String("http"),
 			OTLPGRPCAddr:    cmd.String("otlp-grpc"),
 			OTLPHTTPAddr:    cmd.String("otlp-http"),
-			AllowedHosts:    splitCSV(cmd.String("allowed-hosts")),
 			ProxyURL:        strings.TrimSpace(cmd.String("proxy-url")),
 			ProxyProtocol:   strings.ToLower(strings.TrimSpace(cmd.String("proxy-protocol"))),
 			StoragePath:     strings.TrimSpace(cmd.String("storage-path")),
@@ -88,21 +86,6 @@ func optionsFromCmd(cmd *cli.Command, version string) startOptions {
 		},
 		foreground: cmd.Bool("foreground"),
 	}
-}
-
-func splitCSV(v string) []string {
-	fields := strings.Split(v, ",")
-	out := make([]string, 0, len(fields))
-	for _, f := range fields {
-		f = strings.TrimSpace(f)
-		if f != "" {
-			out = append(out, f)
-		}
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	return out
 }
 
 func runStart(ctx context.Context, cmd *cli.Command, version string) error {

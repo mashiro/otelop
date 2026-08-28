@@ -27,7 +27,6 @@ type Options struct {
 	HTTPAddr        string
 	OTLPGRPCAddr    string
 	OTLPHTTPAddr    string
-	AllowedHosts    []string
 	ProxyURL        string
 	ProxyProtocol   string
 	ProxyAuth       ProxyAuthOptions

@@ -1,5 +1,5 @@
 ---
-description: Configure otelop receivers, storage, upstream OTLP forwarding, host access, and self-telemetry. Use when changing endpoints, retention, database limits, proxy authentication, or network exposure.
+description: Configure otelop receivers, storage, upstream OTLP forwarding, network access, and self-telemetry. Use when changing endpoints, retention, database limits, proxy authentication, or network exposure.
 ---
 # Configuration
 
@@ -16,7 +16,6 @@ to use another config file.
 http = "127.0.0.1:4319"
 otlp_grpc = "0.0.0.0:4317"
 otlp_http = "0.0.0.0:4318"
-allowed_hosts = []
 log_level = "warn"
 debug = false
 
@@ -52,11 +51,10 @@ signal counts, use the endpoint reported by `otelop status` and query:
 ```
 
 The Web UI and GraphQL endpoint have no authentication and bind to
-`127.0.0.1` by default. Binding `--http` to `0.0.0.0:4319` exposes them to the
-network. When using a hostname through a reverse proxy, add it to
-`allowed_hosts`; IP literals and `localhost` are accepted automatically.
-The pattern `*.example.com` accepts the apex `example.com` and subdomains at
-any depth.
+`127.0.0.1` by default. A loopback listener rejects non-local `Host` headers
+to guard against DNS rebinding. Binding `--http` to `0.0.0.0:4319` or another
+non-loopback address exposes the endpoint and accepts any `Host`; control
+access with the surrounding reverse proxy, load balancer, or network policy.
 
 Proxy authentication supports `bearer`, `basic`, and `headers`. Configure exact
 headers as a TOML table:
