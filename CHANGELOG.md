@@ -1,5 +1,40 @@
 # Changelog
 
+## [1.2.3](https://github.com/mashiro/otelop/compare/v1.2.2...v1.2.3) (2026-09-06)
+
+
+### Bug Fixes
+
+* **deps:** preserve monorepo grouping precedence ([#242](https://github.com/mashiro/otelop/issues/242)) ([3b97a6e](https://github.com/mashiro/otelop/commit/3b97a6e7dd8dfa66f3360457f7714cb2b00a48fd))
+* **deps:** restore non-major grouping precedence ([#246](https://github.com/mashiro/otelop/issues/246)) ([bed6602](https://github.com/mashiro/otelop/commit/bed6602611ca94f10a1a1d9822c8e6b443cd9b4e))
+* **deps:** split OpenTelemetry update groups ([#239](https://github.com/mashiro/otelop/issues/239)) ([28f2975](https://github.com/mashiro/otelop/commit/28f29755a66fe20f4004974dff6124f3ca5a77cb))
+* **deps:** update all non-major dependencies ([#230](https://github.com/mashiro/otelop/issues/230)) ([c157f88](https://github.com/mashiro/otelop/commit/c157f882c6b9fc1ae076e32272e0d833e1680629))
+* **deps:** update all non-major dependencies ([#235](https://github.com/mashiro/otelop/issues/235)) ([a2d08aa](https://github.com/mashiro/otelop/commit/a2d08aa64b182de9e593338e39c698f46148220c))
+* **deps:** update all non-major dependencies ([#240](https://github.com/mashiro/otelop/issues/240)) ([fb0c3d7](https://github.com/mashiro/otelop/commit/fb0c3d74fbff5635e4fcb8d644f74083c16bd81e))
+* **deps:** update all non-major dependencies ([#251](https://github.com/mashiro/otelop/issues/251)) ([d880772](https://github.com/mashiro/otelop/commit/d88077276c9b37a14dbe681bc2a032d04b94f99b))
+* **deps:** update all non-major dependencies ([#256](https://github.com/mashiro/otelop/issues/256)) ([df58237](https://github.com/mashiro/otelop/commit/df582370b8f84c1e17542a282773c05ce6d8da1a))
+* **deps:** update all non-major dependencies ([#263](https://github.com/mashiro/otelop/issues/263)) ([97a0e89](https://github.com/mashiro/otelop/commit/97a0e89a8e382bb61fcdd9214b0cdd55a120d964))
+* **deps:** update all non-major dependencies ([#266](https://github.com/mashiro/otelop/issues/266)) ([5594472](https://github.com/mashiro/otelop/commit/55944726da8347f1e840a9c0e7ebdd0f72d0ef65))
+* **deps:** update all non-major dependencies ([#267](https://github.com/mashiro/otelop/issues/267)) ([b646694](https://github.com/mashiro/otelop/commit/b6466948a58925acb6116f25c5d77b41e608eeab))
+* **deps:** update all non-major dependencies ([#278](https://github.com/mashiro/otelop/issues/278)) ([47de12c](https://github.com/mashiro/otelop/commit/47de12c47b86fa37801e4a4a84e00ebc5dfee015))
+* **deps:** update all non-major dependencies ([#279](https://github.com/mashiro/otelop/issues/279)) ([c970301](https://github.com/mashiro/otelop/commit/c970301d185b73a2ef9410cb6e59ba5b02f7f13a))
+* **deps:** update all non-major dependencies ([#280](https://github.com/mashiro/otelop/issues/280)) ([df7f577](https://github.com/mashiro/otelop/commit/df7f577770a670394857789e0c1da54711b34ec6))
+* **deps:** update all non-major dependencies ([#283](https://github.com/mashiro/otelop/issues/283)) ([4e2c6de](https://github.com/mashiro/otelop/commit/4e2c6dea6232142a1515d1a0e4f6d33c576b74fd))
+* **deps:** update all non-major dependencies ([#286](https://github.com/mashiro/otelop/issues/286)) ([d1df668](https://github.com/mashiro/otelop/commit/d1df6685b559a81af382ec08d03e97d286c5e8fb))
+* **deps:** update dependency lucide-react to v1.30.0 ([#248](https://github.com/mashiro/otelop/issues/248)) ([c961218](https://github.com/mashiro/otelop/commit/c961218fe9ded4040b812bb833eb3a2916bfbb21))
+* **deps:** update dependency lucide-react to v1.32.0 ([#261](https://github.com/mashiro/otelop/issues/261)) ([4eae8b6](https://github.com/mashiro/otelop/commit/4eae8b6ad477ec92c855befd015fb36662d8258b))
+* **deps:** update dependency shadcn to v4.17.0 ([#252](https://github.com/mashiro/otelop/issues/252)) ([42f25b9](https://github.com/mashiro/otelop/commit/42f25b90c1196c6168d8e1506887ec3f14256f3f))
+* **deps:** update dependency temporal-polyfill to v1.0.3 ([#234](https://github.com/mashiro/otelop/issues/234)) ([a115f9b](https://github.com/mashiro/otelop/commit/a115f9bbbe504b9d652cce6c679cf9c576e5d0a3))
+* **deps:** update module github.com/urfave/cli/v3 to v3.11.0 ([#259](https://github.com/mashiro/otelop/issues/259)) ([26f565e](https://github.com/mashiro/otelop/commit/26f565e1ccb44c9ca6033bc28f5c35339c636f00))
+* **deps:** update OpenTelemetry compatibility set ([#245](https://github.com/mashiro/otelop/issues/245)) ([6aed43f](https://github.com/mashiro/otelop/commit/6aed43f3fc4e2dd46bb611f9b8bc5554fb67994d))
+* **deps:** update opentelemetry-collector ([#241](https://github.com/mashiro/otelop/issues/241)) ([8bcae20](https://github.com/mashiro/otelop/commit/8bcae20092be4e5576f5703c2cff1fd030f97951))
+* **deps:** update opentelemetry-collector ([#260](https://github.com/mashiro/otelop/issues/260)) ([f40f2c0](https://github.com/mashiro/otelop/commit/f40f2c09e44fb7faf97b72bfed130f5198ba7c3a))
+* **deps:** update opentelemetry-collector to v0.160.0 ([#284](https://github.com/mashiro/otelop/issues/284)) ([f62a7df](https://github.com/mashiro/otelop/commit/f62a7df97dfe8b9bd9096717f5ceb906f05c316f))
+* **deps:** update opentelemetry-collector to v1.66.0 ([#282](https://github.com/mashiro/otelop/issues/282)) ([e323cc3](https://github.com/mashiro/otelop/commit/e323cc30e2a33686cb72fa44b5c79af7ef58b5cd))
+* **deps:** update opentelemetry-go ([#236](https://github.com/mashiro/otelop/issues/236)) ([ce61f19](https://github.com/mashiro/otelop/commit/ce61f19f897859beb9bae49b6adf3a93bf4aed59))
+* **deps:** update opentelemetry-go ([#274](https://github.com/mashiro/otelop/issues/274)) ([14ad93e](https://github.com/mashiro/otelop/commit/14ad93e60745b4d6451a01e41e7746227bcf0306))
+* **deps:** update opentelemetry-go ([#275](https://github.com/mashiro/otelop/issues/275)) ([823873f](https://github.com/mashiro/otelop/commit/823873f990da71cf2e3bf9d091338199804b3759))
+
 ## [1.2.2](https://github.com/mashiro/otelop/compare/v1.2.1...v1.2.2) (2026-08-03)
 
 
