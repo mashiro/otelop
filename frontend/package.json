@@ -13,7 +13,7 @@
     "codegen": "graphql-codegen --config codegen.ts"
   },
   "dependencies": {
-    "@base-ui/react": "1.7.0",
+    "@base-ui/react": "1.8.0",
     "@fontsource-variable/geist": "5.3.0",
     "@fontsource-variable/jetbrains-mono": "5.3.0",
     "@fontsource-variable/outfit": "5.3.0",
@@ -29,10 +29,10 @@
     "clsx": "2.1.1",
     "graphql-request": "7.4.0",
     "jotai": "2.20.3",
-    "lucide-react": "1.40.0",
+    "lucide-react": "1.41.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",
-    "shadcn": "4.20.1",
+    "shadcn": "4.21.0",
     "tailwind-merge": "3.6.0",
     "temporal-polyfill": "1.0.4"
   },
