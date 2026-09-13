@@ -1,4 +1,6 @@
 import { atom } from "jotai";
+import { addLogFilterAtom } from "./log-query";
+import { draftTerm } from "@/lib/log-filter";
 import type { Atom, PrimitiveAtom, WritableAtom } from "jotai";
 import type {
   TraceData,
@@ -466,9 +468,6 @@ export const selectedLogAtom = createSelectionAtom(
   (l, id) => l.id === id,
 );
 
-// Log filter by traceId (set when jumping from trace → logs)
-export const logTraceFilterAtom = atom<string | null>(null);
-
 // Navigate: log → trace. The traces tab resolves an ID absent from its
 // current page with a focused trace(traceId:) request.
 export const navigateToTraceAtom = atom(null, (_get, set, traceId: string) => {
@@ -478,7 +477,8 @@ export const navigateToTraceAtom = atom(null, (_get, set, traceId: string) => {
 
 // Navigate: trace → related logs (switch to logs tab with filter)
 export const navigateToLogsAtom = atom(null, (_get, set, traceId: string) => {
-  set(logTraceFilterAtom, traceId);
+  set(addLogFilterAtom, draftTerm({ key: "trace_id", operator: "is", value: traceId }));
+  set(selectedLogIdAtom, null);
   set(activeTabAtom, "logs");
 });
 

@@ -4,7 +4,6 @@ import {
   tracesAtom,
   metricsAtom,
   logsAtom,
-  logTraceFilterAtom,
   setTracesAtom,
   setLogsAtom,
   appendTracesAtom,
@@ -355,7 +354,7 @@ describe("filteredLogsAtom", () => {
     expect(store.get(filteredLogsAtom)).toEqual([]);
   });
 
-  it("treats the trace filter as retained-history scope", () => {
+  it("applies the time window to the trace ID filter", () => {
     const store = createStore();
     store.set(logsAtom, [
       makeLog({ id: "old-match", traceId: "trace-a", timestamp: "2024-01-01T00:00:00Z" }),
@@ -366,9 +365,9 @@ describe("filteredLogsAtom", () => {
       from: "2024-01-01T00:59:00Z",
       to: "2024-01-01T01:01:00Z",
     });
-    store.set(logTraceFilterAtom, "trace-a");
+    store.set(logSearchAtom, "trace_id:trace-a");
 
-    expect(store.get(filteredLogsAtom).map((log) => log.id)).toEqual(["old-match"]);
+    expect(store.get(filteredLogsAtom).map((log) => log.id)).toEqual([]);
   });
 
   it("filters by severity text", () => {
@@ -394,7 +393,7 @@ describe("filteredLogsAtom", () => {
   it("respects traceId filter from navigation", () => {
     const store = createStore();
     store.set(logsAtom, [makeLog({ traceId: "abc" }), makeLog({ traceId: "def" })]);
-    store.set(logTraceFilterAtom, "abc");
+    store.set(logSearchAtom, "trace_id:abc");
     expect(store.get(filteredLogsAtom)).toHaveLength(1);
   });
 

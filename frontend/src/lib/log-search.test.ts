@@ -107,3 +107,38 @@ describe("plain JSON search", () => {
     },
   );
 });
+
+describe("built-in log fields", () => {
+  const record = makeLog({
+    traceId: "01000000000000000000000000000000",
+    spanId: "0200000000000000",
+    serviceName: "checkout",
+    severityText: "ERROR",
+    severityNumber: 17,
+    body: "request failed",
+    attributes: { trace_id: "attribute-only" },
+  });
+  it.each([
+    ["trace_id:01000000000000000000000000000000", true],
+    ["span_id:0200000000000000", true],
+    ["trace_id:0100*", true],
+    ["trace_id:*", true],
+    ["-trace_id:*", false],
+    ["service_name:checkout", true],
+    ["severity_text:error", true],
+    ["severity_number:>=17", true],
+    ["body:*failed*", true],
+    ["trace_id:0100* attributes.trace_id:attribute-only", true],
+    ["trace_id:attribute-only", false],
+    ["attributes.trace_id:attribute-only", true],
+    ["trace_id:0100* span_id:missing", false],
+    ["trace_id:>0", false],
+  ])("matches %s = %s", (query, expected) => {
+    expect(createLogSearchMatcher(query)(record)).toBe(expected);
+  });
+  it("treats zero IDs as absent", () => {
+    const empty = makeLog({ traceId: "0".repeat(32), spanId: "0".repeat(16) });
+    expect(createLogSearchMatcher("trace_id:*")(empty)).toBe(false);
+    expect(createLogSearchMatcher("-trace_id:* -span_id:*")(empty)).toBe(true);
+  });
+});

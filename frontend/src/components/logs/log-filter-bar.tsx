@@ -30,7 +30,7 @@ import {
   draftTerm,
   type LogFilterOperator,
 } from "@/lib/log-filter";
-import type { LogSearchTerm } from "@/lib/log-search";
+import { logFields, logTermValue, type LogSearchTerm } from "@/lib/log-search";
 import type { LogData } from "@/types/telemetry";
 
 export function LogFilterBar() {
@@ -39,6 +39,7 @@ export function LogFilterBar() {
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
   const keys = [
+    ...Object.keys(logFields),
     ...new Set(
       logs.flatMap((log) => [
         ...Object.keys(log.attributes).map((key) => `attributes.${key}`),
@@ -82,7 +83,7 @@ export function LogFilterBar() {
           <div
             key={filter.id}
             className={cn(
-              "flex min-w-0 max-w-full items-center rounded-md border border-border bg-muted",
+              "flex h-7 min-w-0 max-w-full items-center rounded-md border border-border bg-muted",
               !filter.enabled && "bg-background text-muted-foreground",
             )}
           >
@@ -92,7 +93,11 @@ export function LogFilterBar() {
             >
               <PopoverTrigger
                 render={
-                  <Button variant="ghost" size="sm" className="min-w-0 gap-1.5 rounded-r-none" />
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-full min-w-0 gap-1.5 rounded-r-none"
+                  />
                 }
                 aria-label={`Edit filter ${draft.key}`}
                 title={draft.key}
@@ -202,13 +207,11 @@ function FilterEditor({
   const id = useId();
   const error = filterDraftError(draft);
   const noValue = draft.operator === "exists" || draft.operator === "not_exists";
-  const resource = draft.key.startsWith("resource.");
-  const key = draft.key.slice(draft.key.indexOf(".") + 1);
+  const term = draftTerm(draft);
   const values = [
     ...new Set(
       logs.flatMap((log) => {
-        const attrs = resource ? log.resource : log.attributes;
-        const value = Object.hasOwn(attrs, key) ? attrs[key] : undefined;
+        const value = logTermValue(log, term);
         return typeof value === "string" || typeof value === "number" || typeof value === "boolean"
           ? [String(value)]
           : [];

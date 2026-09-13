@@ -9,11 +9,17 @@ import (
 )
 
 type logSearchTerm struct {
+	field    string
 	resource bool
 	key      string
 	value    string
 	quoted   bool
 	negated  bool
+}
+
+var logFieldColumns = map[string]string{
+	"trace_id": "l.trace_id", "span_id": "l.span_id", "service_name": "r.service_name",
+	"severity_text": "l.severity_text", "severity_number": "l.severity_number", "body": "l.body",
 }
 
 // Keep this grammar aligned with frontend/src/lib/log-search.ts for live logs.
@@ -54,15 +60,22 @@ func parseLogSearch(search string) (string, []logSearchTerm) {
 		negated := strings.HasPrefix(field, "-")
 		field = strings.TrimPrefix(field, "-")
 		resource := strings.HasPrefix(field, "resource.")
-		if !ok || (!resource && !strings.HasPrefix(field, "attributes.")) {
+		_, builtin := logFieldColumns[field]
+		if !ok || (!resource && !strings.HasPrefix(field, "attributes.") && !builtin) {
 			text = append(text, token)
 			continue
 		}
 		_, key, _ := strings.Cut(field, ".")
+		if builtin {
+			key = field
+		}
 		if key == "" || value == "" {
 			return search, nil
 		}
 		term := logSearchTerm{resource: resource, key: key, value: value, negated: negated}
+		if builtin {
+			term.field = field
+		}
 		wildcardString := strings.HasPrefix(value, `~"`)
 		if strings.HasPrefix(value, `"`) || wildcardString {
 			if wildcardString {
@@ -106,6 +119,9 @@ func logSearchSQL(search string) (string, []any) {
 }
 
 func logAttributeSQL(term logSearchTerm) (string, []any) {
+	if term.field != "" {
+		return logFieldSQL(term)
+	}
 	column := "l.attributes"
 	if term.resource {
 		column = "r.attributes"
@@ -128,4 +144,35 @@ func logAttributeSQL(term logSearchTerm) (string, []any) {
 		value = strings.ReplaceAll(value, "*", "%")
 	}
 	return "json_type(" + column + ", ?) IN ('VARCHAR', 'BOOLEAN', 'BIGINT', 'UBIGINT', 'DOUBLE') AND json_extract_string(" + column + ", ?) ILIKE ? ESCAPE '\\'", []any{path, path, value}
+}
+
+// Column names come exclusively from the allowlist, never from query text.
+func logFieldSQL(term logSearchTerm) (string, []any) {
+	column := logFieldColumns[term.field]
+	if term.field == "trace_id" || term.field == "span_id" {
+		zeros := strings.Repeat("0", 32)
+		if term.field == "span_id" {
+			zeros = strings.Repeat("0", 16)
+		}
+		column = "NULLIF(NULLIF(" + column + ", ''), '" + zeros + "')"
+	}
+	if !term.quoted {
+		if term.value == "*" {
+			return column + " IS NOT NULL", nil
+		}
+		if match := logComparisonPattern.FindStringSubmatch(term.value); match != nil {
+			value, err := strconv.ParseFloat(match[2], 64)
+			if err == nil && !math.IsInf(value, 0) && !math.IsNaN(value) {
+				if term.field != "severity_number" {
+					return "FALSE", nil
+				}
+				return column + " " + match[1] + " ?", []any{value}
+			}
+		}
+	}
+	value := likeEscaper.Replace(term.value)
+	if !term.quoted {
+		value = strings.ReplaceAll(value, "*", "%")
+	}
+	return "CAST(" + column + " AS VARCHAR) ILIKE ? ESCAPE '\\'", []any{value}
 }

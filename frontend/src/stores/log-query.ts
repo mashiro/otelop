@@ -1,60 +1,23 @@
 import { atom, type SetStateAction } from "jotai";
-import { atomWithStorage, createJSONStorage } from "jotai/utils";
 import { parseLogSearch, serializeLogTerm, type LogSearchTerm } from "@/lib/log-search";
+import { newLogFilter } from "@/lib/log-query-state";
+import { logQueryStateAtom } from "./navigation";
+export { logQueryStateAtom } from "./navigation";
+export { newLogFilter, type LogFilter, type LogQueryState } from "@/lib/log-query-state";
 
-export type LogFilter = LogSearchTerm & { id: string; enabled: boolean };
-export type LogQueryState = { text: string; filters: LogFilter[] };
-const initialState: LogQueryState = { text: "", filters: [] };
-export const LOG_QUERY_STORAGE_KEY = "otelop.log-query.v1";
-
-export function isLogQueryState(value: unknown): value is LogQueryState {
-  if (
-    !value ||
-    typeof value !== "object" ||
-    !("text" in value) ||
-    typeof value.text !== "string" ||
-    !("filters" in value) ||
-    !Array.isArray(value.filters)
-  )
-    return false;
-  return value.filters.every((filter: unknown) => {
-    if (!filter || typeof filter !== "object") return false;
-    return (
-      "id" in filter &&
-      typeof filter.id === "string" &&
-      "key" in filter &&
-      typeof filter.key === "string" &&
-      "value" in filter &&
-      typeof filter.value === "string" &&
-      "resource" in filter &&
-      typeof filter.resource === "boolean" &&
-      "quoted" in filter &&
-      typeof filter.quoted === "boolean" &&
-      "negated" in filter &&
-      typeof filter.negated === "boolean" &&
-      "enabled" in filter &&
-      typeof filter.enabled === "boolean"
-    );
+export const addLogFilterAtom = atom(null, (get, set, term: LogSearchTerm) => {
+  const state = get(logQueryStateAtom);
+  const query = serializeLogTerm(term);
+  const existing = state.filters.find((filter) => serializeLogTerm(filter) === query);
+  set(logQueryStateAtom, {
+    ...state,
+    filters: existing
+      ? state.filters.map((filter) =>
+          filter.id === existing.id ? { ...filter, enabled: true } : filter,
+        )
+      : [...state.filters, newLogFilter(term)],
   });
-}
-
-const jsonStorage = createJSONStorage<LogQueryState>(() => window.localStorage);
-export const logQueryStateAtom = atomWithStorage<LogQueryState>(
-  LOG_QUERY_STORAGE_KEY,
-  initialState,
-  {
-    ...jsonStorage,
-    getItem(key, initial) {
-      const value = jsonStorage.getItem(key, initial);
-      return isLogQueryState(value) ? value : initial;
-    },
-  },
-  { getOnInit: true },
-);
-
-export function newLogFilter(term: LogSearchTerm): LogFilter {
-  return { ...term, id: crypto.randomUUID(), enabled: true };
-}
+});
 
 export const logSearchAtom = atom(
   (get) => {

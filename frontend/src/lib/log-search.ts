@@ -1,6 +1,36 @@
 import type { LogData } from "@/types/telemetry";
 
+export const logFields = {
+  trace_id: "traceId",
+  span_id: "spanId",
+  service_name: "serviceName",
+  severity_text: "severityText",
+  severity_number: "severityNumber",
+  body: "body",
+} as const;
+export type LogField = keyof typeof logFields;
+export function isLogField(key: string): key is LogField {
+  return Object.hasOwn(logFields, key);
+}
+export function logTermValue(log: LogData, term: LogSearchTerm): unknown {
+  if (term.field) {
+    const value = log[logFields[term.field]];
+    if (
+      (term.field === "trace_id" || term.field === "span_id") &&
+      (!value || /^0+$/.test(String(value)))
+    )
+      return undefined;
+    return value;
+  }
+  const attrs = term.resource ? log.resource : log.attributes;
+  return Object.hasOwn(attrs, term.key) ? attrs[term.key] : undefined;
+}
+export function logTermKey(term: LogSearchTerm): string {
+  return term.field ?? `${term.resource ? "resource" : "attributes"}.${term.key}`;
+}
+
 export type LogSearchTerm = {
+  field?: LogField;
   resource: boolean;
   key: string;
   value: string;
@@ -40,11 +70,11 @@ export function parseLogSearch(search: string): { plain: string; terms: LogSearc
     const negated = token.startsWith("-");
     const field = token.slice(negated ? 1 : 0, colon);
     const resource = field.startsWith("resource.");
-    if (colon < 0 || (!resource && !field.startsWith("attributes."))) {
+    if (colon < 0 || (!resource && !field.startsWith("attributes.") && !isLogField(field))) {
       text.push(token);
       continue;
     }
-    const key = field.slice(field.indexOf(".") + 1);
+    const key = isLogField(field) ? field : field.slice(field.indexOf(".") + 1);
     let value = token.slice(colon + 1);
     if (!key || !value) return fallback;
     const quoted = value.startsWith('"');
@@ -56,7 +86,7 @@ export function parseLogSearch(search: string): { plain: string; terms: LogSearc
         return fallback;
       }
     }
-    terms.push({ resource, key, value, quoted, negated });
+    terms.push({ resource, key, value, quoted, negated, ...(isLogField(field) ? { field } : {}) });
   }
   if (!terms.length) return fallback;
   return { plain: text.filter((token) => token !== "AND").join(" "), terms };
@@ -72,7 +102,7 @@ export function logComparison(term: LogSearchTerm): { operator: string; value: n
 }
 
 export function serializeLogTerm(term: LogSearchTerm): string {
-  return `${term.negated ? "-" : ""}${term.resource ? "resource" : "attributes"}.${term.key}:${term.quoted ? JSON.stringify(term.value) : /[\s"]/.test(term.value) ? `~${JSON.stringify(term.value)}` : term.value}`;
+  return `${term.negated ? "-" : ""}${logTermKey(term)}:${term.quoted ? JSON.stringify(term.value) : /[\s"]/.test(term.value) ? `~${JSON.stringify(term.value)}` : term.value}`;
 }
 
 export function createLogSearchMatcher(search: string): (log: LogData) => boolean {
@@ -85,8 +115,7 @@ export function createLogSearchMatcher(search: string): (log: LogData) => boolea
       .join("[\\s\\S]*");
     const regex = new RegExp(`^(?:${pattern})$(?![\\s\\S])`, "i");
     const matches = (log: LogData) => {
-      const attrs = term.resource ? log.resource : log.attributes;
-      const value = Object.hasOwn(attrs, term.key) ? attrs[term.key] : undefined;
+      const value = logTermValue(log, term);
       if (value == null) return false;
       if (comparison) {
         if (typeof value !== "number") return false;

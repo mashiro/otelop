@@ -21,30 +21,44 @@ export function Field({
   value,
   mono,
   tone,
+  action,
 }: {
   label: string;
   value: ReactNode;
   mono?: boolean;
   tone?: FieldTone;
+  action?: ReactNode;
 }) {
   return (
-    <div className="flex gap-2 text-sm">
+    <div className="group/filter-field flex gap-2 text-sm">
       <dt className="w-20 shrink-0 text-muted-foreground">{label}</dt>
       <dd
-        className={`break-all ${mono ? "font-mono text-xs leading-5" : ""} ${tone ? `${toneClasses[tone]} font-semibold` : ""}`}
+        className={`break-all ${action ? "min-w-0 flex-1" : ""} ${mono ? "font-mono text-xs leading-5" : ""} ${tone ? `${toneClasses[tone]} font-semibold` : ""}`}
       >
         {value}
       </dd>
+      {action && <div className="ml-auto shrink-0">{action}</div>}
     </div>
   );
 }
 
-export function Section({ title, children }: { title: string; children: ReactNode }) {
+export function Section({
+  title,
+  children,
+  action,
+}: {
+  title: string;
+  children: ReactNode;
+  action?: ReactNode;
+}) {
   return (
-    <div>
-      <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-        {title}
-      </h4>
+    <div className="group/filter-field">
+      <div className="mb-2 flex items-center justify-between">
+        <h4 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+          {title}
+        </h4>
+        {action}
+      </div>
       <div className="space-y-1.5 rounded-md bg-muted/50 p-2.5">{children}</div>
     </div>
   );

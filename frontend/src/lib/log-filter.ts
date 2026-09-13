@@ -1,4 +1,10 @@
-import { logComparison, logNumberPattern, type LogSearchTerm } from "./log-search";
+import {
+  isLogField,
+  logTermKey,
+  logComparison,
+  logNumberPattern,
+  type LogSearchTerm,
+} from "./log-search";
 
 export const logFilterOperators = [
   { value: "is", label: "is" },
@@ -19,7 +25,7 @@ export type LogFilterDraft = { key: string; operator: LogFilterOperator; value: 
 
 export function filterDraft(term?: LogSearchTerm): LogFilterDraft {
   if (!term) return { key: "", operator: "is", value: "" };
-  const key = `${term.resource ? "resource" : "attributes"}.${term.key}`;
+  const key = logTermKey(term);
   const comparison = logComparison(term);
   if (comparison && term.negated) return { key, operator: "not_matches", value: term.value };
   if (comparison && !term.negated)
@@ -42,8 +48,14 @@ export function filterDraft(term?: LogSearchTerm): LogFilterDraft {
 }
 
 export function filterDraftError(draft: LogFilterDraft): string | null {
-  if (!/^(attributes|resource)\.[^\s:"]+$/.test(draft.key.trim()))
-    return "Choose or enter an attributes.key or resource.key.";
+  if (!isLogField(draft.key.trim()) && !/^(attributes|resource)\.[^\s:"]+$/.test(draft.key.trim()))
+    return "Choose a log field, attributes.key, or resource.key.";
+  if (
+    isLogField(draft.key.trim()) &&
+    draft.key.trim() !== "severity_number" &&
+    [">", ">=", "<", "<="].includes(draft.operator)
+  )
+    return "Numeric comparisons require a numeric field.";
   if (
     [">", ">=", "<", "<="].includes(draft.operator) &&
     (!logNumberPattern.test(draft.value) || !Number.isFinite(Number(draft.value)))
@@ -64,6 +76,7 @@ export function draftTerm(draft: LogFilterDraft): LogSearchTerm {
   const contains = operator === "contains" || operator === "not_contains";
   const numeric = [">", ">=", "<", "<="].includes(operator);
   return {
+    ...(isLogField(key) ? { field: key } : {}),
     resource: key.startsWith("resource."),
     key: key.slice(key.indexOf(".") + 1),
     value: exists

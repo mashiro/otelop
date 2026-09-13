@@ -9,7 +9,6 @@ import {
   tracesAtom,
   metricsAtom,
   logsAtom,
-  logTraceFilterAtom,
   serverMatchedTraceIdsAtom,
   serverMatchedLogIdsAtom,
   loadedOlderTraceIdsAtom,
@@ -150,16 +149,9 @@ const searchedLogsAtom = atom((get) => {
   return get(rangeFilteredLogsAtom).filter((log) => serverIds.has(log.id) || matches(log));
 });
 
-export const filteredLogsAtom = atom<LogData[]>((get) => {
-  const traceFilter = get(logTraceFilterAtom);
-  const logs = get(logSearchAtom).trim()
-    ? get(searchedLogsAtom)
-    : traceFilter
-      ? get(logsAtom)
-      : get(rangeFilteredLogsAtom);
-  if (!traceFilter) return logs;
-  return logs.filter((l) => l.traceId === traceFilter);
-});
+export const filteredLogsAtom = atom<LogData[]>((get) =>
+  get(logSearchAtom).trim() ? get(searchedLogsAtom) : get(rangeFilteredLogsAtom),
+);
 
 export const metricSearchAtom = atom("");
 

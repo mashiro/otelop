@@ -44,11 +44,14 @@ It's meant for the loop where you're writing instrumentation and just want to se
 ## Log search
 
 Use **Add filter** to configure each condition with **Key / Operator / Value**.
-Keys can be selected from loaded logs or entered as `attributes.key` / `resource.key`.
+Standard keys include `trace_id`, `span_id`, `service_name`, `severity_text`,
+`severity_number`, and `body`. Attribute keys can be selected from loaded logs or entered as `attributes.key` / `resource.key`.
 Operators include equality, exclusion, contains, wildcard matching, existence,
 and numeric comparisons. Conditions are combined with AND. Click a condition to
-edit it, pause it temporarily, or remove it. Text search and conditions are kept
-automatically in this browser, including paused conditions, across reloads.
+edit it, pause it temporarily, or remove it. Text search and conditions, including paused conditions, are recorded in the
+URL along with the time window. Opening a URL restores those conditions; a bare
+Logs URL starts with no filters. Trace-to-Logs navigation adds a trace_id filter.
+Log Details offers filter buttons for standard fields, attributes, and resource values.
 Search applies within the selected time window, including subsequent pages.
 
 You can also enter a query in the Logs search box and press Enter:

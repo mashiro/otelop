@@ -54,6 +54,8 @@ type Query {
   attribute JSON, or resource JSON
   contains it (substring match; % and _ are treated literally, not as
   wildcards). Attribute filters use attributes.key:value or resource.key:value.
+  Standard field filters also accept trace_id, span_id, service_name,
+  severity_text, severity_number, and body. Zero trace/span IDs are absent.
   Keys are case-sensitive and dots are literal. Scalar values match fully,
   case-insensitively; unquoted * matches any sequence, and key:* tests for a
   non-null attribute. Double-quoted JSON strings match literally. Space-separated

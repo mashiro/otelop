@@ -305,3 +305,50 @@ func TestLogsPage_PlainJSONSearch(t *testing.T) {
 		}
 	}
 }
+
+func TestLogsPage_BuiltinFilters(t *testing.T) {
+	s := openTestStorage(t, Options{})
+	ctx := context.Background()
+	now := time.Now().UTC().Truncate(time.Second)
+	tid := pcommon.TraceID{1}
+	sid := pcommon.SpanID{2}
+	for _, offset := range []time.Duration{0, time.Second, time.Hour} {
+		logs := buildLogWithSeverity([16]byte(tid), "request failed", "checkout", "ERROR", now.Add(offset))
+		lr := logs.ResourceLogs().At(0).ScopeLogs().At(0).LogRecords().At(0)
+		lr.SetSpanID(sid)
+		lr.SetSeverityNumber(plog.SeverityNumberError)
+		lr.Attributes().PutStr("trace_id", "attribute-only")
+		s.AddLogs(ctx, logs)
+	}
+	s.AddLogs(ctx, buildLogWithSeverity([16]byte{}, "unrelated", "worker", "INFO", now.Add(2*time.Second)))
+	s.Sync()
+	cases := []struct {
+		q string
+		n int
+	}{
+		{"trace_id:" + tid.String(), 2}, {"span_id:" + sid.String(), 2},
+		{"trace_id:0100*", 2}, {"trace_id:*", 2}, {"-trace_id:*", 1},
+		{"service_name:checkout", 2}, {"severity_text:error", 2},
+		{"severity_number:>=17", 2}, {"body:*failed*", 2},
+		{"trace_id:" + tid.String() + " attributes.trace_id:attribute-only", 2},
+		{"trace_id:attribute-only", 0}, {"attributes.trace_id:attribute-only", 2},
+		{"trace_id:" + tid.String() + " span_id:missing", 0},
+		{"-trace_id:" + tid.String(), 1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.q, func(t *testing.T) {
+			items, _, err := s.LogsPage(ctx, now.Add(-time.Second), now.Add(time.Minute), nil, 100, tc.q)
+			if err != nil || len(items) != tc.n {
+				t.Fatalf("rows=%d want=%d err=%v", len(items), tc.n, err)
+			}
+		})
+	}
+	items, more, err := s.LogsPage(ctx, now.Add(-time.Second), now.Add(time.Minute), nil, 1, "trace_id:"+tid.String())
+	if err != nil || len(items) != 1 || !more {
+		t.Fatalf("first page: %v %v", more, err)
+	}
+	next, more, err := s.LogsPage(ctx, now.Add(-time.Second), now.Add(time.Minute), &LogCursor{TS: items[0].TS, ID: items[0].ID}, 1, "trace_id:"+tid.String())
+	if err != nil || len(next) != 1 || more || next[0].ID == items[0].ID {
+		t.Fatalf("next page: %v %v", more, err)
+	}
+}

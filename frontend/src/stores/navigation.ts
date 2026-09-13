@@ -1,4 +1,5 @@
-import { atom } from "jotai";
+import { atom, type SetStateAction } from "jotai";
+import { readLogQuery, writeLogQuery, type LogQueryState } from "@/lib/log-query-state";
 import type { Getter, PrimitiveAtom } from "jotai";
 import { useSetAtom } from "jotai";
 import { useEffect } from "react";
@@ -126,6 +127,9 @@ function eventWindowFromLocation(location: string, fallbackRange: ChartTimeRange
 }
 
 const currentTabAtom = atom<TabValue>(initialLocation.tab);
+const logQueryBaseAtom = atom<LogQueryState>(
+  readLogQuery(window.location.pathname + window.location.search),
+);
 
 const selectedTraceIdBaseAtom = atom<string | null>(initialLocation.traceId);
 const selectedMetricKeyBaseAtom = atom<MetricKey | null>(initialLocation.metricKey);
@@ -175,10 +179,24 @@ function syncLocation(get: Getter): void {
     url.searchParams.set("to", eventWindow.to);
     path = url.pathname + url.search;
   }
+  if (tab === "logs") {
+    const url = new URL(path, "http://otelop.invalid");
+    writeLogQuery(url, get(logQueryBaseAtom));
+    path = url.pathname + url.search;
+  }
   if (window.location.pathname + window.location.search !== path) {
     window.history.pushState(null, "", path);
   }
 }
+
+export const logQueryStateAtom = atom(
+  (get) => get(logQueryBaseAtom),
+  (get, set, update: SetStateAction<LogQueryState>) => {
+    const value = typeof update === "function" ? update(get(logQueryBaseAtom)) : update;
+    set(logQueryBaseAtom, value);
+    syncLocation(get);
+  },
+);
 
 // createSyncedAtom is the shared "if equal return; set base; syncLocation"
 // write-through wrapper every public selection/range/tab atom below needs, so
@@ -293,6 +311,7 @@ export const applyLocationAtom = atom(null, (_get, set, location: string) => {
   }
   if (parsed.tab === "logs") {
     set(selectedLogIdBaseAtom, parsed.logId);
+    set(logQueryBaseAtom, readLogQuery(location));
     set(selectedEventRangeBaseAtom, parsed.logRange);
     set(eventTimeWindowBaseAtom, eventWindowFromLocation(location, parsed.logRange));
   }
