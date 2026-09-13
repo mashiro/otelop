@@ -1,3 +1,5 @@
+import { logSearchAtom } from "./log-query";
+import { createLogSearchMatcher } from "@/lib/log-search";
 import { atom } from "jotai";
 import type { Atom, PrimitiveAtom } from "jotai";
 import { filterDataPointsInRange } from "@/lib/chart-time-range";
@@ -119,13 +121,13 @@ export const filteredTracesAtom = atom((get) =>
   get(traceSearchAtom).trim() ? get(searchedTracesAtom) : get(rangeFilteredTracesAtom),
 );
 
-export const logSearchAtom = atom("");
+export { logSearchAtom } from "./log-query";
 
 // See rangeFilteredTracesAtom above — same live-tail rolling-window rationale.
 const rangeFilteredLogsAtom = atom((get) => {
   const window = get(logListWindowAtom);
   const logs = get(logsAtom);
-  const loadedOlderIds = get(loadedOlderLogIdsAtom);
+  const loadedOlderIds = get(logSearchAtom).trim() ? new Set<string>() : get(loadedOlderLogIdsAtom);
   if (window.mode === "live") {
     if (window.range === "all") return logs;
     const inRangeIds = new Set(
@@ -141,15 +143,12 @@ const rangeFilteredLogsAtom = atom((get) => {
   );
 });
 
-// The client-side predicate (live WS rows only) mirrors the server's
-// LogsPage search (query_log.go): body, service name, severity text, trace ID.
-const searchedLogsAtom = createServerBackedSearchAtom(
-  logsAtom,
-  logSearchAtom,
-  serverMatchedLogIdsAtom,
-  (l: LogData) => l.id,
-  (l: LogData) => [l.body, l.serviceName ?? "", l.severityText ?? "", l.traceId],
-);
+// Server results already match; apply the same grammar to live arrivals.
+const searchedLogsAtom = atom((get) => {
+  const matches = createLogSearchMatcher(get(logSearchAtom).trim());
+  const serverIds = get(serverMatchedLogIdsAtom);
+  return get(rangeFilteredLogsAtom).filter((log) => serverIds.has(log.id) || matches(log));
+});
 
 export const filteredLogsAtom = atom<LogData[]>((get) => {
   const traceFilter = get(logTraceFilterAtom);

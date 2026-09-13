@@ -310,11 +310,41 @@ describe("filteredLogsAtom", () => {
     expect(store.get(filteredLogsAtom)).toHaveLength(1);
   });
 
-  it("searches buffered logs outside the active time window", () => {
+  it.each(["timeout", "attributes.http.method:GET"])(
+    "keeps search %s inside the active time window",
+    (search) => {
+      const store = createStore();
+      store.set(logsAtom, [
+        makeLog({
+          id: "old-match",
+          body: "timeout",
+          attributes: { "http.method": "GET" },
+          timestamp: "2024-01-01T00:00:00Z",
+        }),
+        makeLog({
+          id: "current-match",
+          body: "timeout",
+          attributes: { "http.method": "GET" },
+          timestamp: "2024-01-01T01:00:00Z",
+        }),
+        makeLog({ id: "current-miss", body: "ok", timestamp: "2024-01-01T01:00:00Z" }),
+      ]);
+      store.set(logListWindowAtom, {
+        mode: "fixed",
+        from: "2024-01-01T00:59:00Z",
+        to: "2024-01-01T01:01:00Z",
+      });
+      store.set(logSearchAtom, search);
+
+      expect(store.get(filteredLogsAtom).map((log) => log.id)).toEqual(["current-match"]);
+    },
+  );
+
+  it("excludes previously loaded history and server matches outside a search window", () => {
     const store = createStore();
-    store.set(logsAtom, [
-      makeLog({ id: "old-match", body: "timeout", timestamp: "2024-01-01T00:00:00Z" }),
-      makeLog({ id: "current-miss", body: "ok", timestamp: "2024-01-01T01:00:00Z" }),
+    store.set(setLogsAtom, [makeLog({ id: "server-old", timestamp: "2024-01-01T00:00:00Z" })]);
+    store.set(appendLogsAtom, [
+      makeLog({ id: "loaded-old", body: "timeout", timestamp: "2024-01-01T00:00:01Z" }),
     ]);
     store.set(logListWindowAtom, {
       mode: "fixed",
@@ -322,8 +352,7 @@ describe("filteredLogsAtom", () => {
       to: "2024-01-01T01:01:00Z",
     });
     store.set(logSearchAtom, "timeout");
-
-    expect(store.get(filteredLogsAtom).map((log) => log.id)).toEqual(["old-match"]);
+    expect(store.get(filteredLogsAtom)).toEqual([]);
   });
 
   it("treats the trace filter as retained-history scope", () => {
@@ -389,6 +418,29 @@ describe("filteredLogsAtom", () => {
     store.set(addLogAtom, makeLog({ id: "live-hit", body: "payment retried" }));
 
     expect(store.get(filteredLogsAtom).map((l) => l.id)).toEqual(["live-hit", "srv1"]);
+  });
+
+  it("applies attribute conditions to live logs alongside server results", () => {
+    const store = createStore();
+    store.set(setLogsAtom, [makeLog({ id: "server" })]);
+    store.set(logSearchAtom, "attributes.http.method:GET AND resource.service.name:api");
+    store.set(
+      addLogAtom,
+      makeLog({
+        id: "miss",
+        attributes: { "http.method": "POST" },
+        resource: { "service.name": "api" },
+      }),
+    );
+    store.set(
+      addLogAtom,
+      makeLog({
+        id: "hit",
+        attributes: { "http.method": "GET" },
+        resource: { "service.name": "api" },
+      }),
+    );
+    expect(store.get(filteredLogsAtom).map((log) => log.id)).toEqual(["hit", "server"]);
   });
 
   it("clearing the search restores every buffered log, including hidden live prepends", () => {

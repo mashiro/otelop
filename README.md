@@ -41,6 +41,40 @@ It's meant for the loop where you're writing instrumentation and just want to se
 - Persistent history across restarts with no external setup
 - Optional self-observability for otelop's own traces, metrics, and logs
 
+## Log search
+
+Use **Add filter** to configure each condition with **Key / Operator / Value**.
+Keys can be selected from loaded logs or entered as `attributes.key` / `resource.key`.
+Operators include equality, exclusion, contains, wildcard matching, existence,
+and numeric comparisons. Conditions are combined with AND. Click a condition to
+edit it, pause it temporarily, or remove it. Text search and conditions are kept
+automatically in this browser, including paused conditions, across reloads.
+Search applies within the selected time window, including subsequent pages.
+
+You can also enter a query in the Logs search box and press Enter:
+
+```text
+attributes.http.method:GET
+attributes.http.status_code:500 AND resource.service.name:api
+attributes.user.name:"Alice Smith"
+attributes.http.route:/api/*
+attributes.error.type:*
+failed attributes.http.method:GET
+```
+
+Use `attributes.` for log attributes and `resource.` for resource attributes.
+Keys are case-sensitive; dots are part of the key. String, number, and boolean
+values match fully, ignoring case. Unquoted `*` is a wildcard; `key:*` checks
+for a non-null attribute. Double-quoted values use JSON string escaping and
+match literally, including `*`. Combine filters with spaces or `AND`.
+Free text searches body, service, severity, trace ID, and the JSON of attributes
+and resource, including nested keys and values. The same filters apply to retained and live logs.
+Prefix a filter with `-` to exclude matches, including missing keys
+(e.g. `-attributes.http.method:GET`). Numeric comparisons use
+`attributes.http.status_code:>=500` and apply only to numeric attribute values.
+Wildcard strings containing spaces use `attributes.message:~"*request failed*"`.
+OR, the NOT keyword, and grouping are not supported. Incomplete filters are treated as free text.
+
 ## Install
 
 With Go:

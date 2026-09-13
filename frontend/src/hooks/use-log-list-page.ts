@@ -51,8 +51,9 @@ const LogsPageQuery = graphql(`
 `);
 
 // Fetches the logs tab page-by-page: browsing starts within `range`, then
-// Load more can continue into older retained history. Search and trace
-// correlation span all retained history from page 1. Mount this once from
+// Load more can continue into older retained history. Search stays inside
+// the selected window, including subsequent pages. Trace correlation without
+// search spans retained history. Mount this once from
 // components/logs/log-list.tsx; base-ui's Tabs unmounts an inactive tab's
 // panel (see App.tsx), so switching tabs and back naturally resets pagination
 // the same way a range change does.
@@ -118,8 +119,9 @@ export function useLogListPage(
     getCurrentIds,
     replacePage,
     onAppend: appendPage,
-    loadOlderBeyondWindow: !traceId,
+    loadOlderBeyondWindow: !traceId && !search.trim(),
     hasItemsBefore: traceId ? undefined : hasLogsBefore,
-    retainedHistory: Boolean(traceId),
+    retainedHistory: Boolean(traceId) && !search.trim(),
+    searchWithinWindow: true,
   });
 }

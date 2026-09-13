@@ -249,6 +249,15 @@ describe("LogList render window (bounded sliding)", () => {
     );
   });
 
+  it("keeps the time range controls available during text and attribute search", () => {
+    const store = getDefaultStore();
+    store.set(logsAtom, makeLogs(1));
+    store.set(logSearchAtom, "frontend attributes.http.method:GET");
+    render(<LogList />);
+    expect(screen.getByRole("combobox", { name: "Time range" })).toBeTruthy();
+    expect(screen.queryByText("All retained data")).toBeNull();
+  });
+
   it("resets the render window to the head when the search changes", () => {
     const store = getDefaultStore();
     store.set(logsAtom, makeLogs(TEST_RENDER_WINDOW_MAX + SIGNAL_PAGE_SIZE + 50));

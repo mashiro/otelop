@@ -50,9 +50,18 @@ type Query {
   and from/to are ignored (matching the trace's own retained lifetime).
   Otherwise from/to bound the query to a time range, defaulting to the full
   retention window. In either mode search, if given, case-insensitively
-  matches a log whose body, resource service name, severity text, or trace ID
+  matches a log whose body, resource service name, severity text, trace ID,
+  attribute JSON, or resource JSON
   contains it (substring match; % and _ are treated literally, not as
-  wildcards). An empty/omitted search matches every selected log.
+  wildcards). Attribute filters use attributes.key:value or resource.key:value.
+  Keys are case-sensitive and dots are literal. Scalar values match fully,
+  case-insensitively; unquoted * matches any sequence, and key:* tests for a
+  non-null attribute. Double-quoted JSON strings match literally. Space-separated
+  filters (optionally joined by AND) must all match; remaining free text keeps
+  substring matching. A leading - negates a filter (missing keys also match).
+  Unquoted >, >=, <, <= followed by a finite number compare numeric attributes.
+  A ~ prefix on a quoted value enables wildcard matching inside that string.
+  An empty/omitted search matches every selected log.
   """
   logs(limit: Int = 50, after: String, traceId: String, from: Time, to: Time, search: String): LogConnection!
 

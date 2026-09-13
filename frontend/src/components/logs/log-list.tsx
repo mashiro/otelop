@@ -1,3 +1,5 @@
+import { logTextSearchAtom } from "@/stores/log-query";
+import { LogFilterBar } from "./log-filter-bar";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { useState } from "react";
 import { X } from "lucide-react";
@@ -88,23 +90,33 @@ export function LogList() {
 
   return (
     <ListPanel
+      toolbarSecondary={<LogFilterBar />}
       toolbar={
         <>
-          {traceFilter && (
-            <div className="flex items-center gap-1 rounded bg-trace/10 px-2 py-0.5 text-[11px] text-trace">
-              <span className="font-mono">{traceFilter.slice(0, 12)}...</span>
-              <button
-                type="button"
-                onClick={() => setTraceFilter(null)}
-                className="text-trace hover:text-foreground"
-              >
-                <X className="h-2.5 w-2.5" />
-              </button>
+          <div className="flex w-full flex-wrap items-center gap-2">
+            {traceFilter && (
+              <div className="flex items-center gap-1 rounded bg-trace/10 px-2 py-0.5 text-[11px] text-trace">
+                <span className="font-mono">{traceFilter.slice(0, 12)}...</span>
+                <button
+                  type="button"
+                  onClick={() => setTraceFilter(null)}
+                  className="text-trace hover:text-foreground"
+                >
+                  <X className="h-2.5 w-2.5" />
+                </button>
+              </div>
+            )}
+            <SearchFilter
+              atom={logTextSearchAtom}
+              placeholder="Search logs…"
+              className="min-w-40 flex-1"
+            />
+            <div className="ml-auto">
+              <EventWindowControls
+                tone="log"
+                allRetained={Boolean(traceFilter) && !search.trim()}
+              />
             </div>
-          )}
-          <SearchFilter atom={logSearchAtom} placeholder="Search logs…" />
-          <div className="ml-auto">
-            <EventWindowControls tone="log" allRetained={Boolean(search.trim() || traceFilter)} />
           </div>
         </>
       }

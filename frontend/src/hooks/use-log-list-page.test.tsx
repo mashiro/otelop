@@ -173,11 +173,11 @@ describe("useLogListPage", () => {
 
     await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(1));
     expect(requestMock.mock.calls[0]?.[1]?.search).toBe("timeout");
-    expect(requestMock.mock.calls[0]?.[1]?.from).toBeUndefined();
-    expect(requestMock.mock.calls[0]?.[1]?.to).toBeUndefined();
+    expect(requestMock.mock.calls[0]?.[1]?.from).toBeDefined();
+    expect(requestMock.mock.calls[0]?.[1]?.to).toBeDefined();
   });
 
-  it("does not restart an active retained-history search when the browsing range changes", async () => {
+  it("refetches search within the new time window when the range changes", async () => {
     requestMock.mockResolvedValue({ logs: { items: [], hasNextPage: false, endCursor: null } });
 
     const { rerender } = renderWithStore("1m", "timeout");
@@ -186,10 +186,12 @@ describe("useLogListPage", () => {
     rerender({ range: "24h", search: "timeout" });
     await act(async () => Promise.resolve());
 
-    expect(requestMock).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(2));
+    expect(requestMock.mock.calls[1]?.[1]?.from).not.toBe(requestMock.mock.calls[0]?.[1]?.from);
+    expect(requestMock.mock.calls[1]?.[1]?.after).toBeNull();
   });
 
-  it("queries a trace filter over retained history and composes it with search", async () => {
+  it("combines a trace filter and search inside the time window", async () => {
     requestMock.mockResolvedValue({ logs: { items: [], hasNextPage: false, endCursor: null } });
     const store = createStore();
     const wrapper = ({ children }: { children: ReactNode }) => (
@@ -202,8 +204,8 @@ describe("useLogListPage", () => {
 
     await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(1));
     expect(requestMock.mock.calls[0]?.[1]).toMatchObject({
-      from: undefined,
-      to: undefined,
+      from: expect.any(String),
+      to: expect.any(String),
       search: "timeout",
       traceId: "trace-a",
     });
@@ -248,8 +250,8 @@ describe("useLogListPage", () => {
 
     await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(2));
     expect(requestMock.mock.calls[1]?.[1]?.search).toBe("timeout");
-    expect(requestMock.mock.calls[1]?.[1]?.from).toBeUndefined();
-    expect(requestMock.mock.calls[1]?.[1]?.to).toBeUndefined();
+    expect(requestMock.mock.calls[1]?.[1]?.from).toBe(requestMock.mock.calls[0]?.[1]?.from);
+    expect(requestMock.mock.calls[1]?.[1]?.to).toBe(requestMock.mock.calls[0]?.[1]?.to);
   });
 
   it("returns to the current browsing window when search is cleared", async () => {
