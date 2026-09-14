@@ -1,0 +1,14 @@
+root = "."
+tmp_dir = "tmp"
+
+[build]
+cmd = "go build -o ./tmp/otelop ./cmd/otelop"
+entrypoint = ["./tmp/otelop"]
+include_dir = ["cmd", "internal", "docs"]
+include_ext = ["go", "graphql", "md"]
+include_file = ["go.mod", "go.sum", "frontendfs.go", "frontendfs_dev.go"]
+exclude_regex = ["_test\\.go$"]
+delay = 300
+send_interrupt = true
+kill_delay = "5s"
+stop_on_error = true

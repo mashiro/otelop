@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"go.opentelemetry.io/collector/otelcol"
@@ -38,6 +39,7 @@ type Runtime struct {
 	col               *otelcol.Collector
 	shutdownTelemetry func(context.Context) error
 	shutdownOnce      sync.Once
+	ready             atomic.Bool
 }
 
 // Start validates opts and starts all otelop runtime components.
@@ -101,7 +103,9 @@ func Start(ctx context.Context, opts Options) (*Runtime, error) {
 		MaxSizeDisplay:   opts.MaxSize,
 		RenderWindowMax:  opts.RenderWindowMax,
 	}
-	rt.srv = server.New(rt.storage, rt.hub, otelop.FrontendFS(), runtimeInfo)
+	rt.srv = server.New(rt.storage, rt.hub, otelop.FrontendFS(), runtimeInfo, func() bool {
+		return rt.ready.Load() && ctx.Err() == nil && rt.col.GetState() == otelcol.StateRunning
+	})
 
 	if err := rt.srv.Listen(ctx); err != nil {
 		rt.Shutdown()
@@ -171,6 +175,7 @@ func Start(ctx context.Context, opts Options) (*Runtime, error) {
 		}
 	}
 
+	rt.ready.Store(true)
 	return rt, nil
 }
 
@@ -184,6 +189,7 @@ func (r *Runtime) Shutdown() {
 		return
 	}
 	r.shutdownOnce.Do(func() {
+		r.ready.Store(false)
 		shutdownCtx := context.Background()
 		if r.shutdownTelemetry != nil {
 			if err := r.shutdownTelemetry(shutdownCtx); err != nil {

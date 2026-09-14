@@ -35,7 +35,7 @@ type Server struct {
 
 // New creates a new Server. When runtime.Debug is true, HTTP requests are
 // instrumented with OpenTelemetry spans via otelhttp.
-func New(s *storage.Storage, hub *ws.Hub, frontendFS fs.FS, runtime otelopgraphql.RuntimeInfo) *Server {
+func New(s *storage.Storage, hub *ws.Hub, frontendFS fs.FS, runtime otelopgraphql.RuntimeInfo, ready func() bool) *Server {
 	srv := &Server{
 		storage: s,
 		hub:     hub,
@@ -43,6 +43,20 @@ func New(s *storage.Storage, hub *ws.Hub, frontendFS fs.FS, runtime otelopgraphq
 	}
 
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-store")
+		_, _ = w.Write([]byte("ok\n"))
+	})
+	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		if ready == nil || !ready() {
+			http.Error(w, "not ready", http.StatusServiceUnavailable)
+			return
+		}
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		_, _ = w.Write([]byte("ok\n"))
+	})
 
 	// CSRF protection: otelop is a localhost dev tool, so any page open in the
 	// browser — including malicious ones — can reach it. Without this, a
