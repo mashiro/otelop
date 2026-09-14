@@ -1,9 +1,8 @@
-import { useEffect, useState } from "react";
-import { useAtomValue } from "jotai";
+import { useQuery } from "@tanstack/react-query";
+import { queryClient } from "@/lib/query-client";
 import { graphql } from "@/gql";
 import { gqlClient } from "@/lib/graphql";
-import { eventTimeWindowAtom } from "@/stores/navigation";
-import { eventWindowBounds, eventWindowKey } from "@/lib/event-time-window";
+import { eventWindowBounds, eventWindowKey, type EventTimeWindow } from "@/lib/event-time-window";
 
 const FilterSuggestionsQuery = graphql(`
   query FilterSuggestions($signal: String!, $key: String, $input: String!, $from: Time, $to: Time) {
@@ -15,40 +14,39 @@ export function useFilterSuggestions(
   signal: "logs" | "traces",
   key: string | undefined,
   input: string,
+  window: EventTimeWindow,
   enabled = true,
 ) {
-  const window = useAtomValue(eventTimeWindowAtom);
   const requestKey = JSON.stringify([signal, key, input, eventWindowKey(window), enabled]);
-  const [result, setResult] = useState<{
-    requestKey: string;
-    items: string[];
-    error: boolean;
-  } | null>(null);
-  useEffect(() => {
-    if (!enabled) return;
-    const controller = new AbortController();
-    const timer = setTimeout(async () => {
-      try {
+  const { data, isPending, isError } = useQuery(
+    {
+      queryKey: ["filter-suggestions", requestKey],
+      enabled,
+      queryFn: async ({ signal: abortSignal }) => {
+        await new Promise<void>((resolve, reject) => {
+          const abort = () => {
+            clearTimeout(timer);
+            reject(abortSignal.reason);
+          };
+          const timer = setTimeout(() => {
+            abortSignal.removeEventListener("abort", abort);
+            resolve();
+          }, 200);
+          abortSignal.addEventListener("abort", abort, { once: true });
+        });
         const data = await gqlClient.request({
           document: FilterSuggestionsQuery,
           variables: { signal, key, input, ...eventWindowBounds(window) },
-          signal: controller.signal,
+          signal: abortSignal,
         });
-        if (!controller.signal.aborted)
-          setResult({ requestKey, items: data.filterSuggestions, error: false });
-      } catch {
-        if (!controller.signal.aborted) setResult({ requestKey, items: [], error: true });
-      }
-    }, 200);
-    return () => {
-      clearTimeout(timer);
-      controller.abort();
-    };
-  }, [requestKey]);
-  const current = result?.requestKey === requestKey ? result : null;
+        return data.filterSuggestions;
+      },
+    },
+    queryClient,
+  );
   return {
-    items: enabled ? (current?.items ?? []) : [],
-    loading: enabled && !current,
-    error: enabled && !!current?.error,
+    items: enabled ? (data ?? []) : [],
+    loading: enabled && isPending,
+    error: enabled && isError,
   };
 }

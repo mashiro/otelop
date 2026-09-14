@@ -214,7 +214,7 @@ describe("useMetricAggregateSeries", () => {
       m: { ...metric, dataPoints: [...metric.dataPoints, makeDataPoint({ id: "late" })] },
     });
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(2000);
+      await vi.advanceTimersByTimeAsync(2001);
     });
 
     expect(result.current?.[1]?.points[0]?.value).toBe(9);
@@ -267,7 +267,7 @@ describe("useMetricAggregateSeries", () => {
         ],
       },
     });
-    await vi.advanceTimersByTimeAsync(2000);
+    await vi.advanceTimersByTimeAsync(2001);
 
     expect(requestMock).toHaveBeenCalledTimes(2);
   });

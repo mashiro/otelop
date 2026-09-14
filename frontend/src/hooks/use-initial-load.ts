@@ -1,5 +1,7 @@
-import { useEffect, useRef } from "react";
-import { useSetAtom } from "jotai";
+import { useEffect } from "react";
+import { queryOptions, useQuery } from "@tanstack/react-query";
+import { queryClient } from "@/lib/query-client";
+import { atom, useSetAtom, useStore } from "jotai";
 import { graphql } from "@/gql";
 import { gqlClient } from "@/lib/graphql";
 import { setMetricsAtom, setTotalCountsAtom, renderWindowMaxAtom } from "@/stores/telemetry";
@@ -61,34 +63,31 @@ const InitialLoadQuery = graphql(`
   }
 `);
 
+export const initialLoadOptions = queryOptions({
+  queryKey: ["initial-load"],
+  queryFn: () => gqlClient.request(InitialLoadQuery),
+  staleTime: Infinity,
+});
+
+const initializedAtom = atom(false);
+
 export function useInitialLoad() {
+  const markInitialized = useSetAtom(initializedAtom);
+  const store = useStore();
   const setMetrics = useSetAtom(setMetricsAtom);
   const setTotalCounts = useSetAtom(setTotalCountsAtom);
   const setRenderWindowMax = useSetAtom(renderWindowMaxAtom);
-  // StrictMode double-invokes effects in dev; guard so the bootstrap fetch
-  // (and its Jotai writes) only runs once per real mount.
-  const loadedRef = useRef(false);
+  const { data } = useQuery(initialLoadOptions, queryClient);
 
   useEffect(() => {
-    if (loadedRef.current) return;
-    loadedRef.current = true;
-    const load = async () => {
-      try {
-        const data = await gqlClient.request(InitialLoadQuery);
-        setTotalCounts(data.config);
-        setRenderWindowMax(data.config.renderWindowMax);
-        // dataPoints wasn't selected above (see this file's doc comment);
-        // every metric enters the buffer empty and fills in lazily — via a
-        // detail view's use-metric-range-points fetch, or a WS delivery
-        // merging in through addMetricAtom.
-        const metrics: MetricData[] = data.metrics.items.map((m) =>
-          normalizeMetric({ ...m, dataPoints: [] }),
-        );
-        setMetrics(metrics);
-      } catch {
-        // WebSocket will deliver data later.
-      }
-    };
-    void load();
-  }, [setMetrics, setTotalCounts, setRenderWindowMax]);
+    // Cached bootstrap data must not overwrite a newer live buffer on remount.
+    if (!data || store.get(initializedAtom)) return;
+    markInitialized(true);
+    setTotalCounts(data.config);
+    setRenderWindowMax(data.config.renderWindowMax);
+    const metrics: MetricData[] = data.metrics.items.map((m) =>
+      normalizeMetric({ ...m, dataPoints: [] }),
+    );
+    setMetrics(metrics);
+  }, [data, store, markInitialized, setMetrics, setTotalCounts, setRenderWindowMax]);
 }

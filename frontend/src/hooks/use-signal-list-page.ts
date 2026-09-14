@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useMemo } from "react";
+import { useInfiniteQuery } from "@tanstack/react-query";
+import { queryClient } from "@/lib/query-client";
 import { eventWindowBounds, eventWindowKey, type EventTimeWindow } from "@/lib/event-time-window";
 
 // Page size for the traces/logs tabs' server-side pagination (issue #160).
@@ -43,14 +45,8 @@ interface FetchPageResult<T> {
   endCursor: string | null;
 }
 
-interface PagingSession {
-  from: string | undefined;
-  to: string | undefined;
-  search: string;
-  endCursor: string | null;
-}
-
 interface SignalListPageOptions<T> {
+  queryScope: readonly unknown[];
   window: EventTimeWindow;
   search: string;
   fetchPage: (args: FetchPageArgs) => Promise<FetchPageResult<T>>;
@@ -85,6 +81,7 @@ export interface ReplacementPage<T> {
 // the keep-previous-data style used elsewhere (see
 // hooks/use-metric-range-points.ts).
 export function useSignalListPage<T>({
+  queryScope,
   window,
   search,
   fetchPage,
@@ -96,105 +93,70 @@ export function useSignalListPage<T>({
   retainedHistory = false,
   searchWithinWindow = false,
 }: SignalListPageOptions<T>): SignalListPage {
-  const [state, setState] = useState({ hasMore: false, loadingMore: false });
-  const sessionRef = useRef<PagingSession | null>(null);
   const windowKey = eventWindowKey(window);
   const normalizedSearch = search.trim();
   const acrossHistory = retainedHistory || (Boolean(normalizedSearch) && !searchWithinWindow);
   const requestKey = acrossHistory
     ? `retained:${normalizedSearch}`
     : `window:${windowKey}:search:${normalizedSearch}`;
-
-  useEffect(() => {
-    let ignore = false;
-    const bounds = acrossHistory ? { from: undefined, to: undefined } : eventWindowBounds(window);
-    const session: PagingSession = {
-      from: bounds.from,
-      to: bounds.to,
-      search: normalizedSearch,
-      endCursor: null,
-    };
-    sessionRef.current = session;
-    const idsBeforeRequest = getCurrentIds();
-
-    const load = async () => {
-      try {
-        const { items, hasNextPage, endCursor } = await fetchPage({
-          from: session.from,
-          to: session.to,
-          after: null,
+  // Resolve a relative range once per browsing scope so every cursor uses
+  // the same time bounds, including when new live deliveries arrive.
+  const bounds = useMemo(
+    () => (acrossHistory ? { from: undefined, to: undefined } : eventWindowBounds(window)),
+    [requestKey],
+  );
+  const query = useInfiniteQuery(
+    {
+      queryKey: ["signal-pages", ...queryScope, requestKey, bounds],
+      initialPageParam: { after: null as string | null, initial: true },
+      queryFn: async ({ pageParam, signal }) => {
+        const beyondWindow =
+          !pageParam.initial && loadOlderBeyondWindow && bounds.from !== undefined;
+        const idsBeforeRequest = getCurrentIds();
+        const page = await fetchPage({
+          from: beyondWindow ? undefined : bounds.from,
+          to: beyondWindow && pageParam.after === null ? bounds.from : bounds.to,
+          after: pageParam.after,
           limit: SIGNAL_PAGE_SIZE,
-          search: session.search,
+          search: normalizedSearch,
         });
-        if (ignore) return;
-        replacePage({ items, idsBeforeRequest, window });
-        session.endCursor = endCursor;
         const hasOlder =
-          !hasNextPage && loadOlderBeyondWindow && session.from !== undefined && hasItemsBefore
-            ? await hasItemsBefore(session.from).catch(() => true)
+          pageParam.initial &&
+          !page.hasNextPage &&
+          loadOlderBeyondWindow &&
+          bounds.from !== undefined &&
+          hasItemsBefore
+            ? await hasItemsBefore(bounds.from).catch(() => true)
             : false;
-        if (ignore) return;
-        setState({ hasMore: hasNextPage || hasOlder, loadingMore: false });
-      } catch {
-        // Leave whatever was showing before (the previous range's page, or
-        // just the live buffer) — the next range/search/tab activation retries.
-      }
-    };
-    void load();
-
-    return () => {
-      ignore = true;
-    };
-    // fetchPage/replacePage/onAppend must be reference-stable across renders
-    // (callers wrap them in useCallback or use Jotai setters) so this effect
-    // only reruns on a genuine window or search change, not on every render.
-  }, [
-    requestKey,
-    fetchPage,
-    getCurrentIds,
-    replacePage,
-    loadOlderBeyondWindow,
-    hasItemsBefore,
-    acrossHistory,
-  ]);
-
+        // Consumers slide the render window when Query finishes. Publish the
+        // rows first, and ignore requests abandoned by a scope change/unmount.
+        if (!signal.aborted) {
+          if (pageParam.initial) replacePage({ items: page.items, idsBeforeRequest, window });
+          else onAppend(page.items);
+        }
+        return {
+          ...page,
+          hasMore: page.hasNextPage || hasOlder,
+        };
+      },
+      getNextPageParam: (page) =>
+        page.hasMore ? { after: page.endCursor, initial: false } : undefined,
+      // The live buffer is bounded separately; avoid retaining an unlimited
+      // second copy of historical pages in the query cache.
+      maxPages: 10,
+      // A later visit starts from the newest page, not a cached cursor whose
+      // head may already have been evicted by maxPages.
+      gcTime: 0,
+    },
+    queryClient,
+  );
+  const { fetchNextPage } = query;
   const loadMore = useCallback(() => {
-    const session = sessionRef.current;
-    if (!session) return;
-    setState((s) => ({ ...s, loadingMore: true }));
-    const after = session.endCursor;
-    const load = async () => {
-      try {
-        // Logs treat the selected window as the starting page, not a hard
-        // history boundary. Once the user asks for more, continue from the
-        // oldest loaded cursor without `from`; an empty first page starts at
-        // the window's lower bound instead.
-        const beyondWindow = loadOlderBeyondWindow && session.from !== undefined;
-        const { items, hasNextPage, endCursor } = await fetchPage({
-          from: beyondWindow ? undefined : session.from,
-          to: beyondWindow && after === null ? session.from! : session.to,
-          after,
-          limit: SIGNAL_PAGE_SIZE,
-          search: session.search,
-        });
-        if (sessionRef.current !== session) return;
-        onAppend(items);
-        session.endCursor = endCursor;
-        setState({
-          hasMore: hasNextPage,
-          loadingMore: false,
-        });
-      } catch {
-        if (sessionRef.current !== session) return;
-        setState((s) => ({ ...s, loadingMore: false }));
-      }
-    };
-    void load();
-  }, [fetchPage, onAppend, loadOlderBeyondWindow]);
-
+    void fetchNextPage({ cancelRefetch: false });
+  }, [fetchNextPage]);
   return {
-    hasMore: state.hasMore,
-    loadingMore: state.loadingMore,
+    hasMore: query.hasNextPage,
+    loadingMore: query.isFetchingNextPage,
     loadMore,
     requestKey,
   };

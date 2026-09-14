@@ -1,7 +1,6 @@
+import { metricKeyToString } from "@/lib/metric-key";
 import { atom } from "jotai";
-import { addLogFilterAtom } from "./log-query";
-import { draftTerm } from "@/lib/log-filter";
-import type { Atom, PrimitiveAtom, WritableAtom } from "jotai";
+import type { PrimitiveAtom } from "jotai";
 import type {
   TraceData,
   TraceRootSpan,
@@ -10,14 +9,6 @@ import type {
   SpanData,
   DataPoint,
 } from "@/types/telemetry";
-import {
-  activeTabAtom,
-  metricKeyEquals,
-  metricKeyToString,
-  selectedLogIdAtom,
-  selectedMetricKeyAtom,
-  selectedTraceIdAtom,
-} from "./navigation";
 import { DEFAULT_EVENT_TIME_WINDOW, type EventTimeWindow } from "@/lib/event-time-window";
 
 // Client-side live-buffer bounds. These are NOT derived from the server: the
@@ -408,11 +399,8 @@ export const setTotalCountsAtom = atom(null, (_get, set, totals: SignalTotals) =
 // A trace that crosses the ingestion span limit is deleted server-side. The
 // matching WebSocket event removes its stale live summary immediately so the
 // UI cannot navigate to a trace that no longer exists.
-export const removeTraceAtom = atom(null, (get, set, traceId: string) => {
+export const removeTraceAtom = atom(null, (_get, set, traceId: string) => {
   set(tracesAtom, (traces) => traces.filter((trace) => trace.traceId !== traceId));
-  if (get(selectedTraceIdAtom) === traceId) {
-    set(selectedTraceIdAtom, null);
-  }
   set(removedTraceCountAtom, (count) => count + 1);
 });
 
@@ -427,63 +415,6 @@ export const traceCountAtom = atom((get) =>
 );
 export const metricCountAtom = atom((get) => get(totalMetricCountAtom) + get(newMetricCountAtom));
 export const logCountAtom = atom((get) => get(totalLogCountAtom) + get(newLogCountAtom));
-
-// Selection state. The id/key (not the object) is the source of truth so it
-// can be restored from the URL before the matching data has loaded — the
-// derived read resolves once tracesAtom/metricsAtom catch up. Equality
-// guarding and URL sync live on the key atom itself (navigation.ts).
-function createSelectionAtom<Item, Key>(
-  keyAtom: WritableAtom<Key | null, [Key | null], void>,
-  listAtom: Atom<Item[]>,
-  toKey: (item: Item) => Key,
-  matches: (item: Item, key: Key) => boolean,
-) {
-  return atom(
-    (get) => {
-      const key = get(keyAtom);
-      if (key === null) return null;
-      return get(listAtom).find((item) => matches(item, key)) ?? null;
-    },
-    (_get, set, item: Item | null) => {
-      set(keyAtom, item ? toKey(item) : null);
-    },
-  );
-}
-
-export const selectedTraceAtom = createSelectionAtom(
-  selectedTraceIdAtom,
-  tracesAtom,
-  (t) => t.traceId,
-  (t, id) => t.traceId === id,
-);
-
-export const selectedMetricAtom = createSelectionAtom(
-  selectedMetricKeyAtom,
-  metricsAtom,
-  (m) => ({ serviceName: m.serviceName, name: m.name }),
-  metricKeyEquals,
-);
-
-export const selectedLogAtom = createSelectionAtom(
-  selectedLogIdAtom,
-  logsAtom,
-  (l) => l.id,
-  (l, id) => l.id === id,
-);
-
-// Navigate: log → trace. The traces tab resolves an ID absent from its
-// current page with a focused trace(traceId:) request.
-export const navigateToTraceAtom = atom(null, (_get, set, traceId: string) => {
-  set(selectedTraceIdAtom, traceId);
-  set(activeTabAtom, "traces");
-});
-
-// Navigate: trace → related logs (switch to logs tab with filter)
-export const navigateToLogsAtom = atom(null, (_get, set, traceId: string) => {
-  set(addLogFilterAtom, draftTerm({ key: "trace_id", operator: "is", value: traceId }));
-  set(selectedLogIdAtom, null);
-  set(activeTabAtom, "logs");
-});
 
 // The ids the server returned for the traces/logs tab's CURRENT paginated
 // fetch session — every id from the replacement page plus each "Load more"

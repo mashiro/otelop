@@ -1,15 +1,9 @@
 import { TraceFilterBar } from "./trace-filter-bar";
-import { traceTextSearchAtom } from "@/stores/trace-query";
-import { useAtom, useAtomValue, useSetAtom } from "jotai";
-import { useState } from "react";
-import {
-  traceCountAtom,
-  tracesAtom,
-  selectedTraceAtom,
-  renderWindowMaxAtom,
-} from "@/stores/telemetry";
-import { eventTimeWindowAtom, selectedTraceIdAtom } from "@/stores/navigation";
-import { filteredTracesAtom, traceSearchAtom } from "@/stores/filters";
+import { useSignalQuery, useTimeWindow, useTraceSelection } from "@/hooks/use-signal-route";
+import { useAtomValue } from "jotai";
+import { useMemo, useState } from "react";
+import { traceCountAtom, tracesAtom, renderWindowMaxAtom } from "@/stores/telemetry";
+import { createFilteredTracesAtom } from "@/stores/filters";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { SearchFilter } from "@/components/filters/search-filter";
 import { ListPanel } from "@/components/common/list-panel";
@@ -41,12 +35,14 @@ import type { TraceData } from "@/types/telemetry";
 export function TraceList() {
   const allTraces = useAtomValue(tracesAtom);
   const traceCount = useAtomValue(traceCountAtom);
-  const traces = useAtomValue(filteredTracesAtom);
-  const selectedTraceId = useAtomValue(selectedTraceIdAtom);
-  const selectedTrace = useAtomValue(selectedTraceAtom);
-  const setSelectedTrace = useSetAtom(selectedTraceAtom);
-  const [window] = useAtom(eventTimeWindowAtom);
-  const search = useAtomValue(traceSearchAtom);
+  const { state, search, setText } = useSignalQuery("traces");
+  const traces = useAtomValue(useMemo(() => createFilteredTracesAtom(search), [search]));
+  const {
+    traceId: selectedTraceId,
+    trace: selectedTrace,
+    selectTrace: setSelectedTrace,
+  } = useTraceSelection();
+  const [window] = useTimeWindow();
   const page = useTraceListPage(window, search);
   const traceById = useTraceById(selectedTraceId, selectedTrace);
   const renderWindowMax = useAtomValue(renderWindowMaxAtom);
@@ -111,7 +107,7 @@ export function TraceList() {
       toolbarSecondary={<TraceFilterBar />}
       toolbar={
         <>
-          <SearchFilter atom={traceTextSearchAtom} placeholder="Search traces…" />
+          <SearchFilter value={state.text} onSubmit={setText} placeholder="Search traces…" />
           <div className="ml-auto">
             <EventWindowControls tone="trace" />
           </div>

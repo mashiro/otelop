@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vite-plus/test";
-import { createStore } from "jotai";
+import { atom, createStore } from "jotai";
 import {
   tracesAtom,
   metricsAtom,
@@ -15,15 +15,20 @@ import {
   metricSearchResultAtom,
   serverMatchedTraceIdsAtom,
 } from "./telemetry";
-import { selectedLogRangeAtom, selectedTraceRangeAtom } from "./navigation";
 import {
-  traceSearchAtom,
-  filteredTracesAtom,
-  logSearchAtom,
-  filteredLogsAtom,
-  metricSearchAtom,
-  filteredMetricsAtom,
+  createFilteredTracesAtom,
+  createFilteredLogsAtom,
+  createFilteredMetricsAtom,
 } from "./filters";
+// Query inputs belong to the caller; these test-local atoms exercise filtering
+// as buffered data changes without introducing a routing dependency.
+const traceSearchAtom = atom("");
+const logSearchAtom = atom("");
+const metricSearchAtom = atom("");
+const filteredTracesAtom = atom((get) => get(createFilteredTracesAtom(get(traceSearchAtom))));
+const filteredLogsAtom = atom((get) => get(createFilteredLogsAtom(get(logSearchAtom))));
+const filteredMetricsAtom = atom((get) => get(createFilteredMetricsAtom(get(metricSearchAtom))));
+
 import { makeSpan, makeTrace, makeLog, makeMetric } from "@/test/factories";
 
 describe("filteredTracesAtom", () => {
@@ -53,7 +58,6 @@ describe("filteredTracesAtom", () => {
       makeTrace({ traceId: "old", startTime: "2024-01-01T00:00:00Z" }),
       makeTrace({ traceId: "new", startTime: "2024-01-01T00:20:00Z" }),
     ]);
-    store.set(selectedTraceRangeAtom, "5m");
 
     expect(store.get(filteredTracesAtom).map((t) => t.traceId)).toEqual(["old", "new"]);
     store.set(traceListWindowAtom, { mode: "live", range: "5m" });
@@ -272,7 +276,6 @@ describe("filteredLogsAtom", () => {
       makeLog({ id: "old", timestamp: "2024-01-01T00:00:00Z" }),
       makeLog({ id: "new", timestamp: "2024-01-01T00:20:00Z" }),
     ]);
-    store.set(selectedLogRangeAtom, "5m");
 
     expect(store.get(filteredLogsAtom).map((l) => l.id)).toEqual(["old", "new"]);
     store.set(logListWindowAtom, { mode: "live", range: "5m" });

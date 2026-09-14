@@ -42,7 +42,7 @@ const RANGE_MINUTES: Record<Exclude<ChartTimeRange, "all">, number> = {
 // The metric detail view's default window (frontend defaults to a recent
 // window; DuckDB history is fetched on demand). Also the value elided from
 // the `range` URL query param, so a detail view left at the default keeps a
-// clean URL — see buildPath/parsePath in stores/navigation.ts.
+// clean URL — see the Router search serializer in lib/route-search.ts.
 export const DEFAULT_CHART_TIME_RANGE: ChartTimeRange = "1h";
 
 export function isChartTimeRange(value: string): value is ChartTimeRange {

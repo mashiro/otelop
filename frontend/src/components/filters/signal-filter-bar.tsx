@@ -1,7 +1,7 @@
 import { HelpTooltip } from "@/components/ui/help-tooltip";
 import { useFilterSuggestions } from "@/hooks/use-filter-suggestions";
 import { useId, useState } from "react";
-import { useAtom, type PrimitiveAtom } from "jotai";
+import { useSignalQuery, useTimeWindow } from "@/hooks/use-signal-route";
 import { Filter, Pause, Play, Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,7 +22,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { newLogFilter, type LogQueryState } from "@/lib/log-query-state";
+import { newLogFilter } from "@/lib/log-query-state";
 import { cn } from "@/lib/utils";
 import {
   logFilterOperators,
@@ -34,21 +34,19 @@ import {
 import { type LogSearchTerm } from "@/lib/log-search";
 
 export function SignalFilterBar({
-  queryAtom,
   fields,
   numericFields,
   signal,
   label,
   description,
 }: {
-  queryAtom: PrimitiveAtom<LogQueryState>;
   fields: readonly string[];
   numericFields: readonly string[];
   signal: "logs" | "traces";
   label: string;
   description?: string;
 }) {
-  const [state, setState] = useAtom(queryAtom);
+  const { state, setState } = useSignalQuery(signal);
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
   return (
@@ -70,7 +68,7 @@ export function SignalFilterBar({
             numericFields={numericFields}
             onCancel={() => setAdding(false)}
             onApply={(term) => {
-              setState((current) => ({
+              void setState((current) => ({
                 ...current,
                 filters: [...current.filters, newLogFilter(term)],
               }));
@@ -137,7 +135,7 @@ export function SignalFilterBar({
                   numericFields={numericFields}
                   onCancel={() => setEditing(null)}
                   onApply={(term) => {
-                    setState((current) => ({
+                    void setState((current) => ({
                       ...current,
                       filters: current.filters.map((item) =>
                         item.id === filter.id
@@ -157,7 +155,7 @@ export function SignalFilterBar({
                 aria-label={`${filter.enabled ? "Disable" : "Enable"} filter ${draft.key}`}
                 aria-pressed={filter.enabled}
                 onClick={() =>
-                  setState((current) => ({
+                  void setState((current) => ({
                     ...current,
                     filters: current.filters.map((item) =>
                       item.id === filter.id ? { ...item, enabled: !item.enabled } : item,
@@ -175,7 +173,7 @@ export function SignalFilterBar({
                 aria-label={`Remove filter ${draft.key}`}
                 className="mr-0.5"
                 onClick={() =>
-                  setState((current) => ({
+                  void setState((current) => ({
                     ...current,
                     filters: current.filters.filter((item) => item.id !== filter.id),
                   }))
@@ -221,13 +219,15 @@ function FilterEditor({
   const id = useId();
   const error = filterDraftError(draft, fields, numericFields);
   const noValue = draft.operator === "exists" || draft.operator === "not_exists";
-  const keySuggestions = useFilterSuggestions(signal, undefined, draft.key);
+  const [window] = useTimeWindow();
+  const keySuggestions = useFilterSuggestions(signal, undefined, draft.key, window);
   const validKey =
     fields.includes(draft.key.trim()) || /^(attributes|resource)\.[^\s:"]+$/.test(draft.key.trim());
   const valueSuggestions = useFilterSuggestions(
     signal,
     draft.key.trim(),
     draft.value,
+    window,
     validKey && !noValue,
   );
   const keys = keySuggestions.items;

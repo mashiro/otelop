@@ -24,25 +24,15 @@ import {
   newMetricCountAtom,
   newLogCountAtom,
   setTotalCountsAtom,
-  selectedTraceAtom,
-  selectedMetricAtom,
-  selectedLogAtom,
   mergeTraceSpansAtom,
   appendTracesAtom,
   appendLogsAtom,
   setTracesAtom,
   setLogsAtom,
   serverMatchedTraceIdsAtom,
-  navigateToTraceAtom,
   loadedOlderTraceIdsAtom,
   loadedOlderLogIdsAtom,
 } from "./telemetry";
-import {
-  activeTabAtom,
-  selectedTraceIdAtom,
-  selectedMetricKeyAtom,
-  selectedLogIdAtom,
-} from "./navigation";
 import { makeMetric, makeDataPoint, makeTrace, makeLog, makeSpan } from "@/test/factories";
 import { parseEpochNs } from "@/lib/normalize";
 
@@ -179,12 +169,10 @@ describe("header badge totals (traceCountAtom/metricCountAtom/logCountAtom)", ()
     store.set(setTotalCountsAtom, { traceCount: 300, metricCount: 0, logCount: 0 });
     const trace = makeTrace({ traceId: "oversized" });
     store.set(tracesAtom, [trace]);
-    store.set(selectedTraceAtom, trace);
 
     store.set(removeTraceAtom, trace.traceId);
 
     expect(store.get(tracesAtom)).toEqual([]);
-    expect(store.get(selectedTraceIdAtom)).toBeNull();
     expect(store.get(removedTraceCountAtom)).toBe(1);
     expect(store.get(traceCountAtom)).toBe(299);
   });
@@ -430,31 +418,6 @@ describe("mergeTraceSpansAtom", () => {
   });
 });
 
-describe("selectedTraceAtom", () => {
-  it("resolves once the matching trace loads, restoring selection after a reload", () => {
-    const store = createStore();
-    // Simulate a reload where the URL already names a traceId before the
-    // WebSocket/REST load has populated tracesAtom.
-    store.set(selectedTraceIdAtom, "t1");
-    expect(store.get(selectedTraceAtom)).toBeNull();
-
-    store.set(tracesAtom, [makeTrace({ traceId: "t1" })]);
-    expect(store.get(selectedTraceAtom)?.traceId).toBe("t1");
-  });
-
-  it("setting the atom updates the shared traceId used for URL sync", () => {
-    const store = createStore();
-    const trace = makeTrace({ traceId: "t2" });
-    store.set(tracesAtom, [trace]);
-
-    store.set(selectedTraceAtom, trace);
-    expect(store.get(selectedTraceIdAtom)).toBe("t2");
-
-    store.set(selectedTraceAtom, null);
-    expect(store.get(selectedTraceIdAtom)).toBeNull();
-  });
-});
-
 describe("cacheTraceAtom", () => {
   it("caches a retained trace fetched by ID without incrementing the live total", () => {
     const store = createStore();
@@ -491,56 +454,6 @@ describe("cacheTraceAtom", () => {
     );
 
     expect(store.get(tracesAtom).map((trace) => trace.traceId)).toEqual(["newest", "focused-old"]);
-  });
-});
-
-describe("navigateToTraceAtom", () => {
-  it("selects and opens a trace even when it is absent from the current list buffer", () => {
-    const store = createStore();
-
-    store.set(navigateToTraceAtom, "outside-page");
-
-    expect(store.get(selectedTraceIdAtom)).toBe("outside-page");
-    expect(store.get(activeTabAtom)).toBe("traces");
-  });
-});
-
-describe("selectedMetricAtom", () => {
-  it("setting the atom updates the shared metricKey used for URL sync", () => {
-    const store = createStore();
-    const metric = makeMetric({ serviceName: "svc", name: "cpu" });
-    store.set(metricsAtom, [metric]);
-
-    store.set(selectedMetricAtom, metric);
-    expect(store.get(selectedMetricKeyAtom)).toEqual({ serviceName: "svc", name: "cpu" });
-
-    store.set(selectedMetricAtom, null);
-    expect(store.get(selectedMetricKeyAtom)).toBeNull();
-  });
-});
-
-describe("selectedLogAtom", () => {
-  it("resolves once the matching log loads, restoring selection after a reload", () => {
-    const store = createStore();
-    // Simulate a reload where the URL already names a logId before the
-    // WebSocket/REST load has populated logsAtom.
-    store.set(selectedLogIdAtom, "log-1");
-    expect(store.get(selectedLogAtom)).toBeNull();
-
-    store.set(logsAtom, [makeLog({ id: "log-1" })]);
-    expect(store.get(selectedLogAtom)?.id).toBe("log-1");
-  });
-
-  it("setting the atom updates the shared logId used for URL sync", () => {
-    const store = createStore();
-    const log = makeLog({ id: "log-2" });
-    store.set(logsAtom, [log]);
-
-    store.set(selectedLogAtom, log);
-    expect(store.get(selectedLogIdAtom)).toBe("log-2");
-
-    store.set(selectedLogAtom, null);
-    expect(store.get(selectedLogIdAtom)).toBeNull();
   });
 });
 

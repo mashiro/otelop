@@ -117,6 +117,7 @@ export function useTraceListPage(window: EventTimeWindow, search: string): Signa
   );
 
   return useSignalListPage({
+    queryScope: ["traces"],
     window,
     search,
     fetchPage,

@@ -1,10 +1,8 @@
-import { traceQueryStateAtom } from "@/stores/trace-query";
 import { traceFields } from "@/lib/trace-search";
 import { SignalFilterBar } from "@/components/filters/signal-filter-bar";
 export function TraceFilterBar() {
   return (
     <SignalFilterBar
-      queryAtom={traceQueryStateAtom}
       fields={traceFields}
       numericFields={["duration_ms"]}
       signal="traces"

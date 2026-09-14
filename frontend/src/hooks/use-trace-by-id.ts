@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import { queryOptions, useQuery } from "@tanstack/react-query";
+import { queryClient } from "@/lib/query-client";
+import { useCallback, useEffect } from "react";
 import { useSetAtom } from "jotai";
 import { graphql } from "@/gql";
 import type { TraceByIdQuery } from "@/gql/graphql";
@@ -31,12 +33,6 @@ const TraceByIdQuery = graphql(`
 
 export type TraceByIdStatus = "idle" | "loading" | "not-found" | "error";
 
-interface LoadState {
-  traceId: string | null;
-  attempt: number;
-  status: TraceByIdStatus;
-}
-
 function toTraceData(trace: NonNullable<TraceByIdQuery["trace"]>): TraceData {
   return normalizeTrace({
     traceId: trace.traceId,
@@ -65,62 +61,40 @@ async function loadTrace(traceId: string) {
   return data.trace;
 }
 
+export const traceByIdOptions = (traceId: string) =>
+  queryOptions({
+    queryKey: ["trace", traceId],
+    queryFn: () => loadTrace(traceId),
+    staleTime: 1_000,
+  });
+
 // Resolves a selected trace that is outside the traces tab's current
 // time-window/page buffer. The focused query also makes deep-linked trace IDs
 // independent of whichever list page happens to load first.
 export function useTraceById(traceId: string | null, trace: TraceData | null) {
   const cacheTrace = useSetAtom(cacheTraceAtom);
-  const [state, setState] = useState<LoadState>(() => ({
-    traceId,
-    attempt: 0,
-    status: traceId && !trace ? "loading" : "idle",
-  }));
-
-  if (state.traceId !== traceId) {
-    setState({ traceId, attempt: 0, status: traceId && !trace ? "loading" : "idle" });
-  }
-
-  const current =
-    state.traceId === traceId
-      ? state
-      : {
-          traceId,
-          attempt: 0,
-          status: traceId && !trace ? ("loading" as const) : ("idle" as const),
-        };
-
+  const { data, isError, isFetching, refetch } = useQuery(
+    {
+      ...traceByIdOptions(traceId ?? ""),
+      enabled: Boolean(traceId && !trace),
+    },
+    queryClient,
+  );
   useEffect(() => {
-    if (!traceId || trace) return;
-
-    let ignore = false;
-    const load = async () => {
-      try {
-        const result = await loadTrace(traceId);
-        if (ignore) return;
-        if (!result) {
-          setState({ traceId, attempt: current.attempt, status: "not-found" });
-          return;
-        }
-        cacheTrace(toTraceData(result));
-      } catch {
-        if (!ignore) setState({ traceId, attempt: current.attempt, status: "error" });
-      }
-    };
-    void load();
-
-    return () => {
-      ignore = true;
-    };
-  }, [traceId, trace, current.attempt, cacheTrace]);
-
+    if (!trace && !isFetching && data) cacheTrace(toTraceData(data));
+  }, [data, trace, isFetching, cacheTrace]);
   const retry = useCallback(() => {
-    if (!traceId) return;
-    setState((previous) => ({
-      traceId,
-      attempt: previous.traceId === traceId ? previous.attempt + 1 : 0,
-      status: "loading",
-    }));
-  }, [traceId]);
-
-  return { status: trace ? "idle" : current.status, retry };
+    if (traceId) void refetch();
+  }, [traceId, refetch]);
+  const status: TraceByIdStatus =
+    !traceId || trace
+      ? "idle"
+      : isFetching
+        ? "loading"
+        : isError
+          ? "error"
+          : data === null
+            ? "not-found"
+            : "loading";
+  return { status, retry };
 }

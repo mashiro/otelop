@@ -1,18 +1,16 @@
+import { readFilterQuery, filterQuerySearch } from "@/lib/log-query-state";
+import { createTestRouter } from "@/test/router";
+import type { ReactElement } from "react";
+let routing: Awaited<ReturnType<typeof createTestRouter>>;
+function render(ui: ReactElement) {
+  return renderUI(ui, { wrapper: routing.wrapper });
+}
 import { describe, it, expect, afterEach, beforeEach, vi } from "vite-plus/test";
 import type { ReactNode } from "react";
 import { getDefaultStore } from "jotai";
-import { render, screen, cleanup, act, within, waitFor } from "@testing-library/react";
+import { render as renderUI, screen, cleanup, act, within, waitFor } from "@testing-library/react";
 import { LogList } from "./log-list";
-import {
-  logsAtom,
-  selectedLogAtom,
-  renderWindowMaxAtom,
-  addLogAtom,
-  logListWindowAtom,
-} from "@/stores/telemetry";
-import { logSearchAtom } from "@/stores/filters";
-import { logQueryStateAtom } from "@/stores/log-query";
-import { applyLocationAtom } from "@/stores/navigation";
+import { logsAtom, renderWindowMaxAtom, addLogAtom, logListWindowAtom } from "@/stores/telemetry";
 import { makeLog, TEST_RENDER_WINDOW_MAX } from "@/test/factories";
 import { SIGNAL_PAGE_SIZE } from "@/hooks/use-signal-list-page";
 import type { LogsPageQuery, LogsPageQueryVariables } from "@/gql/graphql";
@@ -43,11 +41,10 @@ vi.mock("@/components/common/pill", () => ({
   },
 }));
 
-beforeEach(() => {
+beforeEach(async () => {
+  routing = await createTestRouter("/logs");
   const store = getDefaultStore();
   store.set(logsAtom, []);
-  store.set(logSearchAtom, "");
-  store.set(selectedLogAtom, null);
   store.set(renderWindowMaxAtom, TEST_RENDER_WINDOW_MAX);
   requestMock.mockReset();
   requestMock.mockResolvedValue({ logs: { items: [], hasNextPage: false, endCursor: null } });
@@ -79,7 +76,7 @@ function makeQueryLogs(count: number, idPrefix = "q-log"): LogsPageQuery["logs"]
     spanId: "",
     severityNumber: 9,
     severityText: "INFO",
-    body: "log body",
+    body: `${idPrefix}-${i}`,
     serviceName: "checkout",
     attributes: {},
     resource: {},
@@ -87,7 +84,7 @@ function makeQueryLogs(count: number, idPrefix = "q-log"): LogsPageQuery["logs"]
 }
 
 describe("LogList row rendering", () => {
-  it("renders one row per log when under the display cap", () => {
+  it("renders one row per log when under the display cap", async () => {
     const store = getDefaultStore();
     store.set(logsAtom, makeLogs(3));
 
@@ -98,7 +95,7 @@ describe("LogList row rendering", () => {
     expect(rows).toHaveLength(4);
   });
 
-  it("caps rendered rows at TEST_RENDER_WINDOW_MAX on initial mount", () => {
+  it("caps rendered rows at TEST_RENDER_WINDOW_MAX on initial mount", async () => {
     const store = getDefaultStore();
     const total = TEST_RENDER_WINDOW_MAX + 20;
     store.set(logsAtom, makeLogs(total));
@@ -110,7 +107,7 @@ describe("LogList row rendering", () => {
     expect(screen.getByRole("button", { name: "Load more" })).toBeTruthy();
   });
 
-  it("does not show Load more when loaded rows are within the cap and there's no next page", () => {
+  it("does not show Load more when loaded rows are within the cap and there's no next page", async () => {
     const store = getDefaultStore();
     store.set(logsAtom, makeLogs(TEST_RENDER_WINDOW_MAX));
 
@@ -119,7 +116,7 @@ describe("LogList row rendering", () => {
     expect(screen.queryByRole("button", { name: "Load more" })).toBeNull();
   });
 
-  it("does not re-render every row when an unrelated store update produces a new array of the same log objects (React Compiler bail-out)", () => {
+  it("does not re-render every row when an unrelated store update produces a new array of the same log objects (React Compiler bail-out)", async () => {
     const store = getDefaultStore();
     store.set(logsAtom, makeLogs(5));
 
@@ -136,7 +133,7 @@ describe("LogList row rendering", () => {
     expect(pillRenders.current).toBe(rendersAfterMount);
   });
 
-  it("re-renders only the affected rows when a single log's selection state changes", () => {
+  it("re-renders only the affected rows when a single log's selection state changes", async () => {
     const store = getDefaultStore();
     const logs = makeLogs(5);
     store.set(logsAtom, logs);
@@ -144,8 +141,8 @@ describe("LogList row rendering", () => {
     render(<LogList />);
     const rendersAfterMount = pillRenders.current;
 
-    act(() => {
-      store.set(selectedLogAtom, logs[2]);
+    await act(async () => {
+      await routing.router.navigate({ to: "/logs/$logId", params: { logId: logs[2].id } });
     });
 
     // Selecting a log swaps in the detail pane (which renders its own Pill)
@@ -154,7 +151,7 @@ describe("LogList row rendering", () => {
     expect(pillRenders.current).toBeLessThan(rendersAfterMount + 5);
   });
 
-  it("still renders correctly after a log is updated (its row reflects the new data)", () => {
+  it("still renders correctly after a log is updated (its row reflects the new data)", async () => {
     const store = getDefaultStore();
     store.set(logsAtom, [makeLog({ id: "log-0", body: "first" })]);
 
@@ -169,7 +166,7 @@ describe("LogList row rendering", () => {
     expect(screen.getByText("updated")).toBeTruthy();
   });
 
-  it("shows the Trace ID link only for logs with a non-zero traceId", () => {
+  it("shows the Trace ID link only for logs with a non-zero traceId", async () => {
     const store = getDefaultStore();
     store.set(logsAtom, [
       makeLog({ id: "with-trace", traceId: "abc123def456" }),
@@ -197,7 +194,7 @@ function seedLiveLogs(store: ReturnType<typeof getDefaultStore>, ids: string[]) 
 }
 
 describe("LogList render window (bounded sliding)", () => {
-  it("slides onto already-loaded rows without fetching when Load more is clicked", () => {
+  it("slides onto already-loaded rows without fetching when Load more is clicked", async () => {
     const store = getDefaultStore();
     const total = TEST_RENDER_WINDOW_MAX + SIGNAL_PAGE_SIZE + 50;
     store.set(logsAtom, makeLogs(total));
@@ -249,9 +246,11 @@ describe("LogList render window (bounded sliding)", () => {
     await waitFor(() =>
       expect(screen.getAllByRole("row")).toHaveLength(TEST_RENDER_WINDOW_MAX + 1),
     );
+    await waitFor(() => expect(screen.getByText("older-log-0")).toBeTruthy());
+    expect(screen.queryByText("q-log-0")).toBeNull();
   });
 
-  it("adds detail fields as URL filters and deduplicates repeated clicks", () => {
+  it("adds detail fields as URL filters and deduplicates repeated clicks", async () => {
     const store = getDefaultStore();
     const log = makeLog({
       id: "details",
@@ -263,9 +262,9 @@ describe("LogList render window (bounded sliding)", () => {
       resource: { "service.name": "api" },
     });
     requestMock.mockResolvedValue({ logs: { items: [log], hasNextPage: false, endCursor: null } });
-    store.set(applyLocationAtom, "/logs");
+    await routing.router.navigate({ to: "/logs" });
     store.set(logsAtom, [log]);
-    store.set(selectedLogAtom, log);
+    await routing.router.navigate({ to: "/logs/$logId", params: { logId: log.id } });
     render(<LogList />);
     for (const key of [
       "trace_id",
@@ -276,34 +275,48 @@ describe("LogList render window (bounded sliding)", () => {
       "attributes.arguments",
       "resource.service.name",
     ]) {
-      act(() => screen.getByRole("button", { name: `Filter by ${key}` }).click());
+      await act(async () => screen.getByRole("button", { name: `Filter by ${key}` }).click());
     }
-    expect(store.get(logQueryStateAtom).filters).toHaveLength(7);
-    expect(new URL(window.location.href).searchParams.getAll("filter")).toHaveLength(7);
-    expect(store.get(logSearchAtom)).toContain('attributes.arguments:"{');
-    act(() => screen.getByRole("button", { name: "Filter by trace_id" }).click());
-    expect(store.get(logQueryStateAtom).filters).toHaveLength(7);
-    act(() =>
-      store.set(logQueryStateAtom, (state) => ({
-        ...state,
-        filters: state.filters.map((f) => ({ ...f, enabled: false })),
-      })),
+    expect(readFilterQuery(routing.router.state.location.search).filters).toHaveLength(7);
+    expect(routing.router.state.location.search.filter).toHaveLength(7);
+    expect((routing.router.state.location.search.filter ?? []).join(" ")).toContain(
+      'attributes.arguments:"{',
     );
-    act(() => screen.getByRole("button", { name: "Filter by trace_id" }).click());
-    expect(store.get(logQueryStateAtom).filters.filter((f) => f.enabled)).toHaveLength(1);
+    await act(async () => screen.getByRole("button", { name: "Filter by trace_id" }).click());
+    expect(readFilterQuery(routing.router.state.location.search).filters).toHaveLength(7);
+    await act(async () => {
+      await routing.router.navigate({
+        to: ".",
+        search: (previous) => ({
+          ...previous,
+          ...filterQuerySearch({
+            ...readFilterQuery(previous),
+            filters: readFilterQuery(previous).filters.map((f) => ({ ...f, enabled: false })),
+          }),
+        }),
+      });
+    });
+    await act(async () => screen.getByRole("button", { name: "Filter by trace_id" }).click());
+    expect(
+      readFilterQuery(routing.router.state.location.search).filters.filter((f) => f.enabled),
+    ).toHaveLength(1);
   });
 
-  it("keeps the time range controls available during text and attribute search", () => {
+  it("keeps the time range controls available during text and attribute search", async () => {
     const store = getDefaultStore();
     store.set(logsAtom, makeLogs(1));
-    store.set(logSearchAtom, "frontend attributes.http.method:GET");
+    await routing.router.navigate({
+      to: ".",
+      search: { q: "frontend attributes.http.method:GET" },
+    });
     render(<LogList />);
     expect(screen.getByRole("combobox", { name: "Time range" })).toBeTruthy();
     expect(screen.queryByText("All retained data")).toBeNull();
   });
 
-  it("resets the render window to the head when the search changes", () => {
+  it("resets the render window to the head when the search changes", async () => {
     const store = getDefaultStore();
+    requestMock.mockImplementation(() => new Promise(() => {}));
     store.set(logsAtom, makeLogs(TEST_RENDER_WINDOW_MAX + SIGNAL_PAGE_SIZE + 50));
 
     render(<LogList />);
@@ -312,18 +325,17 @@ describe("LogList render window (bounded sliding)", () => {
     });
     expect(screen.queryByText("log-0")).toBeNull();
 
-    // Every preset log shares makeLog()'s default serviceName ("frontend"),
-    // so matching on it keeps the filtered list populated purely
-    // client-side — no need to wait on the search request.
-    act(() => {
-      store.set(logSearchAtom, "frontend");
+    // Keep the response pending to verify the buffered rows while the new
+    // search is in flight. Its eventual server response is tested separately.
+    await act(async () => {
+      await routing.router.navigate({ to: ".", search: { q: "frontend" } });
     });
 
     expect(screen.getByText("log-0")).toBeTruthy();
     expect(screen.getAllByRole("row")).toHaveLength(TEST_RENDER_WINDOW_MAX + 1);
   });
 
-  it("stays at the head as live rows arrive, letting the oldest visible row fall out of the window", () => {
+  it("stays at the head as live rows arrive, letting the oldest visible row fall out of the window", async () => {
     const store = getDefaultStore();
     store.set(logListWindowAtom, { mode: "live", range: "all" });
     store.set(renderWindowMaxAtom, 3);
@@ -344,7 +356,7 @@ describe("LogList render window (bounded sliding)", () => {
     expect(screen.queryByText("a")).toBeNull();
   });
 
-  it("keeps the visible rows stable when a live row arrives while scrolled into history, growing the newer count instead of shifting content", () => {
+  it("keeps the visible rows stable when a live row arrives while scrolled into history, growing the newer count instead of shifting content", async () => {
     const store = getDefaultStore();
     store.set(logListWindowAtom, { mode: "live", range: "all" });
     store.set(renderWindowMaxAtom, 2);
@@ -370,7 +382,7 @@ describe("LogList render window (bounded sliding)", () => {
     expect(screen.getByRole("button", { name: /3 newer/ })).toBeTruthy();
   });
 
-  it("returns to the head when 'back to latest' is clicked", () => {
+  it("returns to the head when 'back to latest' is clicked", async () => {
     const store = getDefaultStore();
     store.set(logListWindowAtom, { mode: "live", range: "all" });
     store.set(renderWindowMaxAtom, 2);

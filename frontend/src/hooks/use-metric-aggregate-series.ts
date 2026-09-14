@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { queryClient } from "@/lib/query-client";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { graphql } from "@/gql";
 import { gqlClient } from "@/lib/graphql";
 import { rangeToFrom } from "@/lib/chart-time-range";
@@ -91,16 +93,11 @@ export function useMetricAggregateSeries(
 ): AggregateSeriesData[] | null {
   const { serviceName, name, dataPoints } = metric;
   const metricKey = `${serviceName}::${name}`;
-  const [snapshot, setSnapshot] = useState<{
-    queryKey: string;
-    series: AggregateSeriesData[];
-  } | null>(null);
   const groupBy = facet?.attributes ?? null;
   // facet is often a fresh object per render (resolved via useMemo upstream,
   // but still a new array identity across facet changes) — key on the
   // attribute list's content so effects don't refire every render.
   const groupByKey = groupBy?.join("\u0000") ?? null;
-  const requestIdRef = useRef(0);
   const windowMode = window.mode;
   const liveRange = window.mode === "live" ? window.range : undefined;
   const fixedFrom = window.mode === "fixed" ? window.from : undefined;
@@ -115,47 +112,26 @@ export function useMetricAggregateSeries(
   const bucketSeconds = bucketSecondsForEventWindow(window);
   const queryKey = `${metricKey}|${groupByKey ?? ""}|${eventWindowKey(window)}|${bucketSeconds ?? "auto"}`;
 
-  const fetchNow = useCallback(() => {
-    if (!groupBy) return;
-    const requestId = ++requestIdRef.current;
-    void (async () => {
-      try {
-        const data = await gqlClient.request(MetricAggregateQuery, {
+  const { data, isError, refetch } = useQuery(
+    {
+      queryKey: ["metric-aggregate", queryKey, queryBounds],
+      enabled: Boolean(groupBy),
+      queryFn: async () => {
+        const result = await gqlClient.request(MetricAggregateQuery, {
           serviceName,
           name,
-          groupBy,
-          // Omitted (not just null) for "all" so the server's auto-bucketing
-          // sentinel applies (see chart-time-range.ts's bucketSecondsForRange
-          // and storage.MetricAggregate's doc comment) rather than sending an
-          // explicit null that happens to behave the same today but couples
-          // this call site to that coincidence.
+          groupBy: groupBy!,
           ...(bucketSeconds !== null ? { bucketSeconds } : {}),
           ...queryBounds,
         });
-        if (requestIdRef.current === requestId) {
-          setSnapshot({ queryKey, series: data.metricAggregate });
-        }
-      } catch {
-        if (requestIdRef.current === requestId) {
-          setSnapshot(null);
-        }
-      }
-    })();
-    // groupBy's identity isn't stable across renders; groupByKey is the
-    // real dependency (see above).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [serviceName, name, queryKey, groupByKey, bucketSeconds, queryBounds]);
-
-  // Immediate fetch on mount and whenever the metric/facet/range identity
-  // changes. The query-scoped snapshot below prevents a previous window or
-  // facet from being rendered under the newly selected controls.
-  useEffect(() => {
-    if (!groupByKey) {
-      requestIdRef.current += 1;
-      return;
-    }
-    fetchNow();
-  }, [fetchNow, groupByKey]);
+        return result.metricAggregate;
+      },
+    },
+    queryClient,
+  );
+  const fetchNow = useCallback(() => {
+    void refetch();
+  }, [refetch]);
 
   // Debounced refetch on a relevant WS delivery for this metric. dataPoints is a
   // new array identity each time addMetricAtom merges in a WS message, so
@@ -192,7 +168,7 @@ export function useMetricAggregateSeries(
   // back byte-for-byte identical (no new bucket landed yet); stabilizing
   // here lets memoized consumers (MetricChart, MetricSummary) skip
   // re-rendering when it did.
-  const series = snapshot?.queryKey === queryKey ? snapshot.series : null;
+  const series = isError ? null : (data ?? null);
   const stableSeriesRef = useRef<{ key: string; series: AggregateSeriesData[] } | null>(null);
   if (series) {
     // Compare every facet group, not only the response array's first/last

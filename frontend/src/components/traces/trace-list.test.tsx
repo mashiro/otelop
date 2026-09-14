@@ -1,17 +1,20 @@
+import { createTestRouter } from "@/test/router";
+import type { ReactElement } from "react";
+let routing: Awaited<ReturnType<typeof createTestRouter>>;
+function render(ui: ReactElement) {
+  return renderUI(ui, { wrapper: routing.wrapper });
+}
 import { describe, it, expect, afterEach, beforeEach, vi } from "vite-plus/test";
 import type { ReactNode } from "react";
 import { getDefaultStore } from "jotai";
-import { render, screen, cleanup, act, waitFor } from "@testing-library/react";
+import { render as renderUI, screen, cleanup, act, waitFor } from "@testing-library/react";
 import { TraceList } from "./trace-list";
 import {
   tracesAtom,
-  selectedTraceAtom,
   renderWindowMaxAtom,
   addTraceAtom,
   traceListWindowAtom,
 } from "@/stores/telemetry";
-import { traceSearchAtom } from "@/stores/filters";
-import { selectedTraceIdAtom } from "@/stores/navigation";
 import { makeTrace, TEST_RENDER_WINDOW_MAX } from "@/test/factories";
 import { SIGNAL_PAGE_SIZE } from "@/hooks/use-signal-list-page";
 import type { TracesPageQuery, TracesPageQueryVariables } from "@/gql/graphql";
@@ -42,12 +45,10 @@ vi.mock("@/components/common/pill", () => ({
   },
 }));
 
-beforeEach(() => {
+beforeEach(async () => {
+  routing = await createTestRouter("/traces");
   const store = getDefaultStore();
   store.set(tracesAtom, []);
-  store.set(traceSearchAtom, "");
-  store.set(selectedTraceAtom, null);
-  store.set(selectedTraceIdAtom, null);
   store.set(renderWindowMaxAtom, TEST_RENDER_WINDOW_MAX);
   requestMock.mockReset();
   requestMock.mockResolvedValue({ traces: { items: [], hasNextPage: false, endCursor: null } });
@@ -103,7 +104,7 @@ function seedLiveTraces(
 }
 
 describe("TraceList row rendering", () => {
-  it("renders one row per trace when under the display cap", () => {
+  it("renders one row per trace when under the display cap", async () => {
     const store = getDefaultStore();
     store.set(tracesAtom, makeTraces(3));
 
@@ -113,7 +114,7 @@ describe("TraceList row rendering", () => {
     expect(rows).toHaveLength(4); // + header row
   });
 
-  it("caps rendered rows at TEST_RENDER_WINDOW_MAX on initial mount", () => {
+  it("caps rendered rows at TEST_RENDER_WINDOW_MAX on initial mount", async () => {
     const store = getDefaultStore();
     const total = TEST_RENDER_WINDOW_MAX + 7;
     store.set(tracesAtom, makeTraces(total));
@@ -125,7 +126,7 @@ describe("TraceList row rendering", () => {
     expect(screen.getByRole("button", { name: "Load more" })).toBeTruthy();
   });
 
-  it("does not show Load more when loaded rows are within the cap and there's no next page", () => {
+  it("does not show Load more when loaded rows are within the cap and there's no next page", async () => {
     const store = getDefaultStore();
     store.set(tracesAtom, makeTraces(TEST_RENDER_WINDOW_MAX));
 
@@ -134,7 +135,7 @@ describe("TraceList row rendering", () => {
     expect(screen.queryByRole("button", { name: "Load more" })).toBeNull();
   });
 
-  it("does not re-render every row when an unrelated store update produces a new array of the same trace objects (React Compiler bail-out)", () => {
+  it("does not re-render every row when an unrelated store update produces a new array of the same trace objects (React Compiler bail-out)", async () => {
     const store = getDefaultStore();
     store.set(tracesAtom, makeTraces(5));
 
@@ -149,7 +150,7 @@ describe("TraceList row rendering", () => {
     expect(pillRenders.current).toBe(rendersAfterMount);
   });
 
-  it("re-renders the affected row when a single trace is updated in place", () => {
+  it("re-renders the affected row when a single trace is updated in place", async () => {
     const store = getDefaultStore();
     store.set(tracesAtom, [makeTrace({ traceId: "t1", serviceName: "checkout" })]);
 
@@ -166,7 +167,7 @@ describe("TraceList row rendering", () => {
 });
 
 describe("TraceList render window (bounded sliding)", () => {
-  it("slides onto already-loaded rows without fetching when Load more is clicked", () => {
+  it("slides onto already-loaded rows without fetching when Load more is clicked", async () => {
     const store = getDefaultStore();
     const total = TEST_RENDER_WINDOW_MAX + SIGNAL_PAGE_SIZE + 50;
     store.set(tracesAtom, makeTraces(total));
@@ -191,14 +192,20 @@ describe("TraceList render window (bounded sliding)", () => {
     const store = getDefaultStore();
     requestMock.mockResolvedValueOnce({
       traces: {
-        items: makeQueryTraces(TEST_RENDER_WINDOW_MAX),
+        items: makeQueryTraces(TEST_RENDER_WINDOW_MAX).map((trace) => ({
+          ...trace,
+          startTime: "2024-01-01T00:30:00Z",
+        })),
         hasNextPage: true,
         endCursor: "cursor-1",
       },
     });
     requestMock.mockResolvedValueOnce({
       traces: {
-        items: makeQueryTraces(SIGNAL_PAGE_SIZE, "older-trace"),
+        items: makeQueryTraces(SIGNAL_PAGE_SIZE, "older-trace").map((trace) => ({
+          ...trace,
+          startTime: "2024-01-01T00:00:00Z",
+        })),
         hasNextPage: false,
         endCursor: null,
       },
@@ -224,10 +231,14 @@ describe("TraceList render window (bounded sliding)", () => {
     await waitFor(() =>
       expect(screen.getAllByRole("row")).toHaveLength(TEST_RENDER_WINDOW_MAX + 1),
     );
+    await waitFor(() => expect(screen.getByText("older-trace-0")).toBeTruthy());
+    expect(screen.queryByText("q-trace-0")).toBeNull();
   });
 
-  it("resets the render window to the head when the search changes", () => {
+  it("resets the render window to the head when the search changes", async () => {
     const store = getDefaultStore();
+    // Keep API responses pending to isolate sliding over the buffered rows.
+    requestMock.mockImplementation(() => new Promise(() => {}));
     const total = TEST_RENDER_WINDOW_MAX + SIGNAL_PAGE_SIZE + 50;
     store.set(tracesAtom, makeTraces(total));
 
@@ -240,15 +251,15 @@ describe("TraceList render window (bounded sliding)", () => {
     // "checkout" matches every preset trace's serviceName, so the filtered
     // list stays populated purely client-side — no need to wait on the
     // search request use-trace-list-page.ts also kicks off.
-    act(() => {
-      store.set(traceSearchAtom, "checkout");
+    await act(async () => {
+      await routing.router.navigate({ to: ".", search: { q: "checkout" } });
     });
 
     expect(screen.getByText("trace-0")).toBeTruthy();
     expect(screen.getAllByRole("row")).toHaveLength(TEST_RENDER_WINDOW_MAX + 1);
   });
 
-  it("never mounts more rows than the configured max, even immediately after repeated sliding", () => {
+  it("never mounts more rows than the configured max, even immediately after repeated sliding", async () => {
     const store = getDefaultStore();
     store.set(traceListWindowAtom, { mode: "live", range: "all" });
     store.set(renderWindowMaxAtom, 3);
@@ -268,7 +279,7 @@ describe("TraceList render window (bounded sliding)", () => {
     expect(screen.getAllByRole("row")).toHaveLength(4);
   });
 
-  it("stays at the head as live rows arrive, letting the oldest visible row fall out of the window", () => {
+  it("stays at the head as live rows arrive, letting the oldest visible row fall out of the window", async () => {
     const store = getDefaultStore();
     store.set(traceListWindowAtom, { mode: "live", range: "all" });
     store.set(renderWindowMaxAtom, 3);
@@ -293,7 +304,7 @@ describe("TraceList render window (bounded sliding)", () => {
     expect(screen.queryByText("a")).toBeNull();
   });
 
-  it("keeps the visible rows stable when a live row arrives while scrolled into history, growing the newer count instead of shifting content", () => {
+  it("keeps the visible rows stable when a live row arrives while scrolled into history, growing the newer count instead of shifting content", async () => {
     const store = getDefaultStore();
     store.set(traceListWindowAtom, { mode: "live", range: "all" });
     store.set(renderWindowMaxAtom, 2);
@@ -331,7 +342,7 @@ describe("TraceList render window (bounded sliding)", () => {
     expect(screen.getByRole("button", { name: /3 newer/ })).toBeTruthy();
   });
 
-  it("returns to the head when 'back to latest' is clicked", () => {
+  it("returns to the head when 'back to latest' is clicked", async () => {
     const store = getDefaultStore();
     store.set(traceListWindowAtom, { mode: "live", range: "all" });
     store.set(renderWindowMaxAtom, 2);

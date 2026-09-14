@@ -1,10 +1,9 @@
 import { HelpTooltip } from "@/components/ui/help-tooltip";
-import { useAtom } from "jotai";
 import { ChevronLeft, ChevronRight, Radio } from "lucide-react";
 import { Temporal } from "temporal-polyfill";
 import { Button } from "@/components/ui/button";
 import { TimeRangeSelect } from "@/components/common/time-range-select";
-import { eventTimeWindowAtom } from "@/stores/navigation";
+import { useTimeWindow } from "@/hooks/use-signal-route";
 import {
   DEFAULT_EVENT_TIME_WINDOW,
   eventWindowRange,
@@ -32,7 +31,7 @@ export function EventWindowControls({
   tone: "trace" | "log";
   allRetained?: boolean;
 }) {
-  const [window, setWindow] = useAtom(eventTimeWindowAtom);
+  const [window, setWindow] = useTimeWindow();
 
   if (allRetained) {
     return (

@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { queryClient } from "@/lib/query-client";
+import { useMemo } from "react";
 import { graphql } from "@/gql";
 import { gqlClient } from "@/lib/graphql";
 import { mergeDataPoints } from "@/stores/telemetry";
@@ -47,7 +49,6 @@ const MetricPointsQuery = graphql(`
 // while retaining the existing max-data anchoring for a stopped live metric.
 export function useMetricRangePoints(metric: MetricData, window: EventTimeWindow): DataPoint[] {
   const { serviceName, name } = metric;
-  const metricKey = `${serviceName}::${name}`;
   const range = eventWindowRange(window) ?? "1h";
   const windowMode = window.mode;
   const fixedFrom = window.mode === "fixed" ? window.from : undefined;
@@ -59,36 +60,22 @@ export function useMetricRangePoints(metric: MetricData, window: EventTimeWindow
     }),
     [windowMode, fixedFrom, fixedTo, range],
   );
-  const [snapshot, setSnapshot] = useState<{ metricKey: string; points: DataPoint[] } | null>(null);
-  // A range-only change keeps the previous snapshot visible while the next
-  // request is in flight. A metric change invalidates it immediately by key,
-  // without a state-reset effect and its extra render.
-  const fetched = snapshot?.metricKey === metricKey ? snapshot.points : [];
-
-  useEffect(() => {
-    let cancelled = false;
-    const load = async () => {
-      try {
+  const { data: fetched = [] } = useQuery(
+    {
+      queryKey: ["metric-points", serviceName, name, queryBounds],
+      queryFn: async () => {
         const data = await gqlClient.request(MetricPointsQuery, {
           serviceName,
           name,
           ...queryBounds,
         });
-        if (!cancelled) {
-          setSnapshot({ metricKey, points: data.metricPoints.map(normalizeDataPoint) });
-        }
-      } catch {
-        // Fall back to whatever the live buffer already holds.
-      }
-    };
-    void load();
-
-    return () => {
-      cancelled = true;
-    };
-    // metric.dataPoints is intentionally excluded: refetch when the range or
-    // selected metric changes, not on every WebSocket delivery.
-  }, [queryBounds, serviceName, name, metricKey]);
+        return data.metricPoints.map(normalizeDataPoint);
+      },
+      placeholderData: (previous, query) =>
+        query?.queryKey[1] === serviceName && query.queryKey[2] === name ? previous : undefined,
+    },
+    queryClient,
+  );
 
   const merged = useMemo(
     () => mergeDataPoints(fetched, metric.dataPoints),

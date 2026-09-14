@@ -1,11 +1,21 @@
+import { createTestRouter } from "@/test/router";
+import type { ReactElement } from "react";
+let routing: Awaited<ReturnType<typeof createTestRouter>>;
+function render(ui: ReactElement) {
+  return renderUI(ui, { wrapper: routing.wrapper });
+}
 import { describe, it, expect, vi, beforeEach, afterEach } from "vite-plus/test";
 import type { ReactNode } from "react";
-import { getDefaultStore } from "jotai";
-import { render, screen, fireEvent, cleanup, waitFor } from "@testing-library/react";
+import {
+  act,
+  render as renderUI,
+  screen,
+  fireEvent,
+  cleanup,
+  waitFor,
+} from "@testing-library/react";
 import { MetricDetailBody } from "./metric-detail";
 import { makeDataPoint, makeMetric } from "@/test/factories";
-import { activeTabAtom, selectedMetricKeyAtom, selectedMetricRangeAtom } from "@/stores/navigation";
-import { DEFAULT_CHART_TIME_RANGE } from "@/lib/chart-time-range";
 
 // Base UI's ScrollArea calls Element.getAnimations(), which happy-dom (this
 // project's test environment) doesn't implement — an environment gap
@@ -32,35 +42,29 @@ interface GqlDocument {
   definitions: { name?: { value: string } }[];
 }
 
-beforeEach(() => {
+beforeEach(async () => {
+  routing = await createTestRouter("/metrics/frontend/http.requests");
   requestMock.mockReset();
   requestMock.mockImplementation((doc: GqlDocument) => {
     const opName = doc.definitions[0]?.name?.value;
     if (opName === "MetricAggregate") return Promise.resolve({ metricAggregate: [] });
     return Promise.resolve({ metricPoints: [] });
   });
-  // selectedMetricRangeAtom (and the tab/key atoms the URL-persistence test
-  // below drives) are real global atoms (see stores/navigation.ts), not
-  // component-local state, so they must be reset between tests — otherwise
-  // whichever values an earlier test left them on leak into the next mount.
-  const store = getDefaultStore();
-  store.set(selectedMetricRangeAtom, DEFAULT_CHART_TIME_RANGE);
-  store.set(activeTabAtom, "traces");
-  store.set(selectedMetricKeyAtom, null);
-  window.history.replaceState(null, "", "/");
 });
 afterEach(cleanup);
 
-function selectRange(label: string) {
+async function selectRange(label: string) {
   fireEvent.click(screen.getByRole("combobox", { name: "Time range" }));
-  const option = screen.getByRole("option", { name: label });
-  fireEvent.pointerDown(option, { button: 0 });
-  fireEvent.pointerUp(option, { button: 0 });
-  fireEvent.click(option);
+  const option = await screen.findByRole("option", { name: label });
+  await act(async () => {
+    fireEvent.pointerDown(option, { button: 0 });
+    fireEvent.pointerUp(option, { button: 0 });
+    fireEvent.click(option);
+  });
 }
 
 describe("MetricDetailBody control row", () => {
-  it("renders breakdown facet tabs and the range select in the same row, defaulting to 1h", () => {
+  it("renders breakdown facet tabs and the range select in the same row, defaulting to 1h", async () => {
     const metric = makeMetric({
       type: "Sum",
       dataPoints: [
@@ -81,48 +85,33 @@ describe("MetricDetailBody control row", () => {
     expect(row?.contains(rangeSelect)).toBe(true);
   });
 
-  it("switches the selected range from the range select", () => {
+  it("switches the selected range from the range select", async () => {
     const metric = makeMetric({
       dataPoints: [makeDataPoint({ id: "a", timestamp: "2024-01-01T00:00:00Z", value: 1 })],
     });
 
     render(<MetricDetailBody metric={metric} />);
-    selectRange("5m");
+    await selectRange("5m");
 
     expect(screen.getByRole("combobox", { name: "Time range" }).textContent).toContain("5m");
   });
 
-  it("persists the selected range to the URL so a reload/share reopens the same window", () => {
-    const store = getDefaultStore();
-    // MetricDetailBody is only ever rendered under the metrics tab with a
-    // matching selection in the real app; selectedMetricRangeAtom's URL sync
-    // (see navigation.ts's syncLocation) is keyed off that tab + metricKey
-    // state, so the test sets it up explicitly rather than relying on the
-    // component tree that normally does it (MetricDetail/MetricList).
-    window.history.replaceState(null, "", "/");
-    store.set(activeTabAtom, "metrics");
-    store.set(selectedMetricKeyAtom, { serviceName: "frontend", name: "http.requests" });
-
+  it("persists the selected range to the URL so a reload/share reopens the same window", async () => {
     const metric = makeMetric({
       dataPoints: [makeDataPoint({ id: "a", timestamp: "2024-01-01T00:00:00Z", value: 1 })],
     });
 
     render(<MetricDetailBody metric={metric} />);
-    selectRange("24h");
+    await selectRange("24h");
 
-    expect(window.location.pathname + window.location.search).toBe(
-      "/metrics/frontend/http.requests?range=24h",
-    );
+    expect(routing.router.state.location.href).toBe("/metrics/frontend/http.requests?range=24h");
   });
 
   it("moves to the previous metric window and fetches its explicit bounds", async () => {
-    const store = getDefaultStore();
-    store.set(activeTabAtom, "metrics");
-    store.set(selectedMetricKeyAtom, { serviceName: "frontend", name: "http.requests" });
     const metric = makeMetric({ serviceName: "frontend", name: "http.requests" });
 
     render(<MetricDetailBody metric={metric} />);
-    fireEvent.click(screen.getByRole("button", { name: "Previous window" }));
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Previous window" })));
 
     expect(screen.getByRole("button", { name: "Next window" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Live" }).hasAttribute("disabled")).toBe(false);
@@ -136,17 +125,17 @@ describe("MetricDetailBody control row", () => {
         to: expect.any(String),
       });
     });
-    expect(window.location.search).toContain("from=");
-    expect(window.location.search).toContain("to=");
+    expect(routing.router.state.location.searchStr).toContain("from=");
+    expect(routing.router.state.location.searchStr).toContain("to=");
   });
 
-  it("fetches a server-side range backfill once per range change (shared by tiles, chart, and table)", () => {
+  it("fetches a server-side range backfill once per range change (shared by tiles, chart, and table)", async () => {
     const metric = makeMetric({
       dataPoints: [makeDataPoint({ id: "a", timestamp: "2024-01-01T00:00:00Z", value: 1 })],
     });
 
     render(<MetricDetailBody metric={metric} />);
-    selectRange("5m");
+    await selectRange("5m");
 
     // Once for the initial "1h" mount, once more after switching to "5m".
     const rangeCalls = requestMock.mock.calls.filter(
@@ -157,7 +146,7 @@ describe("MetricDetailBody control row", () => {
 });
 
 describe("MetricDetailBody stat tiles section label", () => {
-  it("shows 'Increase · <range label>' and updates when the range changes", () => {
+  it("shows 'Increase · <range label>' and updates when the range changes", async () => {
     const metric = makeMetric({
       type: "Sum",
       dataPoints: [makeDataPoint({ id: "a", timestamp: "2024-01-01T00:00:00Z", cumulative: 1 })],
@@ -166,11 +155,11 @@ describe("MetricDetailBody stat tiles section label", () => {
     render(<MetricDetailBody metric={metric} />);
     expect(screen.getByText("Increase · 1h")).toBeTruthy();
 
-    selectRange("All");
+    await selectRange("All");
     expect(screen.getByText("Increase · All")).toBeTruthy();
   });
 
-  it("renders the latest section for a Gauge", () => {
+  it("renders the latest section for a Gauge", async () => {
     const metric = makeMetric({
       type: "Gauge",
       dataPoints: [makeDataPoint({ id: "a", value: 1 }), makeDataPoint({ id: "b", value: 2 })],
@@ -195,7 +184,7 @@ describe("MetricDetailBody data points table", () => {
     render(<MetricDetailBody metric={metric} />);
     expect(screen.getByText("Data Points (3)")).toBeTruthy();
 
-    selectRange("5m");
+    await selectRange("5m");
 
     await waitFor(() => expect(screen.getByText("Data Points (2)")).toBeTruthy());
   });

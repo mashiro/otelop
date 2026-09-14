@@ -46,7 +46,9 @@ describe("useMetricListSearch", () => {
     // the old hook replaced metricsAtom itself with the (possibly empty)
     // search result, which wiped the canonical buffer on a zero-hit search.
     expect(store.get(metricsAtom)).toHaveLength(1);
-    expect(store.get(metricSearchResultAtom)).toEqual({ search: "nomatch", items: [] });
+    await waitFor(() =>
+      expect(store.get(metricSearchResultAtom)).toEqual({ search: "nomatch", items: [] }),
+    );
   });
 
   it("records full server summaries without touching the canonical buffer", async () => {

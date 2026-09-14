@@ -1,14 +1,12 @@
 import { HelpTooltip } from "@/components/ui/help-tooltip";
-import { addTraceFilterAtom } from "@/stores/trace-query";
+import { useSignalQuery, useTraceSelection, useRelatedSignals } from "@/hooks/use-signal-route";
 import { draftTerm } from "@/lib/log-filter";
 import { traceFields } from "@/lib/trace-search";
 import { AddFilterButton } from "@/components/filters/add-filter-button";
-import { useAtomValue, useSetAtom } from "jotai";
 import { X, FileText, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CopyJsonButton } from "@/components/ui/copy-json-button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { selectedTraceAtom, navigateToLogsAtom } from "@/stores/telemetry";
 import { formatDuration, shortId } from "@/lib/format";
 import { downloadJson } from "@/lib/export";
 import { useTraceSpans } from "@/hooks/use-trace-spans";
@@ -21,9 +19,8 @@ import type { SpanData } from "@/types/telemetry";
 import { useState } from "react";
 
 export function TraceDetail() {
-  const trace = useAtomValue(selectedTraceAtom);
-  const setSelected = useSetAtom(selectedTraceAtom);
-  const navigateToLogs = useSetAtom(navigateToLogsAtom);
+  const { trace, selectTrace: setSelected } = useTraceSelection();
+  const { navigateToLogs } = useRelatedSignals();
   const [selectedSpan, setSelectedSpan] = useState<SpanData | null>(null);
   // The trace list only loads summaries (see use-initial-load.ts); backfill
   // this trace's full span data the moment its detail view is open.
@@ -88,7 +85,7 @@ export function TraceDetail() {
 }
 
 function SpanDetail({ span, onClose }: { span: SpanData; onClose: () => void }) {
-  const addFilter = useSetAtom(addTraceFilterAtom);
+  const { addFilter } = useSignalQuery("traces");
   const filterBy = (key: string, value: unknown) =>
     addFilter(
       draftTerm(

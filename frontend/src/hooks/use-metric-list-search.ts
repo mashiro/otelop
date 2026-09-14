@@ -1,3 +1,5 @@
+import { useQuery } from "@tanstack/react-query";
+import { queryClient } from "@/lib/query-client";
 import { useEffect } from "react";
 import { useSetAtom } from "jotai";
 import { graphql } from "@/gql";
@@ -35,29 +37,19 @@ const MetricsListQuery = graphql(`
 export function useMetricListSearch(search: string): void {
   const setSearchResult = useSetAtom(metricSearchResultAtom);
 
+  const { data } = useQuery(
+    {
+      queryKey: ["metric-search", search],
+      queryFn: () => gqlClient.request(MetricsListQuery, { search }),
+      enabled: Boolean(search),
+    },
+    queryClient,
+  );
   useEffect(() => {
-    // hooks/use-initial-load.ts exclusively owns the unfiltered bootstrap.
-    // Keeping this hook search-only avoids two unbounded queries racing to
-    // initialize the same view and makes an initial-load retry a separate
-    // concern rather than a key-only fallback that cannot hydrate rows.
-    if (!search) return;
-
-    let ignore = false;
-    const load = async () => {
-      try {
-        const data = await gqlClient.request(MetricsListQuery, { search });
-        if (ignore) return;
-        const items: MetricData[] = data.metrics.items.map((m) =>
-          normalizeMetric({ ...m, dataPoints: [] }),
-        );
-        setSearchResult({ search, items });
-      } catch {
-        // Keep the previous result; the next search edit retries.
-      }
-    };
-    void load();
-    return () => {
-      ignore = true;
-    };
-  }, [search, setSearchResult]);
+    if (!data || !search) return;
+    const items: MetricData[] = data.metrics.items.map((m) =>
+      normalizeMetric({ ...m, dataPoints: [] }),
+    );
+    setSearchResult({ search, items });
+  }, [data, search, setSearchResult]);
 }

@@ -113,6 +113,7 @@ export function useLogListPage(
   );
 
   return useSignalListPage({
+    queryScope: ["logs", traceId],
     window,
     search,
     fetchPage,

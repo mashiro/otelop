@@ -1,28 +1,23 @@
 import { useState } from "react";
-import { useAtom, useStore } from "jotai";
 import { Search, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
-import type { PrimitiveAtom } from "jotai";
 
 export function SearchFilter({
-  atom,
+  value,
+  onSubmit,
   placeholder,
   className,
 }: {
-  atom: PrimitiveAtom<string>;
+  value: string;
+  onSubmit: (text: string) => string;
   placeholder: string;
   className?: string;
 }) {
-  const [value, setValue] = useAtom(atom);
-  const store = useStore();
   const [lastSyncedValue, setLastSyncedValue] = useState(value);
   const [input, setInput] = useState(value);
 
-  // An external write to the atom (e.g. log-list.tsx's "Show surrounding
-  // logs" clearing logSearchAtom) must also update the input. Keep a local
-  // value so unfinished IME composition can remain visible without being
-  // written to the search atom.
+  // Keep unfinished IME composition local while reflecting URL changes.
   if (value !== lastSyncedValue) {
     setLastSyncedValue(value);
     setInput(value);
@@ -37,15 +32,12 @@ export function SearchFilter({
       return;
     }
 
-    setValue(input);
-    // A filter-only submission can leave the text atom unchanged. Read back
-    // its normalized value so the submitted expression does not linger.
-    setInput(store.get(atom));
+    setInput(onSubmit(input));
   };
 
   const handleClear = () => {
     setInput("");
-    setValue("");
+    onSubmit("");
   };
 
   return (

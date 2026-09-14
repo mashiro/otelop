@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useEffectEvent, useRef } from "react";
 import { useSetAtom } from "jotai";
 import {
   addTracesAtom,
@@ -35,7 +35,8 @@ const WS_FLUSH_INTERVAL_MS = 50;
 // reconnect, teardown) lives in WsManager — keeping it out of React means
 // Strict Mode's double-invoke effect cycle no longer creates-then-closes a
 // fresh socket on every mount.
-export function useWebSocket(): void {
+export function useWebSocket(onTraceRemoved?: (traceId: string) => void): void {
+  const traceRemoved = useEffectEvent((traceId: string) => onTraceRemoved?.(traceId));
   const setWsStatus = useSetAtom(wsStatusAtom);
   const addTraces = useSetAtom(addTracesAtom);
   const removeTrace = useSetAtom(removeTraceAtom);
@@ -62,7 +63,11 @@ export function useWebSocket(): void {
           addTraces(run.map((m) => normalizeTrace(m.data as TraceDataWire)));
           break;
         case "trace-deletes":
-          for (const m of run) removeTrace((m.data as TraceDeleteData).traceId);
+          for (const m of run) {
+            const { traceId } = m.data as TraceDeleteData;
+            removeTrace(traceId);
+            traceRemoved(traceId);
+          }
           break;
         case "metrics":
           addMetrics(run.map((m) => normalizeMetric(m.data as MetricDataWire)));

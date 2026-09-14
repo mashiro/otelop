@@ -1,7 +1,13 @@
+import { createTestRouter } from "@/test/router";
+import type { ReactElement } from "react";
+let routing: Awaited<ReturnType<typeof createTestRouter>>;
+function render(ui: ReactElement) {
+  return renderUI(ui, { wrapper: routing.wrapper });
+}
 import { describe, it, expect, afterEach, beforeEach, vi } from "vite-plus/test";
 import type { ReactNode } from "react";
 import { getDefaultStore } from "jotai";
-import { render, screen, cleanup, within, waitFor, act } from "@testing-library/react";
+import { render as renderUI, screen, cleanup, within, waitFor, act } from "@testing-library/react";
 import { MetricList } from "./metric-list";
 import {
   metricSearchResultAtom,
@@ -9,8 +15,6 @@ import {
   renderWindowMaxAtom,
   addMetricAtom,
 } from "@/stores/telemetry";
-import { metricSearchAtom } from "@/stores/filters";
-import { selectedMetricKeyAtom } from "@/stores/navigation";
 import { makeMetric, TEST_RENDER_WINDOW_MAX } from "@/test/factories";
 import { SIGNAL_PAGE_SIZE } from "@/hooks/use-signal-list-page";
 import type { MetricsListQuery, MetricsListQueryVariables } from "@/gql/graphql";
@@ -48,11 +52,10 @@ const { requestMock } = vi.hoisted(() => ({
 }));
 vi.mock("@/lib/graphql", () => ({ gqlClient: { request: requestMock } }));
 
-beforeEach(() => {
+beforeEach(async () => {
+  routing = await createTestRouter("/metrics");
   const store = getDefaultStore();
   store.set(metricsAtom, []);
-  store.set(metricSearchAtom, "");
-  store.set(selectedMetricKeyAtom, null);
   store.set(metricSearchResultAtom, { search: "", items: [] });
   store.set(renderWindowMaxAtom, TEST_RENDER_WINDOW_MAX);
   requestMock.mockReset();
@@ -71,7 +74,7 @@ function queryMetric(overrides = {}) {
 // pointCount/latestValue summary fields the server computes instead of
 // deriving them from dataPoints.length / dataPoints.at(-1)?.value.
 describe("MetricList", () => {
-  it("renders Points/Latest Value from pointCount/latestValue, not dataPoints", () => {
+  it("renders Points/Latest Value from pointCount/latestValue, not dataPoints", async () => {
     const store = getDefaultStore();
     store.set(metricsAtom, [
       makeMetric({
@@ -90,7 +93,7 @@ describe("MetricList", () => {
     expect(screen.getByText("7.5")).toBeTruthy();
   });
 
-  it("renders '-' for latestValue when null (no meaningful point yet)", () => {
+  it("renders '-' for latestValue when null (no meaningful point yet)", async () => {
     const store = getDefaultStore();
     store.set(metricsAtom, [
       makeMetric({ name: "fresh.metric", pointCount: 0, latestValue: null, dataPoints: [] }),
@@ -114,7 +117,7 @@ describe("MetricList", () => {
   it("a zero-hit active search keeps the search box mounted instead of falling back to EmptyState", async () => {
     const store = getDefaultStore();
     store.set(metricsAtom, [makeMetric({ serviceName: "frontend", name: "http.requests" })]);
-    store.set(metricSearchAtom, "nomatch");
+    await routing.router.navigate({ to: ".", search: { q: "nomatch" } });
     requestMock.mockResolvedValue({ metrics: { items: [] } });
 
     render(<MetricList />);
@@ -126,14 +129,14 @@ describe("MetricList", () => {
   it("recovers the list once a zero-hit search is cleared", async () => {
     const store = getDefaultStore();
     store.set(metricsAtom, [makeMetric({ serviceName: "frontend", name: "http.requests" })]);
-    store.set(metricSearchAtom, "nomatch");
+    await routing.router.navigate({ to: ".", search: { q: "nomatch" } });
     requestMock.mockResolvedValue({ metrics: { items: [] } });
 
     render(<MetricList />);
     await waitFor(() => expect(screen.getByText("No matching metrics")).toBeTruthy());
 
-    act(() => {
-      store.set(metricSearchAtom, "");
+    await act(async () => {
+      await routing.router.navigate({ to: ".", search: { q: "" } });
     });
 
     await waitFor(() => expect(screen.getByText("http.requests")).toBeTruthy());
@@ -145,7 +148,7 @@ describe("MetricList", () => {
       makeMetric({ serviceName: "frontend", name: "http.requests" }),
       makeMetric({ serviceName: "frontend", name: "http.errors" }),
     ]);
-    store.set(metricSearchAtom, "nomatch");
+    await routing.router.navigate({ to: ".", search: { q: "nomatch" } });
     requestMock.mockResolvedValue({ metrics: { items: [] } });
 
     render(<MetricList />);
@@ -157,7 +160,7 @@ describe("MetricList", () => {
   it("renders a server match that is no longer present in the bounded live buffer", async () => {
     const store = getDefaultStore();
     store.set(metricsAtom, []);
-    store.set(metricSearchAtom, "archive");
+    await routing.router.navigate({ to: ".", search: { q: "archive" } });
     requestMock.mockResolvedValue({
       metrics: { items: [queryMetric({ serviceName: "archive", name: "old.requests" })] },
     });
@@ -172,7 +175,7 @@ describe("MetricList", () => {
   it("skips the redundant full-list fetch on mount when search is empty and the buffer already has data", async () => {
     const store = getDefaultStore();
     store.set(metricsAtom, [makeMetric({ name: "http.requests" })]);
-    store.set(metricSearchAtom, "");
+    await routing.router.navigate({ to: ".", search: { q: "" } });
 
     render(<MetricList />);
 
@@ -192,7 +195,7 @@ function makeMetrics(count: number) {
 }
 
 describe("MetricList row rendering", () => {
-  it("renders one row per metric when under the display cap", () => {
+  it("renders one row per metric when under the display cap", async () => {
     const store = getDefaultStore();
     store.set(metricsAtom, makeMetrics(3));
 
@@ -202,7 +205,7 @@ describe("MetricList row rendering", () => {
     expect(rows).toHaveLength(4); // + header row
   });
 
-  it("caps rendered rows at TEST_RENDER_WINDOW_MAX on initial mount", () => {
+  it("caps rendered rows at TEST_RENDER_WINDOW_MAX on initial mount", async () => {
     const store = getDefaultStore();
     const total = TEST_RENDER_WINDOW_MAX + 3;
     store.set(metricsAtom, makeMetrics(total));
@@ -214,7 +217,7 @@ describe("MetricList row rendering", () => {
     expect(screen.getByRole("button", { name: "Load more" })).toBeTruthy();
   });
 
-  it("does not show Load more when loaded rows are within the cap", () => {
+  it("does not show Load more when loaded rows are within the cap", async () => {
     const store = getDefaultStore();
     store.set(metricsAtom, makeMetrics(TEST_RENDER_WINDOW_MAX));
 
@@ -223,7 +226,7 @@ describe("MetricList row rendering", () => {
     expect(screen.queryByRole("button", { name: "Load more" })).toBeNull();
   });
 
-  it("does not re-render every row when an unrelated store update produces a new array of the same metric objects (React Compiler bail-out)", () => {
+  it("does not re-render every row when an unrelated store update produces a new array of the same metric objects (React Compiler bail-out)", async () => {
     const store = getDefaultStore();
     store.set(metricsAtom, makeMetrics(5));
 
@@ -238,7 +241,7 @@ describe("MetricList row rendering", () => {
     expect(pillRenders.current).toBe(rendersAfterMount);
   });
 
-  it("re-renders the affected row when a single metric is updated in place", () => {
+  it("re-renders the affected row when a single metric is updated in place", async () => {
     const store = getDefaultStore();
     store.set(metricsAtom, [makeMetric({ name: "http.requests", pointCount: 1 })]);
 
@@ -260,7 +263,7 @@ describe("MetricList row rendering", () => {
 // trace-list.tsx/log-list.tsx — the same anchor mechanic applies to a
 // re-sort as to a literal prepend.
 describe("MetricList render window (bounded sliding)", () => {
-  it("slides onto already-loaded rows when Load more is clicked", () => {
+  it("slides onto already-loaded rows when Load more is clicked", async () => {
     const store = getDefaultStore();
     const total = TEST_RENDER_WINDOW_MAX + SIGNAL_PAGE_SIZE + 50;
     store.set(metricsAtom, makeMetrics(total));
@@ -277,7 +280,7 @@ describe("MetricList render window (bounded sliding)", () => {
     expect(screen.getByText(`metric-${String(SIGNAL_PAGE_SIZE).padStart(5, "0")}`)).toBeTruthy();
   });
 
-  it("resets the render window to the head when the search changes", () => {
+  it("resets the render window to the head when the search changes", async () => {
     const store = getDefaultStore();
     store.set(metricsAtom, makeMetrics(TEST_RENDER_WINDOW_MAX + SIGNAL_PAGE_SIZE + 50));
 
@@ -290,15 +293,15 @@ describe("MetricList render window (bounded sliding)", () => {
     // "metric-" matches every preset name, so the filtered list stays
     // populated purely client-side (stores/filters.ts's filteredMetricsAtom
     // client-side substring branch — no need to wait on the search request).
-    act(() => {
-      store.set(metricSearchAtom, "metric-");
+    await act(async () => {
+      await routing.router.navigate({ to: ".", search: { q: "metric-" } });
     });
 
     expect(screen.getByText("metric-00000")).toBeTruthy();
     expect(screen.getAllByRole("row")).toHaveLength(TEST_RENDER_WINDOW_MAX + 1);
   });
 
-  it("never mounts more rows than the configured max, even immediately after repeated sliding", () => {
+  it("never mounts more rows than the configured max, even immediately after repeated sliding", async () => {
     const store = getDefaultStore();
     store.set(renderWindowMaxAtom, 3);
     store.set(metricsAtom, makeMetrics(1000));
@@ -317,7 +320,7 @@ describe("MetricList render window (bounded sliding)", () => {
     expect(screen.getAllByRole("row")).toHaveLength(4);
   });
 
-  it("stays at the head as a re-sorted-to-front metric arrives, letting the last visible row fall out of the window", () => {
+  it("stays at the head as a re-sorted-to-front metric arrives, letting the last visible row fall out of the window", async () => {
     const store = getDefaultStore();
     store.set(renderWindowMaxAtom, 3);
     store.set(metricsAtom, [
@@ -341,7 +344,7 @@ describe("MetricList render window (bounded sliding)", () => {
     expect(screen.queryByText("d-metric")).toBeNull();
   });
 
-  it("keeps the visible rows stable when a row is inserted while scrolled into history, growing the newer count instead of shifting content", () => {
+  it("keeps the visible rows stable when a row is inserted while scrolled into history, growing the newer count instead of shifting content", async () => {
     const store = getDefaultStore();
     store.set(renderWindowMaxAtom, 2);
     store.set(metricsAtom, [
@@ -372,7 +375,7 @@ describe("MetricList render window (bounded sliding)", () => {
     expect(screen.getByRole("button", { name: /3 earlier/ })).toBeTruthy();
   });
 
-  it("returns to the head when 'back to top' is clicked", () => {
+  it("returns to the head when 'back to top' is clicked", async () => {
     const store = getDefaultStore();
     store.set(renderWindowMaxAtom, 2);
     store.set(metricsAtom, [
