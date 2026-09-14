@@ -338,6 +338,13 @@ export const applyLocationAtom = atom(null, (_get, set, location: string) => {
   }
 });
 
+export const navigateHomeAtom = atom(null, (_get, set) => {
+  set(applyLocationAtom, "/");
+  if (window.location.pathname + window.location.search + window.location.hash !== "/") {
+    window.history.pushState(null, "", "/");
+  }
+});
+
 // Keeps state in sync with browser back/forward navigation. Mounted once at
 // the app root (unlike the old currentTabAtom.onMount, this also restores
 // trace/metric selection, so it must run for the lifetime of the app).

@@ -6,6 +6,7 @@ import { Logo } from "@/components/ui/logo";
 import { wsStatusAtom, traceCountAtom, metricCountAtom, logCountAtom } from "@/stores/telemetry";
 import { themeAtom, type Theme } from "@/stores/theme";
 import { SIGNALS, type SignalConfig } from "@/lib/signals";
+import { navigateHomeAtom } from "@/stores/navigation";
 
 const statusConfig: Record<string, { color: string; glow: string; label: string }> = {
   connected: {
@@ -32,6 +33,7 @@ export function Header() {
   const logCount = useAtomValue(logCountAtom);
   const theme = useAtomValue(themeAtom);
   const setTheme = useSetAtom(themeAtom);
+  const navigateHome = useSetAtom(navigateHomeAtom);
 
   const status = statusConfig[wsStatus] ?? statusConfig.disconnected;
 
@@ -40,6 +42,13 @@ export function Header() {
       <div className="flex items-center gap-5">
         <a
           href="/"
+          onClick={(event) => {
+            if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+              return;
+            }
+            event.preventDefault();
+            navigateHome();
+          }}
           className="flex items-center gap-2 rounded-md focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring"
         >
           <Logo className="h-7 w-7" />
