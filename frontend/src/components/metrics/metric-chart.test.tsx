@@ -127,19 +127,21 @@ function visibilityChart(metric = visibilityMetric, facet: MetricFacet | null = 
       window={{ mode: "live", range: "all" }}
       aggregatedSeries={
         facet
-          ? ["A", "B", "C"].map((region, index) => ({
-              groupValues: [region],
-              points: [
-                {
-                  timestamp: "2024-01-01T00:00:00Z",
-                  value: index + 1,
-                  count: null,
-                  sum: null,
-                  min: null,
-                  max: null,
-                },
-              ],
-            }))
+          ? [...new Set(metric.dataPoints.map((point) => String(point.attributes.region)))].map(
+              (region, index) => ({
+                groupValues: [region],
+                points: [
+                  {
+                    timestamp: "2024-01-01T00:00:00Z",
+                    value: index + 1,
+                    count: null,
+                    sum: null,
+                    min: null,
+                    max: null,
+                  },
+                ],
+              }),
+            )
           : null
       }
       onWindowChange={() => {}}
@@ -194,6 +196,40 @@ describe("series visibility", () => {
       expect(plottedSeries(container)).toEqual(original);
       fireEvent.click(first, { [modifier]: true });
       expect(plottedSeries(container)).toEqual(original.slice(1));
+    },
+  );
+
+  it.each([null, REGION_FACET])(
+    "keeps new live series out of a selection until Show all (%j)",
+    (facet) => {
+      const { container, rerender } = render(visibilityChart(visibilityMetric, facet));
+      const original = plottedSeries(container);
+      fireEvent.click(screen.getByRole("button", { name: `Select ${original[0]}` }));
+      fireEvent.click(screen.getByRole("button", { name: `Select ${original[1]}` }), {
+        metaKey: true,
+      });
+      const withRegion = (region: string) => ({
+        ...visibilityMetric,
+        dataPoints: [
+          ...visibilityMetric.dataPoints,
+          makeDataPoint({
+            id: region,
+            attributes: { region },
+            timestamp: "2024-01-01T00:00:10Z",
+            value: 1000,
+          }),
+        ],
+      });
+      rerender(visibilityChart(withRegion("D"), facet));
+      expect(plottedSeries(container)).toEqual(original.slice(0, 2));
+      const newLabel = facet ? "D" : 'region="D"';
+      expect(
+        screen.getByRole("button", { name: `Select ${newLabel}` }).getAttribute("aria-pressed"),
+      ).toBe("false");
+      fireEvent.click(screen.getByRole("button", { name: "Show all" }));
+      expect(plottedSeries(container)).toEqual([...original, newLabel]);
+      rerender(visibilityChart(withRegion("E"), facet));
+      expect(plottedSeries(container)).toEqual([...original, facet ? "E" : 'region="E"']);
     },
   );
 

@@ -158,7 +158,8 @@ function ChartInner({
   width: number;
   height: number;
 }) {
-  const [hiddenKeys, setHiddenKeys] = useState<Set<string>>(() => new Set());
+  // null follows all series, including future arrivals; a set preserves an explicit selection.
+  const [selectedKeys, setSelectedKeys] = useState<Set<string> | null>(null);
   const legendHintId = useId();
   const svgRef = useRef<SVGSVGElement>(null);
   const dragStartRef = useRef<number | null>(null);
@@ -223,12 +224,12 @@ function ChartInner({
   const visibleSeries = useMemo(
     () =>
       series
-        .filter((s) => !hiddenKeys.has(s.key))
+        .filter((s) => selectedKeys === null || selectedKeys.has(s.key))
         .map((s) => ({
           ...s,
           points: domain ? filterPointsInDomain(s.points, domain) : s.points,
         })),
-    [series, domain, hiddenKeys],
+    [series, domain, selectedKeys],
   );
 
   const visiblePoints = useMemo(() => visibleSeries.flatMap((s) => s.points), [visibleSeries]);
@@ -562,23 +563,19 @@ function ChartInner({
                 size="xs"
                 aria-label={`Select ${s.label}`}
                 aria-describedby={legendHintId}
-                aria-pressed={!hiddenKeys.has(s.key)}
+                aria-pressed={selectedKeys === null || selectedKeys.has(s.key)}
                 title={s.label}
                 onClick={(event) => {
                   hideTooltip();
                   if (event.metaKey || event.ctrlKey) {
-                    setHiddenKeys((previous) => {
-                      const next = new Set(previous);
+                    setSelectedKeys((previous) => {
+                      const next = new Set(previous ?? series.map((item) => item.key));
                       if (next.has(s.key)) next.delete(s.key);
                       else next.add(s.key);
                       return next;
                     });
                   } else {
-                    setHiddenKeys(
-                      new Set(
-                        series.filter((other) => other.key !== s.key).map((other) => other.key),
-                      ),
-                    );
+                    setSelectedKeys(new Set([s.key]));
                   }
                 }}
               >
@@ -586,13 +583,16 @@ function ChartInner({
                   className="inline-block size-2 shrink-0 rounded-full border"
                   style={{
                     borderColor: s.color,
-                    backgroundColor: hiddenKeys.has(s.key) ? undefined : s.color,
+                    backgroundColor:
+                      selectedKeys !== null && !selectedKeys.has(s.key) ? undefined : s.color,
                   }}
                 />
                 <span
                   className={cn(
                     "max-w-[250px] truncate font-mono",
-                    hiddenKeys.has(s.key) && "text-muted-foreground line-through",
+                    selectedKeys !== null &&
+                      !selectedKeys.has(s.key) &&
+                      "text-muted-foreground line-through",
                   )}
                 >
                   {s.label}
@@ -607,10 +607,10 @@ function ChartInner({
             <Button
               variant="ghost"
               size="xs"
-              disabled={!series.some((s) => hiddenKeys.has(s.key))}
+              disabled={selectedKeys === null}
               onClick={() => {
                 hideTooltip();
-                setHiddenKeys(new Set());
+                setSelectedKeys(null);
               }}
             >
               Show all
