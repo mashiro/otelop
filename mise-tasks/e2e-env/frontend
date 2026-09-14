@@ -9,4 +9,4 @@ frontend_port="${OTELOP_E2E_FRONTEND:-15173}"
 # 127.0.0.1, not localhost: the backend binds loopback-only and Node's DNS
 # resolution order can try ::1 first, which the IPv4-only bind won't accept.
 OTELOP_BACKEND_ORIGIN="http://127.0.0.1:${http_port}" \
-  pnpm run dev -- --port "${frontend_port}" --strictPort
+  bash ../mise-tasks/dev/frontend -- --port "${frontend_port}" --strictPort

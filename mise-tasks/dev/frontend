@@ -2,4 +2,14 @@
 #MISE description="Start the frontend dev server"
 #MISE dir="frontend"
 set -euo pipefail
-pnpm run dev
+backend_origin="${OTELOP_BACKEND_ORIGIN:-http://127.0.0.1:4319}"
+echo "Waiting for backend at ${backend_origin}..."
+if ! curl --fail --silent --output /dev/null \
+  --connect-timeout 1 --max-time 2 \
+  --retry 10 --retry-connrefused --retry-delay 1 --retry-max-time 10 \
+  "${backend_origin%/}/readyz"; then
+  echo "Backend readiness check failed (10-second wait limit): ${backend_origin}" >&2
+  exit 1
+fi
+
+pnpm run dev "$@"

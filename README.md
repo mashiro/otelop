@@ -256,6 +256,45 @@ data you are inspecting.
 
 Do not embed credentials in `proxy.url`; `otelop` rejects URLs with userinfo such as `https://user:pass@example.com`.
 
+## Kubernetes health probes
+
+The HTTP listener exposes `GET /healthz` (liveness, `200 ok`) and
+`GET /readyz` (readiness, `200 ok` or `503 not ready`). Readiness requires
+completed initialization and a running Collector; it becomes unavailable when
+shutdown starts or the runtime context is canceled. These are lifecycle checks,
+not per-request database queries or upstream proxy connectivity checks.
+
+For Kubernetes, bind HTTP to `0.0.0.0` so the kubelet can reach the Pod IP.
+The following container configuration uses the same named HTTP port for all
+[probes](https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/):
+
+```yaml
+env:
+  - name: OTELOP_HTTP
+    value: "0.0.0.0:4319"
+ports:
+  - name: http
+    containerPort: 4319
+startupProbe:
+  httpGet:
+    path: /readyz
+    port: http
+  periodSeconds: 2
+  failureThreshold: 30
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: http
+  periodSeconds: 10
+readinessProbe:
+  httpGet:
+    path: /readyz
+    port: http
+  periodSeconds: 5
+```
+
+`mise run dev` also waits for `/readyz`, with a 10-second retry budget.
+
 ## Development
 
 The main development tasks are managed by mise:
@@ -270,6 +309,14 @@ mise run build   # build the embedded frontend and Go binary
 
 Component tasks can also be run directly, such as `mise run dev:backend`,
 `mise run test:frontend`, or `mise run build:frontend`.
+
+The backend automatically restarts when Go sources, GraphQL schemas, bundled documentation, `go.mod`,
+or `go.sum` change, using [Air](https://github.com/air-verse/air) managed by mise.
+Test-only Go files are excluded. Changes are debounced for
+300 ms; frontend assets are built once at startup, not on each backend restart.
+Vite handles frontend updates separately. If Go compilation fails, fix the
+source and save again to retry. The isolated `e2e-env` uses the same watcher
+and retains its temporary database across restarts.
 
 ## License
 

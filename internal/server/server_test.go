@@ -24,10 +24,10 @@ import (
 // port.
 func newTestServer(t *testing.T) *Server {
 	t.Helper()
-	return newTestServerWithHTTPAddr(t, "127.0.0.1:4319")
+	return newTestServerWithHTTPAddr(t, "127.0.0.1:4319", nil)
 }
 
-func newTestServerWithHTTPAddr(t *testing.T, httpAddr string) *Server {
+func newTestServerWithHTTPAddr(t *testing.T, httpAddr string, ready func() bool) *Server {
 	t.Helper()
 
 	st, err := storage.Open(context.Background(), storage.Options{})
@@ -46,7 +46,7 @@ func newTestServerWithHTTPAddr(t *testing.T, httpAddr string) *Server {
 	go hub.Run(ctx)
 
 	fsys := fstest.MapFS{"index.html": {Data: []byte("<html></html>")}}
-	return New(st, hub, fsys, otelopgraphql.RuntimeInfo{HTTPAddr: httpAddr})
+	return New(st, hub, fsys, otelopgraphql.RuntimeInfo{HTTPAddr: httpAddr}, ready)
 }
 
 func TestHandleWebSocket_OriginAllowlist(t *testing.T) {
@@ -207,7 +207,7 @@ func TestHostHeaderValidation(t *testing.T) {
 }
 
 func TestHostHeaderValidation_NonLoopbackListenerAcceptsAnyHost(t *testing.T) {
-	srv := newTestServerWithHTTPAddr(t, "0.0.0.0:4319")
+	srv := newTestServerWithHTTPAddr(t, "0.0.0.0:4319", nil)
 	ts := httptest.NewServer(srv.httpServer.Handler)
 	t.Cleanup(ts.Close)
 
@@ -284,5 +284,45 @@ func TestSpaHandler_EmitsStatAndServeSpans(t *testing.T) {
 				t.Errorf("expected spa.serve span")
 			}
 		})
+	}
+}
+
+func TestHealthEndpoints(t *testing.T) {
+	ready := false
+	srv := newTestServerWithHTTPAddr(t, "0.0.0.0:4319", func() bool { return ready })
+	for _, phase := range []struct {
+		name  string
+		ready bool
+	}{
+		{"starting", false}, {"running", true}, {"stopping", false},
+	} {
+		t.Run(phase.name, func(t *testing.T) {
+			ready = phase.ready
+			for _, path := range []string{"/healthz", "/readyz"} {
+				rr := httptest.NewRecorder()
+				req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "http://10.0.0.1:4319"+path, nil)
+				req.Header.Set("User-Agent", "kube-probe/1.36")
+				srv.httpServer.Handler.ServeHTTP(rr, req)
+				wantStatus, wantBody := http.StatusOK, "ok\n"
+				if path == "/readyz" && !phase.ready {
+					wantStatus, wantBody = http.StatusServiceUnavailable, "not ready\n"
+				}
+				if rr.Code != wantStatus || rr.Body.String() != wantBody {
+					t.Errorf("%s: got %d %q, want %d %q", path, rr.Code, rr.Body.String(), wantStatus, wantBody)
+				}
+				if rr.Header().Get("Cache-Control") != "no-store" {
+					t.Errorf("%s: missing no-store", path)
+				}
+			}
+		})
+	}
+}
+
+func TestReadinessDefaultsToUnavailable(t *testing.T) {
+	srv := newTestServer(t)
+	rr := httptest.NewRecorder()
+	srv.httpServer.Handler.ServeHTTP(rr, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/readyz", nil))
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Errorf("status = %d, want 503", rr.Code)
 	}
 }

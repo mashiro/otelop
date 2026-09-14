@@ -26,7 +26,11 @@ echo "  Frontend        : http://localhost:${frontend_port}"
 echo "  Storage (temp)  : ${storage_dir}"
 echo "=========================================================================="
 
-OTELOP_CONFIG_FILE="$config_file" go run ./cmd/otelop start --foreground \
+OTELOP_CONFIG_FILE="$config_file" air -c .air.toml \
+  --tmp_dir "${storage_dir}" \
+  --build.cmd "go build -o '${storage_dir}/otelop' ./cmd/otelop" \
+  --build.entrypoint "${storage_dir}/otelop" \
+  -- start --foreground \
   --http "127.0.0.1:${http_port}" \
   --otlp-grpc "127.0.0.1:${grpc_port}" \
   --otlp-http "127.0.0.1:${otlp_http_port}" \
