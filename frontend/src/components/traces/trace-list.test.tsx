@@ -192,14 +192,20 @@ describe("TraceList render window (bounded sliding)", () => {
     const store = getDefaultStore();
     requestMock.mockResolvedValueOnce({
       traces: {
-        items: makeQueryTraces(TEST_RENDER_WINDOW_MAX),
+        items: makeQueryTraces(TEST_RENDER_WINDOW_MAX).map((trace) => ({
+          ...trace,
+          startTime: "2024-01-01T00:30:00Z",
+        })),
         hasNextPage: true,
         endCursor: "cursor-1",
       },
     });
     requestMock.mockResolvedValueOnce({
       traces: {
-        items: makeQueryTraces(SIGNAL_PAGE_SIZE, "older-trace"),
+        items: makeQueryTraces(SIGNAL_PAGE_SIZE, "older-trace").map((trace) => ({
+          ...trace,
+          startTime: "2024-01-01T00:00:00Z",
+        })),
         hasNextPage: false,
         endCursor: null,
       },
@@ -225,10 +231,14 @@ describe("TraceList render window (bounded sliding)", () => {
     await waitFor(() =>
       expect(screen.getAllByRole("row")).toHaveLength(TEST_RENDER_WINDOW_MAX + 1),
     );
+    await waitFor(() => expect(screen.getByText("older-trace-0")).toBeTruthy());
+    expect(screen.queryByText("q-trace-0")).toBeNull();
   });
 
   it("resets the render window to the head when the search changes", async () => {
     const store = getDefaultStore();
+    // Keep API responses pending to isolate sliding over the buffered rows.
+    requestMock.mockImplementation(() => new Promise(() => {}));
     const total = TEST_RENDER_WINDOW_MAX + SIGNAL_PAGE_SIZE + 50;
     store.set(tracesAtom, makeTraces(total));
 

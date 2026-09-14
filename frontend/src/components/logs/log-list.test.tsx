@@ -76,7 +76,7 @@ function makeQueryLogs(count: number, idPrefix = "q-log"): LogsPageQuery["logs"]
     spanId: "",
     severityNumber: 9,
     severityText: "INFO",
-    body: "log body",
+    body: `${idPrefix}-${i}`,
     serviceName: "checkout",
     attributes: {},
     resource: {},
@@ -246,6 +246,8 @@ describe("LogList render window (bounded sliding)", () => {
     await waitFor(() =>
       expect(screen.getAllByRole("row")).toHaveLength(TEST_RENDER_WINDOW_MAX + 1),
     );
+    await waitFor(() => expect(screen.getByText("older-log-0")).toBeTruthy());
+    expect(screen.queryByText("q-log-0")).toBeNull();
   });
 
   it("adds detail fields as URL filters and deduplicates repeated clicks", async () => {
@@ -314,6 +316,7 @@ describe("LogList render window (bounded sliding)", () => {
 
   it("resets the render window to the head when the search changes", async () => {
     const store = getDefaultStore();
+    requestMock.mockImplementation(() => new Promise(() => {}));
     store.set(logsAtom, makeLogs(TEST_RENDER_WINDOW_MAX + SIGNAL_PAGE_SIZE + 50));
 
     render(<LogList />);
@@ -324,7 +327,6 @@ describe("LogList render window (bounded sliding)", () => {
 
     // Keep the response pending to verify the buffered rows while the new
     // search is in flight. Its eventual server response is tested separately.
-    requestMock.mockImplementationOnce(() => new Promise(() => {}));
     await act(async () => {
       await routing.router.navigate({ to: ".", search: { q: "frontend" } });
     });

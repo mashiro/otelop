@@ -266,4 +266,31 @@ describe("useLogListPage", () => {
     expect(requestMock.mock.calls[1]?.[1]?.to).toBeDefined();
     expect(requestMock.mock.calls[1]?.[1]?.search).toBe("");
   });
+  it("does not append an old page after the search scope changes", async () => {
+    requestMock.mockResolvedValueOnce({
+      logs: { items: [queryLog("initial")], hasNextPage: true, endCursor: "old-cursor" },
+    });
+    const { store, result, rerender } = renderWithStore("all");
+    await waitFor(() => expect(result.current.hasMore).toBe(true));
+    let resolveOld!: (data: LogsPageQuery) => void;
+    requestMock.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveOld = resolve;
+        }),
+    );
+    act(() => result.current.loadMore());
+    await waitFor(() => expect(result.current.loadingMore).toBe(true));
+    requestMock.mockResolvedValueOnce({
+      logs: { items: [queryLog("new-search")], hasNextPage: false, endCursor: null },
+    });
+    rerender({ range: "all", search: "new-search" });
+    await waitFor(() => expect(store.get(logsAtom).map((log) => log.id)).toEqual(["new-search"]));
+    await act(async () =>
+      resolveOld({
+        logs: { items: [queryLog("abandoned-page")], hasNextPage: false, endCursor: null },
+      }),
+    );
+    expect(store.get(logsAtom).map((log) => log.id)).toEqual(["new-search"]);
+  });
 });

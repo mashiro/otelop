@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useMemo } from "react";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { queryClient } from "@/lib/query-client";
 import { eventWindowBounds, eventWindowKey, type EventTimeWindow } from "@/lib/event-time-window";
@@ -109,7 +109,7 @@ export function useSignalListPage<T>({
     {
       queryKey: ["signal-pages", ...queryScope, requestKey, bounds],
       initialPageParam: { after: null as string | null, initial: true },
-      queryFn: async ({ pageParam }) => {
+      queryFn: async ({ pageParam, signal }) => {
         const beyondWindow =
           !pageParam.initial && loadOlderBeyondWindow && bounds.from !== undefined;
         const idsBeforeRequest = getCurrentIds();
@@ -128,10 +128,14 @@ export function useSignalListPage<T>({
           hasItemsBefore
             ? await hasItemsBefore(bounds.from).catch(() => true)
             : false;
+        // Consumers slide the render window when Query finishes. Publish the
+        // rows first, and ignore requests abandoned by a scope change/unmount.
+        if (!signal.aborted) {
+          if (pageParam.initial) replacePage({ items: page.items, idsBeforeRequest, window });
+          else onAppend(page.items);
+        }
         return {
           ...page,
-          initial: pageParam.initial,
-          idsBeforeRequest,
           hasMore: page.hasNextPage || hasOlder,
         };
       },
@@ -146,16 +150,6 @@ export function useSignalListPage<T>({
     },
     queryClient,
   );
-  const appliedPages = useRef(new WeakSet<object>());
-  useEffect(() => {
-    for (const page of query.data?.pages ?? []) {
-      if (appliedPages.current.has(page)) continue;
-      appliedPages.current.add(page);
-      if (page.initial)
-        replacePage({ items: page.items, idsBeforeRequest: page.idsBeforeRequest, window });
-      else onAppend(page.items);
-    }
-  }, [query.data, replacePage, onAppend, window]);
   const { fetchNextPage } = query;
   const loadMore = useCallback(() => {
     void fetchNextPage({ cancelRefetch: false });
