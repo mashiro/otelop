@@ -45,7 +45,8 @@ It's meant for the loop where you're writing instrumentation and just want to se
 
 Use **Add filter** to configure each condition with **Key / Operator / Value**.
 Standard keys include `trace_id`, `span_id`, `service_name`, `severity_text`,
-`severity_number`, and `body`. Attribute keys can be selected from loaded logs or entered as `attributes.key` / `resource.key`.
+`severity_number`, and `body`. Attribute keys can be selected from DB-backed suggestions within the selected time
+window or entered as `attributes.key` / `resource.key`.
 Operators include equality, exclusion, contains, wildcard matching, existence,
 and numeric comparisons. Conditions are combined with AND. Click a condition to
 edit it, pause it temporarily, or remove it. Text search and conditions, including paused conditions, are recorded in the

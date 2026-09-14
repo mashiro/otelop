@@ -93,11 +93,7 @@ export function LogList() {
       toolbar={
         <>
           <div className="flex w-full flex-wrap items-center gap-2">
-            <SearchFilter
-              atom={logTextSearchAtom}
-              placeholder="Search logs…"
-              className="min-w-40 flex-1"
-            />
+            <SearchFilter atom={logTextSearchAtom} placeholder="Search logs…" />
             <div className="ml-auto">
               <EventWindowControls tone="log" />
             </div>

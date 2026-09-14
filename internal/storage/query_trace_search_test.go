@@ -180,3 +180,72 @@ func sameSet(got, want []string) bool {
 	}
 	return true
 }
+
+func TestTracesPage_AttributeFilters(t *testing.T) {
+	s := openTestStorage(t, Options{})
+	ctx := context.Background()
+	base := time.Date(2026, 1, 1, 0, 0, 0, 123456789, time.UTC)
+	id := [16]byte{1}
+	td := buildTracesMulti(spanSpec{traceID: id, spanID: [8]byte{1}, name: "request", service: "api", start: base, end: base.Add(time.Millisecond)}, spanSpec{traceID: id, spanID: [8]byte{2}, parentID: [8]byte{1}, name: "query", service: "db", start: base, end: base.Add(2 * time.Millisecond)})
+	root := td.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0)
+	root.Attributes().PutStr("http.method", "GET")
+	root.Attributes().PutStr("arguments", `{"cmd":"git diff --check"}`)
+	root.Attributes().PutStr("literal/key~", "100%_value")
+	child := td.ResourceSpans().At(1).ScopeSpans().At(0).Spans().At(0)
+	child.Attributes().PutInt("http.status_code", 500)
+	child.Attributes().PutStr("numeric_string", "500")
+	child.Attributes().PutEmptyMap("object").PutStr("nested", "needle")
+
+	s.AddTraces(ctx, td)
+	s.Sync()
+	for _, tc := range []struct {
+		query string
+		want  bool
+	}{
+		{`trace_id:"01000000000000000000000000000000"`, true},
+		{`span_id:"0200000000000000"`, true},
+		{`parent_span_id:* name:"request"`, false},
+		{`-parent_span_id:* name:"request"`, true},
+		{`name:"query" duration_ms:>=2 resource.service.name:"db"`, true},
+		{`name:"request" duration_ms:>1`, false},
+		{`name:"request" duration_ms:"1"`, true},
+		{`name:"request" duration_ms:"1.0"`, true},
+		{`name:"request" duration_ms:1e0`, true},
+		{`name:"request" -duration_ms:"1"`, false},
+		{`name:"request" duration_ms:"2"`, false},
+		{`name:"request" duration_ms:"invalid"`, false},
+		{`attributes.http.status_code:>=500`, true},
+		{`attributes.numeric_string:>=500`, false},
+		{`attributes.http.method:"GET" attributes.http.status_code:500`, false},
+		{`name:"query" -attributes.http.method:*`, true},
+		{`name:"request" -attributes.http.method:*`, false},
+		{`attributes.object:*`, true},
+		{`attributes.missing:*`, false},
+		{`attributes.literal/key~:"100%_value"`, true},
+		{`attributes.literal/key~:"100X_value"`, false},
+		{`diff`, true}, {`needle`, true}, {`not-found`, false},
+	} {
+		t.Run(tc.query, func(t *testing.T) {
+			items, _, err := s.TracesPage(ctx, base, base.Add(time.Second), nil, 100, tc.query)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if (len(items) == 1) != tc.want {
+				t.Fatalf("got %d matches, want match=%v", len(items), tc.want)
+			}
+			ids, err := s.MatchingTraceIDs(ctx, []string{pcommon.TraceID(id).String(), "absent"}, base, base.Add(time.Second), tc.query)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(ids) != len(items) {
+				t.Fatalf("live matches %v disagree with page %v", ids, items)
+			}
+		})
+	}
+	for _, bounds := range [][2]time.Time{{base.Add(time.Nanosecond), base.Add(time.Second)}, {base.Add(-time.Second), base}} {
+		items, _, err := s.TracesPage(ctx, bounds[0], bounds[1], nil, 100, `attributes.http.method:"GET"`)
+		if err != nil || len(items) != 0 {
+			t.Fatalf("window excluded trace: items=%v err=%v", items, err)
+		}
+	}
+}

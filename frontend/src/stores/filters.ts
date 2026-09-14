@@ -1,7 +1,10 @@
+import { traceSearchAtom } from "./trace-query";
+import { metricSearchAtom } from "./navigation";
+import { createTraceSearchMatcher } from "@/lib/trace-search";
 import { logSearchAtom } from "./log-query";
 import { createLogSearchMatcher } from "@/lib/log-search";
 import { atom } from "jotai";
-import type { Atom, PrimitiveAtom } from "jotai";
+
 import { filterDataPointsInRange } from "@/lib/chart-time-range";
 import { parseEpochNs } from "@/lib/normalize";
 import { eventWindowBounds } from "@/lib/event-time-window";
@@ -18,44 +21,10 @@ import {
   logListWindowAtom,
 } from "./telemetry";
 import { metricKeyToString } from "./navigation";
-import type { TraceData, MetricData, LogData } from "@/types/telemetry";
+import type { MetricData, LogData } from "@/types/telemetry";
 
-// createServerBackedSearchAtom is a display filter for a list whose search is
-// primarily answered SERVER-side (issue #161's traces/logs lists, and
-// metrics' zero-hit-search fix below): any row whose id is in serverIdsAtom
-// was returned by the server FOR the currently active search, so it passes
-// unconditionally — the server matched fields the client can't re-check (a
-// paginated trace summary carries spans: [], so a non-root span-name/status
-// match is invisible here). The client-side predicate applies only to rows
-// outside that set, i.e. live WebSocket prepends (stores/telemetry.ts's
-// addTraceAtom/addLogAtom/addMetricAtom write to the buffer with no
-// awareness of the active search), keeping a non-matching live arrival from
-// flashing into a filtered list.
-function createServerBackedSearchAtom<T>(
-  sourceAtom: Atom<T[]>,
-  searchAtom: PrimitiveAtom<string>,
-  serverIdsAtom: Atom<ReadonlySet<string>>,
-  getId: (item: T) => string,
-  extractFields: (item: T) => string[],
-) {
-  return atom<T[]>((get) => {
-    const items = get(sourceAtom);
-    const search = get(searchAtom).trim();
-    if (!search) return items;
-    const q = search.toLowerCase();
-    const serverIds = get(serverIdsAtom);
-    return items.filter(
-      (item) =>
-        serverIds.has(getId(item)) || extractFields(item).some((f) => f.toLowerCase().includes(q)),
-    );
-  });
-}
-
-// traceSearchAtom/logSearchAtom drive the server-side search arg
-// (hooks/use-trace-list-page.ts, hooks/use-log-list-page.ts); the
-// createServerBackedSearchAtom wrappers below only re-apply the predicate to
-// live-prepended rows the server never saw.
-export const traceSearchAtom = atom("");
+export { traceSearchAtom } from "./trace-query";
+export { metricSearchAtom } from "./navigation";
 
 // The live-tail display filter (issue #160): tracesAtom already only holds
 // what was server-paginated within the selected range plus whatever the
@@ -76,7 +45,9 @@ function inEventWindow(epochNs: bigint, fromNs: bigint | undefined, toNs: bigint
 const rangeFilteredTracesAtom = atom((get) => {
   const window = get(traceListWindowAtom);
   const traces = get(tracesAtom);
-  const loadedOlderIds = get(loadedOlderTraceIdsAtom);
+  const loadedOlderIds = get(traceSearchAtom).trim()
+    ? new Set<string>()
+    : get(loadedOlderTraceIdsAtom);
   if (window.mode === "live") {
     if (window.range === "all") return traces;
     const inRangeIds = new Set(
@@ -96,25 +67,13 @@ const rangeFilteredTracesAtom = atom((get) => {
   );
 });
 
-// The client-side predicate (live WS rows only — see
-// createServerBackedSearchAtom) mirrors the server's TracesPage search
-// (query_trace.go): trace ID, any loaded span's name/status, service. Live
-// WebSocket rows are summary-only, so root/service fields are immediately
-// searchable; non-root span fields become searchable after lazy detail load.
-const searchedTracesAtom = createServerBackedSearchAtom(
-  tracesAtom,
-  traceSearchAtom,
-  serverMatchedTraceIdsAtom,
-  (t: TraceData) => t.traceId,
-  (t: TraceData) => [
-    t.traceId,
-    t.serviceName ?? "",
-    t.rootSpan?.name ?? "",
-    t.rootSpan?.statusCode ?? "Unset",
-    ...(t.searchValues ?? []),
-    ...t.spans.flatMap((s) => [s.name, s.statusCode]),
-  ],
-);
+const searchedTracesAtom = atom((get) => {
+  const matches = createTraceSearchMatcher(get(traceSearchAtom).trim());
+  const serverIds = get(serverMatchedTraceIdsAtom);
+  return get(rangeFilteredTracesAtom).filter(
+    (trace) => serverIds.has(trace.traceId) || matches(trace),
+  );
+});
 
 export const filteredTracesAtom = atom((get) =>
   get(traceSearchAtom).trim() ? get(searchedTracesAtom) : get(rangeFilteredTracesAtom),
@@ -153,8 +112,6 @@ export const filteredLogsAtom = atom<LogData[]>((get) =>
   get(logSearchAtom).trim() ? get(searchedLogsAtom) : get(rangeFilteredLogsAtom),
 );
 
-export const metricSearchAtom = atom("");
-
 export const filteredMetricsAtom = atom<MetricData[]>((get) => {
   const buffered = get(metricsAtom);
   const search = get(metricSearchAtom);
@@ -177,8 +134,7 @@ export const filteredMetricsAtom = atom<MetricData[]>((get) => {
   for (const metric of buffered) {
     const key = metricKeyToString(metric);
     if (included.has(key)) continue;
-    const fields = [metric.name, metric.serviceName ?? "", metric.type, metric.description ?? ""];
-    if (fields.some((field) => field.toLowerCase().includes(q))) matches.push(metric);
+    if (metric.name.toLowerCase().includes(q)) matches.push(metric);
   }
   return matches;
 });

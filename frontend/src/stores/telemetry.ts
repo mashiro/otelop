@@ -115,8 +115,11 @@ function newestTraceStartFirst(traces: TraceData[]): TraceData[] {
 // working array and re-sorting/slicing once, instead of once per item,
 // avoids an O(n log n) re-sort of the whole capped buffer per message during
 // a burst.
+export const liveTraceBatchAtom = atom<TraceData[]>([]);
+
 export const addTracesAtom = atom(null, (get, set, newTraces: TraceData[]) => {
   if (newTraces.length === 0) return;
+  set(liveTraceBatchAtom, newTraces);
   const current = get(tracesAtom);
   const maxTraces = get(bufferCapsAtom).traceCap;
   const indexById = new Map(current.map((t, i) => [t.traceId, i]));

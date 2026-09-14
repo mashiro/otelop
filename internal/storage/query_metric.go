@@ -132,10 +132,7 @@ WITH filtered AS (
 	JOIN resources r ON r.resource_hash = s.resource_hash
 	WHERE s.first_seen < ? AND s.last_seen >= ?
 	AND (
-		s.metric_name ILIKE ? ESCAPE '\' OR
-		s.service_name ILIKE ? ESCAPE '\' OR
-		s.metric_type ILIKE ? ESCAPE '\' OR
-		s.description ILIKE ? ESCAPE '\'
+		s.metric_name ILIKE ? ESCAPE '\'
 	)
 )
 SELECT
@@ -164,7 +161,7 @@ func (s *Storage) MetricsPage(ctx context.Context, from, to time.Time, after *Me
 }
 
 // MetricsPageSearch is MetricsPage with a case-insensitive substring search
-// over the fields rendered by the metrics list.
+// over metric names.
 func (s *Storage) MetricsPageSearch(ctx context.Context, from, to time.Time, after *MetricCursor, limit int, search string) (items []MetricSummary, hasNextPage bool, err error) {
 	ctx, span := startStorageSpan(ctx, "storage.MetricsPage", attribute.Int("db.limit", limit))
 	defer func() { endStorageSpan(span, err) }()
@@ -176,7 +173,7 @@ func (s *Storage) MetricsPageSearch(ctx context.Context, from, to time.Time, aft
 		queryLimit++
 	}
 	firstPage, cursorSeen, cursorService, cursorName := metricCursorArgs(after)
-	rows, err := s.DB().QueryContext(ctx, metricsPageQuery, to, from, pattern, pattern, pattern, pattern,
+	rows, err := s.DB().QueryContext(ctx, metricsPageQuery, to, from, pattern,
 		firstPage, cursorSeen, cursorSeen, cursorService, cursorSeen, cursorService, cursorName, queryLimit)
 	if err != nil {
 		return nil, false, fmt.Errorf("storage: query metrics page: %w", err)

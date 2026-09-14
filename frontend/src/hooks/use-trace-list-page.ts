@@ -1,3 +1,4 @@
+import { useLiveTraceSearch } from "./use-live-trace-search";
 import { useCallback } from "react";
 import { useSetAtom, useStore } from "jotai";
 import { graphql } from "@/gql";
@@ -69,12 +70,13 @@ function toTraceData({
 }
 
 // Fetches the traces tab page-by-page: browsing starts within `range`, then
-// Load more can continue into older retained history. Search spans all
-// retained history from page 1. Mount this once from
+// Load more can continue into older retained history. Search stays within
+// the selected time window. Mount this once from
 // components/traces/trace-list.tsx; base-ui's Tabs unmounts an inactive tab's
 // panel (see App.tsx), so switching tabs and back naturally resets pagination
 // the same way a range change does.
 export function useTraceListPage(window: EventTimeWindow, search: string): SignalListPage {
+  useLiveTraceSearch(window, search);
   const replaceTracePage = useSetAtom(replaceTracePageAtom);
   const appendTraces = useSetAtom(appendTracesAtom);
   const appendSearchResults = useSetAtom(appendTraceSearchResultsAtom);
@@ -121,7 +123,8 @@ export function useTraceListPage(window: EventTimeWindow, search: string): Signa
     getCurrentIds,
     replacePage,
     onAppend: appendPage,
-    loadOlderBeyondWindow: true,
+    loadOlderBeyondWindow: !search.trim(),
+    searchWithinWindow: true,
     hasItemsBefore: hasTracesBefore,
   });
 }

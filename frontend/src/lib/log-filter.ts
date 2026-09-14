@@ -1,5 +1,5 @@
 import {
-  isLogField,
+  logFields,
   logTermKey,
   logComparison,
   logNumberPattern,
@@ -47,12 +47,19 @@ export function filterDraft(term?: LogSearchTerm): LogFilterDraft {
   return { key, operator: term.negated ? "is_not" : "is", value: term.value };
 }
 
-export function filterDraftError(draft: LogFilterDraft): string | null {
-  if (!isLogField(draft.key.trim()) && !/^(attributes|resource)\.[^\s:"]+$/.test(draft.key.trim()))
-    return "Choose a log field, attributes.key, or resource.key.";
+export function filterDraftError(
+  draft: LogFilterDraft,
+  fields: readonly string[] = Object.keys(logFields),
+  numericFields: readonly string[] = ["severity_number"],
+): string | null {
   if (
-    isLogField(draft.key.trim()) &&
-    draft.key.trim() !== "severity_number" &&
+    !fields.includes(draft.key.trim()) &&
+    !/^(attributes|resource)\.[^\s:"]+$/.test(draft.key.trim())
+  )
+    return "Choose a field, attributes.key, or resource.key.";
+  if (
+    fields.includes(draft.key.trim()) &&
+    !numericFields.includes(draft.key.trim()) &&
     [">", ">=", "<", "<="].includes(draft.operator)
   )
     return "Numeric comparisons require a numeric field.";
@@ -69,14 +76,17 @@ export function filterDraftError(draft: LogFilterDraft): string | null {
   return null;
 }
 
-export function draftTerm(draft: LogFilterDraft): LogSearchTerm {
+export function draftTerm(
+  draft: LogFilterDraft,
+  fields: readonly string[] = Object.keys(logFields),
+): LogSearchTerm {
   const key = draft.key.trim();
   const operator = draft.operator;
   const exists = operator === "exists" || operator === "not_exists";
   const contains = operator === "contains" || operator === "not_contains";
   const numeric = [">", ">=", "<", "<="].includes(operator);
   return {
-    ...(isLogField(key) ? { field: key } : {}),
+    ...(fields.includes(key) ? { field: key } : {}),
     resource: key.startsWith("resource."),
     key: key.slice(key.indexOf(".") + 1),
     value: exists

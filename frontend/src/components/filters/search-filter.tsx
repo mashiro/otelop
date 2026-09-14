@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useAtom } from "jotai";
+import { useAtom, useStore } from "jotai";
 import { Search, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
@@ -15,6 +15,7 @@ export function SearchFilter({
   className?: string;
 }) {
   const [value, setValue] = useAtom(atom);
+  const store = useStore();
   const [lastSyncedValue, setLastSyncedValue] = useState(value);
   const [input, setInput] = useState(value);
 
@@ -37,6 +38,9 @@ export function SearchFilter({
     }
 
     setValue(input);
+    // A filter-only submission can leave the text atom unchanged. Read back
+    // its normalized value so the submitted expression does not linger.
+    setInput(store.get(atom));
   };
 
   const handleClear = () => {
@@ -45,7 +49,7 @@ export function SearchFilter({
   };
 
   return (
-    <div className={cn("relative w-72", className)}>
+    <div className={cn("relative min-w-40 flex-1", className)}>
       <Search className="absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground" />
       <Input
         placeholder={placeholder}

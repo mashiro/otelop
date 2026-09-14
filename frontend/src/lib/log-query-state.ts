@@ -7,13 +7,17 @@ export function newLogFilter(term: LogSearchTerm): LogFilter {
   return { ...term, id: crypto.randomUUID(), enabled: true };
 }
 
-export function readLogQuery(location: string): LogQueryState {
+export function readLogQuery(
+  location: string,
+  signal = "logs",
+  fields?: readonly string[],
+): LogQueryState {
   const url = new URL(location, "http://otelop.invalid");
-  if (url.pathname.split("/")[1] !== "logs") return { text: "", filters: [] };
+  if (url.pathname.split("/")[1] !== signal) return { text: "", filters: [] };
   const filters: LogFilter[] = [];
   for (const [key, value] of url.searchParams) {
     if (key !== "filter" && key !== "disabled_filter") continue;
-    const parsed = parseLogSearch(value);
+    const parsed = parseLogSearch(value, fields);
     if (parsed.plain || parsed.terms.length !== 1) continue;
     filters.push({ ...newLogFilter(parsed.terms[0]), enabled: key === "filter" });
   }

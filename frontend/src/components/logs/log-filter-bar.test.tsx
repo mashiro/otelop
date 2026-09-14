@@ -55,3 +55,22 @@ describe("Key / Operator / Value filters", () => {
     expect(store.get(logQueryStateAtom).filters).toEqual([]);
   });
 });
+
+it("replaces a standard field with an attribute without retaining its old field mapping", async () => {
+  const store = createStore();
+  store.set(logSearchAtom, 'trace_id:"abc"');
+  render(
+    <Provider store={store}>
+      <LogFilterBar />
+    </Provider>,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Edit filter trace_id" }));
+  const dialog = await screen.findByRole("dialog");
+  fireEvent.change(within(dialog).getByLabelText("Key"), {
+    target: { value: "attributes.http.method" },
+  });
+  fireEvent.change(within(dialog).getByLabelText("Value"), { target: { value: "GET" } });
+  fireEvent.click(within(dialog).getByRole("button", { name: "Apply changes" }));
+  expect(store.get(logSearchAtom)).toBe('attributes.http.method:"GET"');
+  expect(store.get(logQueryStateAtom).filters[0].field).toBeUndefined();
+});

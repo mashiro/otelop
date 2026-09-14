@@ -74,7 +74,9 @@ export function MetricList() {
   }
 
   return (
-    <ListPanel toolbar={<SearchFilter atom={metricSearchAtom} placeholder="Search metrics..." />}>
+    <ListPanel
+      toolbar={<SearchFilter atom={metricSearchAtom} placeholder="Search metric names…" />}
+    >
       {metrics.length === 0 ? (
         <EmptyMatches label="metrics" />
       ) : (

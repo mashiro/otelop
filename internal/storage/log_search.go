@@ -26,6 +26,10 @@ var logFieldColumns = map[string]string{
 // Only explicit namespaces introduce field filters, preserving colon-containing
 // free text (URLs, timestamps, etc.). Dots in OTel keys are literal.
 func parseLogSearch(search string) (string, []logSearchTerm) {
+	return parseSignalSearch(search, logFieldColumns)
+}
+
+func parseSignalSearch(search string, fields map[string]string) (string, []logSearchTerm) {
 	var tokens []string
 	start, quoted, escaped := 0, false, false
 	for i, c := range search {
@@ -60,7 +64,7 @@ func parseLogSearch(search string) (string, []logSearchTerm) {
 		negated := strings.HasPrefix(field, "-")
 		field = strings.TrimPrefix(field, "-")
 		resource := strings.HasPrefix(field, "resource.")
-		_, builtin := logFieldColumns[field]
+		_, builtin := fields[field]
 		if !ok || (!resource && !strings.HasPrefix(field, "attributes.") && !builtin) {
 			text = append(text, token)
 			continue
@@ -100,6 +104,8 @@ func parseLogSearch(search string) (string, []logSearchTerm) {
 	return strings.Join(plain, " "), terms
 }
 
+var logNumberPattern = regexp.MustCompile(`^-?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?$`)
+
 var logComparisonPattern = regexp.MustCompile(`^(>=|<=|>|<)(-?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)$`)
 
 func logSearchSQL(search string) (string, []any) {
@@ -119,10 +125,13 @@ func logSearchSQL(search string) (string, []any) {
 }
 
 func logAttributeSQL(term logSearchTerm) (string, []any) {
+	return signalAttributeSQL(term, "l.attributes", logFieldColumns, map[string]bool{"severity_number": true})
+}
+
+func signalAttributeSQL(term logSearchTerm, column string, fields map[string]string, numeric map[string]bool) (string, []any) {
 	if term.field != "" {
-		return logFieldSQL(term)
+		return signalFieldSQL(term, fields, numeric)
 	}
-	column := "l.attributes"
 	if term.resource {
 		column = "r.attributes"
 	}
@@ -147,11 +156,11 @@ func logAttributeSQL(term logSearchTerm) (string, []any) {
 }
 
 // Column names come exclusively from the allowlist, never from query text.
-func logFieldSQL(term logSearchTerm) (string, []any) {
-	column := logFieldColumns[term.field]
-	if term.field == "trace_id" || term.field == "span_id" {
+func signalFieldSQL(term logSearchTerm, fields map[string]string, numeric map[string]bool) (string, []any) {
+	column := fields[term.field]
+	if term.field == "trace_id" || term.field == "span_id" || term.field == "parent_span_id" {
 		zeros := strings.Repeat("0", 32)
-		if term.field == "span_id" {
+		if term.field == "span_id" || term.field == "parent_span_id" {
 			zeros = strings.Repeat("0", 16)
 		}
 		column = "NULLIF(NULLIF(" + column + ", ''), '" + zeros + "')"
@@ -163,11 +172,19 @@ func logFieldSQL(term logSearchTerm) (string, []any) {
 		if match := logComparisonPattern.FindStringSubmatch(term.value); match != nil {
 			value, err := strconv.ParseFloat(match[2], 64)
 			if err == nil && !math.IsInf(value, 0) && !math.IsNaN(value) {
-				if term.field != "severity_number" {
+				if !numeric[term.field] {
 					return "FALSE", nil
 				}
 				return column + " " + match[1] + " ?", []any{value}
 			}
+		}
+	}
+	// Numeric builtins must not depend on DuckDB's VARCHAR formatting (1.0
+	// versus the UI's 1). Wildcards retain their textual matching semantics.
+	if numeric[term.field] && logNumberPattern.MatchString(term.value) {
+		value, err := strconv.ParseFloat(term.value, 64)
+		if err == nil && !math.IsInf(value, 0) && !math.IsNaN(value) {
+			return column + " = ?", []any{value}
 		}
 	}
 	value := likeEscaper.Replace(term.value)

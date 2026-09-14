@@ -13,6 +13,7 @@ import {
   traceListWindowAtom,
   logListWindowAtom,
   metricSearchResultAtom,
+  serverMatchedTraceIdsAtom,
 } from "./telemetry";
 import { selectedLogRangeAtom, selectedTraceRangeAtom } from "./navigation";
 import {
@@ -26,6 +27,18 @@ import {
 import { makeSpan, makeTrace, makeLog, makeMetric } from "@/test/factories";
 
 describe("filteredTracesAtom", () => {
+  it("does not override a DB rejection with a missing root field", () => {
+    const store = createStore();
+    store.set(traceListWindowAtom, { mode: "live", range: "all" });
+    store.set(traceSearchAtom, '-name:"query"');
+    store.set(addTraceAtom, makeTrace({ traceId: "rootless", spans: [], rootSpan: undefined }));
+    expect(store.get(filteredTracesAtom)).toEqual([]);
+    store.set(serverMatchedTraceIdsAtom, new Set(["rootless"]));
+    expect(store.get(filteredTracesAtom)).toHaveLength(1);
+    store.set(serverMatchedTraceIdsAtom, new Set());
+    expect(store.get(filteredTracesAtom)).toEqual([]);
+  });
+
   it("returns all traces when no search is active and the range is 'all'", () => {
     const store = createStore();
     const traces = [makeTrace({ traceId: "a" }), makeTrace({ traceId: "b" })];
@@ -69,14 +82,18 @@ describe("filteredTracesAtom", () => {
     const store = createStore();
     store.set(tracesAtom, [
       makeTrace({ traceId: "a", serviceName: "frontend" }),
-      makeTrace({ traceId: "b", serviceName: "backend" }),
+      makeTrace({
+        traceId: "b",
+        serviceName: "backend",
+        spans: [makeSpan({ serviceName: "backend" })],
+      }),
     ]);
     store.set(traceSearchAtom, "front");
     expect(store.get(filteredTracesAtom)).toHaveLength(1);
     expect(store.get(filteredTracesAtom)[0].traceId).toBe("a");
   });
 
-  it("searches buffered traces outside the active time window", () => {
+  it("excludes buffered traces outside the active search window", () => {
     const store = createStore();
     store.set(tracesAtom, [
       makeTrace({
@@ -97,7 +114,7 @@ describe("filteredTracesAtom", () => {
     });
     store.set(traceSearchAtom, "checkout");
 
-    expect(store.get(filteredTracesAtom).map((trace) => trace.traceId)).toEqual(["old-match"]);
+    expect(store.get(filteredTracesAtom).map((trace) => trace.traceId)).toEqual([]);
   });
 
   it("filters by span name", () => {
@@ -472,14 +489,14 @@ describe("filteredMetricsAtom", () => {
     expect(store.get(filteredMetricsAtom)).toHaveLength(1);
   });
 
-  it("filters by type", () => {
+  it("does not search metric type", () => {
     const store = createStore();
     store.set(metricsAtom, [
       makeMetric({ name: "a", type: "Gauge" }),
       makeMetric({ name: "b", type: "Sum" }),
     ]);
     store.set(metricSearchAtom, "gauge");
-    expect(store.get(filteredMetricsAtom)).toHaveLength(1);
+    expect(store.get(filteredMetricsAtom)).toHaveLength(0);
   });
 
   it("shows a server result that is absent from the bounded live buffer", () => {

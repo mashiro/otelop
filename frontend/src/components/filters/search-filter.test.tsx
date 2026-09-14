@@ -1,3 +1,4 @@
+import { logTextSearchAtom, logQueryStateAtom } from "@/stores/log-query";
 import { describe, it, expect, afterEach } from "vite-plus/test";
 import { atom, createStore, Provider } from "jotai";
 import { render, screen, cleanup, fireEvent, act } from "@testing-library/react";
@@ -91,4 +92,19 @@ describe("SearchFilter", () => {
 
     expect(input.value).toBe("");
   });
+});
+
+it("moves a filter-only submission out of the text box exactly once", () => {
+  const store = createStore();
+  render(
+    <Provider store={store}>
+      <SearchFilter atom={logTextSearchAtom} placeholder="Filter test" />
+    </Provider>,
+  );
+  const input = screen.getByPlaceholderText("Filter test") as HTMLInputElement;
+  fireEvent.change(input, { target: { value: 'attributes.http.method:"GET"' } });
+  fireEvent.keyDown(input, { key: "Enter" });
+  expect(input.value).toBe("");
+  fireEvent.keyDown(input, { key: "Enter" });
+  expect(store.get(logQueryStateAtom).filters).toHaveLength(1);
 });
