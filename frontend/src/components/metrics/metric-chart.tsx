@@ -1,4 +1,6 @@
-import { memo, useCallback, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useId, useMemo, useRef, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { Group } from "@visx/group";
 import { scaleLinear, scaleTime } from "@visx/scale";
 import { LinePath } from "@visx/shape";
@@ -122,6 +124,7 @@ export const MetricChart = memo(function MetricChart({
           {({ width, height }) =>
             width > 0 && height > 0 ? (
               <ChartInner
+                key={JSON.stringify([metric.serviceName, metric.name, facet?.attributes ?? null])}
                 metric={metric}
                 facet={facet}
                 aggregatedSeries={aggregatedSeries}
@@ -155,6 +158,8 @@ function ChartInner({
   width: number;
   height: number;
 }) {
+  const [hiddenKeys, setHiddenKeys] = useState<Set<string>>(() => new Set());
+  const legendHintId = useId();
   const svgRef = useRef<SVGSVGElement>(null);
   const dragStartRef = useRef<number | null>(null);
   const [dragSelection, setDragSelection] = useState<{ startX: number; endX: number } | null>(null);
@@ -217,18 +222,21 @@ function ChartInner({
 
   const visibleSeries = useMemo(
     () =>
-      domain
-        ? series.map((s) => ({ ...s, points: filterPointsInDomain(s.points, domain) }))
-        : series,
-    [series, domain],
+      series
+        .filter((s) => !hiddenKeys.has(s.key))
+        .map((s) => ({
+          ...s,
+          points: domain ? filterPointsInDomain(s.points, domain) : s.points,
+        })),
+    [series, domain, hiddenKeys],
   );
 
   const visiblePoints = useMemo(() => visibleSeries.flatMap((s) => s.points), [visibleSeries]);
 
-  // The legend row takes 28px out of the measured height; the axis must be
+  // The legend and its controls take 52px out of the measured height; the axis must be
   // laid out against the shrunken svg or its tick labels get clipped below it.
-  const showLegend = series.length > 1;
-  const svgHeight = showLegend ? height - 28 : height;
+  const showLegend = series.length > 0;
+  const svgHeight = showLegend ? height - 52 : height;
 
   const innerWidth = width - MARGIN.left - MARGIN.right;
   const innerHeight = svgHeight - MARGIN.top - MARGIN.bottom;
@@ -407,7 +415,7 @@ function ChartInner({
 
           {/* Lines and static points */}
           {visibleSeries.map((s) => (
-            <g key={s.key}>
+            <g key={s.key} data-series={s.label}>
               {s.points.length >= 2 && (
                 <LinePath
                   data={s.points}
@@ -544,23 +552,70 @@ function ChartInner({
         </TooltipWithBounds>
       )}
 
-      {/* Legend */}
       {showLegend && (
-        <div className="flex flex-wrap gap-x-4 gap-y-1 px-2">
-          {series.map((s) => (
-            <div
-              key={s.key}
-              className="flex items-center gap-1.5 text-[10px] text-muted-foreground"
+        <div className="flex h-[52px] shrink-0 flex-col px-2" aria-label="Chart series">
+          <div className="flex h-7 shrink-0 items-center gap-3 overflow-x-auto">
+            {series.map((s) => (
+              <Button
+                key={s.key}
+                variant="ghost"
+                size="xs"
+                aria-label={`Select ${s.label}`}
+                aria-describedby={legendHintId}
+                aria-pressed={!hiddenKeys.has(s.key)}
+                title={s.label}
+                onClick={(event) => {
+                  hideTooltip();
+                  if (event.metaKey || event.ctrlKey) {
+                    setHiddenKeys((previous) => {
+                      const next = new Set(previous);
+                      if (next.has(s.key)) next.delete(s.key);
+                      else next.add(s.key);
+                      return next;
+                    });
+                  } else {
+                    setHiddenKeys(
+                      new Set(
+                        series.filter((other) => other.key !== s.key).map((other) => other.key),
+                      ),
+                    );
+                  }
+                }}
+              >
+                <span
+                  className="inline-block size-2 shrink-0 rounded-full border"
+                  style={{
+                    borderColor: s.color,
+                    backgroundColor: hiddenKeys.has(s.key) ? undefined : s.color,
+                  }}
+                />
+                <span
+                  className={cn(
+                    "max-w-[250px] truncate font-mono",
+                    hiddenKeys.has(s.key) && "text-muted-foreground line-through",
+                  )}
+                >
+                  {s.label}
+                </span>
+              </Button>
+            ))}
+          </div>
+          <div className="flex h-6 shrink-0 items-center gap-2">
+            <span id={legendHintId} className="text-[10px] text-muted-foreground">
+              Click to isolate · ⌘ / Ctrl + click to toggle
+            </span>
+            <Button
+              variant="ghost"
+              size="xs"
+              disabled={!series.some((s) => hiddenKeys.has(s.key))}
+              onClick={() => {
+                hideTooltip();
+                setHiddenKeys(new Set());
+              }}
             >
-              <span
-                className="inline-block h-2 w-2 shrink-0 rounded-full"
-                style={{ backgroundColor: s.color }}
-              />
-              <span className="max-w-[250px] truncate font-mono" title={s.label}>
-                {s.label}
-              </span>
-            </div>
-          ))}
+              Show all
+            </Button>
+          </div>
         </div>
       )}
     </div>
