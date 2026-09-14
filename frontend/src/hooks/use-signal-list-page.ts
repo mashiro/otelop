@@ -60,6 +60,7 @@ interface SignalListPageOptions<T> {
   loadOlderBeyondWindow?: boolean;
   hasItemsBefore?: (before: string) => Promise<boolean>;
   retainedHistory?: boolean;
+  searchWithinWindow?: boolean;
 }
 
 export interface ReplacementPage<T> {
@@ -93,26 +94,20 @@ export function useSignalListPage<T>({
   loadOlderBeyondWindow = false,
   hasItemsBefore,
   retainedHistory = false,
+  searchWithinWindow = false,
 }: SignalListPageOptions<T>): SignalListPage {
   const [state, setState] = useState({ hasMore: false, loadingMore: false });
   const sessionRef = useRef<PagingSession | null>(null);
   const windowKey = eventWindowKey(window);
   const normalizedSearch = search.trim();
-  // Search is a retained-history query mode, not a predicate applied inside
-  // the currently selected browsing window. Keeping one key for that mode
-  // also means an otherwise irrelevant range change cannot reset its cursor.
-  const requestKey = normalizedSearch
-    ? `search:${normalizedSearch}`
-    : retainedHistory
-      ? "retained"
-      : `browse:${windowKey}`;
+  const acrossHistory = retainedHistory || (Boolean(normalizedSearch) && !searchWithinWindow);
+  const requestKey = acrossHistory
+    ? `retained:${normalizedSearch}`
+    : `window:${windowKey}:search:${normalizedSearch}`;
 
   useEffect(() => {
     let ignore = false;
-    const bounds =
-      normalizedSearch || retainedHistory
-        ? { from: undefined, to: undefined }
-        : eventWindowBounds(window);
+    const bounds = acrossHistory ? { from: undefined, to: undefined } : eventWindowBounds(window);
     const session: PagingSession = {
       from: bounds.from,
       to: bounds.to,
@@ -160,7 +155,7 @@ export function useSignalListPage<T>({
     replacePage,
     loadOlderBeyondWindow,
     hasItemsBefore,
-    retainedHistory,
+    acrossHistory,
   ]);
 
   const loadMore = useCallback(() => {

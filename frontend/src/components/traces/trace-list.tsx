@@ -1,3 +1,5 @@
+import { TraceFilterBar } from "./trace-filter-bar";
+import { traceTextSearchAtom } from "@/stores/trace-query";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { useState } from "react";
 import {
@@ -100,17 +102,18 @@ export function TraceList() {
     );
   }
 
-  if (traceCount === 0 && allTraces.length === 0) {
+  if (traceCount === 0 && allTraces.length === 0 && !search) {
     return <EmptyState signal={SIGNALS.traces} />;
   }
 
   return (
     <ListPanel
+      toolbarSecondary={<TraceFilterBar />}
       toolbar={
         <>
-          <SearchFilter atom={traceSearchAtom} placeholder="Search traces…" />
+          <SearchFilter atom={traceTextSearchAtom} placeholder="Search traces…" />
           <div className="ml-auto">
-            <EventWindowControls tone="trace" allRetained={Boolean(search.trim())} />
+            <EventWindowControls tone="trace" />
           </div>
         </>
       }

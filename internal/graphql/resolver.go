@@ -156,6 +156,30 @@ func (s *StatusResolver) DBSizeBytes(ctx context.Context) (float64, error) {
 	return float64(stats.FileSizeBytes), nil
 }
 
+func (r *Resolver) MatchingTraceIds(ctx context.Context, args struct {
+	TraceIds []string
+	From     *gql.Time
+	To       *gql.Time
+	Search   string
+}) ([]string, error) {
+	if len(args.TraceIds) > 1000 {
+		return nil, fmt.Errorf("at most 1000 trace IDs per request")
+	}
+	from, to := r.resolveWindow(args.From, args.To)
+	return r.storage.MatchingTraceIDs(ctx, args.TraceIds, from, to, args.Search)
+}
+
+func (r *Resolver) FilterSuggestions(ctx context.Context, args struct {
+	Signal string
+	Key    *string
+	Input  string
+	From   *gql.Time
+	To     *gql.Time
+}) ([]string, error) {
+	from, to := r.resolveWindow(args.From, args.To)
+	return r.storage.FilterSuggestions(ctx, args.Signal, stringArg(args.Key), args.Input, from, to)
+}
+
 type TracesArgs struct {
 	Limit  int32
 	After  *string

@@ -36,14 +36,16 @@ const logSelectColumns = `
 `
 
 // searchPredicate (issue #161) is the case-insensitive substring match:
-// body, resource service name, severity text, or trace_id. An empty search's "%%" likePattern matches
+// body, resource service name, severity text, trace_id, or attribute/resource JSON. An empty search's "%%" likePattern matches
 // unconditionally, making this a no-op filter.
 const searchPredicate = `
 (
 	l.body ILIKE ? ESCAPE '\' OR
 	r.service_name ILIKE ? ESCAPE '\' OR
 	l.severity_text ILIKE ? ESCAPE '\' OR
-	l.trace_id ILIKE ? ESCAPE '\'
+	l.trace_id ILIKE ? ESCAPE '\' OR
+	l.attributes::VARCHAR ILIKE ? ESCAPE '\' OR
+	r.attributes::VARCHAR ILIKE ? ESCAPE '\'
 )
 `
 
@@ -52,29 +54,32 @@ SELECT ` + logSelectColumns + `
 FROM logs l
 JOIN resources r ON r.resource_hash = l.resource_hash
 WHERE l.ts >= ? AND l.ts < ?
-AND ` + searchPredicate + `
+AND %s
 AND (CAST(? AS BOOLEAN) OR l.ts < ? OR (l.ts = ? AND l.id < ?))
 ORDER BY l.ts DESC, l.id DESC
 LIMIT ?
 `
 
 // LogsPage returns a newest-first page of logs within [from, to) that, when
-// search is non-empty, also match it (see searchPredicate). It fetches one
+// search is non-empty, also match its text and attribute filters. It fetches one
 // extra row to report whether another page exists without counting all matches.
 func (s *Storage) LogsPage(ctx context.Context, from, to time.Time, after *LogCursor, limit int, search string) (items []LogDetail, hasNextPage bool, err error) {
 	ctx, span := startStorageSpan(ctx, "storage.LogsPage", attribute.Int("db.limit", limit))
 	defer func() { endStorageSpan(span, err) }()
 	started := time.Now()
 	defer func() { s.recordQuery(ctx, "query_logs", started, err) }()
-	pattern := likePattern(search)
+	predicate, searchArgs := logSearchSQL(search)
 
 	queryLimit := pageLimit(limit)
 	if limit > 0 {
 		queryLimit++
 	}
 	firstPage, cursorTS, cursorID := logCursorArgs(after)
-	rows, err := s.DB().QueryContext(ctx, logsPageQuery, from, to, pattern, pattern, pattern, pattern,
-		firstPage, cursorTS, cursorTS, cursorID, queryLimit)
+	// JSON expressions trigger parameter re-binding; keep timestamps explicitly
+	// nanosecond-typed instead of the driver default TIMESTAMPTZ.
+	args := append([]any{duckdb.Typed(from, duckdb.TYPE_TIMESTAMP_NS), duckdb.Typed(to, duckdb.TYPE_TIMESTAMP_NS)}, searchArgs...)
+	args = append(args, firstPage, duckdb.Typed(cursorTS, duckdb.TYPE_TIMESTAMP_NS), duckdb.Typed(cursorTS, duckdb.TYPE_TIMESTAMP_NS), cursorID, queryLimit)
+	rows, err := s.DB().QueryContext(ctx, fmt.Sprintf(logsPageQuery, predicate), args...)
 	if err != nil {
 		return nil, false, fmt.Errorf("storage: query logs page: %w", err)
 	}
@@ -96,7 +101,7 @@ SELECT ` + logSelectColumns + `
 FROM logs l
 JOIN resources r ON r.resource_hash = l.resource_hash
 WHERE l.trace_id = ?
-AND ` + searchPredicate + `
+AND %s
 AND (CAST(? AS BOOLEAN) OR l.ts < ? OR (l.ts = ? AND l.id < ?))
 ORDER BY l.ts DESC, l.id DESC
 LIMIT ?
@@ -116,10 +121,10 @@ func (s *Storage) LogsPageByTraceID(ctx context.Context, traceID string, after *
 		queryLimit++
 	}
 	firstPage, cursorTS, cursorID := logCursorArgs(after)
-	pattern := likePattern(search)
-	rows, err := s.DB().QueryContext(ctx, logsPageByTraceIDQuery, traceID,
-		pattern, pattern, pattern, pattern,
-		firstPage, cursorTS, cursorTS, cursorID, queryLimit)
+	predicate, searchArgs := logSearchSQL(search)
+	args := append([]any{traceID}, searchArgs...)
+	args = append(args, firstPage, duckdb.Typed(cursorTS, duckdb.TYPE_TIMESTAMP_NS), duckdb.Typed(cursorTS, duckdb.TYPE_TIMESTAMP_NS), cursorID, queryLimit)
+	rows, err := s.DB().QueryContext(ctx, fmt.Sprintf(logsPageByTraceIDQuery, predicate), args...)
 	if err != nil {
 		return nil, false, fmt.Errorf("storage: query logs by trace: %w", err)
 	}

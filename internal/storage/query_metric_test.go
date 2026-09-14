@@ -673,7 +673,7 @@ func TestMetricsPage_EmptyPageHasNoNextPage(t *testing.T) {
 	}
 }
 
-func TestMetricsPageSearch_FiltersRenderedFields(t *testing.T) {
+func TestMetricsPageSearch_FiltersNames(t *testing.T) {
 	s := openTestStorage(t, Options{})
 	ctx := context.Background()
 	now := time.Now()
@@ -682,11 +682,27 @@ func TestMetricsPageSearch_FiltersRenderedFields(t *testing.T) {
 	s.AddMetrics(ctx, buildCumulativeSum("queue.depth", "worker", 1, now))
 	s.Sync()
 
-	items, hasNextPage, err := s.MetricsPageSearch(ctx, now.Add(-time.Hour), now.Add(time.Hour), nil, 0, "FRONT")
+	items, hasNextPage, err := s.MetricsPageSearch(ctx, now.Add(-time.Hour), now.Add(time.Hour), nil, 0, "REQUEST")
 	if err != nil {
 		t.Fatalf("MetricsPageSearch: %v", err)
 	}
 	if hasNextPage || len(items) != 1 || items[0].MetricName != "http.requests" {
 		t.Fatalf("items=%+v hasNextPage=%v, want frontend/http.requests only", items, hasNextPage)
+	}
+}
+
+func TestMetricsPageSearch_DoesNotMatchMetadata(t *testing.T) {
+	s := openTestStorage(t, Options{})
+	ctx := context.Background()
+	now := time.Now()
+	md := buildCumulativeSum("http.requests", "frontend", 1, now)
+	md.ResourceMetrics().At(0).ScopeMetrics().At(0).Metrics().At(0).SetDescription("count traffic")
+	s.AddMetrics(ctx, md)
+	s.Sync()
+	for _, query := range []string{"frontend", "sum", "traffic"} {
+		items, _, err := s.MetricsPageSearch(ctx, now.Add(-time.Hour), now.Add(time.Hour), nil, 100, query)
+		if err != nil || len(items) != 0 {
+			t.Fatalf("%s: items=%v err=%v", query, items, err)
+		}
 	}
 }

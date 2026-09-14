@@ -7,6 +7,13 @@ schema {
 }
 
 type Query {
+  """Distinct filter keys, or scalar values for key, in the selected time window.
+  Input is a literal case-insensitive substring. Returns at most 1000 matching keys or
+  at most 20 sorted values, independent of list pagination and active search conditions.
+  signal must be logs or traces. Omit key to request field names.
+  """
+  filterSuggestions(signal: String!, key: String, input: String = "", from: Time, to: Time): [String!]!
+
   "Storage configuration and current logical signal counts."
   config: Config!
 
@@ -19,11 +26,13 @@ type Query {
   default to the full retention window (now - retention - 24h slack) .. (now + 24h slack).
   Traces that exceed 10,000 retained spans are dropped atomically and are
   therefore absent from this list.
-  search, if given, case-insensitively matches a trace whose trace ID, or any
-  span's name, status code, or resource service name, contains it (substring
-  match; % and _ are treated literally, not as wildcards). An empty/omitted
-  search matches every trace in range. Pagination fetches limit + 1 candidate
-  traces and exposes `hasNextPage` without counting every match.
+  Free text searches IDs, span name/status/message, service, and JSON attributes,
+  resources and events (case-insensitive substring; % and _ are literal).
+  Filters use the Logs grammar with attributes.KEY, resource.KEY, trace_id,
+  span_id, parent_span_id, service_name, name, kind, status_code, status_message,
+  and duration_ms. All conditions, including negation, apply to the same span;
+  any retained span may qualify. Duration comparisons use milliseconds.
+  The time window always applies to trace start time.
   """
   traces(limit: Int = 50, after: String, from: Time, to: Time, search: String): TraceConnection!
 
@@ -34,12 +43,14 @@ type Query {
   """
   trace(traceId: ID!): Trace
 
+  """Recheck up to 1000 live trace IDs using the same search and window as traces."""
+  matchingTraceIds(traceIds: [String!]!, from: Time, to: Time, search: String!): [String!]!
+
   """
   List metric groups by their most recently received point, newest-first.
   A metric group is in range when any of its series overlaps [from, to);
   both bounds default to the full retention window. search, if given,
-  case-insensitively matches metric name, service name, metric type, or
-  description (substring match; % and _ are treated literally, not as
+  case-insensitively matches metric name (substring match; % and _ are treated literally, not as
   wildcards). An empty/omitted search matches every metric group in range.
   """
   metrics(limit: Int = 50, after: String, from: Time, to: Time, search: String): MetricConnection!
@@ -50,9 +61,20 @@ type Query {
   and from/to are ignored (matching the trace's own retained lifetime).
   Otherwise from/to bound the query to a time range, defaulting to the full
   retention window. In either mode search, if given, case-insensitively
-  matches a log whose body, resource service name, severity text, or trace ID
+  matches a log whose body, resource service name, severity text, trace ID,
+  attribute JSON, or resource JSON
   contains it (substring match; % and _ are treated literally, not as
-  wildcards). An empty/omitted search matches every selected log.
+  wildcards). Attribute filters use attributes.key:value or resource.key:value.
+  Standard field filters also accept trace_id, span_id, service_name,
+  severity_text, severity_number, and body. Zero trace/span IDs are absent.
+  Keys are case-sensitive and dots are literal. Scalar values match fully,
+  case-insensitively; unquoted * matches any sequence, and key:* tests for a
+  non-null attribute. Double-quoted JSON strings match literally. Space-separated
+  filters (optionally joined by AND) must all match; remaining free text keeps
+  substring matching. A leading - negates a filter (missing keys also match).
+  Unquoted >, >=, <, <= followed by a finite number compare numeric attributes.
+  A ~ prefix on a quoted value enables wildcard matching inside that string.
+  An empty/omitted search matches every selected log.
   """
   logs(limit: Int = 50, after: String, traceId: String, from: Time, to: Time, search: String): LogConnection!
 

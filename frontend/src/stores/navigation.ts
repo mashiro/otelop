@@ -1,4 +1,6 @@
-import { atom } from "jotai";
+import { traceFields } from "@/lib/trace-search";
+import { atom, type SetStateAction } from "jotai";
+import { readLogQuery, writeLogQuery, type LogQueryState } from "@/lib/log-query-state";
 import type { Getter, PrimitiveAtom } from "jotai";
 import { useSetAtom } from "jotai";
 import { useEffect } from "react";
@@ -126,6 +128,18 @@ function eventWindowFromLocation(location: string, fallbackRange: ChartTimeRange
 }
 
 const currentTabAtom = atom<TabValue>(initialLocation.tab);
+const logQueryBaseAtom = atom<LogQueryState>(
+  readLogQuery(window.location.pathname + window.location.search),
+);
+
+const traceQueryBaseAtom = atom<LogQueryState>(
+  readLogQuery(window.location.pathname + window.location.search, "traces", traceFields),
+);
+const metricSearchBaseAtom = atom(
+  initialLocation.tab === "metrics"
+    ? (new URLSearchParams(window.location.search).get("q") ?? "")
+    : "",
+);
 
 const selectedTraceIdBaseAtom = atom<string | null>(initialLocation.traceId);
 const selectedMetricKeyBaseAtom = atom<MetricKey | null>(initialLocation.metricKey);
@@ -175,10 +189,30 @@ function syncLocation(get: Getter): void {
     url.searchParams.set("to", eventWindow.to);
     path = url.pathname + url.search;
   }
+  if (tab === "logs" || tab === "traces" || tab === "metrics") {
+    const url = new URL(path, "http://otelop.invalid");
+    if (tab === "metrics") {
+      if (get(metricSearchBaseAtom)) url.searchParams.set("q", get(metricSearchBaseAtom));
+    } else writeLogQuery(url, get(tab === "logs" ? logQueryBaseAtom : traceQueryBaseAtom));
+    path = url.pathname + url.search;
+  }
   if (window.location.pathname + window.location.search !== path) {
     window.history.pushState(null, "", path);
   }
 }
+
+function createQueryAtom<T>(base: PrimitiveAtom<T>) {
+  return atom(
+    (get) => get(base),
+    (get, set, update: SetStateAction<T>) => {
+      set(base, typeof update === "function" ? (update as (value: T) => T)(get(base)) : update);
+      syncLocation(get);
+    },
+  );
+}
+export const logQueryStateAtom = createQueryAtom(logQueryBaseAtom);
+export const traceQueryStateAtom = createQueryAtom(traceQueryBaseAtom);
+export const metricSearchAtom = createQueryAtom(metricSearchBaseAtom);
 
 // createSyncedAtom is the shared "if equal return; set base; syncLocation"
 // write-through wrapper every public selection/range/tab atom below needs, so
@@ -283,16 +317,22 @@ export const applyLocationAtom = atom(null, (_get, set, location: string) => {
   set(currentTabAtom, parsed.tab);
   if (parsed.tab === "traces") {
     set(selectedTraceIdBaseAtom, parsed.traceId);
+    set(traceQueryBaseAtom, readLogQuery(location, "traces", traceFields));
     set(selectedEventRangeBaseAtom, parsed.traceRange);
     set(eventTimeWindowBaseAtom, eventWindowFromLocation(location, parsed.traceRange));
   }
   if (parsed.tab === "metrics") {
     set(selectedMetricKeyBaseAtom, parsed.metricKey);
+    set(
+      metricSearchBaseAtom,
+      new URL(location, "http://otelop.invalid").searchParams.get("q") ?? "",
+    );
     set(selectedMetricRangeBaseAtom, parsed.metricRange);
     set(metricTimeWindowBaseAtom, eventWindowFromLocation(location, parsed.metricRange));
   }
   if (parsed.tab === "logs") {
     set(selectedLogIdBaseAtom, parsed.logId);
+    set(logQueryBaseAtom, readLogQuery(location));
     set(selectedEventRangeBaseAtom, parsed.logRange);
     set(eventTimeWindowBaseAtom, eventWindowFromLocation(location, parsed.logRange));
   }

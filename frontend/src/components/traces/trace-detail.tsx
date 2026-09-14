@@ -1,3 +1,7 @@
+import { addTraceFilterAtom } from "@/stores/trace-query";
+import { draftTerm } from "@/lib/log-filter";
+import { traceFields } from "@/lib/trace-search";
+import { AddFilterButton } from "@/components/filters/add-filter-button";
 import { useAtomValue, useSetAtom } from "jotai";
 import { X, FileText, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -79,6 +83,25 @@ export function TraceDetail() {
 }
 
 function SpanDetail({ span, onClose }: { span: SpanData; onClose: () => void }) {
+  const addFilter = useSetAtom(addTraceFilterAtom);
+  const filterBy = (key: string, value: unknown) =>
+    addFilter(
+      draftTerm(
+        {
+          key,
+          operator: value == null ? "not_exists" : typeof value === "object" ? "exists" : "is",
+          value:
+            typeof value === "string" || typeof value === "number" || typeof value === "boolean"
+              ? String(value)
+              : "",
+        },
+        traceFields,
+      ),
+    );
+  const action = (key: string, value: unknown) => (
+    <AddFilterButton label={`Filter by ${key}`} onClick={() => filterBy(key, value)} />
+  );
+
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center justify-between border-b border-border/50 px-4 py-2">
@@ -95,17 +118,57 @@ function SpanDetail({ span, onClose }: { span: SpanData; onClose: () => void }) 
       <ScrollArea className="min-h-0 flex-1">
         <div className="animate-slide-up-fade space-y-5 p-4">
           <div className="space-y-2.5">
-            <Field label="Name" value={span.name} />
-            <Field label="Service" value={span.serviceName} />
-            <Field label="Span ID" value={span.spanId} mono />
-            <Field label="Parent" value={span.parentSpanId || "(root)"} mono />
-            <Field label="Kind" value={span.kind} />
-            <Field label="Status" value={span.statusCode} />
-            {span.statusMessage && <Field label="Message" value={span.statusMessage} />}
-            <Field label="Duration" value={formatDuration(span.duration)} mono tone="trace" />
+            <Field action={action("name", span.name)} label="Name" value={span.name} />
+            <Field
+              action={action("service_name", span.serviceName)}
+              label="Service"
+              value={span.serviceName}
+            />
+            <Field
+              label="Trace ID"
+              value={span.traceId}
+              mono
+              action={action("trace_id", span.traceId)}
+            />
+            <Field
+              action={action("span_id", span.spanId)}
+              label="Span ID"
+              value={span.spanId}
+              mono
+            />
+            <Field
+              action={action("parent_span_id", span.parentSpanId || undefined)}
+              label="Parent"
+              value={span.parentSpanId || "(root)"}
+              mono
+            />
+            <Field action={action("kind", span.kind)} label="Kind" value={span.kind} />
+            <Field
+              action={action("status_code", span.statusCode)}
+              label="Status"
+              value={span.statusCode}
+            />
+            {span.statusMessage && (
+              <Field
+                action={action("status_message", span.statusMessage)}
+                label="Message"
+                value={span.statusMessage}
+              />
+            )}
+            <Field
+              action={action("duration_ms", span.duration / 1e6)}
+              label="Duration"
+              value={formatDuration(span.duration)}
+              mono
+              tone="trace"
+            />
           </div>
 
-          <KVSection title="Attributes" data={span.attributes} />
+          <KVSection
+            title="Attributes"
+            data={span.attributes}
+            onFilter={(key, value) => filterBy(`attributes.${key}`, value)}
+          />
 
           {span.events.length > 0 && (
             <Section title="Events">
@@ -117,7 +180,11 @@ function SpanDetail({ span, onClose }: { span: SpanData; onClose: () => void }) 
             </Section>
           )}
 
-          <KVSection title="Resource" data={span.resource} />
+          <KVSection
+            title="Resource"
+            data={span.resource}
+            onFilter={(key, value) => filterBy(`resource.${key}`, value)}
+          />
         </div>
       </ScrollArea>
     </div>

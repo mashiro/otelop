@@ -11,6 +11,8 @@ import {
   logListWindowAtom,
 } from "@/stores/telemetry";
 import { logSearchAtom } from "@/stores/filters";
+import { logQueryStateAtom } from "@/stores/log-query";
+import { applyLocationAtom } from "@/stores/navigation";
 import { makeLog, TEST_RENDER_WINDOW_MAX } from "@/test/factories";
 import { SIGNAL_PAGE_SIZE } from "@/hooks/use-signal-list-page";
 import type { LogsPageQuery, LogsPageQueryVariables } from "@/gql/graphql";
@@ -247,6 +249,57 @@ describe("LogList render window (bounded sliding)", () => {
     await waitFor(() =>
       expect(screen.getAllByRole("row")).toHaveLength(TEST_RENDER_WINDOW_MAX + 1),
     );
+  });
+
+  it("adds detail fields as URL filters and deduplicates repeated clicks", () => {
+    const store = getDefaultStore();
+    const log = makeLog({
+      id: "details",
+      traceId: "01000000000000000000000000000000",
+      spanId: "0200000000000000",
+      severityNumber: 17,
+      body: "request failed",
+      attributes: { arguments: '{"cmd":"git diff --check"}' },
+      resource: { "service.name": "api" },
+    });
+    requestMock.mockResolvedValue({ logs: { items: [log], hasNextPage: false, endCursor: null } });
+    store.set(applyLocationAtom, "/logs");
+    store.set(logsAtom, [log]);
+    store.set(selectedLogAtom, log);
+    render(<LogList />);
+    for (const key of [
+      "trace_id",
+      "span_id",
+      "service_name",
+      "severity_number",
+      "body",
+      "attributes.arguments",
+      "resource.service.name",
+    ]) {
+      act(() => screen.getByRole("button", { name: `Filter by ${key}` }).click());
+    }
+    expect(store.get(logQueryStateAtom).filters).toHaveLength(7);
+    expect(new URL(window.location.href).searchParams.getAll("filter")).toHaveLength(7);
+    expect(store.get(logSearchAtom)).toContain('attributes.arguments:"{');
+    act(() => screen.getByRole("button", { name: "Filter by trace_id" }).click());
+    expect(store.get(logQueryStateAtom).filters).toHaveLength(7);
+    act(() =>
+      store.set(logQueryStateAtom, (state) => ({
+        ...state,
+        filters: state.filters.map((f) => ({ ...f, enabled: false })),
+      })),
+    );
+    act(() => screen.getByRole("button", { name: "Filter by trace_id" }).click());
+    expect(store.get(logQueryStateAtom).filters.filter((f) => f.enabled)).toHaveLength(1);
+  });
+
+  it("keeps the time range controls available during text and attribute search", () => {
+    const store = getDefaultStore();
+    store.set(logsAtom, makeLogs(1));
+    store.set(logSearchAtom, "frontend attributes.http.method:GET");
+    render(<LogList />);
+    expect(screen.getByRole("combobox", { name: "Time range" })).toBeTruthy();
+    expect(screen.queryByText("All retained data")).toBeNull();
   });
 
   it("resets the render window to the head when the search changes", () => {

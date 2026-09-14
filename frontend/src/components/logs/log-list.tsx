@@ -1,10 +1,13 @@
+import { addLogFilterAtom, logTextSearchAtom } from "@/stores/log-query";
+import { draftTerm } from "@/lib/log-filter";
+import { AddFilterButton } from "@/components/filters/add-filter-button";
+import { LogFilterBar } from "./log-filter-bar";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { useState } from "react";
 import { X } from "lucide-react";
 import {
   logsAtom,
   logCountAtom,
-  logTraceFilterAtom,
   navigateToTraceAtom,
   selectedLogAtom,
   renderWindowMaxAtom,
@@ -44,14 +47,12 @@ export function LogList() {
   const allLogs = useAtomValue(logsAtom);
   const logCount = useAtomValue(logCountAtom);
   const logs = useAtomValue(filteredLogsAtom);
-  const traceFilter = useAtomValue(logTraceFilterAtom);
-  const setTraceFilter = useSetAtom(logTraceFilterAtom);
   const navigateToTrace = useSetAtom(navigateToTraceAtom);
   const selectedLog = useAtomValue(selectedLogAtom);
   const setSelectedLog = useSetAtom(selectedLogAtom);
   const [window, setWindow] = useAtom(eventTimeWindowAtom);
   const [search, setSearch] = useAtom(logSearchAtom);
-  const page = useLogListPage(window, search, traceFilter);
+  const page = useLogListPage(window, search);
   const renderWindowMax = useAtomValue(renderWindowMaxAtom);
   const renderWindow = useRenderWindow({
     items: logs,
@@ -88,23 +89,14 @@ export function LogList() {
 
   return (
     <ListPanel
+      toolbarSecondary={<LogFilterBar />}
       toolbar={
         <>
-          {traceFilter && (
-            <div className="flex items-center gap-1 rounded bg-trace/10 px-2 py-0.5 text-[11px] text-trace">
-              <span className="font-mono">{traceFilter.slice(0, 12)}...</span>
-              <button
-                type="button"
-                onClick={() => setTraceFilter(null)}
-                className="text-trace hover:text-foreground"
-              >
-                <X className="h-2.5 w-2.5" />
-              </button>
+          <div className="flex w-full flex-wrap items-center gap-2">
+            <SearchFilter atom={logTextSearchAtom} placeholder="Search logs…" />
+            <div className="ml-auto">
+              <EventWindowControls tone="log" />
             </div>
-          )}
-          <SearchFilter atom={logSearchAtom} placeholder="Search logs…" />
-          <div className="ml-auto">
-            <EventWindowControls tone="log" allRetained={Boolean(search.trim() || traceFilter)} />
           </div>
         </>
       }
@@ -232,6 +224,25 @@ function LogDetail({
   onNavigateToTrace: (id: string) => void;
   onShowContext: () => void;
 }) {
+  const addFilter = useSetAtom(addLogFilterAtom);
+  const filterBy = (key: string, value: unknown) => {
+    const complex = typeof value === "object" && value !== null;
+    addFilter(
+      draftTerm({
+        key,
+        operator: value == null ? "not_exists" : complex ? "exists" : "is",
+        value:
+          typeof value === "string"
+            ? value
+            : typeof value === "number" || typeof value === "boolean"
+              ? String(value)
+              : "",
+      }),
+    );
+  };
+  const filterAction = (key: string, value: unknown) => (
+    <AddFilterButton label={`Filter by ${key}`} onClick={() => filterBy(key, value)} />
+  );
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center justify-between border-b border-border/50 px-4 py-2">
@@ -257,16 +268,22 @@ function LogDetail({
             <Field label="Timestamp" value={formatTimestamp(log.timestamp)} mono />
             <Field
               label="Severity"
+              action={filterAction("severity_number", log.severityNumber)}
               value={
                 <Pill tone={severityTone(log.severityText)} dot>
                   {log.severityText || "UNSET"}
                 </Pill>
               }
             />
-            <Field label="Service" value={log.serviceName || "-"} />
+            <Field
+              label="Service"
+              value={log.serviceName || "-"}
+              action={filterAction("service_name", log.serviceName)}
+            />
             {!isZeroId(log.traceId) && (
               <Field
                 label="Trace ID"
+                action={filterAction("trace_id", log.traceId)}
                 mono
                 value={
                   <button
@@ -278,18 +295,33 @@ function LogDetail({
                 }
               />
             )}
-            {!isZeroId(log.spanId) && <Field label="Span ID" value={log.spanId} mono />}
+            {!isZeroId(log.spanId) && (
+              <Field
+                label="Span ID"
+                value={log.spanId}
+                mono
+                action={filterAction("span_id", log.spanId)}
+              />
+            )}
           </div>
 
-          <Section title="Body">
+          <Section title="Body" action={filterAction("body", log.body)}>
             <div className="whitespace-pre-wrap break-all font-mono text-xs text-foreground/80">
               {log.body}
             </div>
           </Section>
 
-          <KVSection title="Attributes" data={log.attributes} />
+          <KVSection
+            title="Attributes"
+            data={log.attributes}
+            onFilter={(key, value) => filterBy(`attributes.${key}`, value)}
+          />
 
-          <KVSection title="Resource" data={log.resource} />
+          <KVSection
+            title="Resource"
+            data={log.resource}
+            onFilter={(key, value) => filterBy(`resource.${key}`, value)}
+          />
         </div>
       </ScrollArea>
     </div>

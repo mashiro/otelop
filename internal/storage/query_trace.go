@@ -85,7 +85,12 @@ const traceSearchPredicate = `
 	s.trace_id ILIKE ? ESCAPE '\' OR
 	s.name ILIKE ? ESCAPE '\' OR
 	s.status_code ILIKE ? ESCAPE '\' OR
-	r.service_name ILIKE ? ESCAPE '\'
+	r.service_name ILIKE ? ESCAPE '\' OR
+	s.span_id ILIKE ? ESCAPE '\' OR
+	s.status_message ILIKE ? ESCAPE '\' OR
+	s.attributes::VARCHAR ILIKE ? ESCAPE '\' OR
+	r.attributes::VARCHAR ILIKE ? ESCAPE '\' OR
+	s.events::VARCHAR ILIKE ? ESCAPE '\'
 )
 `
 
@@ -126,7 +131,7 @@ WITH matching_ids AS (
 			SELECT 1
 			FROM spans s
 			JOIN resources r ON r.resource_hash = s.resource_hash
-			WHERE s.trace_id = t.trace_id AND ` + traceSearchPredicate + `
+			WHERE s.trace_id = t.trace_id AND %s
 	  )
 ),
 page_ids AS (
@@ -148,7 +153,6 @@ func (s *Storage) TracesPage(ctx context.Context, from, to time.Time, after *Tra
 	defer func() { endStorageSpan(span, err) }()
 	started := time.Now()
 	defer func() { s.recordQuery(ctx, "query_traces", started, err) }()
-	pattern := likePattern(search)
 
 	queryLimit := pageLimit(limit)
 	if limit > 0 {
@@ -156,11 +160,15 @@ func (s *Storage) TracesPage(ctx context.Context, from, to time.Time, after *Tra
 	}
 	firstPage, cursorStart, cursorSeen, cursorID := traceCursorArgs(after)
 	query := tracesPageNoSearchQuery
-	args := []any{from, to, firstPage, cursorStart, cursorStart, cursorSeen, cursorStart, cursorSeen, cursorID, queryLimit}
+	fromArg, toArg := duckdb.Typed(from, duckdb.TYPE_TIMESTAMP_NS), duckdb.Typed(to, duckdb.TYPE_TIMESTAMP_NS)
+	startArg, seenArg := duckdb.Typed(cursorStart, duckdb.TYPE_TIMESTAMP_NS), duckdb.Typed(cursorSeen, duckdb.TYPE_TIMESTAMP_NS)
+	cursorArgs := []any{firstPage, startArg, startArg, seenArg, startArg, seenArg, cursorID, queryLimit}
+	args := append([]any{fromArg, toArg}, cursorArgs...)
 	if search != "" {
-		query = tracesPageSearchQuery
-		args = []any{from, to, pattern, pattern, pattern, pattern,
-			firstPage, cursorStart, cursorStart, cursorSeen, cursorStart, cursorSeen, cursorID, queryLimit}
+		predicate, values := traceSearchSQL(search)
+		query = fmt.Sprintf(tracesPageSearchQuery, predicate)
+		args = append([]any{fromArg, toArg}, values...)
+		args = append(args, cursorArgs...)
 	}
 	rows, err := s.DB().QueryContext(ctx, query, args...)
 	if err != nil {

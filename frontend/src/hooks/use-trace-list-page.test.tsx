@@ -279,20 +279,19 @@ describe("useTraceListPage", () => {
 
     await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(1));
     expect(requestMock.mock.calls[0]?.[1]?.search).toBe("checkout");
-    expect(requestMock.mock.calls[0]?.[1]?.from).toBeUndefined();
-    expect(requestMock.mock.calls[0]?.[1]?.to).toBeUndefined();
+    expect(requestMock.mock.calls[0]?.[1]?.from).toBeDefined();
+    expect(requestMock.mock.calls[0]?.[1]?.to).toBeDefined();
   });
 
-  it("does not restart an active retained-history search when the browsing range changes", async () => {
+  it("refetches search inside the new time window when the range changes", async () => {
     requestMock.mockResolvedValue({ traces: { items: [], hasNextPage: false, endCursor: null } });
 
     const { rerender } = renderWithStore("1m", "checkout");
     await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(1));
 
     rerender({ range: "24h", search: "checkout" });
-    await act(async () => Promise.resolve());
-
-    expect(requestMock).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(2));
+    expect(requestMock.mock.calls[1]?.[1]?.from).not.toBe(requestMock.mock.calls[0]?.[1]?.from);
   });
 
   it("resets pagination and refetches page 1 on a search change, keeping the previous page visible while in flight", async () => {
@@ -334,8 +333,8 @@ describe("useTraceListPage", () => {
 
     await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(2));
     expect(requestMock.mock.calls[1]?.[1]?.search).toBe("checkout");
-    expect(requestMock.mock.calls[1]?.[1]?.from).toBeUndefined();
-    expect(requestMock.mock.calls[1]?.[1]?.to).toBeUndefined();
+    expect(requestMock.mock.calls[1]?.[1]?.from).toBe(requestMock.mock.calls[0]?.[1]?.from);
+    expect(requestMock.mock.calls[1]?.[1]?.to).toBe(requestMock.mock.calls[0]?.[1]?.to);
   });
 
   it("returns to the current browsing window when search is cleared", async () => {

@@ -128,3 +128,227 @@ func TestLogsPage_SearchComposesWithRangeAndPagination(t *testing.T) {
 		t.Fatalf("page2: hasNextPage=%v len=%d, want false/1", hasNextPage, len(page2))
 	}
 }
+
+func TestLogsPage_AttributeSearch(t *testing.T) {
+	s := openTestStorage(t, Options{})
+	ctx := context.Background()
+	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	trace := [16]byte{0xAB}
+	for i, service := range []string{"api", "worker", "api"} {
+		ld := buildLogWithSeverity(trace, "request failed", service, "ERROR", t0.Add(time.Duration(i)*time.Second))
+		attrs := ld.ResourceLogs().At(0).ScopeLogs().At(0).LogRecords().At(0).Attributes()
+		attrs.PutStr("http.method", "GET")
+		attrs.PutInt("http.status_code", 500)
+		attrs.PutBool("retry", false)
+		attrs.PutStr("user.name", "Alice Smith")
+		attrs.PutStr("literal", "100%_done*")
+		attrs.PutStr("path/~key", "ok")
+		attrs.PutStr("quote'key", "safe")
+		attrs.PutStr("multiline", "one\ntwo")
+		attrs.PutEmpty("otel.empty")
+		attrs.PutStr("empty", "")
+		attrs.PutStr("escaped", "say \"hello\" \\ goodbye")
+		s.AddLogs(ctx, ld)
+	}
+	s.AddLogs(ctx, buildLogWithSeverity([16]byte{}, "unrelated", "api", "INFO", t0))
+	s.Sync()
+	cases := []struct {
+		query string
+		count int
+	}{
+		{"attributes.http.method:GET", 3},
+		{"attributes.http.status_code:>499", 3},
+		{"attributes.http.status_code:>=500", 3},
+		{"attributes.http.status_code:<500", 0},
+		{"attributes.http.status_code:<=500", 3},
+		{"attributes.http.method:>0", 0},
+		{`attributes.user.name:~"*Alice Sm*"`, 3},
+		{"attributes.http.method:get", 3},
+		{"attributes.http.method:GE", 0},
+		{"attributes.HTTP.method:GET", 0},
+		{"attributes.http.method:G*", 3},
+		{"attributes.http.method:*", 3},
+		{"attributes.missing:*", 0},
+		{"attributes.otel.empty:*", 3},
+		{"attributes.empty:*", 3},
+		{`attributes.empty:""`, 3},
+		{"attributes.http.status_code:500 attributes.retry:false", 3},
+		{"attributes.http.method:GET AND resource.service.name:api", 2},
+		{"failed attributes.http.method:GET resource.service.name:api", 2},
+		{"unrelated attributes.http.method:GET", 0},
+		{`attributes.user.name:"Alice Smith"`, 3},
+		{`attributes.literal:"100%_done*"`, 3},
+		{`attributes.literal:"100%_done"`, 0},
+		{`attributes.escaped:"say \"hello\" \\ goodbye"`, 3},
+		{"attributes.path/~key:ok", 3},
+		{"attributes.quote'key:safe", 3},
+		{`attributes.http.method:"' OR 1=1 --"`, 0},
+		{"attributes.multiline:o*two", 3},
+		{`attributes.http.method:"GET`, 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.query, func(t *testing.T) {
+			rows, _, err := s.LogsPage(ctx, t0.Add(-time.Second), t0.Add(time.Minute), nil, 0, tc.query)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(rows) != tc.count {
+				t.Fatalf("got %d logs, want %d", len(rows), tc.count)
+			}
+			rows, _, err = s.LogsPageByTraceID(ctx, pcommon.TraceID(trace).String(), nil, 0, tc.query)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(rows) != tc.count {
+				t.Fatalf("trace search got %d logs, want %d", len(rows), tc.count)
+			}
+		})
+	}
+	query := "attributes.http.method:GET resource.service.name:api"
+	first, more, err := s.LogsPage(ctx, t0, t0.Add(time.Minute), nil, 1, query)
+	if err != nil || !more || len(first) != 1 {
+		t.Fatalf("first page: %v %v %v", first, more, err)
+	}
+	after := &LogCursor{TS: first[0].TS, ID: first[0].ID}
+	next, more, err := s.LogsPage(ctx, t0, t0.Add(time.Minute), after, 1, query)
+	if err != nil || more || len(next) != 1 || next[0].ID == first[0].ID {
+		t.Fatalf("next page: %v %v %v", next, more, err)
+	}
+	rows, _, err := s.LogsPage(ctx, t0, t0.Add(time.Second), nil, 0, query)
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("range: %v %v", rows, err)
+	}
+}
+
+func TestLogsPage_NegativeAttributes(t *testing.T) {
+	s := openTestStorage(t, Options{})
+	ctx := context.Background()
+	now := time.Now().UTC()
+	trace := [16]byte{0xAB}
+	for _, method := range []string{"GET", "POST", "missing"} {
+		ld := buildLogWithSeverity(trace, method, "api", "INFO", now)
+		attrs := ld.ResourceLogs().At(0).ScopeLogs().At(0).LogRecords().At(0).Attributes()
+		if method != "missing" {
+			attrs.PutStr("http.method", method)
+		}
+		s.AddLogs(ctx, ld)
+	}
+	s.Sync()
+	for _, tc := range []struct {
+		query string
+		want  []string
+	}{
+		{"-attributes.http.method:GET", []string{"POST", "missing"}},
+		{"-attributes.http.method:*", []string{"missing"}},
+		{"-attributes.http.method:G*", []string{"POST", "missing"}},
+		{"-resource.service.name:other", []string{"GET", "POST", "missing"}},
+		{"-attributes.http.method:GET attributes.http.method:*", []string{"POST"}},
+	} {
+		t.Run(tc.query, func(t *testing.T) {
+			for _, byTrace := range []bool{false, true} {
+				var rows []LogDetail
+				var err error
+				if byTrace {
+					rows, _, err = s.LogsPageByTraceID(ctx, pcommon.TraceID(trace).String(), nil, 100, tc.query)
+				} else {
+					rows, _, err = s.LogsPage(ctx, now.Add(-time.Second), now.Add(time.Second), nil, 100, tc.query)
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+				var got []string
+				for _, row := range rows {
+					got = append(got, row.Body)
+				}
+				if !sameSet(got, tc.want) {
+					t.Fatalf("got %v want %v", got, tc.want)
+				}
+			}
+		})
+	}
+}
+
+func TestLogsPage_PlainJSONSearch(t *testing.T) {
+	s := openTestStorage(t, Options{})
+	ctx := context.Background()
+	t0 := time.Now().UTC().Truncate(time.Second)
+	for _, offset := range []time.Duration{0, time.Second, time.Hour} {
+		logs := buildLogWithSeverity([16]byte{1}, "ordinary body", "api", "INFO", t0.Add(offset))
+		resource := logs.ResourceLogs().At(0)
+		resource.Resource().Attributes().PutStr("deployment.zone", "Tokyo-East")
+		attrs := resource.ScopeLogs().At(0).LogRecords().At(0).Attributes()
+		attrs.PutStr("custom.key", "100%_done")
+		attrs.PutInt("attempts", 987654)
+		nested := attrs.PutEmptyMap("payload")
+		nested.PutStr("customer", "Alice Smith")
+		nested.PutEmptySlice("tags").AppendEmpty().SetStr("nested-token")
+		s.AddLogs(ctx, logs)
+	}
+	s.Sync()
+	for _, query := range []string{"custom.key", "100%_done", "987654", "ALICE SMITH", "nested-token", "deployment.zone", "tokyo-east", "nested-token attributes.attempts:987654"} {
+		t.Run(query, func(t *testing.T) {
+			items, more, err := s.LogsPage(ctx, t0.Add(-time.Second), t0.Add(time.Minute), nil, 1, query)
+			if err != nil || len(items) != 1 || !more {
+				t.Fatalf("page: items=%d more=%v err=%v", len(items), more, err)
+			}
+			cursor := &LogCursor{TS: items[0].TS, ID: items[0].ID}
+			items, more, err = s.LogsPage(ctx, t0.Add(-time.Second), t0.Add(time.Minute), cursor, 1, query)
+			if err != nil || len(items) != 1 || more {
+				t.Fatalf("next page: items=%d more=%v err=%v", len(items), more, err)
+			}
+		})
+	}
+	for _, query := range []string{"100X_done", "nested-missing", "nested-token attributes.attempts:1"} {
+		items, _, err := s.LogsPage(ctx, t0.Add(-time.Second), t0.Add(time.Minute), nil, 100, query)
+		if err != nil || len(items) != 0 {
+			t.Fatalf("query %q: items=%d err=%v", query, len(items), err)
+		}
+	}
+}
+
+func TestLogsPage_BuiltinFilters(t *testing.T) {
+	s := openTestStorage(t, Options{})
+	ctx := context.Background()
+	now := time.Now().UTC().Truncate(time.Second)
+	tid := pcommon.TraceID{1}
+	sid := pcommon.SpanID{2}
+	for _, offset := range []time.Duration{0, time.Second, time.Hour} {
+		logs := buildLogWithSeverity([16]byte(tid), "request failed", "checkout", "ERROR", now.Add(offset))
+		lr := logs.ResourceLogs().At(0).ScopeLogs().At(0).LogRecords().At(0)
+		lr.SetSpanID(sid)
+		lr.SetSeverityNumber(plog.SeverityNumberError)
+		lr.Attributes().PutStr("trace_id", "attribute-only")
+		s.AddLogs(ctx, logs)
+	}
+	s.AddLogs(ctx, buildLogWithSeverity([16]byte{}, "unrelated", "worker", "INFO", now.Add(2*time.Second)))
+	s.Sync()
+	cases := []struct {
+		q string
+		n int
+	}{
+		{"trace_id:" + tid.String(), 2}, {"span_id:" + sid.String(), 2},
+		{"trace_id:0100*", 2}, {"trace_id:*", 2}, {"-trace_id:*", 1},
+		{"service_name:checkout", 2}, {"severity_text:error", 2},
+		{"severity_number:>=17", 2}, {"body:*failed*", 2},
+		{"trace_id:" + tid.String() + " attributes.trace_id:attribute-only", 2},
+		{"trace_id:attribute-only", 0}, {"attributes.trace_id:attribute-only", 2},
+		{"trace_id:" + tid.String() + " span_id:missing", 0},
+		{"-trace_id:" + tid.String(), 1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.q, func(t *testing.T) {
+			items, _, err := s.LogsPage(ctx, now.Add(-time.Second), now.Add(time.Minute), nil, 100, tc.q)
+			if err != nil || len(items) != tc.n {
+				t.Fatalf("rows=%d want=%d err=%v", len(items), tc.n, err)
+			}
+		})
+	}
+	items, more, err := s.LogsPage(ctx, now.Add(-time.Second), now.Add(time.Minute), nil, 1, "trace_id:"+tid.String())
+	if err != nil || len(items) != 1 || !more {
+		t.Fatalf("first page: %v %v", more, err)
+	}
+	next, more, err := s.LogsPage(ctx, now.Add(-time.Second), now.Add(time.Minute), &LogCursor{TS: items[0].TS, ID: items[0].ID}, 1, "trace_id:"+tid.String())
+	if err != nil || len(next) != 1 || more || next[0].ID == items[0].ID {
+		t.Fatalf("next page: %v %v", more, err)
+	}
+}

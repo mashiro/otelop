@@ -1,4 +1,6 @@
 import { atom } from "jotai";
+import { addLogFilterAtom } from "./log-query";
+import { draftTerm } from "@/lib/log-filter";
 import type { Atom, PrimitiveAtom, WritableAtom } from "jotai";
 import type {
   TraceData,
@@ -113,8 +115,11 @@ function newestTraceStartFirst(traces: TraceData[]): TraceData[] {
 // working array and re-sorting/slicing once, instead of once per item,
 // avoids an O(n log n) re-sort of the whole capped buffer per message during
 // a burst.
+export const liveTraceBatchAtom = atom<TraceData[]>([]);
+
 export const addTracesAtom = atom(null, (get, set, newTraces: TraceData[]) => {
   if (newTraces.length === 0) return;
+  set(liveTraceBatchAtom, newTraces);
   const current = get(tracesAtom);
   const maxTraces = get(bufferCapsAtom).traceCap;
   const indexById = new Map(current.map((t, i) => [t.traceId, i]));
@@ -466,9 +471,6 @@ export const selectedLogAtom = createSelectionAtom(
   (l, id) => l.id === id,
 );
 
-// Log filter by traceId (set when jumping from trace → logs)
-export const logTraceFilterAtom = atom<string | null>(null);
-
 // Navigate: log → trace. The traces tab resolves an ID absent from its
 // current page with a focused trace(traceId:) request.
 export const navigateToTraceAtom = atom(null, (_get, set, traceId: string) => {
@@ -478,7 +480,8 @@ export const navigateToTraceAtom = atom(null, (_get, set, traceId: string) => {
 
 // Navigate: trace → related logs (switch to logs tab with filter)
 export const navigateToLogsAtom = atom(null, (_get, set, traceId: string) => {
-  set(logTraceFilterAtom, traceId);
+  set(addLogFilterAtom, draftTerm({ key: "trace_id", operator: "is", value: traceId }));
+  set(selectedLogIdAtom, null);
   set(activeTabAtom, "logs");
 });
 

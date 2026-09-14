@@ -1,17 +1,21 @@
 import { useState } from "react";
-import { useAtom } from "jotai";
+import { useAtom, useStore } from "jotai";
 import { Search, X } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import type { PrimitiveAtom } from "jotai";
 
 export function SearchFilter({
   atom,
   placeholder,
+  className,
 }: {
   atom: PrimitiveAtom<string>;
   placeholder: string;
+  className?: string;
 }) {
   const [value, setValue] = useAtom(atom);
+  const store = useStore();
   const [lastSyncedValue, setLastSyncedValue] = useState(value);
   const [input, setInput] = useState(value);
 
@@ -34,6 +38,9 @@ export function SearchFilter({
     }
 
     setValue(input);
+    // A filter-only submission can leave the text atom unchanged. Read back
+    // its normalized value so the submitted expression does not linger.
+    setInput(store.get(atom));
   };
 
   const handleClear = () => {
@@ -42,14 +49,14 @@ export function SearchFilter({
   };
 
   return (
-    <div className="relative">
+    <div className={cn("relative min-w-40 flex-1", className)}>
       <Search className="absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground" />
       <Input
         placeholder={placeholder}
         value={input}
         onChange={handleChange}
         onKeyDown={handleKeyDown}
-        className="h-7 w-72 pl-7 pr-7 text-xs"
+        className="h-7 w-full pl-7 pr-7 text-xs"
       />
       {input && (
         <button

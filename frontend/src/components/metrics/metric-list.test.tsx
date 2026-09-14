@@ -120,7 +120,7 @@ describe("MetricList", () => {
     render(<MetricList />);
 
     await waitFor(() => expect(screen.getByText("No matching metrics")).toBeTruthy());
-    expect(screen.getByPlaceholderText("Search metrics...")).toBeTruthy();
+    expect(screen.getByPlaceholderText("Search metric names…")).toBeTruthy();
   });
 
   it("recovers the list once a zero-hit search is cleared", async () => {
@@ -166,7 +166,7 @@ describe("MetricList", () => {
 
     await waitFor(() => expect(screen.getByText("old.requests")).toBeTruthy());
     expect(store.get(metricsAtom)).toEqual([]);
-    expect(screen.getByPlaceholderText("Search metrics...")).toBeTruthy();
+    expect(screen.getByPlaceholderText("Search metric names…")).toBeTruthy();
   });
 
   it("skips the redundant full-list fetch on mount when search is empty and the buffer already has data", async () => {
