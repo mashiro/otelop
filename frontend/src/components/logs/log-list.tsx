@@ -1,3 +1,4 @@
+import { HelpTooltip } from "@/components/ui/help-tooltip";
 import { addLogFilterAtom, logTextSearchAtom } from "@/stores/log-query";
 import { draftTerm } from "@/lib/log-filter";
 import { AddFilterButton } from "@/components/filters/add-filter-button";
@@ -197,16 +198,18 @@ function LogRow({ log, index, isSelected, onSelect, onNavigateToTrace }: LogRowP
       </TableCell>
       <TableCell>
         {hasTrace ? (
-          <button
-            className="font-mono text-xs text-trace underline decoration-trace/30 underline-offset-2 transition-colors hover:text-trace hover:decoration-trace/60"
-            onClick={(e) => {
-              e.stopPropagation();
-              onNavigateToTrace(log.traceId);
-            }}
-            title="View trace"
-          >
-            {shortId(log.traceId, 8)}
-          </button>
+          <HelpTooltip content="View trace">
+            <button
+              aria-label={`View trace ${log.traceId}`}
+              className="font-mono text-xs text-trace underline decoration-trace/30 underline-offset-2 transition-colors hover:text-trace hover:decoration-trace/60"
+              onClick={(e) => {
+                e.stopPropagation();
+                onNavigateToTrace(log.traceId);
+              }}
+            >
+              {shortId(log.traceId, 8)}
+            </button>
+          </HelpTooltip>
         ) : null}
       </TableCell>
     </TableRow>
@@ -267,16 +270,17 @@ function LogDetail({
               value={formatTimestamp(log.timestamp)}
               mono
               action={
-                <Button
-                  variant="ghost"
-                  size="icon-xs"
-                  onClick={onShowContext}
-                  aria-label="Show surrounding logs"
-                  title="Show surrounding logs"
-                  className="text-muted-foreground hover:text-foreground"
-                >
-                  <Logs />
-                </Button>
+                <HelpTooltip content="Show surrounding logs">
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    onClick={onShowContext}
+                    aria-label="Show surrounding logs"
+                    className="text-muted-foreground hover:text-foreground"
+                  >
+                    <Logs />
+                  </Button>
+                </HelpTooltip>
               }
             />
             <Field

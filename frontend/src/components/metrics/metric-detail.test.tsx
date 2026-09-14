@@ -122,9 +122,9 @@ describe("MetricDetailBody control row", () => {
     const metric = makeMetric({ serviceName: "frontend", name: "http.requests" });
 
     render(<MetricDetailBody metric={metric} />);
-    fireEvent.click(screen.getByTitle("Previous window"));
+    fireEvent.click(screen.getByRole("button", { name: "Previous window" }));
 
-    expect(screen.getByTitle("Next window")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Next window" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Live" }).hasAttribute("disabled")).toBe(false);
     await waitFor(() => {
       const rangeCalls = requestMock.mock.calls.filter(

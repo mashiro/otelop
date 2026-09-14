@@ -1,3 +1,4 @@
+import { HelpTooltip } from "@/components/ui/help-tooltip";
 import { useAtomValue, useSetAtom } from "jotai";
 import { Sun, Moon, Monitor } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -92,14 +93,16 @@ function ThemeToggle({ theme, setTheme }: { theme: Theme; setTheme: (t: Theme) =
   };
   const Icon = themeIcons[theme];
   return (
-    <Button
-      variant="ghost"
-      size="sm"
-      onClick={next}
-      className="text-muted-foreground hover:text-foreground"
-      title={themeLabels[theme]}
-    >
-      <Icon className="h-3.5 w-3.5" />
-    </Button>
+    <HelpTooltip content={themeLabels[theme]}>
+      <Button
+        aria-label={themeLabels[theme]}
+        variant="ghost"
+        size="sm"
+        onClick={next}
+        className="text-muted-foreground hover:text-foreground"
+      >
+        <Icon className="h-3.5 w-3.5" />
+      </Button>
+    </HelpTooltip>
   );
 }
