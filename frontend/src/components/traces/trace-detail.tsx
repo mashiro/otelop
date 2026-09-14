@@ -1,3 +1,4 @@
+import { HelpTooltip } from "@/components/ui/help-tooltip";
 import { addTraceFilterAtom } from "@/stores/trace-query";
 import { draftTerm } from "@/lib/log-filter";
 import { traceFields } from "@/lib/trace-search";
@@ -46,25 +47,29 @@ export function TraceDetail() {
       actions={
         <>
           <CopyJsonButton data={trace} />
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => downloadJson(trace, `trace-${trace.traceId.slice(0, 8)}.json`)}
-            className="text-muted-foreground hover:text-foreground"
-            title="Download trace as JSON"
-          >
-            <Download className="h-3.5 w-3.5" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => navigateToLogs(trace.traceId)}
-            className="gap-1.5 text-xs text-log hover:text-log"
-            title="View related logs"
-          >
-            <FileText className="h-3.5 w-3.5" />
-            Logs
-          </Button>
+          <HelpTooltip content="Download trace as JSON">
+            <Button
+              aria-label="Download trace as JSON"
+              variant="ghost"
+              size="sm"
+              onClick={() => downloadJson(trace, `trace-${trace.traceId.slice(0, 8)}.json`)}
+              className="text-muted-foreground hover:text-foreground"
+            >
+              <Download className="h-3.5 w-3.5" />
+            </Button>
+          </HelpTooltip>
+          <HelpTooltip content="View related logs">
+            <Button
+              aria-label="View related logs"
+              variant="ghost"
+              size="sm"
+              onClick={() => navigateToLogs(trace.traceId)}
+              className="gap-1.5 text-xs text-log hover:text-log"
+            >
+              <FileText className="h-3.5 w-3.5" />
+              Logs
+            </Button>
+          </HelpTooltip>
         </>
       }
     >

@@ -1,3 +1,4 @@
+import { HelpTooltip } from "@/components/ui/help-tooltip";
 import { useFilterSuggestions } from "@/hooks/use-filter-suggestions";
 import { useId, useState } from "react";
 import { useAtom, type PrimitiveAtom } from "jotai";
@@ -96,34 +97,35 @@ export function SignalFilterBar({
               open={editing === filter.id}
               onOpenChange={(open) => setEditing(open ? filter.id : null)}
             >
-              <PopoverTrigger
-                render={
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-full min-w-0 gap-1.5 rounded-r-none"
-                  />
-                }
-                aria-label={`Edit filter ${draft.key}`}
-                title={draft.key}
-              >
-                <Filter data-icon="inline-start" className="text-muted-foreground" />
-                <span
-                  className={cn(
-                    "flex min-w-0 items-center gap-1.5 text-xs",
-                    !filter.enabled && "line-through",
-                  )}
+              <HelpTooltip content={draft.key}>
+                <PopoverTrigger
+                  render={
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-full min-w-0 gap-1.5 rounded-r-none"
+                    />
+                  }
+                  aria-label={`Edit filter ${draft.key}`}
                 >
-                  <span className="truncate font-mono">
-                    {filter.resource ? "resource." : ""}
-                    {filter.key}
+                  <Filter data-icon="inline-start" className="text-muted-foreground" />
+                  <span
+                    className={cn(
+                      "flex min-w-0 items-center gap-1.5 text-xs",
+                      !filter.enabled && "line-through",
+                    )}
+                  >
+                    <span className="truncate font-mono">
+                      {filter.resource ? "resource." : ""}
+                      {filter.key}
+                    </span>
+                    <span className="shrink-0 text-muted-foreground">{operatorLabel}</span>
+                    {draft.value && (
+                      <span className="max-w-40 truncate font-medium">{draft.value}</span>
+                    )}
                   </span>
-                  <span className="shrink-0 text-muted-foreground">{operatorLabel}</span>
-                  {draft.value && (
-                    <span className="max-w-40 truncate font-medium">{draft.value}</span>
-                  )}
-                </span>
-              </PopoverTrigger>
+                </PopoverTrigger>
+              </HelpTooltip>
               <PopoverContent align="start" className="w-96 max-w-[calc(100vw-2rem)] gap-4 p-4">
                 <PopoverHeader>
                   <PopoverTitle>Edit filter</PopoverTitle>
@@ -148,38 +150,40 @@ export function SignalFilterBar({
                 />
               </PopoverContent>
             </Popover>
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              aria-label={`${filter.enabled ? "Disable" : "Enable"} filter ${draft.key}`}
-              aria-pressed={filter.enabled}
-              title={filter.enabled ? "Disable filter" : "Enable filter"}
-              onClick={() =>
-                setState((current) => ({
-                  ...current,
-                  filters: current.filters.map((item) =>
-                    item.id === filter.id ? { ...item, enabled: !item.enabled } : item,
-                  ),
-                }))
-              }
-            >
-              {filter.enabled ? <Pause /> : <Play />}
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              aria-label={`Remove filter ${draft.key}`}
-              title="Remove filter"
-              className="mr-0.5"
-              onClick={() =>
-                setState((current) => ({
-                  ...current,
-                  filters: current.filters.filter((item) => item.id !== filter.id),
-                }))
-              }
-            >
-              <X />
-            </Button>
+            <HelpTooltip content={filter.enabled ? "Disable filter" : "Enable filter"}>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                aria-label={`${filter.enabled ? "Disable" : "Enable"} filter ${draft.key}`}
+                aria-pressed={filter.enabled}
+                onClick={() =>
+                  setState((current) => ({
+                    ...current,
+                    filters: current.filters.map((item) =>
+                      item.id === filter.id ? { ...item, enabled: !item.enabled } : item,
+                    ),
+                  }))
+                }
+              >
+                {filter.enabled ? <Pause /> : <Play />}
+              </Button>
+            </HelpTooltip>
+            <HelpTooltip content="Remove filter">
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                aria-label={`Remove filter ${draft.key}`}
+                className="mr-0.5"
+                onClick={() =>
+                  setState((current) => ({
+                    ...current,
+                    filters: current.filters.filter((item) => item.id !== filter.id),
+                  }))
+                }
+              >
+                <X />
+              </Button>
+            </HelpTooltip>
           </div>
         );
       })}

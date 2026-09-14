@@ -1,3 +1,4 @@
+import { HelpTooltip } from "@/components/ui/help-tooltip";
 import { useAtom } from "jotai";
 import { ChevronLeft, ChevronRight, Radio } from "lucide-react";
 import { Temporal } from "temporal-polyfill";
@@ -64,16 +65,18 @@ export function TimeWindowControls({
           {formatInstant(window.from)} – {formatInstant(window.to)}
         </span>
       )}
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon-sm"
-        onClick={() => onWindowChange(shiftEventWindow(window, -1))}
-        disabled={!canMove}
-        title="Previous window"
-      >
-        <ChevronLeft />
-      </Button>
+      <HelpTooltip content="Previous window">
+        <Button
+          aria-label="Previous window"
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          onClick={() => onWindowChange(shiftEventWindow(window, -1))}
+          disabled={!canMove}
+        >
+          <ChevronLeft />
+        </Button>
+      </HelpTooltip>
       <TimeRangeSelect
         range={range}
         onRangeChange={(nextRange) => onWindowChange({ mode: "live", range: nextRange })}
@@ -81,16 +84,18 @@ export function TimeWindowControls({
         size={size}
       />
       {window.mode === "fixed" && (
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          onClick={() => onWindowChange(shiftEventWindow(window, 1))}
-          disabled={!canMove}
-          title="Next window"
-        >
-          <ChevronRight />
-        </Button>
+        <HelpTooltip content="Next window">
+          <Button
+            aria-label="Next window"
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => onWindowChange(shiftEventWindow(window, 1))}
+            disabled={!canMove}
+          >
+            <ChevronRight />
+          </Button>
+        </HelpTooltip>
       )}
       {window.mode === "live" && <span aria-hidden className="size-7" />}
       <Button

@@ -179,8 +179,8 @@ describe("LogList row rendering", () => {
     render(<LogList />);
 
     const rows = screen.getAllByRole("row").slice(1); // drop header
-    expect(within(rows[0]).queryByTitle("View trace")).toBeTruthy();
-    expect(within(rows[1]).queryByTitle("View trace")).toBeNull();
+    expect(within(rows[0]).queryByRole("button", { name: /View trace/ })).toBeTruthy();
+    expect(within(rows[1]).queryByRole("button", { name: /View trace/ })).toBeNull();
   });
 });
 
