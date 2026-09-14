@@ -10,13 +10,6 @@ beforeEach(() => vi.stubGlobal("localStorage", new Storage()));
 
 beforeEach(() => queryClient.clear());
 
-// Store/component unit tests isolate navigation from route loaders. Router
-// integration tests unmock this boundary and exercise real history instead.
-vi.mock("@/lib/navigation-driver", () => ({
-  configureNavigation: vi.fn(),
-  navigateLocation: (href: string) => window.history.pushState(null, "", href),
-}));
-
 afterEach(() => {
   cleanup();
   queryClient.clear();

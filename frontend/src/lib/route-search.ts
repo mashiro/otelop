@@ -1,3 +1,6 @@
+import { Temporal } from "temporal-polyfill";
+import { DEFAULT_CHART_TIME_RANGE } from "./chart-time-range";
+import type { EventTimeWindow } from "./event-time-window";
 import { isChartTimeRange, type ChartTimeRange } from "./chart-time-range";
 
 export interface SignalSearch {
@@ -49,4 +52,32 @@ export function validateSearch(search: Record<string, unknown>): SignalSearch {
     filter: filters("filter"),
     disabled_filter: filters("disabled_filter"),
   };
+}
+
+export function eventWindowFromSearch(search: SignalSearch): EventTimeWindow {
+  const { from, to } = search;
+  if (from && to) {
+    try {
+      const fromInstant = Temporal.Instant.from(from);
+      const toInstant = Temporal.Instant.from(to);
+      if (Temporal.Instant.compare(fromInstant, toInstant) < 0) {
+        return { mode: "fixed", from: fromInstant.toString(), to: toInstant.toString() };
+      }
+    } catch {
+      // Invalid or incomplete bounds fall back to the relative live window.
+    }
+  }
+  return { mode: "live", range: search.range ?? DEFAULT_CHART_TIME_RANGE };
+}
+
+export function eventWindowSearch(
+  window: EventTimeWindow,
+): Pick<SignalSearch, "range" | "from" | "to"> {
+  return window.mode === "fixed"
+    ? { from: window.from, to: window.to, range: undefined }
+    : {
+        from: undefined,
+        to: undefined,
+        range: window.range === DEFAULT_CHART_TIME_RANGE ? undefined : window.range,
+      };
 }

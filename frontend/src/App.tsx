@@ -1,18 +1,17 @@
-import { Outlet } from "@tanstack/react-router";
-import { useAtomValue, useSetAtom } from "jotai";
+import { Outlet, useNavigate, useRouter, useRouterState } from "@tanstack/react-router";
 import { useThemeSync } from "@/hooks/use-theme";
 import { useWebSocket } from "@/hooks/use-websocket";
 import { useInitialLoad } from "@/hooks/use-initial-load";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Header } from "@/components/layout/header";
-import { activeTabAtom } from "@/stores/navigation";
-import type { TabValue } from "@/stores/navigation";
+import type { SignalKey } from "@/lib/signals";
+import { eventWindowFromSearch, eventWindowSearch } from "@/lib/route-search";
 import { SIGNAL_LIST } from "@/lib/signals";
 
 // Tailwind scans class literals, so triggers must use pre-formed strings
 // per signal. Keep this table close to App so it's obvious when a new signal
 // is added.
-const tabTriggerClasses: Record<TabValue, string> = {
+const tabTriggerClasses: Record<SignalKey, string> = {
   traces:
     "rounded-lg px-4 py-1.5 text-sm font-medium text-muted-foreground transition-all data-active:bg-trace/15 data-active:text-trace data-active:shadow-[0_0_12px_oklch(0.80_0.14_195/20%)] dark:data-active:bg-trace/15 dark:data-active:text-trace hover:text-foreground",
   metrics:
@@ -21,19 +20,37 @@ const tabTriggerClasses: Record<TabValue, string> = {
 };
 
 function App() {
+  const router = useRouter();
+  const navigate = useNavigate();
   useThemeSync();
-  useWebSocket();
+  useWebSocket((traceId) => {
+    if (router.matchRoute({ to: "/traces/$traceId", params: { traceId } })) {
+      void navigate({ to: "/traces", search: true });
+    }
+  });
   useInitialLoad();
 
-  const activeTab = useAtomValue(activeTabAtom);
-  const setActiveTab = useSetAtom(activeTabAtom);
+  const activeTab = useRouterState({
+    select: (state) => state.matches.at(-1)?.staticData.signal ?? "traces",
+  });
+  const setActiveTab = (tab: SignalKey) => {
+    const { destinations, eventSearch } = router.options.context.tabHistory;
+    const destination = destinations[tab] ?? { to: `/${tab}` as const, search: {} };
+    void navigate({
+      ...destination,
+      search: {
+        ...destination.search,
+        ...(tab === "metrics" ? {} : eventWindowSearch(eventWindowFromSearch(eventSearch))),
+      },
+    });
+  };
 
   return (
     <div className="noise-bg mesh-bg flex h-screen flex-col text-foreground">
       <Header />
       <Tabs
         value={activeTab}
-        onValueChange={(v) => setActiveTab(v as TabValue)}
+        onValueChange={(v) => setActiveTab(v as SignalKey)}
         className="flex flex-1 flex-col overflow-hidden"
       >
         <div className="px-5 pt-3">

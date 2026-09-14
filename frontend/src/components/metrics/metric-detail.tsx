@@ -1,8 +1,6 @@
 import { memo, useMemo, useState } from "react";
-import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { X } from "lucide-react";
-import { selectedMetricAtom } from "@/stores/telemetry";
-import { metricTimeWindowAtom } from "@/stores/navigation";
+import { useMetricSelection, useTimeWindow } from "@/hooks/use-signal-route";
 import { MetricChart } from "./metric-chart";
 import { MetricSummary } from "./metric-summary";
 import { attrKey } from "@/lib/metric-stats";
@@ -31,8 +29,7 @@ import type { DataPoint, MetricData } from "@/types/telemetry";
 const ALL_FACET = "__all__";
 
 export function MetricDetail() {
-  const metric = useAtomValue(selectedMetricAtom);
-  const setSelected = useSetAtom(selectedMetricAtom);
+  const { metric, selectMetric: setSelected } = useMetricSelection();
 
   if (!metric) return null;
 
@@ -58,7 +55,7 @@ export function MetricDetail() {
 // Facet selection lives here (not in the chart) because the summary tiles and
 // the chart must break down by the same dimension. Exported for direct
 // testing (see metric-detail.test.tsx), the same way DataPointsTable/
-// DataPointDetail below are, so tests don't need to thread selectedMetricAtom.
+// DataPointDetail below are, so tests can supply a metric directly.
 export function MetricDetailBody({ metric }: { metric: MetricData }) {
   // Time range is the scope for the whole detail view (tiles, chart, and
   // table all read the same window), so it's lifted here rather than owned
@@ -66,8 +63,8 @@ export function MetricDetailBody({ metric }: { metric: MetricData }) {
   // recent window rather than "all": DuckDB history is fetched on demand, so
   // opening a long-lived metric shouldn't eagerly pull its full retention.
   // Synced to the URL (unlike pickedId below) so a shared/reloaded link
-  // reopens the same window — see metricTimeWindowAtom in navigation.ts.
-  const [window, setWindow] = useAtom(metricTimeWindowAtom);
+  // reopens the same window.
+  const [window, setWindow] = useTimeWindow();
   // rangeDataPoints (the fetched-range + live-buffer merge, already stable by
   // id — see use-metric-range-points.ts) is the source of truth for
   // everything below, not metric.dataPoints: the metrics list's initial load

@@ -1,9 +1,7 @@
 import { beforeEach, afterEach, describe, it, expect, vi } from "vite-plus/test";
 import { renderHook, act, cleanup } from "@testing-library/react";
-import { Provider, createStore } from "jotai";
-import type { ReactNode } from "react";
 import { useFilterSuggestions } from "./use-filter-suggestions";
-import { eventTimeWindowAtom } from "@/stores/navigation";
+import type { EventTimeWindow } from "@/lib/event-time-window";
 const { request } = vi.hoisted(() => ({ request: vi.fn() }));
 vi.mock("@/lib/graphql", () => ({ gqlClient: { request } }));
 beforeEach(() => {
@@ -15,20 +13,25 @@ afterEach(() => {
   vi.useRealTimers();
 });
 function setup(key?: string, input = "") {
-  const store = createStore();
-  store.set(eventTimeWindowAtom, {
+  const window: EventTimeWindow = {
     mode: "fixed",
     from: "2026-09-14T00:00:00.123456789Z",
     to: "2026-09-14T01:00:00Z",
-  });
-  const wrapper = ({ children }: { children: ReactNode }) => (
-    <Provider store={store}>{children}</Provider>
-  );
+  };
   const view = renderHook(
-    ({ key, input, enabled }) => useFilterSuggestions("traces", key, input, enabled),
-    { wrapper, initialProps: { key, input, enabled: true } },
+    ({ key, input, enabled, window }) =>
+      useFilterSuggestions("traces", key, input, window, enabled),
+    { initialProps: { key, input, enabled: true, window: window as EventTimeWindow } },
   );
-  return { store, ...view };
+  return {
+    ...view,
+    rerender: (props: {
+      key: string | undefined;
+      input: string;
+      enabled: boolean;
+      window?: EventTimeWindow;
+    }) => view.rerender({ window, ...props }),
+  };
 }
 describe("DB filter suggestions", () => {
   it("fetches unloaded keys after debouncing, with the selected time window", async () => {
@@ -71,9 +74,9 @@ describe("DB filter suggestions", () => {
     request
       .mockResolvedValueOnce({ filterSuggestions: ["old"] })
       .mockRejectedValueOnce(new Error("offline"));
-    const { store, result } = setup();
+    const { rerender, result } = setup();
     await act(() => vi.advanceTimersByTimeAsync(201));
-    act(() => store.set(eventTimeWindowAtom, { mode: "live", range: "5m" }));
+    rerender({ key: undefined, input: "", enabled: true, window: { mode: "live", range: "5m" } });
     expect(result.current.items).toEqual([]);
     expect(result.current.loading).toBe(true);
     await act(() => vi.advanceTimersByTimeAsync(201));

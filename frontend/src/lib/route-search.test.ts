@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vite-plus/test";
-import { parseSearch, stringifySearch, validateSearch } from "./route-search";
+import {
+  parseSearch,
+  stringifySearch,
+  validateSearch,
+  eventWindowFromSearch,
+  eventWindowSearch,
+} from "./route-search";
 
 describe("route search compatibility", () => {
   it("round-trips repeated filters, literal text, and nanosecond timestamps", () => {
@@ -17,6 +23,31 @@ describe("route search compatibility", () => {
       range: undefined,
       q: undefined,
       filter: ["service:api"],
+    });
+  });
+});
+
+describe("event window search", () => {
+  it.each([
+    { from: "invalid", to: "2026-09-14T01:00:00Z" },
+    { from: "2026-09-14T01:00:00Z" },
+    { from: "2026-09-14T01:00:00Z", to: "2026-09-14T00:00:00Z" },
+    { from: "2026-09-14T01:00:00Z", to: "2026-09-14T01:00:00Z" },
+  ])("falls back to the relative range for invalid bounds: %j", (search) => {
+    expect(eventWindowFromSearch({ ...search, range: "6h" })).toEqual({
+      mode: "live",
+      range: "6h",
+    });
+  });
+  it("distinguishes bounds within the same millisecond", () => {
+    const search = { from: "2026-09-14T00:00:00.123456788Z", to: "2026-09-14T00:00:00.123456789Z" };
+    expect(eventWindowFromSearch(search)).toEqual({ mode: "fixed", ...search });
+  });
+  it("omits the default range and clears fixed bounds when returning to live", () => {
+    expect(eventWindowSearch({ mode: "live", range: "1h" })).toEqual({
+      range: undefined,
+      from: undefined,
+      to: undefined,
     });
   });
 });

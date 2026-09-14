@@ -1,20 +1,18 @@
 import { HelpTooltip } from "@/components/ui/help-tooltip";
-import { addLogFilterAtom, logTextSearchAtom } from "@/stores/log-query";
+import {
+  useSignalQuery,
+  useTimeWindow,
+  useLogSelection,
+  useRelatedSignals,
+} from "@/hooks/use-signal-route";
 import { draftTerm } from "@/lib/log-filter";
 import { AddFilterButton } from "@/components/filters/add-filter-button";
 import { LogFilterBar } from "./log-filter-bar";
-import { useAtom, useAtomValue, useSetAtom } from "jotai";
-import { useState } from "react";
+import { useAtomValue } from "jotai";
+import { useMemo, useState } from "react";
 import { Logs, X } from "lucide-react";
-import {
-  logsAtom,
-  logCountAtom,
-  navigateToTraceAtom,
-  selectedLogAtom,
-  renderWindowMaxAtom,
-} from "@/stores/telemetry";
-import { eventTimeWindowAtom } from "@/stores/navigation";
-import { filteredLogsAtom, logSearchAtom } from "@/stores/filters";
+import { logsAtom, logCountAtom, renderWindowMaxAtom } from "@/stores/telemetry";
+import { createFilteredLogsAtom } from "@/stores/filters";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
@@ -47,12 +45,11 @@ import { eventWindowAround } from "@/lib/event-time-window";
 export function LogList() {
   const allLogs = useAtomValue(logsAtom);
   const logCount = useAtomValue(logCountAtom);
-  const logs = useAtomValue(filteredLogsAtom);
-  const navigateToTrace = useSetAtom(navigateToTraceAtom);
-  const selectedLog = useAtomValue(selectedLogAtom);
-  const setSelectedLog = useSetAtom(selectedLogAtom);
-  const [window, setWindow] = useAtom(eventTimeWindowAtom);
-  const [search, setSearch] = useAtom(logSearchAtom);
+  const { state, search, setText } = useSignalQuery("logs");
+  const logs = useAtomValue(useMemo(() => createFilteredLogsAtom(search), [search]));
+  const { navigateToTrace } = useRelatedSignals();
+  const { log: selectedLog, selectLog: setSelectedLog, showSurroundingLogs } = useLogSelection();
+  const [window] = useTimeWindow();
   const page = useLogListPage(window, search);
   const renderWindowMax = useAtomValue(renderWindowMaxAtom);
   const renderWindow = useRenderWindow({
@@ -94,7 +91,7 @@ export function LogList() {
       toolbar={
         <>
           <div className="flex w-full flex-wrap items-center gap-2">
-            <SearchFilter atom={logTextSearchAtom} placeholder="Search logs…" />
+            <SearchFilter value={state.text} onSubmit={setText} placeholder="Search logs…" />
             <div className="ml-auto">
               <EventWindowControls tone="log" />
             </div>
@@ -156,8 +153,7 @@ export function LogList() {
               onClose={() => setSelectedLog(null)}
               onNavigateToTrace={navigateToTrace}
               onShowContext={() => {
-                setSearch("");
-                setWindow(eventWindowAround(selectedLog.timestamp, window));
+                void showSurroundingLogs(eventWindowAround(selectedLog.timestamp, window));
               }}
             />
           </div>
@@ -227,10 +223,10 @@ function LogDetail({
   onNavigateToTrace: (id: string) => void;
   onShowContext: () => void;
 }) {
-  const addFilter = useSetAtom(addLogFilterAtom);
+  const { addFilter } = useSignalQuery("logs");
   const filterBy = (key: string, value: unknown) => {
     const complex = typeof value === "object" && value !== null;
-    addFilter(
+    void addFilter(
       draftTerm({
         key,
         operator: value == null ? "not_exists" : complex ? "exists" : "is",

@@ -1,7 +1,9 @@
+import { useSearch, useNavigate } from "@tanstack/react-router";
+import { useMetricSelection } from "@/hooks/use-signal-route";
 import { useMemo } from "react";
-import { useAtomValue, useSetAtom } from "jotai";
-import { metricsAtom, selectedMetricAtom, renderWindowMaxAtom } from "@/stores/telemetry";
-import { filteredMetricsAtom, metricSearchAtom } from "@/stores/filters";
+import { useAtomValue } from "jotai";
+import { metricsAtom, renderWindowMaxAtom } from "@/stores/telemetry";
+import { createFilteredMetricsAtom } from "@/stores/filters";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { SearchFilter } from "@/components/filters/search-filter";
 import { ListPanel } from "@/components/common/list-panel";
@@ -33,15 +35,15 @@ function metricRowId(metric: MetricData): string {
 
 export function MetricList() {
   const allMetrics = useAtomValue(metricsAtom);
-  const search = useAtomValue(metricSearchAtom);
+  const search = useSearch({ strict: false, select: (search) => search.q ?? "" });
+  const navigate = useNavigate();
   useMetricListSearch(search);
-  const filtered = useAtomValue(filteredMetricsAtom);
+  const filtered = useAtomValue(useMemo(() => createFilteredMetricsAtom(search), [search]));
   const metrics = useMemo(
     () => [...filtered].sort((a, b) => a.name.localeCompare(b.name)),
     [filtered],
   );
-  const selectedMetric = useAtomValue(selectedMetricAtom);
-  const setSelectedMetric = useSetAtom(selectedMetricAtom);
+  const { metric: selectedMetric, selectMetric: setSelectedMetric } = useMetricSelection();
   const renderWindowMax = useAtomValue(renderWindowMaxAtom);
   // Metrics have no server-side pagination (filteredMetricsAtom's whole
   // match set is already in memory), so "Load more" only ever slides the
@@ -75,7 +77,16 @@ export function MetricList() {
 
   return (
     <ListPanel
-      toolbar={<SearchFilter atom={metricSearchAtom} placeholder="Search metric names…" />}
+      toolbar={
+        <SearchFilter
+          value={search}
+          onSubmit={(q) => {
+            void navigate({ to: ".", search: (previous) => ({ ...previous, q: q || undefined }) });
+            return q;
+          }}
+          placeholder="Search metric names…"
+        />
+      }
     >
       {metrics.length === 0 ? (
         <EmptyMatches label="metrics" />

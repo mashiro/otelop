@@ -1,10 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { queryClient } from "@/lib/query-client";
-import { useAtomValue } from "jotai";
 import { graphql } from "@/gql";
 import { gqlClient } from "@/lib/graphql";
-import { eventTimeWindowAtom } from "@/stores/navigation";
-import { eventWindowBounds, eventWindowKey } from "@/lib/event-time-window";
+import { eventWindowBounds, eventWindowKey, type EventTimeWindow } from "@/lib/event-time-window";
 
 const FilterSuggestionsQuery = graphql(`
   query FilterSuggestions($signal: String!, $key: String, $input: String!, $from: Time, $to: Time) {
@@ -16,9 +14,9 @@ export function useFilterSuggestions(
   signal: "logs" | "traces",
   key: string | undefined,
   input: string,
+  window: EventTimeWindow,
   enabled = true,
 ) {
-  const window = useAtomValue(eventTimeWindowAtom);
   const requestKey = JSON.stringify([signal, key, input, eventWindowKey(window), enabled]);
   const { data, isPending, isError } = useQuery(
     {
