@@ -4,7 +4,7 @@ import { AddFilterButton } from "@/components/filters/add-filter-button";
 import { LogFilterBar } from "./log-filter-bar";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { useState } from "react";
-import { X } from "lucide-react";
+import { Logs, X } from "lucide-react";
 import {
   logsAtom,
   logCountAtom,
@@ -262,10 +262,23 @@ function LogDetail({
       <ScrollArea className="min-h-0 flex-1">
         <div className="animate-slide-up-fade space-y-5 p-4">
           <div className="space-y-2.5">
-            <Button variant="outline" size="sm" onClick={onShowContext} className="w-full">
-              Show surrounding logs
-            </Button>
-            <Field label="Timestamp" value={formatTimestamp(log.timestamp)} mono />
+            <Field
+              label="Timestamp"
+              value={formatTimestamp(log.timestamp)}
+              mono
+              action={
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  onClick={onShowContext}
+                  aria-label="Show surrounding logs"
+                  title="Show surrounding logs"
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  <Logs />
+                </Button>
+              }
+            />
             <Field
               label="Severity"
               action={filterAction("severity_number", log.severityNumber)}
