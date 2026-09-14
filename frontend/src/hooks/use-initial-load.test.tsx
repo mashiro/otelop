@@ -85,6 +85,25 @@ describe("useInitialLoad", () => {
     await waitFor(() => expect(store.get(renderWindowMaxAtom)).toBe(250));
   });
 
+  it("does not replay cached bootstrap data over live updates on remount", async () => {
+    requestMock.mockResolvedValue({
+      config: { traceCount: 1, metricCount: 1, logCount: 1, renderWindowMax: 500 },
+      metrics: { items: [makeMetric({ latestValue: 1 })] },
+    });
+    const store = createStore();
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <Provider store={store}>{children}</Provider>
+    );
+    const first = renderHook(() => useInitialLoad(), { wrapper });
+    await waitFor(() => expect(store.get(metricsAtom)).toHaveLength(1));
+    first.unmount();
+    const live = [makeMetric({ latestValue: 9 })];
+    store.set(metricsAtom, live);
+    renderHook(() => useInitialLoad(), { wrapper });
+    expect(store.get(metricsAtom)).toBe(live);
+    expect(requestMock).toHaveBeenCalledTimes(1);
+  });
+
   it("leaves metrics/totals untouched (not thrown) when the bootstrap fetch fails", async () => {
     requestMock.mockRejectedValue(new Error("network error"));
     const store = createStore();

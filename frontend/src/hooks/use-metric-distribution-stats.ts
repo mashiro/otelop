@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { queryClient } from "@/lib/query-client";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { graphql } from "@/gql";
 import { gqlClient } from "@/lib/graphql";
 import { rangeToFrom } from "@/lib/chart-time-range";
@@ -67,44 +69,28 @@ export function useMetricDistributionStats(
     }),
     [windowMode, fixedFrom, fixedTo, range],
   );
-  const groupByKey = JSON.stringify(groupBy);
-  const scopeKey = `${serviceName}\u0000${name}\u0000${groupByKey}`;
-  const [snapshot, setSnapshot] = useState<{
-    scopeKey: string;
-    series: MetricDistributionSeriesData[];
-  } | null>(null);
-  const requestIdRef = useRef(0);
-
+  const scopeKey = JSON.stringify([serviceName, name, groupBy]);
+  const { data, isError, refetch } = useQuery(
+    {
+      queryKey: ["metric-distribution", scopeKey, queryBounds],
+      enabled: supported,
+      queryFn: async () => {
+        const result = await gqlClient.request(MetricDistributionStatsQuery, {
+          serviceName,
+          name,
+          groupBy: groupBy ?? undefined,
+          ...queryBounds,
+        });
+        return result.metricDistributionStats;
+      },
+      placeholderData: (previous, query) =>
+        query?.queryKey[1] === scopeKey ? previous : undefined,
+    },
+    queryClient,
+  );
   const fetchNow = useCallback(() => {
-    if (!supported) return;
-    const requestId = ++requestIdRef.current;
-    void gqlClient
-      .request(MetricDistributionStatsQuery, {
-        serviceName,
-        name,
-        groupBy: groupBy ?? undefined,
-        ...queryBounds,
-      })
-      .then((data) => {
-        if (requestIdRef.current === requestId) {
-          setSnapshot({ scopeKey, series: data.metricDistributionStats });
-        }
-      })
-      .catch(() => {
-        if (requestIdRef.current === requestId) setSnapshot({ scopeKey, series: [] });
-      });
-    // groupBy's content is represented by groupByKey; callers memoize the
-    // array, but keying the callback on content avoids accidental refetches.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [supported, serviceName, name, groupByKey, queryBounds, scopeKey]);
-
-  useEffect(() => {
-    if (!supported) {
-      requestIdRef.current += 1;
-      return;
-    }
-    fetchNow();
-  }, [supported, fetchNow]);
+    void refetch();
+  }, [refetch]);
 
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mountedDataPoints = useRef(dataPoints);
@@ -123,5 +109,5 @@ export function useMetricDistributionStats(
   // replacement request settles, matching the chart/range-point hooks. A
   // metric or breakdown change invalidates it immediately via scopeKey so
   // rows are never shown under the wrong labels.
-  return snapshot?.scopeKey === scopeKey ? snapshot.series : null;
+  return !supported ? null : isError ? [] : (data ?? null);
 }

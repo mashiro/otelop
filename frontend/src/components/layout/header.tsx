@@ -1,3 +1,4 @@
+import { Link } from "@tanstack/react-router";
 import { HelpTooltip } from "@/components/ui/help-tooltip";
 import { useAtomValue, useSetAtom } from "jotai";
 import { Sun, Moon, Monitor } from "lucide-react";
@@ -38,10 +39,14 @@ export function Header() {
   return (
     <header className="relative z-10 flex items-center justify-between border-b border-border/50 px-5 py-3">
       <div className="flex items-center gap-5">
-        <div className="flex items-center gap-2">
+        <Link
+          to="/"
+          search={{}}
+          className="flex items-center gap-2 rounded-md focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring"
+        >
           <Logo className="h-7 w-7" />
           <h1 className="text-base font-semibold tracking-tight">otelop</h1>
-        </div>
+        </Link>
 
         <div className="flex items-center gap-3">
           <CounterBadge signal={SIGNALS.traces} count={traceCount} />

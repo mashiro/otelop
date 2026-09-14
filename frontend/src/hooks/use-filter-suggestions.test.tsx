@@ -37,7 +37,7 @@ describe("DB filter suggestions", () => {
     rerender({ key: undefined, input: "unloaded", enabled: true });
     await act(() => vi.advanceTimersByTimeAsync(199));
     expect(request).not.toHaveBeenCalled();
-    await act(() => vi.advanceTimersByTimeAsync(1));
+    await act(() => vi.advanceTimersByTimeAsync(2));
     expect(request).toHaveBeenCalledTimes(1);
     expect(request.mock.calls[0][0].variables).toEqual({
       signal: "traces",
@@ -59,11 +59,11 @@ describe("DB filter suggestions", () => {
       )
       .mockResolvedValueOnce({ filterSuggestions: ["new"] });
     const { result, rerender } = setup("attributes.old");
-    await act(() => vi.advanceTimersByTimeAsync(200));
+    await act(() => vi.advanceTimersByTimeAsync(201));
     const oldSignal = request.mock.calls[0][0].signal as AbortSignal;
     rerender({ key: "attributes.new", input: "", enabled: true });
     expect(oldSignal.aborted).toBe(true);
-    await act(() => vi.advanceTimersByTimeAsync(200));
+    await act(() => vi.advanceTimersByTimeAsync(201));
     await act(async () => resolve({ filterSuggestions: ["old"] }));
     expect(result.current.items).toEqual(["new"]);
   });
@@ -72,18 +72,18 @@ describe("DB filter suggestions", () => {
       .mockResolvedValueOnce({ filterSuggestions: ["old"] })
       .mockRejectedValueOnce(new Error("offline"));
     const { store, result } = setup();
-    await act(() => vi.advanceTimersByTimeAsync(200));
+    await act(() => vi.advanceTimersByTimeAsync(201));
     act(() => store.set(eventTimeWindowAtom, { mode: "live", range: "5m" }));
     expect(result.current.items).toEqual([]);
     expect(result.current.loading).toBe(true);
-    await act(() => vi.advanceTimersByTimeAsync(200));
+    await act(() => vi.advanceTimersByTimeAsync(201));
     expect(result.current.error).toBe(true);
     expect(result.current.loading).toBe(false);
   });
   it("does not query disabled value inputs", async () => {
     const { rerender, unmount } = setup();
     rerender({ key: "", input: "", enabled: false });
-    await act(() => vi.advanceTimersByTimeAsync(200));
+    await act(() => vi.advanceTimersByTimeAsync(201));
     expect(request).not.toHaveBeenCalled();
     unmount();
   });

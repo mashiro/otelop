@@ -2,8 +2,7 @@ import { traceFields } from "@/lib/trace-search";
 import { atom, type SetStateAction } from "jotai";
 import { readLogQuery, writeLogQuery, type LogQueryState } from "@/lib/log-query-state";
 import type { Getter, PrimitiveAtom } from "jotai";
-import { useSetAtom } from "jotai";
-import { useEffect } from "react";
+import { navigateLocation } from "@/lib/navigation-driver";
 import { Temporal } from "temporal-polyfill";
 import { SIGNALS } from "@/lib/signals";
 import type { SignalKey } from "@/lib/signals";
@@ -197,7 +196,7 @@ function syncLocation(get: Getter): void {
     path = url.pathname + url.search;
   }
   if (window.location.pathname + window.location.search !== path) {
-    window.history.pushState(null, "", path);
+    navigateLocation(path);
   }
 }
 
@@ -337,16 +336,3 @@ export const applyLocationAtom = atom(null, (_get, set, location: string) => {
     set(eventTimeWindowBaseAtom, eventWindowFromLocation(location, parsed.logRange));
   }
 });
-
-// Keeps state in sync with browser back/forward navigation. Mounted once at
-// the app root (unlike the old currentTabAtom.onMount, this also restores
-// trace/metric selection, so it must run for the lifetime of the app).
-export function useLocationSync(): void {
-  const applyLocation = useSetAtom(applyLocationAtom);
-
-  useEffect(() => {
-    const onPopState = () => applyLocation(window.location.pathname + window.location.search);
-    window.addEventListener("popstate", onPopState);
-    return () => window.removeEventListener("popstate", onPopState);
-  }, [applyLocation]);
-}

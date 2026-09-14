@@ -1,21 +1,13 @@
+import { Outlet } from "@tanstack/react-router";
 import { useAtomValue, useSetAtom } from "jotai";
 import { useThemeSync } from "@/hooks/use-theme";
 import { useWebSocket } from "@/hooks/use-websocket";
 import { useInitialLoad } from "@/hooks/use-initial-load";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Header } from "@/components/layout/header";
-import { TraceList } from "@/components/traces/trace-list";
-import { MetricList } from "@/components/metrics/metric-list";
-import { LogList } from "@/components/logs/log-list";
-import { activeTabAtom, useLocationSync } from "@/stores/navigation";
+import { activeTabAtom } from "@/stores/navigation";
 import type { TabValue } from "@/stores/navigation";
 import { SIGNAL_LIST } from "@/lib/signals";
-
-const tabBody: Record<TabValue, () => React.ReactElement> = {
-  traces: () => <TraceList />,
-  metrics: () => <MetricList />,
-  logs: () => <LogList />,
-};
 
 // Tailwind scans class literals, so triggers must use pre-formed strings
 // per signal. Keep this table close to App so it's obvious when a new signal
@@ -30,7 +22,6 @@ const tabTriggerClasses: Record<TabValue, string> = {
 
 function App() {
   useThemeSync();
-  useLocationSync();
   useWebSocket();
   useInitialLoad();
 
@@ -58,18 +49,12 @@ function App() {
             ))}
           </TabsList>
         </div>
-        {SIGNAL_LIST.map((signal) => {
-          const Body = tabBody[signal.key];
-          return (
-            <TabsContent
-              key={signal.key}
-              value={signal.key}
-              className="relative z-10 flex-1 overflow-hidden px-5 pb-4 pt-2"
-            >
-              <Body />
-            </TabsContent>
-          );
-        })}
+        <TabsContent
+          value={activeTab}
+          className="relative z-10 flex flex-1 flex-col overflow-hidden px-5 pb-4 pt-2"
+        >
+          <Outlet />
+        </TabsContent>
       </Tabs>
     </div>
   );

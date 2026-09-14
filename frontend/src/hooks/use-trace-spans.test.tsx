@@ -1,3 +1,4 @@
+import { queryClient } from "@/lib/query-client";
 import { describe, it, expect, vi, beforeEach } from "vite-plus/test";
 import { renderHook, waitFor } from "@testing-library/react";
 import { createStore, Provider } from "jotai";
@@ -50,6 +51,19 @@ describe("useTraceSpans", () => {
     expect(requestMock).not.toHaveBeenCalled();
   });
 
+  it("does not overwrite complete live spans with an older cached response", () => {
+    const oldSpan = makeSpan({ spanId: "s1", name: "old" });
+    queryClient.setQueryData(["trace-spans", "t1", 1], {
+      trace: { spans: [toQuerySpan(oldSpan)] },
+    });
+    const liveSpan = makeSpan({ spanId: "s1", name: "live" });
+    const { store } = renderWithStore(
+      makeTrace({ traceId: "t1", spanCount: 1, spans: [liveSpan] }),
+    );
+    expect(store.get(tracesAtom)[0].spans[0].name).toBe("live");
+    expect(requestMock).not.toHaveBeenCalled();
+  });
+
   it("does not refetch on rerender once a trace's spans have been requested", async () => {
     const span = makeSpan({ spanId: "s1" });
     requestMock.mockResolvedValue({ trace: { spans: [toQuerySpan(span)] } });
@@ -65,25 +79,20 @@ describe("useTraceSpans", () => {
     expect(requestMock).toHaveBeenCalledTimes(1);
   });
 
-  it("recovers when an effect re-invocation cancels the first in-flight request (StrictMode's mount->cleanup->mount)", async () => {
+  it("shares the in-flight request when the same trace is rendered again", async () => {
     const span = makeSpan({ spanId: "s1" });
     let resolveFirst: (v: TraceSpansQuery) => void = () => {};
     const pending = new Promise<TraceSpansQuery>((resolve) => {
       resolveFirst = resolve;
     });
     requestMock.mockReturnValueOnce(pending);
-    requestMock.mockResolvedValueOnce({ trace: { spans: [toQuerySpan(span)] } });
 
     const trace1 = makeTrace({ traceId: "t1", spanCount: 1, spans: [] });
     const { store, rerender } = renderWithStore(trace1);
 
-    // A new trace object, same identity/state — simulates React re-running
-    // the effect (StrictMode's synchronous mount->cleanup->mount) before the
-    // first request resolves, which cancels attempt #1 via its cleanup.
     rerender({ t: makeTrace({ traceId: "t1", spanCount: 1, spans: [] }) });
-
-    // Attempt #1 resolves late; being cancelled, it must not merge.
-    resolveFirst({ trace: { spans: [] } });
+    expect(requestMock).toHaveBeenCalledTimes(1);
+    resolveFirst({ trace: { spans: [toQuerySpan(span)] } });
 
     await waitFor(() => expect(store.get(tracesAtom)[0].spans).toHaveLength(1));
     expect(store.get(tracesAtom)[0].spans[0].spanId).toBe("s1");
