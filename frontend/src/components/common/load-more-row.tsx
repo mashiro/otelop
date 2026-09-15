@@ -15,14 +15,8 @@ export function LoadMoreRow({ visible, loadingMore, onClick }: LoadMoreRowProps)
   if (!visible) return null;
 
   return (
-    <div className="border-t border-border/30 p-2">
-      <Button
-        variant="outline"
-        size="sm"
-        className="w-full"
-        onClick={onClick}
-        disabled={loadingMore}
-      >
+    <div className="flex justify-center p-2 text-muted-foreground">
+      <Button variant="ghost" size="sm" onClick={onClick} disabled={loadingMore}>
         {loadingMore ? "Loading…" : "Load more"}
       </Button>
     </div>
