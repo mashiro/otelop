@@ -28,19 +28,36 @@ describe("page keyboard shortcuts", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it("focuses search with / and leaves the draft intact on Escape", () => {
-    const { onClose, onSubmit } = setup();
+  it.each([false, true])(
+    "focuses search with / (shiftKey=%s) and preserves the draft",
+    (shiftKey) => {
+      const { onClose, onSubmit } = setup();
+      const search = screen.getByRole("textbox", { name: "Search logs…" });
+      fireEvent.keyDown(document.body, { key: "/", shiftKey });
+      expect(document.activeElement).toBe(search);
+      fireEvent.change(search, { target: { value: "unfinished" } });
+      fireEvent.keyDown(search, { key: "Escape" });
+      expect(document.activeElement).not.toBe(search);
+      expect((search as HTMLInputElement).value).toBe("unfinished");
+      expect(onSubmit).not.toHaveBeenCalled();
+      expect(onClose).not.toHaveBeenCalled();
+      fireEvent.keyDown(document.body, { key: "Escape" });
+      expect(onClose).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("does not treat ? or command-modified slash as the search shortcut", () => {
+    setup();
     const search = screen.getByRole("textbox", { name: "Search logs…" });
-    fireEvent.keyDown(document.body, { key: "/" });
-    expect(document.activeElement).toBe(search);
-    fireEvent.change(search, { target: { value: "unfinished" } });
-    fireEvent.keyDown(search, { key: "Escape" });
-    expect(document.activeElement).not.toBe(search);
-    expect((search as HTMLInputElement).value).toBe("unfinished");
-    expect(onSubmit).not.toHaveBeenCalled();
-    expect(onClose).not.toHaveBeenCalled();
-    fireEvent.keyDown(document.body, { key: "Escape" });
-    expect(onClose).toHaveBeenCalledTimes(1);
+    for (const options of [
+      { key: "?", shiftKey: true },
+      { key: "/", shiftKey: true, ctrlKey: true },
+      { key: "/", shiftKey: true, metaKey: true },
+      { key: "/", shiftKey: true, altKey: true },
+    ]) {
+      fireEvent.keyDown(document.body, options);
+      expect(document.activeElement).not.toBe(search);
+    }
   });
 
   it("ignores editable fields, composition, repeat, modifiers and handled events", () => {

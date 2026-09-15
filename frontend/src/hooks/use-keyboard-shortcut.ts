@@ -14,7 +14,8 @@ export function useKeyboardShortcut(key: string, action: () => void) {
         event.metaKey ||
         event.ctrlKey ||
         event.altKey ||
-        event.shiftKey
+        // Printable keys may require Shift on some keyboard layouts.
+        (event.shiftKey && key.length !== 1)
       ) {
         return;
       }
