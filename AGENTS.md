@@ -58,6 +58,7 @@ mise run build    # Build
 - Don't commit until the user gives permission
 - Always run `mise run check` and `mise run test` after making changes
 - Use agent-browser to verify both light and dark mode
+- When changing the UI design, capture screenshots of the updated UI in both light and dark mode and attach them to the pull request.
 
 ### Verification environment
 
