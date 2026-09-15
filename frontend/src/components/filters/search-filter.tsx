@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useKeyboardShortcut } from "@/hooks/use-keyboard-shortcut";
+import { useRef, useState } from "react";
 import { Search, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
@@ -14,6 +15,9 @@ export function SearchFilter({
   placeholder: string;
   className?: string;
 }) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  useKeyboardShortcut("/", () => inputRef.current?.focus());
+
   const [lastSyncedValue, setLastSyncedValue] = useState(value);
   const [input, setInput] = useState(value);
 
@@ -28,7 +32,14 @@ export function SearchFilter({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key !== "Enter" || e.nativeEvent.isComposing) {
+    if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) return;
+    if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      e.currentTarget.blur();
+      return;
+    }
+    if (e.key !== "Enter") {
       return;
     }
 
@@ -44,6 +55,10 @@ export function SearchFilter({
     <div className={cn("relative min-w-40 flex-1", className)}>
       <Search className="absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground" />
       <Input
+        ref={inputRef}
+        aria-label={placeholder}
+        aria-keyshortcuts="/"
+        title="Focus search with /; press Esc to leave search"
         placeholder={placeholder}
         value={input}
         onChange={handleChange}

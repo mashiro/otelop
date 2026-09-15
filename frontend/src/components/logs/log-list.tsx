@@ -1,3 +1,4 @@
+import { useKeyboardShortcut } from "@/hooks/use-keyboard-shortcut";
 import { HelpTooltip } from "@/components/ui/help-tooltip";
 import {
   useSignalQuery,
@@ -223,6 +224,7 @@ function LogDetail({
   onNavigateToTrace: (id: string) => void;
   onShowContext: () => void;
 }) {
+  useKeyboardShortcut("Escape", onClose);
   const { addFilter } = useSignalQuery("logs");
   const filterBy = (key: string, value: unknown) => {
     const complex = typeof value === "object" && value !== null;
@@ -252,6 +254,9 @@ function LogDetail({
             variant="ghost"
             size="icon-xs"
             onClick={onClose}
+            aria-label="Close details"
+            aria-keyshortcuts="Escape"
+            title="Close details (Esc)"
             className="text-muted-foreground hover:text-foreground"
           >
             <X className="h-3 w-3" />
