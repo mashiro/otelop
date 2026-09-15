@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.3.0](https://github.com/mashiro/otelop/compare/v1.2.3...v1.3.0) (2026-09-15)
+
+
+### Features
+
+* add health probes and automatic dev server reload ([#309](https://github.com/mashiro/otelop/issues/309)) ([d27b609](https://github.com/mashiro/otelop/commit/d27b60910c291523216e8bcaa5d1dbb21f5976a4))
+* **frontend:** add keyboard shortcuts for details and search ([#312](https://github.com/mashiro/otelop/issues/312)) ([3583901](https://github.com/mashiro/otelop/commit/3583901a8d5f79df0d224edbb3b51583b8a6275b))
+* **frontend:** adopt TanStack Router and Query ([#307](https://github.com/mashiro/otelop/issues/307)) ([cf826c8](https://github.com/mashiro/otelop/commit/cf826c8d9d7d76a4e79409759b5077b72072fa33))
+* **frontend:** select metric series from chart legends ([#308](https://github.com/mashiro/otelop/issues/308)) ([fe80062](https://github.com/mashiro/otelop/commit/fe80062b4f63a6f65d0f18c9f4f76ec1668c7d41))
+* **search:** add signal filters and database-backed suggestions ([#300](https://github.com/mashiro/otelop/issues/300)) ([e294d1e](https://github.com/mashiro/otelop/commit/e294d1e4a98cdc5876af836d658d746911e54829))
+
+
+### Bug Fixes
+
+* **deps:** update all non-major dependencies ([#310](https://github.com/mashiro/otelop/issues/310)) ([b417cda](https://github.com/mashiro/otelop/commit/b417cda028cac879f0f1e5164ae0a1ac3903c34a))
+* **deps:** update dependency lucide-react to v1.45.0 ([#301](https://github.com/mashiro/otelop/issues/301)) ([6eb4d00](https://github.com/mashiro/otelop/commit/6eb4d005edb3a0daa53a9206f9446e03470d33e5))
+* **frontend:** make surrounding logs action less prominent ([#303](https://github.com/mashiro/otelop/issues/303)) ([786f5bd](https://github.com/mashiro/otelop/commit/786f5bd19e34ac262c3338e78641cc4252d0affb))
+* **frontend:** replace action title attributes with tooltips ([#305](https://github.com/mashiro/otelop/issues/305)) ([6fbcaad](https://github.com/mashiro/otelop/commit/6fbcaad81e148bff5bba49fd69f807b67d2f02eb))
+* **frontend:** simplify load more button design ([#311](https://github.com/mashiro/otelop/issues/311)) ([2a86dde](https://github.com/mashiro/otelop/commit/2a86dde483c3fafecf46315e4432ce3a451d9413))
+
 ## [1.2.3](https://github.com/mashiro/otelop/compare/v1.2.2...v1.2.3) (2026-09-13)
 
 
