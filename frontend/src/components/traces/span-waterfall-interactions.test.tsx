@@ -1,12 +1,10 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vite-plus/test";
-import type { ReactNode } from "react";
 import { makeSpan, makeTrace } from "@/test/factories";
 import { SpanWaterfall } from "./span-waterfall";
 
 vi.mock("@visx/responsive", () => ({
-  ParentSize: ({ children }: { children: (size: { width: number }) => ReactNode }) =>
-    children({ width: 900 }),
+  useParentSize: () => ({ parentRef: { current: null }, width: 900 }),
 }));
 
 describe("SpanWaterfall interactions", () => {
@@ -45,6 +43,25 @@ describe("SpanWaterfall interactions", () => {
       />,
     );
     expect(screen.getByRole("button", { name: /payment,/ })).toBeTruthy();
+  });
+
+  it("selects the same span from its timeline bar", () => {
+    const select = vi.fn();
+    render(<SpanWaterfall trace={trace} selectedSpan={null} onSelectSpan={select} />);
+    fireEvent.click(screen.getByRole("button", { name: "payment timeline" }));
+    expect(select).toHaveBeenCalledWith(child);
+  });
+
+  it("synchronizes vertical scrolling without moving the timeline horizontally", () => {
+    render(<SpanWaterfall trace={trace} selectedSpan={null} onSelectSpan={vi.fn()} />);
+    const tree = screen.getByLabelText("Span tree");
+    const timeline = screen.getByLabelText("Span timeline");
+    fireEvent.scroll(tree, { target: { scrollTop: 64, scrollLeft: 120 } });
+    expect(timeline.scrollTop).toBe(64);
+    expect(timeline.scrollLeft).toBe(0);
+    fireEvent.scroll(timeline, { target: { scrollTop: 160 } });
+    expect(tree.scrollTop).toBe(160);
+    expect(tree.scrollLeft).toBe(120);
   });
 
   it("keeps sub-millisecond spans visible on the full multi-root trace range", () => {

@@ -1,8 +1,9 @@
-import { useMemo, useState } from "react";
-import { ParentSize } from "@visx/responsive";
+import { useMemo, useRef, useState } from "react";
+import { useParentSize } from "@visx/responsive";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { formatDuration, createDurationFormatter } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { TraceData, SpanData } from "@/types/telemetry";
@@ -76,16 +77,18 @@ export function buildTree(spans: SpanData[]): FlatSpan[] {
 }
 
 export function SpanWaterfall(props: Props) {
+  const { parentRef, width } = useParentSize();
+
   return (
-    <ParentSize>
-      {({ width }) =>
-        width > 0 && <WaterfallInner key={props.trace.traceId} {...props} width={width} />
-      }
-    </ParentSize>
+    <div ref={parentRef} className="h-full">
+      {width > 0 && <WaterfallInner key={props.trace.traceId} {...props} width={width} />}
+    </div>
   );
 }
 
 function WaterfallInner({ trace, onSelectSpan, selectedSpan, width }: Props & { width: number }) {
+  const treeViewport = useRef<HTMLDivElement>(null);
+  const timelineViewport = useRef<HTMLDivElement>(null);
   const flatSpans = useMemo(() => buildTree(trace.spans), [trace.spans]);
   const [collapsedSet, setCollapsedSet] = useState<Set<string>>(new Set());
   const visibleSpans = useMemo(() => {
@@ -120,7 +123,7 @@ function WaterfallInner({ trace, onSelectSpan, selectedSpan, width }: Props & { 
   }, [trace.startEpochNs, trace.duration, flatSpans]);
   const formatTick = createDurationFormatter(totalNs);
   const labelWidth = Math.min(260, Math.max(170, width * 0.5));
-  const timelineWidth = width - labelWidth - 24;
+  const timelineWidth = width - labelWidth - 25;
   const tickCount = timelineWidth < 180 ? 1 : timelineWidth < 360 ? 2 : 4;
   const gridTemplateColumns = `${labelWidth}px minmax(0, 1fr)`;
 
@@ -131,7 +134,7 @@ function WaterfallInner({ trace, onSelectSpan, selectedSpan, width }: Props & { 
         style={{ gridTemplateColumns }}
       >
         <span className="px-4">Operation</span>
-        <div className="relative mx-3 h-4 font-mono">
+        <div className="relative mr-3 ml-[13px] h-4 font-mono">
           {Array.from({ length: tickCount + 1 }, (_, i) => (
             <span
               key={i}
@@ -147,73 +150,140 @@ function WaterfallInner({ trace, onSelectSpan, selectedSpan, width }: Props & { 
           ))}
         </div>
       </div>
-      <ScrollArea className="min-h-0 flex-1">
-        {visibleSpans.map(({ span, depth, hasChildren }) => {
-          const isSelected = selectedSpan?.spanId === span.spanId;
-          const isError = span.statusCode === "Error";
-          const color = isError ? ERROR_COLOR : serviceColorMap.get(span.serviceName)!;
-          const start = Math.max(
-            0,
-            Math.min(100, (toNsOffset(span.startEpochNs, baseNs) / totalNs) * 100),
-          );
-          const duration = Math.max(0, Math.min(100 - start, (span.duration / totalNs) * 100));
-          const durationLabel = formatDuration(span.duration);
-          const durationLabelWidth = durationLabel.length * 7.25;
-          const barWidth = Math.max(3, (timelineWidth * duration) / 100);
-          const barStart = Math.min(timelineWidth - 3, (timelineWidth * start) / 100);
-          const labelInside = barWidth >= durationLabelWidth + 12;
-          const labelOnLeft = barStart + barWidth + durationLabelWidth + 6 > timelineWidth;
-          const durationLeft = labelInside
-            ? barStart + (barWidth - durationLabelWidth) / 2
-            : Math.max(
-                0,
-                Math.min(
-                  timelineWidth - durationLabelWidth,
-                  labelOnLeft ? barStart - durationLabelWidth - 6 : barStart + barWidth + 6,
-                ),
-              );
-          // Keep labels usable even when a trace has deeply nested instrumentation.
-          const indent = Math.min(depth * 12, labelWidth * 0.2);
-          return (
-            <div key={span.spanId} className="relative border-b border-border/30">
-              <button
-                type="button"
-                aria-label={`${span.name}, ${span.serviceName}, ${formatDuration(span.duration)}${isError ? ", Error" : ""}`}
-                aria-pressed={isSelected}
-                onClick={() => onSelectSpan(span)}
-                className={cn(
-                  "grid w-full cursor-pointer items-stretch text-left outline-none transition-colors hover:bg-trace/5 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
-                  isSelected && "bg-trace/10",
-                )}
-                style={{ gridTemplateColumns }}
-              >
-                <span
-                  className="flex min-w-0 items-center gap-2 py-0.5 pr-3"
-                  style={{ paddingLeft: 40 + indent }}
-                >
-                  <span className="h-7 w-1 shrink-0 rounded-full" style={{ background: color }} />
-                  <span className="flex min-w-0 flex-1 flex-col">
-                    <span className="truncate text-sm font-medium" title={span.name}>
-                      {span.name}
-                    </span>
-                    <span className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
-                      <span className="min-w-0 flex-1 truncate" title={span.serviceName}>
-                        {span.serviceName}
+      <div className="grid min-h-0 flex-1" style={{ gridTemplateColumns }}>
+        <ScrollArea
+          className="min-h-0 min-w-0"
+          scrollBarOrientation="horizontal"
+          viewportProps={{
+            ref: treeViewport,
+            "aria-label": "Span tree",
+            onScroll: (event) => {
+              const other = timelineViewport.current;
+              if (other && other.scrollTop !== event.currentTarget.scrollTop)
+                other.scrollTop = event.currentTarget.scrollTop;
+            },
+          }}
+        >
+          <div className="w-max min-w-full pb-3">
+            {visibleSpans.map(({ span, depth, hasChildren }) => {
+              const isSelected = selectedSpan?.spanId === span.spanId;
+              const isError = span.statusCode === "Error";
+              const color = isError ? ERROR_COLOR : serviceColorMap.get(span.serviceName)!;
+              const indent = depth * 12;
+              return (
+                <div key={span.spanId} className="relative h-8 border-b border-border/30">
+                  <Tooltip>
+                    <TooltipTrigger
+                      delay={0}
+                      type="button"
+                      aria-label={`${span.name}, ${span.serviceName}, ${formatDuration(span.duration)}${isError ? ", Error" : ""}`}
+                      aria-pressed={isSelected}
+                      onClick={() => onSelectSpan(span)}
+                      className={cn(
+                        "flex h-full w-full cursor-pointer items-center gap-2 pr-3 text-left outline-none transition-colors hover:bg-trace/5 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+                        isSelected && "bg-trace/10",
+                      )}
+                      style={{ paddingLeft: 40 + indent }}
+                    >
+                      <span
+                        className="h-4 w-1 shrink-0 rounded-full"
+                        style={{ background: color }}
+                      />
+                      <span className="whitespace-nowrap text-sm">{span.name}</span>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <span className="flex min-w-0 flex-col gap-0.5">
+                        <span className="break-words">{span.name}</span>
+                        <span className="break-words text-muted-foreground">
+                          {span.serviceName}
+                        </span>
                       </span>
-                      {isError && <span className="shrink-0 text-destructive">Error</span>}
-                    </span>
-                  </span>
-                </span>
-                <span
-                  className="relative min-w-0 border-l border-border/50 bg-muted/30"
-                  aria-hidden="true"
+                    </TooltipContent>
+                  </Tooltip>
+                  {hasChildren && (
+                    <Button
+                      variant="ghost"
+                      size="icon-xs"
+                      className="absolute top-1"
+                      style={{ left: 12 + indent }}
+                      aria-label={`${collapsedSet.has(span.spanId) ? "Expand" : "Collapse"} ${span.name}`}
+                      aria-expanded={!collapsedSet.has(span.spanId)}
+                      onClick={() =>
+                        setCollapsedSet((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(span.spanId)) next.delete(span.spanId);
+                          else next.add(span.spanId);
+                          return next;
+                        })
+                      }
+                    >
+                      {collapsedSet.has(span.spanId) ? <ChevronRight /> : <ChevronDown />}
+                    </Button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </ScrollArea>
+        <ScrollArea
+          className="min-h-0 min-w-0 border-l border-border/50 bg-muted/30"
+          viewportProps={{
+            ref: timelineViewport,
+            "aria-label": "Span timeline",
+            onScroll: (event) => {
+              const other = treeViewport.current;
+              if (other && other.scrollTop !== event.currentTarget.scrollTop)
+                other.scrollTop = event.currentTarget.scrollTop;
+            },
+          }}
+        >
+          <div className="pb-3">
+            {visibleSpans.map(({ span }) => {
+              const isSelected = selectedSpan?.spanId === span.spanId;
+              const isError = span.statusCode === "Error";
+              const color = isError ? ERROR_COLOR : serviceColorMap.get(span.serviceName)!;
+              const start = Math.max(
+                0,
+                Math.min(100, (toNsOffset(span.startEpochNs, baseNs) / totalNs) * 100),
+              );
+              const duration = Math.max(0, Math.min(100 - start, (span.duration / totalNs) * 100));
+              const durationLabel = formatDuration(span.duration);
+              const durationLabelWidth = durationLabel.length * 7.25;
+              const barWidth = Math.max(3, (timelineWidth * duration) / 100);
+              const barStart = Math.min(timelineWidth - 3, (timelineWidth * start) / 100);
+              const labelInside = barWidth >= durationLabelWidth + 12;
+              const labelOnLeft = barStart + barWidth + durationLabelWidth + 6 > timelineWidth;
+              const durationLeft = labelInside
+                ? barStart + (barWidth - durationLabelWidth) / 2
+                : Math.max(
+                    0,
+                    Math.min(
+                      timelineWidth - durationLabelWidth,
+                      labelOnLeft ? barStart - durationLabelWidth - 6 : barStart + barWidth + 6,
+                    ),
+                  );
+
+              return (
+                <button
+                  key={span.spanId}
+                  type="button"
+                  aria-label={`${span.name} timeline`}
+                  aria-pressed={isSelected}
+                  onClick={() => onSelectSpan(span)}
+                  className={cn(
+                    "relative block h-8 w-full cursor-pointer border-b border-border/30 outline-none transition-colors hover:bg-trace/5 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+                    isSelected && "bg-trace/10",
+                  )}
                 >
                   <span className="absolute inset-x-3 inset-y-0">
                     {Array.from({ length: tickCount + 1 }, (_, i) => (
                       <span
                         key={i}
                         className="absolute inset-y-0 border-l border-border/50"
-                        style={{ left: `${(i / tickCount) * 100}%` }}
+                        style={{
+                          left: `${(i / tickCount) * 100}%`,
+                          transform: i === tickCount ? "translateX(-100%)" : undefined,
+                        }}
                       />
                     ))}
                     <span
@@ -234,32 +304,12 @@ function WaterfallInner({ trace, onSelectSpan, selectedSpan, width }: Props & { 
                       {durationLabel}
                     </span>
                   </span>
-                </span>
-              </button>
-              {hasChildren && (
-                <Button
-                  variant="ghost"
-                  size="icon-xs"
-                  className="absolute top-2"
-                  style={{ left: 12 + indent }}
-                  aria-label={`${collapsedSet.has(span.spanId) ? "Expand" : "Collapse"} ${span.name}`}
-                  aria-expanded={!collapsedSet.has(span.spanId)}
-                  onClick={() =>
-                    setCollapsedSet((prev) => {
-                      const next = new Set(prev);
-                      if (next.has(span.spanId)) next.delete(span.spanId);
-                      else next.add(span.spanId);
-                      return next;
-                    })
-                  }
-                >
-                  {collapsedSet.has(span.spanId) ? <ChevronRight /> : <ChevronDown />}
-                </Button>
-              )}
-            </div>
-          );
-        })}
-      </ScrollArea>
+                </button>
+              );
+            })}
+          </div>
+        </ScrollArea>
+      </div>
     </div>
   );
 }
