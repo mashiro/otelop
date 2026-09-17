@@ -21,8 +21,8 @@ export function DetailPanel({ header, actions, onClose, children }: DetailPanelP
 
   return (
     <div className="glass-card animate-fade-in flex h-full flex-col overflow-hidden">
-      <div className="flex items-center justify-between gap-3 border-b border-border/50 px-4 py-2.5">
-        <div className="flex min-w-0 items-center gap-3">
+      <div className="flex items-center justify-between border-b border-border/50 px-4 py-2.5">
+        <div className="flex items-center gap-3">
           <Button
             variant="ghost"
             size="icon-sm"
@@ -36,7 +36,7 @@ export function DetailPanel({ header, actions, onClose, children }: DetailPanelP
           </Button>
           {header}
         </div>
-        {actions && <div className="flex shrink-0 items-center gap-1">{actions}</div>}
+        {actions && <div className="flex items-center gap-1">{actions}</div>}
       </div>
       {children}
     </div>

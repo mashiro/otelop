@@ -89,6 +89,7 @@ export function SpanWaterfall(props: Props) {
 
 function WaterfallInner({ trace, onSelectSpan, selectedSpan, width }: Props & { width: number }) {
   const flatSpans = useMemo(() => buildTree(trace.spans), [trace.spans]);
+  const [hoveredSpanId, setHoveredSpanId] = useState<string | null>(null);
   const [collapsedSet, setCollapsedSet] = useState<Set<string>>(new Set());
   const visibleSpans = useMemo(() => {
     const result: FlatSpan[] = [];
@@ -122,30 +123,40 @@ function WaterfallInner({ trace, onSelectSpan, selectedSpan, width }: Props & { 
   }, [trace.startEpochNs, trace.duration, flatSpans]);
   const formatTick = createDurationFormatter(totalNs);
   const labelWidth = Math.min(260, Math.max(170, width * 0.5));
-  const timelineWidth = width - labelWidth - 25;
-  const tickCount = timelineWidth < 180 ? 1 : timelineWidth < 360 ? 2 : 4;
+  const timelineWidth = width - labelWidth;
+  const tickCount = 5;
   const gridTemplateColumns = `${labelWidth}px minmax(0, 1fr)`;
 
   return (
     <div className="flex h-full min-h-0 flex-col" aria-label="Trace waterfall">
       <div
-        className="grid shrink-0 border-b border-border/50 bg-muted py-3 text-xs font-medium text-trace/70"
-        style={{ gridTemplateColumns }}
+        className="grid h-7 shrink-0 border-b border-border text-[10px] text-muted-foreground"
+        style={{
+          gridTemplateColumns,
+          background: "color-mix(in srgb, var(--muted-foreground) 10%, transparent)",
+        }}
       >
-        <span className="px-4">Operation</span>
-        <div className="relative mr-3 ml-[13px] h-4 font-mono">
+        <span className="flex items-center px-2 text-[11px] font-semibold">Operation</span>
+        <div className="relative font-mono">
           {Array.from({ length: tickCount + 1 }, (_, i) => (
-            <span
+            <div
               key={i}
-              className="absolute whitespace-nowrap"
-              style={{
-                left: `${(i / tickCount) * 100}%`,
-                transform:
-                  i === 0 ? undefined : i === tickCount ? "translateX(-100%)" : "translateX(-50%)",
-              }}
+              className="absolute inset-y-0"
+              style={{ left: `${(i / tickCount) * 100}%` }}
             >
-              {formatTick((totalNs * i) / tickCount)}
-            </span>
+              <span
+                className="absolute inset-y-0 border-l border-border"
+                style={{ transform: i === tickCount ? "translateX(-100%)" : undefined }}
+              />
+              <span
+                className="absolute top-1/2 px-1 font-mono whitespace-nowrap"
+                style={{
+                  transform: `translate(${i === tickCount ? "-100%" : "0"}, -50%)`,
+                }}
+              >
+                {formatTick((totalNs * i) / tickCount)}
+              </span>
+            </div>
           ))}
         </div>
       </div>
@@ -156,14 +167,26 @@ function WaterfallInner({ trace, onSelectSpan, selectedSpan, width }: Props & { 
               aria-label="Span tree"
               className="flex-1 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
             >
-              <ScrollAreaPrimitive.Content className="w-max min-w-full pb-3">
+              <ScrollAreaPrimitive.Content className="w-max min-w-full! pb-3">
                 {visibleSpans.map(({ span, depth, hasChildren }) => {
                   const isSelected = selectedSpan?.spanId === span.spanId;
                   const isError = span.statusCode === "Error";
                   const color = isError ? ERROR_COLOR : serviceColorMap.get(span.serviceName)!;
-                  const indent = depth * 12;
+                  const indent = depth * 16;
                   return (
-                    <div key={span.spanId} className="relative h-8 border-b border-border/30">
+                    <div
+                      key={span.spanId}
+                      className="relative h-8"
+                      onMouseEnter={() => setHoveredSpanId(span.spanId)}
+                      onMouseLeave={() => setHoveredSpanId(null)}
+                    >
+                      {depth > 0 && (
+                        <span
+                          aria-hidden="true"
+                          className="pointer-events-none absolute inset-y-0 w-px"
+                          style={{ left: 20 + (depth - 1) * 16, background: color, opacity: 0.15 }}
+                        />
+                      )}
                       <Tooltip>
                         <TooltipTrigger
                           delay={0}
@@ -172,16 +195,28 @@ function WaterfallInner({ trace, onSelectSpan, selectedSpan, width }: Props & { 
                           aria-pressed={isSelected}
                           onClick={() => onSelectSpan(span)}
                           className={cn(
-                            "flex h-full w-full cursor-pointer items-center gap-2 pr-3 text-left outline-none transition-colors hover:bg-trace/5 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
-                            isSelected && "bg-trace/10",
+                            "flex h-full w-full cursor-pointer items-center gap-1.5 transition-colors pr-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+                            hoveredSpanId === span.spanId && "bg-trace/5",
                           )}
-                          style={{ paddingLeft: 40 + indent }}
+                          style={{
+                            paddingLeft: 36 + indent,
+                            background: isSelected
+                              ? `color-mix(in oklch, ${color} 8%, transparent)`
+                              : undefined,
+                          }}
                         >
                           <span
-                            className="h-4 w-1 shrink-0 rounded-full"
+                            className="h-3 w-1 shrink-0 rounded-[1px]"
                             style={{ background: color }}
                           />
-                          <span className="whitespace-nowrap text-sm">{span.name}</span>
+                          <span
+                            className={cn(
+                              "whitespace-nowrap text-[11px] select-none",
+                              !isSelected && "text-foreground/80",
+                            )}
+                          >
+                            {span.name}
+                          </span>
                         </TooltipTrigger>
                         <TooltipContent>
                           <span className="flex min-w-0 flex-col gap-0.5">
@@ -197,7 +232,7 @@ function WaterfallInner({ trace, onSelectSpan, selectedSpan, width }: Props & { 
                           variant="ghost"
                           size="icon-xs"
                           className="absolute top-1"
-                          style={{ left: 12 + indent }}
+                          style={{ left: 8 + indent }}
                           aria-label={`${collapsedSet.has(span.spanId) ? "Expand" : "Collapse"} ${span.name}`}
                           aria-expanded={!collapsedSet.has(span.spanId)}
                           onClick={() =>
@@ -219,10 +254,19 @@ function WaterfallInner({ trace, onSelectSpan, selectedSpan, width }: Props & { 
             </ScrollAreaPrimitive.Viewport>
             <ScrollBar orientation="horizontal" className="sticky! bottom-0 -mt-2.5 shrink-0" />
           </ScrollAreaPrimitive.Root>
-          <div
-            className="min-w-0 border-l border-border/50 bg-muted/30 pb-3"
-            aria-label="Span timeline"
-          >
+          <div className="relative min-w-0 bg-muted/30 pb-3" aria-label="Span timeline">
+            <div className="pointer-events-none absolute inset-0" aria-hidden="true">
+              {Array.from({ length: tickCount + 1 }, (_, i) => (
+                <span
+                  key={i}
+                  className="absolute inset-y-0 border-l border-border"
+                  style={{
+                    left: `${(i / tickCount) * 100}%`,
+                    transform: i === tickCount ? "translateX(-100%)" : undefined,
+                  }}
+                />
+              ))}
+            </div>
             {visibleSpans.map(({ span }) => {
               const isSelected = selectedSpan?.spanId === span.spanId;
               const isError = span.statusCode === "Error";
@@ -233,56 +277,50 @@ function WaterfallInner({ trace, onSelectSpan, selectedSpan, width }: Props & { 
               );
               const duration = Math.max(0, Math.min(100 - start, (span.duration / totalNs) * 100));
               const durationLabel = formatDuration(span.duration);
-              const durationLabelWidth = durationLabel.length * 7.25;
+              const durationLabelWidth = durationLabel.length * 6;
               const barWidth = Math.max(3, (timelineWidth * duration) / 100);
               const barStart = Math.min(timelineWidth - 3, (timelineWidth * start) / 100);
-              const labelInside = barWidth >= durationLabelWidth + 12;
-              const labelOnLeft = barStart + barWidth + durationLabelWidth + 6 > timelineWidth;
+              const labelInside = barWidth > 50;
+              const labelOnLeft = !labelInside && barStart + barWidth / 2 > timelineWidth / 2;
               const durationLeft = labelInside
                 ? barStart + (barWidth - durationLabelWidth) / 2
-                : Math.max(
-                    0,
-                    Math.min(
-                      timelineWidth - durationLabelWidth,
-                      labelOnLeft ? barStart - durationLabelWidth - 6 : barStart + barWidth + 6,
-                    ),
-                  );
+                : labelOnLeft
+                  ? barStart - durationLabelWidth - 4
+                  : barStart + barWidth + 4;
 
               return (
                 <button
                   key={span.spanId}
                   type="button"
                   aria-label={`${span.name} timeline`}
+                  onMouseEnter={() => setHoveredSpanId(span.spanId)}
+                  onMouseLeave={() => setHoveredSpanId(null)}
                   aria-pressed={isSelected}
                   onClick={() => onSelectSpan(span)}
                   className={cn(
-                    "relative block h-8 w-full cursor-pointer border-b border-border/30 outline-none transition-colors hover:bg-trace/5 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
-                    isSelected && "bg-trace/10",
+                    "relative block h-8 w-full cursor-pointer transition-colors outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+                    hoveredSpanId === span.spanId && "bg-trace/5",
                   )}
+                  style={{
+                    background: isSelected
+                      ? `color-mix(in oklch, ${color} 8%, transparent)`
+                      : undefined,
+                  }}
                 >
-                  <span className="absolute inset-x-3 inset-y-0">
-                    {Array.from({ length: tickCount + 1 }, (_, i) => (
-                      <span
-                        key={i}
-                        className="absolute inset-y-0 border-l border-border/50"
-                        style={{
-                          left: `${(i / tickCount) * 100}%`,
-                          transform: i === tickCount ? "translateX(-100%)" : undefined,
-                        }}
-                      />
-                    ))}
+                  <span className="absolute inset-0">
                     <span
-                      className="absolute top-1/2 h-4 -translate-y-1/2 rounded-sm"
+                      className="absolute top-1/2 h-4 -translate-y-1/2 rounded-[3px]"
                       style={{
                         left: `min(${start}%, calc(100% - 3px))`,
                         width: `max(3px, ${duration}%)`,
+                        filter: isSelected ? `drop-shadow(0 0 2px ${color})` : undefined,
                         background: `linear-gradient(to right, color-mix(in oklch, ${color} 90%, transparent), color-mix(in oklch, ${color} 60%, transparent))`,
                       }}
                     />
                     <span
                       className={cn(
-                        "absolute top-1/2 -translate-y-1/2 whitespace-nowrap text-center font-mono text-xs tabular-nums",
-                        labelInside ? "text-white" : "text-muted-foreground",
+                        "absolute top-1/2 -translate-y-1/2 whitespace-nowrap text-center font-mono text-[10px] font-medium tabular-nums",
+                        labelInside ? "text-white/90" : "text-muted-foreground",
                       )}
                       style={{ left: durationLeft, width: durationLabelWidth }}
                     >
