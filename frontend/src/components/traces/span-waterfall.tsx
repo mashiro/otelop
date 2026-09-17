@@ -120,7 +120,7 @@ function WaterfallInner({ trace, onSelectSpan, selectedSpan, width }: Props & { 
   }, [trace.startEpochNs, trace.duration, flatSpans]);
   const formatTick = createDurationFormatter(totalNs);
   const labelWidth = Math.min(260, Math.max(170, width * 0.5));
-  const timelineWidth = width - labelWidth - 16;
+  const timelineWidth = width - labelWidth - 24;
   const tickCount = timelineWidth < 180 ? 1 : timelineWidth < 360 ? 2 : 4;
   const gridTemplateColumns = `${labelWidth}px minmax(0, 1fr)`;
 
@@ -131,7 +131,7 @@ function WaterfallInner({ trace, onSelectSpan, selectedSpan, width }: Props & { 
         style={{ gridTemplateColumns }}
       >
         <span className="px-4">Operation</span>
-        <div className="relative mx-2 h-4 font-mono">
+        <div className="relative mx-3 h-4 font-mono">
           {Array.from({ length: tickCount + 1 }, (_, i) => (
             <span
               key={i}
@@ -208,7 +208,7 @@ function WaterfallInner({ trace, onSelectSpan, selectedSpan, width }: Props & { 
                   className="relative min-w-0 border-l border-border/50 bg-muted/30"
                   aria-hidden="true"
                 >
-                  <span className="absolute inset-x-2 inset-y-0">
+                  <span className="absolute inset-x-3 inset-y-0">
                     {Array.from({ length: tickCount + 1 }, (_, i) => (
                       <span
                         key={i}

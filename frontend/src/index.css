@@ -355,28 +355,6 @@
   animation-delay: 200ms;
 }
 
-/* ── Custom scrollbar ── */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-::-webkit-scrollbar-thumb {
-  background: oklch(0 0 0 / 12%);
-  border-radius: 3px;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: oklch(0 0 0 / 22%);
-}
-.dark ::-webkit-scrollbar-thumb {
-  background: oklch(1 0 0 / 10%);
-}
-.dark ::-webkit-scrollbar-thumb:hover {
-  background: oklch(1 0 0 / 18%);
-}
-
 /* ── Signal type colors (for inline usage) ── */
 .text-trace {
   color: var(--trace);
