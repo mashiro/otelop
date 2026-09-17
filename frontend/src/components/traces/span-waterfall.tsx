@@ -1,26 +1,13 @@
-import { useCallback, useMemo, useRef, useState } from "react";
-import { Group } from "@visx/group";
-import { scaleLinear } from "@visx/scale";
+import { useMemo, useState } from "react";
 import { ParentSize } from "@visx/responsive";
-import { useTooltip, TooltipWithBounds } from "@visx/tooltip";
+import { ChevronDown, ChevronRight } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { formatDuration, createDurationFormatter } from "@/lib/format";
+import { cn } from "@/lib/utils";
 import type { TraceData, SpanData } from "@/types/telemetry";
 
-const ROW_HEIGHT = 32;
-const HEADER_HEIGHT = 28;
-const LABEL_WIDTH = 260;
-const BAR_PADDING = 8;
-const MIN_BAR_WIDTH = 3;
-const INDENT_BASE = 8;
-const INDENT_PER_DEPTH = 16;
-const TOGGLE_WIDTH = 14;
-const SERVICE_BAR_WIDTH = 4;
-const SERVICE_GAP = 6;
-const AVG_CHAR_WIDTH = 6;
-const TICK_COUNT = 5;
 const ERROR_COLOR = "oklch(0.70 0.22 25)";
-
 const SERVICE_COLORS = [
   "oklch(0.65 0.14 195)",
   "oklch(0.67 0.14 80)",
@@ -42,11 +29,6 @@ export interface FlatSpan {
   span: SpanData;
   depth: number;
   hasChildren: boolean;
-}
-
-interface TooltipData {
-  service: string;
-  name: string;
 }
 
 /** Offset of a span's pre-parsed start epoch relative to a base instant. */
@@ -93,392 +75,191 @@ export function buildTree(spans: SpanData[]): FlatSpan[] {
   return result;
 }
 
-export function SpanWaterfall({ trace, onSelectSpan, selectedSpan }: Props) {
+export function SpanWaterfall(props: Props) {
   return (
     <ParentSize>
-      {({ width, height }) =>
-        width > 0 ? (
-          <WaterfallInner
-            trace={trace}
-            width={width}
-            height={height}
-            onSelectSpan={onSelectSpan}
-            selectedSpan={selectedSpan}
-          />
-        ) : null
+      {({ width }) =>
+        width > 0 && <WaterfallInner key={props.trace.traceId} {...props} width={width} />
       }
     </ParentSize>
   );
 }
 
-function WaterfallInner({
-  trace,
-  width,
-  height,
-  onSelectSpan,
-  selectedSpan,
-}: Props & { width: number; height: number }) {
-  const containerRef = useRef<HTMLDivElement>(null);
+function WaterfallInner({ trace, onSelectSpan, selectedSpan, width }: Props & { width: number }) {
   const flatSpans = useMemo(() => buildTree(trace.spans), [trace.spans]);
   const [collapsedSet, setCollapsedSet] = useState<Set<string>>(new Set());
-
   const visibleSpans = useMemo(() => {
-    if (collapsedSet.size === 0) return flatSpans;
     const result: FlatSpan[] = [];
     let skipDepth: number | null = null;
     for (const f of flatSpans) {
       if (skipDepth !== null && f.depth > skipDepth) continue;
       skipDepth = null;
       result.push(f);
-      if (collapsedSet.has(f.span.spanId)) {
-        skipDepth = f.depth;
-      }
+      if (collapsedSet.has(f.span.spanId)) skipDepth = f.depth;
     }
     return result;
   }, [flatSpans, collapsedSet]);
-
-  const handleToggleCollapse = useCallback((spanId: string) => {
-    setCollapsedSet((prev) => {
-      const next = new Set(prev);
-      if (next.has(spanId)) next.delete(spanId);
-      else next.add(spanId);
-      return next;
-    });
-  }, []);
-
   const serviceColorMap = useMemo(() => {
-    const map = new Map<string, string>();
     const services = [...new Set(flatSpans.map((f) => f.span.serviceName))];
-    services.forEach((s, i) => map.set(s, SERVICE_COLORS[i % SERVICE_COLORS.length]));
-    return map;
+    return new Map(
+      services.map((service, i) => [service, SERVICE_COLORS[i % SERVICE_COLORS.length]]),
+    );
   }, [flatSpans]);
-
   const { baseNs, totalNs } = useMemo(() => {
-    // Prefer trace.startTime + trace.duration: the server reports these as the
-    // full trace range (min start → max end) even for multi-root Codex traces.
-    // Anchoring the waterfall to trace.rootSpan would truncate long-running
-    // sibling branches when the representative root is short.
+    // The representative root may not cover later roots in a multi-root trace.
     if (trace.duration > 0) return { baseNs: trace.startEpochNs, totalNs: trace.duration };
     let minNs: bigint | null = null;
     let maxNs: bigint | null = null;
-    for (const f of flatSpans) {
-      const s = f.span.startEpochNs;
-      const e = f.span.endEpochNs;
-      if (minNs === null || s < minNs) minNs = s;
-      if (maxNs === null || e > maxNs) maxNs = e;
+    for (const { span } of flatSpans) {
+      if (minNs === null || span.startEpochNs < minNs) minNs = span.startEpochNs;
+      if (maxNs === null || span.endEpochNs > maxNs) maxNs = span.endEpochNs;
     }
-    if (minNs !== null && maxNs !== null && maxNs > minNs) {
-      return { baseNs: minNs, totalNs: Number(maxNs - minNs) };
-    }
-    return { baseNs: 0n, totalNs: 1 };
+    return minNs !== null && maxNs !== null && maxNs > minNs
+      ? { baseNs: minNs, totalNs: Number(maxNs - minNs) }
+      : { baseNs: 0n, totalNs: 1 };
   }, [trace.startEpochNs, trace.duration, flatSpans]);
-
-  const barWidth = width - LABEL_WIDTH;
-  const xScale = useMemo(
-    () => scaleLinear({ domain: [0, totalNs], range: [0, barWidth] }),
-    [totalNs, barWidth],
-  );
-
-  const formatTick = useMemo(() => createDurationFormatter(totalNs), [totalNs]);
-
-  const ticks = useMemo(() => {
-    const result = [];
-    for (let i = 0; i <= TICK_COUNT; i++) {
-      const ns = (totalNs / TICK_COUNT) * i;
-      result.push({ ns, x: xScale(ns), isLast: i === TICK_COUNT });
-    }
-    return result;
-  }, [totalNs, xScale]);
-
-  const svgHeight = Math.max(visibleSpans.length * ROW_HEIGHT + HEADER_HEIGHT, height);
-
-  const { showTooltip, hideTooltip, tooltipData, tooltipLeft, tooltipTop, tooltipOpen } =
-    useTooltip<TooltipData>();
-
-  const handleMouseEnter = useCallback(
-    (e: React.MouseEvent, span: SpanData) => {
-      const container = containerRef.current;
-      if (!container) return;
-      const rect = container.getBoundingClientRect();
-      showTooltip({
-        tooltipData: { service: span.serviceName, name: span.name },
-        tooltipLeft: e.clientX - rect.left,
-        tooltipTop: e.clientY - rect.top,
-      });
-    },
-    [showTooltip],
-  );
+  const formatTick = createDurationFormatter(totalNs);
+  const labelWidth = Math.min(260, Math.max(170, width * 0.5));
+  const timelineWidth = width - labelWidth - 16;
+  const tickCount = timelineWidth < 180 ? 1 : timelineWidth < 360 ? 2 : 4;
+  const gridTemplateColumns = `${labelWidth}px minmax(0, 1fr)`;
 
   return (
-    <div ref={containerRef} className="relative h-full">
-      <ScrollArea className="h-full">
-        <svg width={width} height={svgHeight}>
-          <defs>
-            {[...serviceColorMap.entries()].map(([service, color]) => (
-              <linearGradient
-                key={service}
-                id={`grad-${service.replace(/\W/g, "")}`}
-                x1="0"
-                y1="0"
-                x2="1"
-                y2="0"
-              >
-                <stop offset="0%" stopColor={color} stopOpacity="0.9" />
-                <stop offset="100%" stopColor={color} stopOpacity="0.6" />
-              </linearGradient>
-            ))}
-            <linearGradient id="grad-error" x1="0" y1="0" x2="1" y2="0">
-              <stop offset="0%" stopColor={ERROR_COLOR} stopOpacity="0.9" />
-              <stop offset="100%" stopColor={ERROR_COLOR} stopOpacity="0.6" />
-            </linearGradient>
-            <filter id="bar-glow" x="-20%" y="-50%" width="140%" height="200%">
-              <feGaussianBlur in="SourceGraphic" stdDeviation="2" result="blur" />
-              <feMerge>
-                <feMergeNode in="blur" />
-                <feMergeNode in="SourceGraphic" />
-              </feMerge>
-            </filter>
-          </defs>
-
-          {/* Timeline header */}
-          <Group top={0}>
-            <rect
-              x={0}
-              y={0}
-              width={width}
-              height={HEADER_HEIGHT}
-              fill="var(--muted-foreground)"
-              opacity={0.1}
-            />
-            <text
-              x={INDENT_BASE}
-              y={HEADER_HEIGHT / 2}
-              dominantBaseline="central"
-              fontSize={11}
-              fontFamily="var(--font-sans)"
-              fontWeight="600"
-              fill="var(--muted-foreground)"
-              className="select-none"
+    <div className="flex h-full min-h-0 flex-col" aria-label="Trace waterfall">
+      <div
+        className="grid shrink-0 border-b border-border/50 bg-muted py-3 text-xs font-medium text-trace/70"
+        style={{ gridTemplateColumns }}
+      >
+        <span className="px-4">Operation</span>
+        <div className="relative mx-2 h-4 font-mono">
+          {Array.from({ length: tickCount + 1 }, (_, i) => (
+            <span
+              key={i}
+              className="absolute whitespace-nowrap"
+              style={{
+                left: `${(i / tickCount) * 100}%`,
+                transform:
+                  i === 0 ? undefined : i === tickCount ? "translateX(-100%)" : "translateX(-50%)",
+              }}
             >
-              Operation
-            </text>
-            {ticks.map((tick) => (
-              <Group key={tick.ns} left={LABEL_WIDTH + tick.x}>
-                <line
-                  x1={0}
-                  y1={0}
-                  x2={0}
-                  y2={HEADER_HEIGHT}
-                  stroke="var(--border)"
-                  strokeWidth={1}
-                />
-                <text
-                  x={tick.isLast ? -4 : 4}
-                  y={HEADER_HEIGHT / 2}
-                  dominantBaseline="central"
-                  textAnchor={tick.isLast ? "end" : "start"}
-                  fontSize={10}
-                  fontFamily="var(--font-mono)"
-                  fill="var(--muted-foreground)"
-                  className="select-none"
-                >
-                  {formatTick(tick.ns)}
-                </text>
-              </Group>
-            ))}
-            <line
-              x1={0}
-              y1={HEADER_HEIGHT}
-              x2={width}
-              y2={HEADER_HEIGHT}
-              stroke="var(--border)"
-              strokeWidth={1}
-            />
-          </Group>
-
-          {/* Bar area background & divider */}
-          <rect
-            x={LABEL_WIDTH}
-            y={HEADER_HEIGHT}
-            width={width - LABEL_WIDTH}
-            height={svgHeight - HEADER_HEIGHT}
-            fill="var(--muted)"
-            opacity={0.3}
-          />
-          <line
-            x1={LABEL_WIDTH}
-            y1={HEADER_HEIGHT}
-            x2={LABEL_WIDTH}
-            y2={svgHeight}
-            stroke="var(--border)"
-            strokeWidth={1}
-          />
-          {/* Tick grid lines */}
-          {ticks.map((tick) => (
-            <line
-              key={tick.ns}
-              x1={LABEL_WIDTH + tick.x}
-              y1={HEADER_HEIGHT}
-              x2={LABEL_WIDTH + tick.x}
-              y2={svgHeight}
-              stroke="var(--border)"
-              strokeWidth={1}
-            />
+              {formatTick((totalNs * i) / tickCount)}
+            </span>
           ))}
-
-          {visibleSpans.map((f, i) => {
-            const startOffset = toNsOffset(f.span.startEpochNs, baseNs);
-            const spanDurNs = f.span.duration > 0 ? f.span.duration : 0;
-            const x = xScale(Math.max(startOffset, 0));
-            const w = Math.max(xScale(spanDurNs) - xScale(0), MIN_BAR_WIDTH);
-            const y = i * ROW_HEIGHT + HEADER_HEIGHT;
-            const isSelected = selectedSpan?.spanId === f.span.spanId;
-            const isError = f.span.statusCode === "Error";
-            const serviceKey = f.span.serviceName.replace(/\W/g, "");
-            const gradId = isError ? "grad-error" : `grad-${serviceKey}`;
-            const color = isError ? ERROR_COLOR : serviceColorMap.get(f.span.serviceName)!;
-            const labelX =
-              INDENT_BASE +
-              f.depth * INDENT_PER_DEPTH +
-              TOGGLE_WIDTH +
-              SERVICE_BAR_WIDTH +
-              SERVICE_GAP;
-            const availChars = Math.floor((LABEL_WIDTH - labelX) / AVG_CHAR_WIDTH);
-            const durLabel = formatDuration(f.span.duration);
-
-            return (
-              <Group
-                key={f.span.spanId}
-                top={y}
-                className="cursor-pointer"
-                onClick={() => onSelectSpan(f.span)}
+        </div>
+      </div>
+      <ScrollArea className="min-h-0 flex-1">
+        {visibleSpans.map(({ span, depth, hasChildren }) => {
+          const isSelected = selectedSpan?.spanId === span.spanId;
+          const isError = span.statusCode === "Error";
+          const color = isError ? ERROR_COLOR : serviceColorMap.get(span.serviceName)!;
+          const start = Math.max(
+            0,
+            Math.min(100, (toNsOffset(span.startEpochNs, baseNs) / totalNs) * 100),
+          );
+          const duration = Math.max(0, Math.min(100 - start, (span.duration / totalNs) * 100));
+          const durationLabel = formatDuration(span.duration);
+          const durationLabelWidth = durationLabel.length * 7.25;
+          const barWidth = Math.max(3, (timelineWidth * duration) / 100);
+          const barStart = Math.min(timelineWidth - 3, (timelineWidth * start) / 100);
+          const labelInside = barWidth >= durationLabelWidth + 12;
+          const labelOnLeft = barStart + barWidth + durationLabelWidth + 6 > timelineWidth;
+          const durationLeft = labelInside
+            ? barStart + (barWidth - durationLabelWidth) / 2
+            : Math.max(
+                0,
+                Math.min(
+                  timelineWidth - durationLabelWidth,
+                  labelOnLeft ? barStart - durationLabelWidth - 6 : barStart + barWidth + 6,
+                ),
+              );
+          // Keep labels usable even when a trace has deeply nested instrumentation.
+          const indent = Math.min(depth * 12, labelWidth * 0.2);
+          return (
+            <div key={span.spanId} className="relative border-b border-border/30">
+              <button
+                type="button"
+                aria-label={`${span.name}, ${span.serviceName}, ${formatDuration(span.duration)}${isError ? ", Error" : ""}`}
+                aria-pressed={isSelected}
+                onClick={() => onSelectSpan(span)}
+                className={cn(
+                  "grid w-full cursor-pointer items-stretch text-left outline-none transition-colors hover:bg-trace/5 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+                  isSelected && "bg-trace/10",
+                )}
+                style={{ gridTemplateColumns }}
               >
-                {isSelected && (
-                  <rect x={0} y={0} width={width} height={ROW_HEIGHT} fill={color} opacity={0.08} />
-                )}
-
-                <rect
-                  x={0}
-                  y={0}
-                  width={width}
-                  height={ROW_HEIGHT}
-                  fill="transparent"
-                  className="opacity-0 transition-opacity hover:opacity-100"
-                />
-
-                {f.depth > 0 && (
-                  <line
-                    x1={INDENT_BASE + (f.depth - 1) * INDENT_PER_DEPTH + 4}
-                    y1={0}
-                    x2={INDENT_BASE + (f.depth - 1) * INDENT_PER_DEPTH + 4}
-                    y2={ROW_HEIGHT}
-                    stroke={color}
-                    strokeWidth={1}
-                    opacity={0.15}
-                  />
-                )}
-
-                {f.hasChildren && (
-                  <text
-                    x={INDENT_BASE + f.depth * INDENT_PER_DEPTH + TOGGLE_WIDTH / 2}
-                    y={ROW_HEIGHT / 2}
-                    dominantBaseline="central"
-                    textAnchor="middle"
-                    fontSize={9}
-                    fill="var(--muted-foreground)"
-                    className="cursor-pointer select-none"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleToggleCollapse(f.span.spanId);
-                    }}
-                  >
-                    {collapsedSet.has(f.span.spanId) ? "▶" : "▼"}
-                  </text>
-                )}
-
-                <rect
-                  x={INDENT_BASE + f.depth * INDENT_PER_DEPTH + TOGGLE_WIDTH}
-                  y={ROW_HEIGHT / 2 - 6}
-                  width={SERVICE_BAR_WIDTH}
-                  height={12}
-                  rx={1}
-                  fill={color}
-                />
-
-                <text
-                  x={labelX}
-                  y={ROW_HEIGHT / 2}
-                  dominantBaseline="central"
-                  fontSize={11}
-                  fontFamily="var(--font-sans)"
-                  fill="var(--foreground)"
-                  opacity={isSelected ? 1 : 0.8}
-                  className="select-none"
-                  onMouseEnter={(e) => handleMouseEnter(e, f.span)}
-                  onMouseLeave={hideTooltip}
+                <span
+                  className="flex min-w-0 items-center gap-2 py-0.5 pr-3"
+                  style={{ paddingLeft: 40 + indent }}
                 >
-                  {truncate(f.span.name, availChars)}
-                </text>
-
-                <rect
-                  x={LABEL_WIDTH + x}
-                  y={BAR_PADDING}
-                  width={w}
-                  height={ROW_HEIGHT - BAR_PADDING * 2}
-                  rx={3}
-                  fill={`url(#${gradId})`}
-                  filter={isSelected ? "url(#bar-glow)" : undefined}
-                />
-
-                {(() => {
-                  const inside = w > 50;
-                  const placeLeft = !inside && x + w / 2 > barWidth / 2;
-                  return (
-                    <text
-                      x={
-                        inside
-                          ? LABEL_WIDTH + x + w / 2
-                          : placeLeft
-                            ? LABEL_WIDTH + x - 4
-                            : LABEL_WIDTH + x + w + 4
-                      }
-                      y={ROW_HEIGHT / 2}
-                      dominantBaseline="central"
-                      textAnchor={inside ? "middle" : placeLeft ? "end" : "start"}
-                      fontSize={10}
-                      fontFamily="var(--font-mono)"
-                      fontWeight="500"
-                      fill={inside ? "white" : "var(--muted-foreground)"}
-                      opacity={inside ? 0.9 : 1}
-                      className="select-none"
+                  <span className="h-7 w-1 shrink-0 rounded-full" style={{ background: color }} />
+                  <span className="flex min-w-0 flex-1 flex-col">
+                    <span className="truncate text-sm font-medium" title={span.name}>
+                      {span.name}
+                    </span>
+                    <span className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+                      <span className="min-w-0 flex-1 truncate" title={span.serviceName}>
+                        {span.serviceName}
+                      </span>
+                      {isError && <span className="shrink-0 text-destructive">Error</span>}
+                    </span>
+                  </span>
+                </span>
+                <span
+                  className="relative min-w-0 border-l border-border/50 bg-muted/30"
+                  aria-hidden="true"
+                >
+                  <span className="absolute inset-x-2 inset-y-0">
+                    {Array.from({ length: tickCount + 1 }, (_, i) => (
+                      <span
+                        key={i}
+                        className="absolute inset-y-0 border-l border-border/50"
+                        style={{ left: `${(i / tickCount) * 100}%` }}
+                      />
+                    ))}
+                    <span
+                      className="absolute top-1/2 h-4 -translate-y-1/2 rounded-sm"
+                      style={{
+                        left: `min(${start}%, calc(100% - 3px))`,
+                        width: `max(3px, ${duration}%)`,
+                        background: `linear-gradient(to right, color-mix(in oklch, ${color} 90%, transparent), color-mix(in oklch, ${color} 60%, transparent))`,
+                      }}
+                    />
+                    <span
+                      className={cn(
+                        "absolute top-1/2 -translate-y-1/2 whitespace-nowrap text-center font-mono text-xs tabular-nums",
+                        labelInside ? "text-white" : "text-muted-foreground",
+                      )}
+                      style={{ left: durationLeft, width: durationLabelWidth }}
                     >
-                      {durLabel}
-                    </text>
-                  );
-                })()}
-              </Group>
-            );
-          })}
-        </svg>
+                      {durationLabel}
+                    </span>
+                  </span>
+                </span>
+              </button>
+              {hasChildren && (
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  className="absolute top-2"
+                  style={{ left: 12 + indent }}
+                  aria-label={`${collapsedSet.has(span.spanId) ? "Expand" : "Collapse"} ${span.name}`}
+                  aria-expanded={!collapsedSet.has(span.spanId)}
+                  onClick={() =>
+                    setCollapsedSet((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(span.spanId)) next.delete(span.spanId);
+                      else next.add(span.spanId);
+                      return next;
+                    })
+                  }
+                >
+                  {collapsedSet.has(span.spanId) ? <ChevronRight /> : <ChevronDown />}
+                </Button>
+              )}
+            </div>
+          );
+        })}
       </ScrollArea>
-
-      {tooltipOpen && tooltipData && (
-        <TooltipWithBounds
-          left={tooltipLeft}
-          top={tooltipTop}
-          unstyled
-          applyPositionStyle
-          className="pointer-events-none z-50 flex flex-col items-center gap-0.5 whitespace-nowrap rounded-md bg-accent px-3 py-1.5 text-xs text-foreground shadow-sm"
-        >
-          <span className="opacity-60">{tooltipData.service}</span>
-          <span>{tooltipData.name}</span>
-        </TooltipWithBounds>
-      )}
     </div>
   );
-}
-
-function truncate(s: string, maxLen: number): string {
-  if (s.length <= maxLen) return s;
-  return s.slice(0, Math.max(maxLen - 1, 0)) + "\u2026";
 }

@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { CopyJsonButton } from "@/components/ui/copy-json-button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { formatDuration, shortId } from "@/lib/format";
+import { traceStatusTone } from "@/lib/tones";
 import { downloadJson } from "@/lib/export";
 import { useTraceSpans } from "@/hooks/use-trace-spans";
 import { SpanWaterfall } from "./span-waterfall";
@@ -21,24 +22,43 @@ import { useState } from "react";
 export function TraceDetail() {
   const { trace, selectTrace: setSelected } = useTraceSelection();
   const { navigateToLogs } = useRelatedSignals();
-  const [selectedSpan, setSelectedSpan] = useState<SpanData | null>(null);
+  const [selectedSpanId, setSelectedSpanId] = useState<string | null>(null);
   // The trace list only loads summaries (see use-initial-load.ts); backfill
   // this trace's full span data the moment its detail view is open.
   useTraceSpans(trace);
 
   if (!trace) return null;
+  const selectedSpan = trace.spans.find((span) => span.spanId === selectedSpanId) ?? null;
 
   return (
     <DetailPanel
       onClose={() => setSelected(null)}
       header={
         <>
-          <span className="font-semibold text-foreground">
-            {trace.rootSpan?.name ?? trace.spans[0]?.name}
+          <span
+            className="max-w-[140px] truncate font-semibold text-foreground sm:max-w-[280px] lg:max-w-[400px]"
+            title={trace.rootSpan?.name ?? trace.spans[0]?.name}
+          >
+            {trace.rootSpan?.name ?? trace.spans[0]?.name ?? "Trace"}
           </span>
-          <span className="font-mono text-xs text-muted-foreground">{shortId(trace.traceId)}</span>
-          <Pill tone="trace">{trace.spanCount} spans</Pill>
-          <span className="font-mono text-xs text-trace">{formatDuration(trace.duration)}</span>
+          <span
+            className="hidden font-mono text-xs text-muted-foreground sm:inline"
+            title={trace.traceId}
+          >
+            {shortId(trace.traceId)}
+          </span>
+          <span
+            className="max-w-[160px] truncate text-xs text-muted-foreground"
+            title={trace.serviceName}
+          >
+            {trace.serviceName}
+          </span>
+          <Pill tone="trace" className="shrink-0 whitespace-nowrap">
+            {trace.spanCount} spans
+          </Pill>
+          <span className="shrink-0 font-mono text-xs text-trace">
+            {formatDuration(trace.duration)}
+          </span>
         </>
       }
       actions={
@@ -70,13 +90,17 @@ export function TraceDetail() {
         </>
       }
     >
-      <div className="flex flex-1 overflow-hidden">
-        <div className="flex-1 overflow-hidden">
-          <SpanWaterfall trace={trace} onSelectSpan={setSelectedSpan} selectedSpan={selectedSpan} />
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden xl:flex-row">
+        <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
+          <SpanWaterfall
+            trace={trace}
+            onSelectSpan={(span) => setSelectedSpanId(span.spanId)}
+            selectedSpan={selectedSpan}
+          />
         </div>
         {selectedSpan && (
-          <div className="w-[420px] border-l border-border/50">
-            <SpanDetail span={selectedSpan} onClose={() => setSelectedSpan(null)} />
+          <div className="h-[45%] min-h-0 shrink-0 border-t border-border/50 xl:h-auto xl:w-[420px] xl:border-t-0 xl:border-l">
+            <SpanDetail span={selectedSpan} onClose={() => setSelectedSpanId(null)} />
           </div>
         )}
       </div>
@@ -112,6 +136,7 @@ function SpanDetail({ span, onClose }: { span: SpanData; onClose: () => void }) 
           variant="ghost"
           size="icon-xs"
           onClick={onClose}
+          aria-label="Close span details"
           className="text-muted-foreground hover:text-foreground"
         >
           <X className="h-3 w-3" />
@@ -148,7 +173,11 @@ function SpanDetail({ span, onClose }: { span: SpanData; onClose: () => void }) 
             <Field
               action={action("status_code", span.statusCode)}
               label="Status"
-              value={span.statusCode}
+              value={
+                <Pill tone={traceStatusTone(span.statusCode)} dot>
+                  {span.statusCode}
+                </Pill>
+              }
             />
             {span.statusMessage && (
               <Field
