@@ -23,6 +23,7 @@ describe("SpanWaterfall interactions", () => {
     render(<SpanWaterfall trace={trace} selectedSpan={null} onSelectSpan={select} />);
     fireEvent.click(screen.getByRole("button", { name: "Collapse checkout" }));
     expect(screen.queryByRole("button", { name: /payment,/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: "payment timeline" })).toBeNull();
     expect(screen.getByRole("button", { name: /background job,/ })).toBeTruthy();
     expect(select).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Expand checkout" }));
@@ -50,18 +51,6 @@ describe("SpanWaterfall interactions", () => {
     render(<SpanWaterfall trace={trace} selectedSpan={null} onSelectSpan={select} />);
     fireEvent.click(screen.getByRole("button", { name: "payment timeline" }));
     expect(select).toHaveBeenCalledWith(child);
-  });
-
-  it("synchronizes vertical scrolling without moving the timeline horizontally", () => {
-    render(<SpanWaterfall trace={trace} selectedSpan={null} onSelectSpan={vi.fn()} />);
-    const tree = screen.getByLabelText("Span tree");
-    const timeline = screen.getByLabelText("Span timeline");
-    fireEvent.scroll(tree, { target: { scrollTop: 64, scrollLeft: 120 } });
-    expect(timeline.scrollTop).toBe(64);
-    expect(timeline.scrollLeft).toBe(0);
-    fireEvent.scroll(timeline, { target: { scrollTop: 160 } });
-    expect(tree.scrollTop).toBe(160);
-    expect(tree.scrollLeft).toBe(120);
   });
 
   it("keeps sub-millisecond spans visible on the full multi-root trace range", () => {

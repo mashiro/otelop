@@ -1,8 +1,9 @@
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { useParentSize } from "@visx/responsive";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
+import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
+import { ScrollArea as ScrollAreaPrimitive } from "@base-ui/react/scroll-area";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { formatDuration, createDurationFormatter } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -87,8 +88,6 @@ export function SpanWaterfall(props: Props) {
 }
 
 function WaterfallInner({ trace, onSelectSpan, selectedSpan, width }: Props & { width: number }) {
-  const treeViewport = useRef<HTMLDivElement>(null);
-  const timelineViewport = useRef<HTMLDivElement>(null);
   const flatSpans = useMemo(() => buildTree(trace.spans), [trace.spans]);
   const [collapsedSet, setCollapsedSet] = useState<Set<string>>(new Set());
   const visibleSpans = useMemo(() => {
@@ -150,94 +149,80 @@ function WaterfallInner({ trace, onSelectSpan, selectedSpan, width }: Props & { 
           ))}
         </div>
       </div>
-      <div className="grid min-h-0 flex-1" style={{ gridTemplateColumns }}>
-        <ScrollArea
-          className="min-h-0 min-w-0"
-          scrollBarOrientation="horizontal"
-          viewportProps={{
-            ref: treeViewport,
-            "aria-label": "Span tree",
-            onScroll: (event) => {
-              const other = timelineViewport.current;
-              if (other && other.scrollTop !== event.currentTarget.scrollTop)
-                other.scrollTop = event.currentTarget.scrollTop;
-            },
-          }}
-        >
-          <div className="w-max min-w-full pb-3">
-            {visibleSpans.map(({ span, depth, hasChildren }) => {
-              const isSelected = selectedSpan?.spanId === span.spanId;
-              const isError = span.statusCode === "Error";
-              const color = isError ? ERROR_COLOR : serviceColorMap.get(span.serviceName)!;
-              const indent = depth * 12;
-              return (
-                <div key={span.spanId} className="relative h-8 border-b border-border/30">
-                  <Tooltip>
-                    <TooltipTrigger
-                      delay={0}
-                      type="button"
-                      aria-label={`${span.name}, ${span.serviceName}, ${formatDuration(span.duration)}${isError ? ", Error" : ""}`}
-                      aria-pressed={isSelected}
-                      onClick={() => onSelectSpan(span)}
-                      className={cn(
-                        "flex h-full w-full cursor-pointer items-center gap-2 pr-3 text-left outline-none transition-colors hover:bg-trace/5 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
-                        isSelected && "bg-trace/10",
+      <ScrollArea className="min-h-0 flex-1" aria-label="Span rows">
+        <div className="grid min-h-full" style={{ gridTemplateColumns }}>
+          <ScrollAreaPrimitive.Root className="relative flex min-w-0 flex-col">
+            <ScrollAreaPrimitive.Viewport
+              aria-label="Span tree"
+              className="flex-1 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+            >
+              <ScrollAreaPrimitive.Content className="w-max min-w-full pb-3">
+                {visibleSpans.map(({ span, depth, hasChildren }) => {
+                  const isSelected = selectedSpan?.spanId === span.spanId;
+                  const isError = span.statusCode === "Error";
+                  const color = isError ? ERROR_COLOR : serviceColorMap.get(span.serviceName)!;
+                  const indent = depth * 12;
+                  return (
+                    <div key={span.spanId} className="relative h-8 border-b border-border/30">
+                      <Tooltip>
+                        <TooltipTrigger
+                          delay={0}
+                          type="button"
+                          aria-label={`${span.name}, ${span.serviceName}, ${formatDuration(span.duration)}${isError ? ", Error" : ""}`}
+                          aria-pressed={isSelected}
+                          onClick={() => onSelectSpan(span)}
+                          className={cn(
+                            "flex h-full w-full cursor-pointer items-center gap-2 pr-3 text-left outline-none transition-colors hover:bg-trace/5 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+                            isSelected && "bg-trace/10",
+                          )}
+                          style={{ paddingLeft: 40 + indent }}
+                        >
+                          <span
+                            className="h-4 w-1 shrink-0 rounded-full"
+                            style={{ background: color }}
+                          />
+                          <span className="whitespace-nowrap text-sm">{span.name}</span>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <span className="flex min-w-0 flex-col gap-0.5">
+                            <span className="break-words">{span.name}</span>
+                            <span className="break-words text-muted-foreground">
+                              {span.serviceName}
+                            </span>
+                          </span>
+                        </TooltipContent>
+                      </Tooltip>
+                      {hasChildren && (
+                        <Button
+                          variant="ghost"
+                          size="icon-xs"
+                          className="absolute top-1"
+                          style={{ left: 12 + indent }}
+                          aria-label={`${collapsedSet.has(span.spanId) ? "Expand" : "Collapse"} ${span.name}`}
+                          aria-expanded={!collapsedSet.has(span.spanId)}
+                          onClick={() =>
+                            setCollapsedSet((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(span.spanId)) next.delete(span.spanId);
+                              else next.add(span.spanId);
+                              return next;
+                            })
+                          }
+                        >
+                          {collapsedSet.has(span.spanId) ? <ChevronRight /> : <ChevronDown />}
+                        </Button>
                       )}
-                      style={{ paddingLeft: 40 + indent }}
-                    >
-                      <span
-                        className="h-4 w-1 shrink-0 rounded-full"
-                        style={{ background: color }}
-                      />
-                      <span className="whitespace-nowrap text-sm">{span.name}</span>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <span className="flex min-w-0 flex-col gap-0.5">
-                        <span className="break-words">{span.name}</span>
-                        <span className="break-words text-muted-foreground">
-                          {span.serviceName}
-                        </span>
-                      </span>
-                    </TooltipContent>
-                  </Tooltip>
-                  {hasChildren && (
-                    <Button
-                      variant="ghost"
-                      size="icon-xs"
-                      className="absolute top-1"
-                      style={{ left: 12 + indent }}
-                      aria-label={`${collapsedSet.has(span.spanId) ? "Expand" : "Collapse"} ${span.name}`}
-                      aria-expanded={!collapsedSet.has(span.spanId)}
-                      onClick={() =>
-                        setCollapsedSet((prev) => {
-                          const next = new Set(prev);
-                          if (next.has(span.spanId)) next.delete(span.spanId);
-                          else next.add(span.spanId);
-                          return next;
-                        })
-                      }
-                    >
-                      {collapsedSet.has(span.spanId) ? <ChevronRight /> : <ChevronDown />}
-                    </Button>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </ScrollArea>
-        <ScrollArea
-          className="min-h-0 min-w-0 border-l border-border/50 bg-muted/30"
-          viewportProps={{
-            ref: timelineViewport,
-            "aria-label": "Span timeline",
-            onScroll: (event) => {
-              const other = treeViewport.current;
-              if (other && other.scrollTop !== event.currentTarget.scrollTop)
-                other.scrollTop = event.currentTarget.scrollTop;
-            },
-          }}
-        >
-          <div className="pb-3">
+                    </div>
+                  );
+                })}
+              </ScrollAreaPrimitive.Content>
+            </ScrollAreaPrimitive.Viewport>
+            <ScrollBar orientation="horizontal" className="sticky! bottom-0 -mt-2.5 shrink-0" />
+          </ScrollAreaPrimitive.Root>
+          <div
+            className="min-w-0 border-l border-border/50 bg-muted/30 pb-3"
+            aria-label="Span timeline"
+          >
             {visibleSpans.map(({ span }) => {
               const isSelected = selectedSpan?.spanId === span.spanId;
               const isError = span.statusCode === "Error";
@@ -308,8 +293,8 @@ function WaterfallInner({ trace, onSelectSpan, selectedSpan, width }: Props & { 
               );
             })}
           </div>
-        </ScrollArea>
-      </div>
+        </div>
+      </ScrollArea>
     </div>
   );
 }
