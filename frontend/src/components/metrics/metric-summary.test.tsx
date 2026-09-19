@@ -31,7 +31,7 @@ describe("MetricSummary", () => {
       />,
     );
 
-    expect(screen.getByText("Increase · 5m")).toBeTruthy();
+    expect(screen.getByText("Increase · 5 minutes")).toBeTruthy();
     expect(screen.queryByText(/Since observing/)).toBeNull();
   });
 
@@ -290,12 +290,12 @@ describe("MetricSummary", () => {
       />,
     );
 
-    expect(screen.getByText("Distribution · 1h")).toBeTruthy();
+    expect(screen.getByText("Distribution · 1 hour")).toBeTruthy();
     expect(screen.getByText("100")).toBeTruthy();
     for (const label of ["Average", "Median", "P90", "P95", "P99", "Min", "Max"]) {
       expect(screen.getByText(label)).toBeTruthy();
     }
-    expect(screen.queryByText("Latest · 1h")).toBeNull();
+    expect(screen.queryByText("Latest · 1 hour")).toBeNull();
   });
 
   it("renders histogram statistics per selected breakdown group", () => {

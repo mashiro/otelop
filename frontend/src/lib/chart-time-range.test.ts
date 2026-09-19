@@ -15,17 +15,18 @@ import {
 } from "./chart-time-range";
 
 describe("CHART_TIME_RANGES", () => {
-  it("lists 1m, 5m, 15m, 30m, 1h, 3h, 6h, 12h, 24h, all with an All label", () => {
+  it("lists 1m, 5m, 15m, 30m, 1h, 3h, 6h, 12h, 24h, 3d, all with an All label", () => {
     expect(CHART_TIME_RANGES).toEqual([
-      { value: "1m", label: "1m" },
-      { value: "5m", label: "5m" },
-      { value: "15m", label: "15m" },
-      { value: "30m", label: "30m" },
-      { value: "1h", label: "1h" },
-      { value: "3h", label: "3h" },
-      { value: "6h", label: "6h" },
-      { value: "12h", label: "12h" },
-      { value: "24h", label: "24h" },
+      { value: "1m", label: "1 minute" },
+      { value: "5m", label: "5 minutes" },
+      { value: "15m", label: "15 minutes" },
+      { value: "30m", label: "30 minutes" },
+      { value: "1h", label: "1 hour" },
+      { value: "3h", label: "3 hours" },
+      { value: "6h", label: "6 hours" },
+      { value: "12h", label: "12 hours" },
+      { value: "24h", label: "1 day" },
+      { value: "3d", label: "3 days" },
       { value: "all", label: "All" },
     ]);
   });
@@ -46,6 +47,7 @@ describe("rangeToMs", () => {
     expect(rangeToMs("6h")).toBe(6 * 60 * 60_000);
     expect(rangeToMs("12h")).toBe(12 * 60 * 60_000);
     expect(rangeToMs("24h")).toBe(24 * 60 * 60_000);
+    expect(rangeToMs("3d")).toBe(259_200_000);
   });
 });
 
@@ -54,7 +56,7 @@ describe("rangeToFrom", () => {
     expect(rangeToFrom("all")).toBeUndefined();
   });
 
-  it.each<ChartTimeRange>(["1m", "5m", "15m", "30m", "1h", "3h", "6h", "12h", "24h"])(
+  it.each<ChartTimeRange>(["1m", "5m", "15m", "30m", "1h", "3h", "6h", "12h", "24h", "3d"])(
     "subtracts the %s window from now",
     (range) => {
       const before = Temporal.Now.instant();
@@ -98,7 +100,7 @@ describe("timeRangeDomain", () => {
     expect(domain).toEqual([new Date("2024-01-01T00:15:00Z"), new Date("2024-01-01T00:20:00Z")]);
   });
 
-  it.each<ChartTimeRange>(["1m", "15m", "6h", "24h"])(
+  it.each<ChartTimeRange>(["1m", "15m", "6h", "24h", "3d"])(
     "computes a %s window ending at the max timestamp",
     (range) => {
       const max = new Date("2024-01-01T00:30:00Z");
@@ -126,6 +128,7 @@ describe("bucketSecondsForRange", () => {
     expect(bucketSecondsForRange("12h")).toBe(288);
     // 24h / 150 = 576s.
     expect(bucketSecondsForRange("24h")).toBe(576);
+    expect(bucketSecondsForRange("3d")).toBe(1728);
   });
 
   it("clamps to a minimum of 1 second", () => {

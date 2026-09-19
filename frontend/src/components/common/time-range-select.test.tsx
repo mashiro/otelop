@@ -15,10 +15,10 @@ describe("TimeRangeSelect", () => {
     expect(screen.queryByText("all")).toBeNull();
   });
 
-  it("shows '1h' when range is 1h", () => {
+  it("shows '1 hour' when range is 1h", () => {
     render(<TimeRangeSelect range="1h" onRangeChange={() => {}} tone="trace" />);
 
-    expect(screen.getByText("1h")).toBeTruthy();
+    expect(screen.getByText("1 hour")).toBeTruthy();
   });
 
   it("shows the 'Custom' label when range is null", () => {
