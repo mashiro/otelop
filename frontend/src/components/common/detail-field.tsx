@@ -54,7 +54,7 @@ export function Section({
   return (
     <div className="group/filter-field">
       <div className="mb-2 flex items-center justify-between">
-        <h4 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+        <h4 className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
           {title}
         </h4>
         {action}

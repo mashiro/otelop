@@ -56,6 +56,14 @@
   --radius-2xl: calc(var(--radius) * 1.8);
   --radius-3xl: calc(var(--radius) * 2.2);
   --radius-4xl: calc(var(--radius) * 2.6);
+  /* Compact table/tab typography (10px / 11px) that has no built-in scale step. */
+  --text-3xs: 0.625rem;
+  --text-2xs: 0.6875rem;
+  /* Signal-tone glow effects. Pair with `shadow-{tone}/20` or
+     `drop-shadow-{tone}/70` so the glow color follows the active theme
+     token instead of a hardcoded oklch copy of it. */
+  --shadow-glow: 0 0 12px var(--tw-shadow-color, currentColor);
+  --drop-shadow-glow: 0 0 4px var(--tw-drop-shadow-color, currentColor);
 }
 
 :root {

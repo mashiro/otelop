@@ -141,24 +141,25 @@ export function TraceList() {
           />
           <Table>
             <TableHeader>
-              <TableRow className="border-b border-border/50 bg-muted hover:bg-muted">
-                <TableHead className="text-trace/70">Service</TableHead>
-                <TableHead className="text-trace/70">Name</TableHead>
-                <TableHead className="text-trace/70">Trace ID</TableHead>
-                <TableHead className="text-right text-trace/70">Spans</TableHead>
-                <TableHead className="text-right text-trace/70">Duration</TableHead>
-                <TableHead className="w-[110px] text-trace/70">Started</TableHead>
-                <TableHead className="text-trace/70">Status</TableHead>
+              <TableRow>
+                <TableHead tone="trace">Service</TableHead>
+                <TableHead tone="trace">Name</TableHead>
+                <TableHead tone="trace">Trace ID</TableHead>
+                <TableHead className="text-right" tone="trace">
+                  Spans
+                </TableHead>
+                <TableHead className="text-right" tone="trace">
+                  Duration
+                </TableHead>
+                <TableHead className="w-27.5" tone="trace">
+                  Started
+                </TableHead>
+                <TableHead tone="trace">Status</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {renderWindow.visible.map((trace, idx) => (
-                <TraceRow
-                  key={trace.traceId}
-                  trace={trace}
-                  index={idx}
-                  onSelect={setSelectedTrace}
-                />
+              {renderWindow.visible.map((trace) => (
+                <TraceRow key={trace.traceId} trace={trace} onSelect={setSelectedTrace} />
               ))}
             </TableBody>
           </Table>
@@ -175,31 +176,28 @@ export function TraceList() {
 
 interface TraceRowProps {
   trace: TraceData;
-  index: number;
   onSelect: (trace: TraceData) => void;
 }
 
 // Row bail-out is provided by React Compiler.
-function TraceRow({ trace, index, onSelect }: TraceRowProps) {
+function TraceRow({ trace, onSelect }: TraceRowProps) {
   const status = trace.rootSpan?.statusCode ?? "Unset";
   return (
-    <TableRow
-      className="stagger-row cursor-pointer border-b border-border/30 transition-colors hover:bg-trace/5"
-      style={{ animationDelay: `${Math.min(index * 20, 200)}ms` }}
-      onClick={() => onSelect(trace)}
-    >
-      <TableCell className="font-medium">{trace.serviceName || "-"}</TableCell>
-      <TableCell className="text-foreground/80">
+    <TableRow tone="trace" interactive stagger onClick={() => onSelect(trace)}>
+      <TableCell emphasis="strong">{trace.serviceName || "-"}</TableCell>
+      <TableCell emphasis="secondary">
         {trace.rootSpan?.name ?? trace.spans[0]?.name ?? "-"}
       </TableCell>
-      <TableCell className="font-mono text-xs text-muted-foreground">
+      <TableCell variant="mono" emphasis="muted">
         {shortId(trace.traceId)}
       </TableCell>
-      <TableCell className="text-right font-mono text-xs">{trace.spanCount}</TableCell>
-      <TableCell className="text-right font-mono text-xs text-trace">
+      <TableCell variant="mono" align="right">
+        {trace.spanCount}
+      </TableCell>
+      <TableCell variant="mono" tone="trace" align="right">
         {formatDuration(trace.duration)}
       </TableCell>
-      <TableCell className="font-mono text-xs text-muted-foreground">
+      <TableCell variant="mono" emphasis="muted">
         {formatTimestamp(trace.startTime)}
       </TableCell>
       <TableCell>

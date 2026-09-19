@@ -63,10 +63,9 @@ function TraceDetailView({ trace, onClose }: { trace: TraceData; onClose: () => 
           <HelpTooltip content="Download trace as JSON">
             <Button
               aria-label="Download trace as JSON"
-              variant="ghost"
+              variant="ghost-muted"
               size="sm"
               onClick={() => downloadJson(trace, `trace-${trace.traceId.slice(0, 8)}.json`)}
-              className="text-muted-foreground hover:text-foreground"
             >
               <Download className="h-3.5 w-3.5" />
             </Button>
@@ -75,9 +74,9 @@ function TraceDetailView({ trace, onClose }: { trace: TraceData; onClose: () => 
             <Button
               aria-label="View related logs"
               variant="ghost"
+              tone="log"
               size="sm"
               onClick={() => navigateToLogs(trace.traceId)}
-              className="gap-1.5 text-xs text-log hover:text-log"
             >
               <FileText className="h-3.5 w-3.5" />
               Logs
@@ -97,7 +96,7 @@ function TraceDetailView({ trace, onClose }: { trace: TraceData; onClose: () => 
           />
         </div>
         {selectedSpan && (
-          <div className="h-[45%] min-h-0 shrink-0 border-t border-border/50 xl:h-auto xl:w-[360px] xl:border-t-0 xl:border-l">
+          <div className="h-[45%] min-h-0 shrink-0 border-t border-border/50 xl:h-auto xl:w-90 xl:border-t-0 xl:border-l">
             <SpanDetail
               key={selectedSpan.spanId}
               span={selectedSpan}
@@ -147,10 +146,9 @@ function SpanDetail({
           <CopyJsonButton data={span} size="xs" />
           <Button
             aria-label="Close span details"
-            variant="ghost"
+            variant="ghost-muted"
             size="icon-xs"
             onClick={onClose}
-            className="text-muted-foreground hover:text-foreground"
           >
             <X className="h-3 w-3" />
           </Button>

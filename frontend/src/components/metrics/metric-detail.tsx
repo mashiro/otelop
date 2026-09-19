@@ -174,24 +174,17 @@ export function MetricDetailBody({ metric }: { metric: MetricData }) {
 
           <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-3">
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              <span className="text-3xs font-semibold uppercase tracking-wider text-muted-foreground">
                 Breakdown
               </span>
               <Tabs value={tabValue} onValueChange={setPickedId}>
-                <TabsList className="h-8 bg-muted/50">
+                <TabsList size="sm">
                   {facets.map((f) => (
-                    <TabsTrigger
-                      key={facetId(f)}
-                      value={facetId(f)}
-                      className="h-7 px-3 text-xs data-active:bg-metric/15 data-active:text-metric"
-                    >
+                    <TabsTrigger key={facetId(f)} value={facetId(f)} size="sm" tone="metric">
                       {f.label}
                     </TabsTrigger>
                   ))}
-                  <TabsTrigger
-                    value={ALL_FACET}
-                    className="h-7 px-3 text-xs data-active:bg-metric/15 data-active:text-metric"
-                  >
+                  <TabsTrigger value={ALL_FACET} size="sm" tone="metric">
                     All
                   </TabsTrigger>
                 </TabsList>
@@ -217,7 +210,7 @@ export function MetricDetailBody({ metric }: { metric: MetricData }) {
           />
 
           <div className="mb-4 rounded-lg border border-border/30 bg-muted/50 p-4">
-            <div className="h-[336px]">
+            <div className="h-84">
               <MetricChart
                 metric={stableMetric}
                 facet={effectiveFacet}
@@ -239,16 +232,11 @@ export function MetricDetailBody({ metric }: { metric: MetricData }) {
         </div>
       </ScrollArea>
       {selectedDp && (
-        <div className="w-[420px] border-l border-border/50">
+        <div className="w-105 border-l border-border/50">
           <div className="flex h-full flex-col">
             <div className="flex items-center justify-between border-b border-border/50 px-4 py-2">
               <h3 className="text-sm font-semibold text-metric">Data Point Details</h3>
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                onClick={() => setSelectedDpId(null)}
-                className="text-muted-foreground hover:text-foreground"
-              >
+              <Button variant="ghost-muted" size="icon-xs" onClick={() => setSelectedDpId(null)}>
                 <X className="h-3 w-3" />
               </Button>
             </div>
@@ -265,8 +253,7 @@ export function MetricDetailBody({ metric }: { metric: MetricData }) {
   );
 }
 
-const headCls =
-  "px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground";
+const headCls = "px-3 py-2 text-2xs font-semibold uppercase tracking-wider text-muted-foreground";
 const numCellCls = "px-3 py-1.5 text-right font-mono text-foreground/70";
 
 function formatDistributionCell(v: number | null | undefined, unit: string): string {
@@ -295,10 +282,10 @@ export const DataPointsTable = memo(function DataPointsTable({
 
   return (
     <div>
-      <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+      <h4 className="mb-2 text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
         Data Points ({dataPoints.length})
       </h4>
-      <div className="max-h-[360px] overflow-auto rounded-md border border-border/30 bg-muted/50">
+      <div className="max-h-90 overflow-auto rounded-md border border-border/30 bg-muted/50">
         <table className="w-full text-xs">
           <thead>
             <tr className="border-b border-border/30">
@@ -328,7 +315,7 @@ export const DataPointsTable = memo(function DataPointsTable({
                     {new Date(dp.timestamp).toLocaleTimeString()}
                   </td>
                   {hasAttributes && (
-                    <td className="max-w-[250px] truncate px-3 py-1.5 font-mono text-foreground/60">
+                    <td className="max-w-62.5 truncate px-3 py-1.5 font-mono text-foreground/60">
                       {attrKey(dp.attributes) || "-"}
                     </td>
                   )}

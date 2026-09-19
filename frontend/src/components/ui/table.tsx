@@ -1,8 +1,14 @@
 "use client";
 
 import * as React from "react";
+import { cva, type VariantProps } from "class-variance-authority";
 
 import { cn } from "@/lib/utils";
+import type { SignalTone } from "@/lib/signals";
+
+// Re-exported so consumers only need one import when destructuring a
+// TableRow/TableHead's `tone` prop type alongside the table components.
+export type { SignalTone };
 
 function Table({ className, ...props }: React.ComponentProps<"table">) {
   return (
@@ -20,7 +26,10 @@ function TableHeader({ className, ...props }: React.ComponentProps<"thead">) {
   return (
     <thead
       data-slot="table-header"
-      className={cn("sticky top-0 z-10 [&_tr]:border-b", className)}
+      className={cn(
+        "sticky top-0 z-10 [&_tr]:border-b [&_tr]:border-border/50 [&_tr]:bg-muted [&_tr]:hover:bg-muted",
+        className,
+      )}
       {...props}
     />
   );
@@ -46,38 +55,147 @@ function TableFooter({ className, ...props }: React.ComponentProps<"tfoot">) {
   );
 }
 
-function TableRow({ className, ...props }: React.ComponentProps<"tr">) {
+const tableRowVariants = cva("border-b transition-colors", {
+  variants: {
+    tone: {
+      none: "hover:bg-muted/50 has-aria-expanded:bg-muted/50 data-[state=selected]:bg-muted",
+      trace: "border-border/30 hover:bg-trace/5",
+      metric: "border-border/30 hover:bg-metric/5",
+      log: "border-border/30 hover:bg-log/5",
+    },
+    interactive: {
+      true: "cursor-pointer",
+      false: "",
+    },
+    stagger: {
+      true: "stagger-row",
+      false: "",
+    },
+    selected: {
+      true: "",
+      false: "",
+    },
+  },
+  compoundVariants: [
+    { tone: "trace", selected: true, class: "bg-trace/10" },
+    { tone: "metric", selected: true, class: "bg-metric/10" },
+    { tone: "log", selected: true, class: "bg-log/10" },
+  ],
+  defaultVariants: {
+    tone: "none",
+    interactive: false,
+    stagger: false,
+    selected: false,
+  },
+});
+
+function TableRow({
+  className,
+  tone = "none",
+  interactive = false,
+  stagger = false,
+  selected = false,
+  ...props
+}: React.ComponentProps<"tr"> & VariantProps<typeof tableRowVariants>) {
   return (
     <tr
       data-slot="table-row"
-      className={cn(
-        "border-b transition-colors hover:bg-muted/50 has-aria-expanded:bg-muted/50 data-[state=selected]:bg-muted",
-        className,
-      )}
+      className={cn(tableRowVariants({ tone, interactive, stagger, selected }), className)}
       {...props}
     />
   );
 }
 
-function TableHead({ className, ...props }: React.ComponentProps<"th">) {
+const tableHeadVariants = cva(
+  "h-10 px-3 first:pl-4 last:pr-4 text-left align-middle font-medium whitespace-nowrap text-foreground [&:has([role=checkbox])]:pr-0",
+  {
+    variants: {
+      tone: {
+        none: "",
+        trace: "text-trace/70",
+        metric: "text-metric/70",
+        log: "text-log/70",
+      },
+    },
+    defaultVariants: {
+      tone: "none",
+    },
+  },
+);
+
+function TableHead({
+  className,
+  tone = "none",
+  ...props
+}: React.ComponentProps<"th"> & VariantProps<typeof tableHeadVariants>) {
   return (
-    <th
-      data-slot="table-head"
-      className={cn(
-        "h-10 px-3 first:pl-4 last:pr-4 text-left align-middle font-medium whitespace-nowrap text-foreground [&:has([role=checkbox])]:pr-0",
-        className,
-      )}
-      {...props}
-    />
+    <th data-slot="table-head" className={cn(tableHeadVariants({ tone }), className)} {...props} />
   );
 }
 
-function TableCell({ className, ...props }: React.ComponentProps<"td">) {
+const tableCellVariants = cva(
+  "px-3 py-2 first:pl-4 last:pr-4 align-middle whitespace-nowrap [&:has([role=checkbox])]:pr-0",
+  {
+    variants: {
+      // Font family/scale axis, orthogonal to `emphasis`'s color/weight axis
+      // (e.g. `mono` + `emphasis="muted"` reproduces the old "mono-muted").
+      variant: {
+        default: "",
+        mono: "font-mono text-xs",
+      },
+      emphasis: {
+        default: "",
+        strong: "font-medium",
+        secondary: "text-foreground/80",
+        muted: "text-muted-foreground",
+      },
+      // Only needed to reproduce the old "muted-xs" (`emphasis="muted"
+      // size="xs"`); `mono` already implies `text-xs` on its own.
+      size: {
+        default: "",
+        xs: "text-xs",
+      },
+      tone: {
+        none: "",
+        trace: "text-trace",
+        metric: "text-metric",
+        log: "text-log",
+      },
+      align: {
+        left: "",
+        right: "text-right",
+      },
+      truncate: {
+        true: "truncate",
+        false: "",
+      },
+    },
+    defaultVariants: {
+      variant: "default",
+      emphasis: "default",
+      size: "default",
+      tone: "none",
+      align: "left",
+      truncate: false,
+    },
+  },
+);
+
+function TableCell({
+  className,
+  variant = "default",
+  emphasis = "default",
+  size = "default",
+  tone = "none",
+  align = "left",
+  truncate = false,
+  ...props
+}: React.ComponentProps<"td"> & VariantProps<typeof tableCellVariants>) {
   return (
     <td
       data-slot="table-cell"
       className={cn(
-        "px-3 py-2 first:pl-4 last:pr-4 align-middle whitespace-nowrap [&:has([role=checkbox])]:pr-0",
+        tableCellVariants({ variant, emphasis, size, tone, align, truncate }),
         className,
       )}
       {...props}
@@ -95,4 +213,16 @@ function TableCaption({ className, ...props }: React.ComponentProps<"caption">) 
   );
 }
 
-export { Table, TableHeader, TableBody, TableFooter, TableHead, TableRow, TableCell, TableCaption };
+export {
+  Table,
+  TableHeader,
+  TableBody,
+  TableFooter,
+  TableHead,
+  TableRow,
+  TableCell,
+  TableCaption,
+  tableRowVariants,
+  tableHeadVariants,
+  tableCellVariants,
+};

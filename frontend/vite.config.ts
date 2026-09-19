@@ -3,6 +3,7 @@ import { defineConfig } from "vite-plus";
 import react, { reactCompilerPreset } from "@vitejs/plugin-react";
 import babel from "@rolldown/plugin-babel";
 import tailwindcss from "@tailwindcss/vite";
+import { shadcnOverrides, shadcnRules } from "./lint.shadcn";
 
 const generatedSources = ["src/gql/**"];
 
@@ -21,6 +22,9 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": resolve(import.meta.dirname, "./src"),
+      // class-variance-authority still imports clsx; route it to cn so the
+      // bundle carries a single class-joining implementation.
+      clsx: "cn",
     },
     dedupe: ["react", "react-dom"],
   },
@@ -41,8 +45,12 @@ export default defineConfig({
   fmt: { ignorePatterns: generatedSources },
   lint: {
     ignorePatterns: generatedSources,
-    jsPlugins: [{ name: "vite-plus", specifier: "vite-plus/oxlint-plugin" }],
-    rules: { "vite-plus/prefer-vite-plus-imports": "error" },
+    jsPlugins: [{ name: "vite-plus", specifier: "vite-plus/oxlint-plugin" }, "@shadcn/lint"],
+    rules: {
+      "vite-plus/prefer-vite-plus-imports": "error",
+      ...shadcnRules,
+    },
+    overrides: shadcnOverrides,
     options: { typeAware: true, typeCheck: true },
   },
   test: {

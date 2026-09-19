@@ -191,9 +191,8 @@ export function SignalFilterBar({ fields, numericFields, signal, label }: Signal
       })}
       {state.filters.length > 0 && (
         <Button
-          variant="ghost"
+          variant="ghost-muted"
           size="sm"
-          className="text-muted-foreground"
           onClick={() => setState((current) => ({ ...current, filters: [] }))}
         >
           <FilterX data-icon="inline-start" /> Clear filters

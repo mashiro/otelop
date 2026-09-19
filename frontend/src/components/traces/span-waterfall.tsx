@@ -164,7 +164,6 @@ function WaterfallInner({
                 : new Set(flatSpans.filter((row) => row.hasChildren).map((row) => row.span.spanId)),
             )
           }
-          className="text-xs"
         >
           {allCollapsed ? "Expand all" : "Collapse all"}
         </Button>
@@ -175,7 +174,7 @@ function WaterfallInner({
         )}
       </div>
       <div
-        className="grid h-9 shrink-0 border-b border-border text-[11px] text-muted-foreground"
+        className="grid h-9 shrink-0 border-b border-border text-2xs text-muted-foreground"
         style={{
           gridTemplateColumns,
           background: "color-mix(in srgb, var(--muted-foreground) 10%, transparent)",
@@ -193,14 +192,20 @@ function WaterfallInner({
               style={{ left: `${(i / tickCount) * 100}%` }}
             >
               <span
-                className="absolute bottom-0 h-2 border-l border-border"
-                style={{ transform: i === tickCount ? "translateX(-100%)" : undefined }}
+                className={cn(
+                  "absolute bottom-0 h-2 border-l border-border",
+                  i === tickCount && "-translate-x-full",
+                )}
               />
               <span
-                className="absolute top-1 px-1 font-mono whitespace-nowrap"
-                style={{
-                  transform: `translateX(${i === tickCount ? "-100%" : i === 0 ? "0" : "-50%"})`,
-                }}
+                className={cn(
+                  "absolute top-1 px-1 font-mono whitespace-nowrap",
+                  i === tickCount
+                    ? "-translate-x-full"
+                    : i === 0
+                      ? "translate-x-0"
+                      : "-translate-x-1/2",
+                )}
               >
                 {formatTick(viewStart + (viewDuration * i) / tickCount)}
               </span>
@@ -241,27 +246,31 @@ function WaterfallInner({
                       {depth > 0 && (
                         <span
                           aria-hidden="true"
-                          className="pointer-events-none absolute inset-y-0 w-px"
-                          style={{ left: 20 + (depth - 1) * 16, background: color, opacity: 0.15 }}
+                          className="pointer-events-none absolute inset-y-0 w-px opacity-15"
+                          style={{ left: 20 + (depth - 1) * 16, background: color }}
                         />
                       )}
                       <Tooltip>
                         <TooltipTrigger
                           delay={0}
-                          type="button"
                           aria-label={`${span.name}, ${span.serviceName}, ${formatDuration(span.duration)}${isError ? ", Error" : ""}`}
                           aria-pressed={isSelected}
                           onClick={() => onSelectSpan(span)}
-                          className={cn(
-                            "flex h-full w-full cursor-pointer items-center gap-1.5 transition-colors pr-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
-                            hoveredSpanId === span.spanId && "bg-trace/5",
-                          )}
-                          style={{
-                            paddingLeft: 36 + indent,
-                            background: isSelected
-                              ? "color-mix(in oklch, var(--trace) 10%, transparent)"
-                              : undefined,
-                          }}
+                          render={
+                            <button
+                              type="button"
+                              className={cn(
+                                "flex h-full w-full cursor-pointer items-center gap-1.5 transition-colors pr-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+                                hoveredSpanId === span.spanId && "bg-trace/5",
+                              )}
+                              style={{
+                                paddingLeft: 36 + indent,
+                                background: isSelected
+                                  ? "color-mix(in oklch, var(--trace) 10%, transparent)"
+                                  : undefined,
+                              }}
+                            />
+                          }
                         >
                           <span
                             className={cn(
@@ -289,9 +298,9 @@ function WaterfallInner({
                       </Tooltip>
                       {hasChildren && (
                         <Button
-                          variant="ghost"
+                          variant="ghost-toggle"
                           size="icon-xs"
-                          className="absolute top-1 aria-expanded:not-hover:bg-transparent"
+                          className="absolute top-1"
                           style={{ left: 8 + indent }}
                           aria-label={`${!matchingIds && collapsedSet.has(span.spanId) ? "Expand" : "Collapse"} ${span.name}`}
                           aria-expanded={matchingIds !== null || !collapsedSet.has(span.spanId)}
@@ -328,11 +337,16 @@ function WaterfallInner({
                   onClick={() => onSelectSpan(span)}
                   onMouseEnter={() => setHoveredSpanId(span.spanId)}
                   onMouseLeave={() => setHoveredSpanId(null)}
-                  className={cn(
-                    "flex h-8 w-full items-center gap-2 px-3 text-left text-xs transition-colors",
-                    hoveredSpanId === span.spanId && "bg-trace/5",
-                    selectedSpan?.spanId === span.spanId && "bg-trace/10",
-                  )}
+                  render={
+                    <button
+                      type="button"
+                      className={cn(
+                        "flex h-8 w-full items-center gap-2 px-3 text-left text-xs transition-colors",
+                        hoveredSpanId === span.spanId && "bg-trace/5",
+                        selectedSpan?.spanId === span.spanId && "bg-trace/10",
+                      )}
+                    />
+                  }
                 >
                   <span
                     className="size-2 shrink-0 rounded-full"
@@ -349,11 +363,11 @@ function WaterfallInner({
               {Array.from({ length: tickCount + 1 }, (_, i) => (
                 <span
                   key={i}
-                  className="absolute inset-y-0 border-l border-border"
-                  style={{
-                    left: `${(i / tickCount) * 100}%`,
-                    transform: i === tickCount ? "translateX(-100%)" : undefined,
-                  }}
+                  className={cn(
+                    "absolute inset-y-0 border-l border-border",
+                    i === tickCount && "-translate-x-full",
+                  )}
+                  style={{ left: `${(i / tickCount) * 100}%` }}
                 />
               ))}
             </div>
@@ -405,7 +419,7 @@ function WaterfallInner({
                   {intersects && (
                     <span className="absolute inset-y-0 inset-x-3 overflow-hidden">
                       <span
-                        className="absolute top-1/2 h-4 -translate-y-1/2 rounded-[3px]"
+                        className="absolute top-1/2 h-4 -translate-y-1/2 rounded-xs"
                         style={{
                           left: `min(${start}%, calc(100% - 3px))`,
                           width: `max(3px, ${duration}%)`,
@@ -414,13 +428,15 @@ function WaterfallInner({
                       />
                       <span
                         className={cn(
-                          "absolute top-1/2 whitespace-nowrap text-center font-mono text-[10px] font-medium tabular-nums",
+                          "absolute top-1/2 -translate-y-1/2 whitespace-nowrap text-center font-mono text-3xs font-medium tabular-nums",
                           labelInside ? "text-white/90" : "text-muted-foreground",
+                          labelInside
+                            ? "-translate-x-1/2"
+                            : labelOnLeft
+                              ? "-translate-x-full"
+                              : "translate-x-0",
                         )}
-                        style={{
-                          left: durationLeft,
-                          transform: `translate(${labelInside ? "-50%" : labelOnLeft ? "-100%" : "0"}, -50%)`,
-                        }}
+                        style={{ left: durationLeft }}
                       >
                         {durationLabel}
                       </span>

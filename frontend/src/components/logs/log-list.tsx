@@ -126,20 +126,23 @@ export function LogList() {
             />
             <Table>
               <TableHeader>
-                <TableRow className="border-b border-border/50 bg-muted hover:bg-muted">
-                  <TableHead className="w-[110px] text-log/70">Timestamp</TableHead>
-                  <TableHead className="w-[90px] text-log/70">Severity</TableHead>
-                  <TableHead className="text-log/70">Service</TableHead>
-                  <TableHead className="text-log/70">Body</TableHead>
-                  <TableHead className="text-log/70">Trace ID</TableHead>
+                <TableRow>
+                  <TableHead className="w-27.5" tone="log">
+                    Timestamp
+                  </TableHead>
+                  <TableHead className="w-22.5" tone="log">
+                    Severity
+                  </TableHead>
+                  <TableHead tone="log">Service</TableHead>
+                  <TableHead tone="log">Body</TableHead>
+                  <TableHead tone="log">Trace ID</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {renderWindow.visible.map((log, i) => (
+                {renderWindow.visible.map((log) => (
                   <LogRow
                     key={log.id}
                     log={log}
-                    index={i}
                     isSelected={selectedLog?.id === log.id}
                     onSelect={setSelectedLog}
                     onNavigateToTrace={navigateToTrace}
@@ -155,7 +158,7 @@ export function LogList() {
           </ScrollArea>
         )}
         {selectedLog && (
-          <div className="h-[45%] min-h-0 shrink-0 border-t border-border/50 xl:h-auto xl:w-[420px] xl:border-t-0 xl:border-l">
+          <div className="h-[45%] min-h-0 shrink-0 border-t border-border/50 xl:h-auto xl:w-105 xl:border-t-0 xl:border-l">
             <LogDetail
               log={selectedLog}
               onClose={() => setSelectedLog(null)}
@@ -173,22 +176,23 @@ export function LogList() {
 
 interface LogRowProps {
   log: LogData;
-  index: number;
   isSelected: boolean;
   onSelect: (log: LogData | null) => void;
   onNavigateToTrace: (traceId: string) => void;
 }
 
 // Row bail-out is provided by React Compiler.
-function LogRow({ log, index, isSelected, onSelect, onNavigateToTrace }: LogRowProps) {
+function LogRow({ log, isSelected, onSelect, onNavigateToTrace }: LogRowProps) {
   const hasTrace = !isZeroId(log.traceId);
   return (
     <TableRow
-      className={`stagger-row cursor-pointer border-b border-border/30 transition-colors hover:bg-log/5 ${isSelected ? "bg-log/10" : ""}`}
-      style={{ animationDelay: `${Math.min(index * 20, 200)}ms` }}
+      tone="log"
+      interactive
+      stagger
+      selected={isSelected}
       onClick={() => onSelect(isSelected ? null : log)}
     >
-      <TableCell className="font-mono text-xs text-muted-foreground">
+      <TableCell variant="mono" emphasis="muted">
         {formatTimestamp(log.timestamp)}
       </TableCell>
       <TableCell>
@@ -196,8 +200,8 @@ function LogRow({ log, index, isSelected, onSelect, onNavigateToTrace }: LogRowP
           {log.severityText || "UNSET"}
         </Pill>
       </TableCell>
-      <TableCell className="font-medium">{log.serviceName || "-"}</TableCell>
-      <TableCell className="max-w-[400px] truncate text-sm text-foreground/80">
+      <TableCell emphasis="strong">{log.serviceName || "-"}</TableCell>
+      <TableCell emphasis="secondary" truncate className="max-w-100">
         {log.body}
       </TableCell>
       <TableCell>
@@ -258,13 +262,12 @@ function LogDetail({
         <div className="flex items-center gap-1">
           <CopyJsonButton data={log} size="xs" />
           <Button
-            variant="ghost"
+            variant="ghost-muted"
             size="icon-xs"
             onClick={onClose}
             aria-label="Close details"
             aria-keyshortcuts="Escape"
             title="Close details (Esc)"
-            className="text-muted-foreground hover:text-foreground"
           >
             <X className="h-3 w-3" />
           </Button>
@@ -280,11 +283,10 @@ function LogDetail({
               action={
                 <HelpTooltip content="Show surrounding logs">
                   <Button
-                    variant="ghost"
+                    variant="ghost-muted"
                     size="icon-xs"
                     onClick={onShowContext}
                     aria-label="Show surrounding logs"
-                    className="text-muted-foreground hover:text-foreground"
                   >
                     <Logs />
                   </Button>
