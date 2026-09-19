@@ -7,6 +7,7 @@
 A local OpenTelemetry viewer for traces, metrics, and logs.
 Single binary, persistent local storage, browser UI.
 
+[![Release](https://img.shields.io/github/v/release/mashiro/otelop?color=14b8a6)](https://github.com/mashiro/otelop/releases)
 [![Go](https://img.shields.io/badge/go-1.27-00ADD8?logo=go&logoColor=white)](go.mod)
 [![React](https://img.shields.io/badge/react-19-61DAFB?logo=react&logoColor=white)](frontend/package.json)
 [![License](https://img.shields.io/badge/license-MIT-black)](LICENSE)
@@ -25,59 +26,42 @@ It's meant for the loop where you're writing instrumentation and just want to se
 
 ![otelop trace view](docs/images/trace.png)
 
+| Metrics | Logs |
+|---|---|
+| ![otelop metric view](docs/images/metrics.png) | ![otelop log view](docs/images/logs.png) |
+
 </div>
 
 ## Features
 
+**Receive**
+
 - Single binary with the frontend embedded
 - OTLP gRPC and HTTP receivers (built-in OpenTelemetry Collector)
 - Optional OTLP forwarding to one upstream endpoint
-- Traces, metrics, and logs in one UI
-- Server-side search, time-window navigation, and infinite scrolling for traces and logs
+
+**Store**
+
+- Embedded DuckDB storage with time-based retention and a size ceiling
+- History persists across restarts with no external setup
+
+**Explore**
+
+- Traces, metrics, and logs in one UI, updated live over WebSocket
+- Trace waterfall with a minimap, range selection, span search, errors-only view, and trace-to-logs navigation
+- Metric charts with attribute breakdowns and legend-driven series selection
+- Structured filters for traces and logs with suggestions drawn from stored data
+- Time windows from 1 minute to 3 days (or everything), with previous/next navigation and infinite scrolling
 - Log context navigation for inspecting records around a selected event
-- Embedded DuckDB storage with time-based retention
-- Live updates over WebSocket
+- Shareable URLs: the selected trace, span, metric, filters, and time window all live in the address bar
+- Keyboard shortcuts: `/` focuses search, `Esc` closes the details panel
+
+**Integrate**
+
 - GraphQL API at `/graphql`
-- Persistent history across restarts with no external setup
+- Documentation bundled in the binary (`otelop docs`), written for both humans and AI coding agents
+- `/healthz` and `/readyz` probes for Kubernetes
 - Optional self-observability for otelop's own traces, metrics, and logs
-
-## Log search
-
-Use **Add filter** to configure each condition with **Key / Operator / Value**.
-Standard keys include `trace_id`, `span_id`, `service_name`, `severity_text`,
-`severity_number`, and `body`. Attribute keys can be selected from DB-backed suggestions within the selected time
-window or entered as `attributes.key` / `resource.key`.
-Operators include equality, exclusion, contains, wildcard matching, existence,
-and numeric comparisons. Conditions are combined with AND. Click a condition to
-edit it, pause it temporarily, or remove it. Text search and conditions, including paused conditions, are recorded in the
-URL along with the time window. Opening a URL restores those conditions; a bare
-Logs URL starts with no filters. Trace-to-Logs navigation adds a trace_id filter.
-Log Details offers filter buttons for standard fields, attributes, and resource values.
-Search applies within the selected time window, including subsequent pages.
-
-You can also enter a query in the Logs search box and press Enter:
-
-```text
-attributes.http.method:GET
-attributes.http.status_code:500 AND resource.service.name:api
-attributes.user.name:"Alice Smith"
-attributes.http.route:/api/*
-attributes.error.type:*
-failed attributes.http.method:GET
-```
-
-Use `attributes.` for log attributes and `resource.` for resource attributes.
-Keys are case-sensitive; dots are part of the key. String, number, and boolean
-values match fully, ignoring case. Unquoted `*` is a wildcard; `key:*` checks
-for a non-null attribute. Double-quoted values use JSON string escaping and
-match literally, including `*`. Combine filters with spaces or `AND`.
-Free text searches body, service, severity, trace ID, and the JSON of attributes
-and resource, including nested keys and values. The same filters apply to retained and live logs.
-Prefix a filter with `-` to exclude matches, including missing keys
-(e.g. `-attributes.http.method:GET`). Numeric comparisons use
-`attributes.http.status_code:>=500` and apply only to numeric attribute values.
-Wildcard strings containing spaces use `attributes.message:~"*request failed*"`.
-OR, the NOT keyword, and grouping are not supported. Incomplete filters are treated as free text.
 
 ## Install
 
@@ -138,6 +122,52 @@ Any AI coding agent that supports OpenTelemetry can export to `otelop`, so you c
 
 - [Claude Code](https://docs.claude.com/en/docs/claude-code/monitoring-usage)
 - [Codex](https://developers.openai.com/codex/config-advanced)
+
+## Search and filters
+
+Traces and Logs share the same filter model. Search and filters apply within the selected time window, including subsequent pages, and to both retained and live data.
+
+### Filter builder
+
+Use **Add filter** to build a condition from **Key / Operator / Value**:
+
+- Standard log keys: `trace_id`, `span_id`, `service_name`, `severity_text`, `severity_number`, `body`
+- Standard trace keys: `trace_id`, `span_id`, `parent_span_id`, `service_name`, `name`, `kind`, `status_code`, `status_message`, `duration_ms`
+- Attribute keys are suggested from stored data in the selected time window, or can be typed as `attributes.key` / `resource.key`
+- Operators cover equality, exclusion, contains, wildcard matching, existence, and numeric comparisons
+- Conditions are combined with AND. Trace conditions must all match the same span
+- Click a condition to edit it, pause it temporarily, or remove it
+- The details panel offers filter buttons for standard fields, attributes, and resource values
+
+Text search, conditions (including paused ones), and the time window are recorded in the URL, so opening a URL restores them. **Logs** on a trace opens the Logs view with a `trace_id` filter applied.
+
+### Query syntax
+
+The same conditions can be typed into the search box and applied with Enter:
+
+```text
+attributes.http.method:GET
+attributes.http.status_code:500 AND resource.service.name:api
+attributes.user.name:"Alice Smith"
+attributes.http.route:/api/*
+attributes.error.type:*
+failed attributes.http.method:GET
+```
+
+| Syntax | Meaning |
+|---|---|
+| `attributes.key:value` | Signal attribute equals `value` (full match, case-insensitive) |
+| `resource.key:value` | Resource attribute equals `value` |
+| `key:/api/*` | Unquoted `*` is a wildcard |
+| `key:*` | Attribute exists (non-null) |
+| `key:"Alice Smith"` | Quoted values use JSON string escaping and match literally, including `*` |
+| `key:~"*request failed*"` | Wildcard match on a value containing spaces |
+| `key:>=500` | Numeric comparison; applies only to numeric values |
+| `-key:value` | Exclude matches, including records where the key is missing |
+| `a:1 b:2` or `a:1 AND b:2` | Combine conditions with AND |
+| `failed` | Free text |
+
+Keys are case-sensitive and dots are part of the key. String, number, and boolean values are all matched. Free text in Logs searches body, service, severity, trace ID, and the JSON of attributes and resource, including nested keys and values. `OR`, the `NOT` keyword, and grouping are not supported; incomplete filters are treated as free text.
 
 ## Endpoints
 
@@ -203,6 +233,17 @@ PID, log, and metadata files live in `$XDG_STATE_HOME/otelop/` (defaults to
 values and resolved paths. Query GraphQL `status` for the running instance's
 effective storage settings, file size, and logical signal counts.
 
+## Bundled documentation
+
+The binary ships its own documentation, matched to the installed version:
+
+```bash
+otelop docs list                        # getting-started, configuration, investigate-telemetry, troubleshooting
+otelop docs show investigate-telemetry  # print one document as Markdown
+```
+
+`investigate-telemetry` describes how to query stored traces, metrics, and logs through the GraphQL API. Point an AI coding agent at `otelop docs list` and it can inspect the telemetry of the app it is debugging on its own.
+
 ## Configuration
 
 Every configuration flag can be set three ways; `--foreground` is CLI-only.
@@ -238,7 +279,26 @@ type = "bearer"
 token = "replace-me"
 ```
 
-The matching environment variables are `OTELOP_HTTP`, `OTELOP_OTLP_GRPC`, `OTELOP_OTLP_HTTP`, `OTELOP_PROXY_URL`, `OTELOP_PROXY_PROTOCOL`, `OTELOP_PROXY_AUTH_TYPE`, `OTELOP_PROXY_AUTH_TOKEN`, `OTELOP_PROXY_AUTH_USERNAME`, `OTELOP_PROXY_AUTH_PASSWORD`, `OTELOP_PROXY_HEADERS`, `OTELOP_STORAGE_PATH`, `OTELOP_RETENTION`, `OTELOP_MAX_SIZE`, `OTELOP_RENDER_WINDOW_MAX`, `OTELOP_LOG_LEVEL`, and `OTELOP_DEBUG`.
+Each key maps to an environment variable:
+
+| Config key | Environment variable |
+|---|---|
+| `http` | `OTELOP_HTTP` |
+| `otlp_grpc` | `OTELOP_OTLP_GRPC` |
+| `otlp_http` | `OTELOP_OTLP_HTTP` |
+| `log_level` | `OTELOP_LOG_LEVEL` |
+| `debug` | `OTELOP_DEBUG` |
+| `storage.path` | `OTELOP_STORAGE_PATH` |
+| `storage.retention` | `OTELOP_RETENTION` |
+| `storage.max_size` | `OTELOP_MAX_SIZE` |
+| `ui.render_window_max` | `OTELOP_RENDER_WINDOW_MAX` |
+| `proxy.url` | `OTELOP_PROXY_URL` |
+| `proxy.protocol` | `OTELOP_PROXY_PROTOCOL` |
+| `proxy.auth.type` | `OTELOP_PROXY_AUTH_TYPE` |
+| `proxy.auth.token` | `OTELOP_PROXY_AUTH_TOKEN` |
+| `proxy.auth.username` | `OTELOP_PROXY_AUTH_USERNAME` |
+| `proxy.auth.password` | `OTELOP_PROXY_AUTH_PASSWORD` |
+| `proxy.auth.headers` | `OTELOP_PROXY_HEADERS` |
 
 When proxying is enabled, `otelop` still stores incoming telemetry locally for the UI and also forwards the same traces, metrics, and logs to the configured upstream OTLP endpoint.
 
