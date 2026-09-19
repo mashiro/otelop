@@ -8,7 +8,7 @@ import (
 
 	"github.com/urfave/cli/v3"
 
-	otelopdocs "github.com/mashiro/otelop/docs"
+	otelopdocs "github.com/mashiro/otelop/internal/docs"
 )
 
 func docsCommand() *cli.Command {
