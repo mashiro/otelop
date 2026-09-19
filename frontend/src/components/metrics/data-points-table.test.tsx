@@ -1,6 +1,7 @@
 import { describe, it, expect, afterEach, vi } from "vite-plus/test";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
-import { DataPointsTable, DataPointDetail } from "./metric-detail";
+import { DataPointsTable } from "./data-points-table";
+import { DataPointDetail } from "./data-point-detail";
 import { makeDataPoint, makeMetric } from "@/test/factories";
 
 afterEach(cleanup);

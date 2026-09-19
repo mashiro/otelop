@@ -1,3 +1,5 @@
+import type { DataPoint } from "@/types/telemetry";
+
 // Well-known metric catalog, sourced from OpenTelemetry semantic conventions.
 // github.com/open-telemetry/semantic-conventions/model/*/metrics.yaml
 //
@@ -351,6 +353,31 @@ export function resolveMetricUnit(name: string, declaredUnit: string): string {
 // render as a picker; would also blow up the chart.
 const DISCOVERED_FACET_MIN = 2;
 const DISCOVERED_FACET_MAX = 20;
+
+// Count distinct values per attribute across a metric's range-scoped data
+// points, feeding resolveMetricFacets below. Caps each attribute's tracked
+// set at DISCOVERED_FACET_MAX + 1 (not DISCOVERED_FACET_MAX) so a
+// high-cardinality identifier's count still reads above the cap instead of
+// clamping to it, which would make it indistinguishable from one just inside
+// the window.
+export function computeAttributeCardinality(dataPoints: DataPoint[]): Map<string, number> {
+  const values = new Map<string, Set<string>>();
+  for (const dp of dataPoints) {
+    for (const [k, v] of Object.entries(dp.attributes)) {
+      if (v === undefined || v === null) continue;
+      let set = values.get(k);
+      if (!set) {
+        set = new Set<string>();
+        values.set(k, set);
+      }
+      if (set.size > DISCOVERED_FACET_MAX) continue;
+      set.add(typeof v === "string" ? v : JSON.stringify(v));
+    }
+  }
+  const counts = new Map<string, number>();
+  for (const [k, s] of values) counts.set(k, s.size);
+  return counts;
+}
 
 // Build the ordered facet list for a metric:
 //
