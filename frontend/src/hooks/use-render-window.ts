@@ -13,8 +13,9 @@ export interface RenderWindow<T> {
   olderCount: number;
   isHead: boolean;
   // Advances the window by one page, using the given (freshly-read) items —
-  // see trace-list.tsx's fetch-then-slide handler for why the caller
-  // supplies `items` explicitly rather than this hook re-reading it itself.
+  // see hooks/use-load-older-rows.ts's fetch-then-slide handler for why
+  // the caller supplies `items` explicitly rather than this hook re-reading
+  // it itself.
   slideOlder: (items: T[]) => void;
   backToLatest: () => void;
 }
@@ -51,8 +52,8 @@ export function useRenderWindow<T>({
 }: UseRenderWindowOptions<T>): RenderWindow<T> {
   const [anchorId, setAnchorId] = useState<string | null>(null);
   // React's "storing information from previous renders" pattern (see
-  // trace-list.tsx's identical use for its own reset key) — adjusts state
-  // during render instead of in a useEffect.
+  // hooks/use-load-older-rows.ts's identical use for its own pending-slide
+  // state) — adjusts state during render instead of in a useEffect.
   const [prevResetKey, setPrevResetKey] = useState(resetKey);
   // Last index the anchor resolved to. Used only as a fallback when the
   // anchor row falls out of `items` (evicted by the live buffer's cap) —

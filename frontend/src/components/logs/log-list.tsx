@@ -6,11 +6,10 @@ import {
   useLogSelection,
   useRelatedSignals,
 } from "@/hooks/use-signal-route";
-import { draftTerm } from "@/lib/log-filter";
-import { AddFilterButton } from "@/components/filters/add-filter-button";
+import { useFilterByAction } from "@/hooks/use-filter-by-action";
 import { LogAddFilter, LogFilterBar } from "./log-filter-bar";
 import { useAtomValue } from "jotai";
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { Logs } from "lucide-react";
 import { logsAtom, logCountAtom, renderWindowMaxAtom } from "@/stores/telemetry";
 import { createFilteredLogsAtom } from "@/stores/filters";
@@ -29,10 +28,12 @@ import { formatTimestamp, isZeroId, shortId } from "@/lib/format";
 import { KVSection } from "@/components/ui/kv-section";
 import { Field, Section } from "@/components/common/detail-field";
 import { DetailSidebar } from "@/components/common/detail-sidebar";
-import { SearchFilter } from "@/components/filters/search-filter";
+import {
+  EventListToolbar,
+  EVENT_LIST_TOOLBAR_CLASSNAME,
+} from "@/components/filters/event-list-toolbar";
 import { ListPanel } from "@/components/common/list-panel";
 import { EmptyState, EmptyMatches } from "@/components/common/empty-state";
-import { EventWindowControls } from "@/components/common/event-window-controls";
 import { LoadMoreRow } from "@/components/common/load-more-row";
 import { BackToLatestRow } from "@/components/common/back-to-latest-row";
 import { Pill } from "@/components/common/pill";
@@ -41,6 +42,7 @@ import { severityTone } from "@/lib/tones";
 import { useLogListPage } from "@/hooks/use-log-list-page";
 import { SIGNAL_PAGE_SIZE } from "@/hooks/use-signal-list-page";
 import { useRenderWindow } from "@/hooks/use-render-window";
+import { useLoadOlderRows } from "@/hooks/use-load-older-rows";
 import type { LogData } from "@/types/telemetry";
 import { eventWindowAround } from "@/lib/event-time-window";
 
@@ -61,27 +63,11 @@ export function LogList() {
     pageSize: SIGNAL_PAGE_SIZE,
     resetKey: page.requestKey,
   });
-  // See trace-list.tsx's identical block.
-  const [pendingSlide, setPendingSlide] = useState(false);
-  const [wasLoadingMore, setWasLoadingMore] = useState(page.loadingMore);
-  if (page.loadingMore !== wasLoadingMore) {
-    setWasLoadingMore(page.loadingMore);
-    if (pendingSlide && !page.loadingMore) {
-      setPendingSlide(false);
-      renderWindow.slideOlder(logs);
-    }
-  }
-
-  const handleLoadMore = () => {
-    if (renderWindow.olderCount > 0) {
-      renderWindow.slideOlder(logs);
-      return;
-    }
-    if (page.hasMore) {
-      setPendingSlide(true);
-      page.loadMore();
-    }
-  };
+  const { loadMore: handleLoadMore, canLoadMore } = useLoadOlderRows({
+    renderWindow,
+    page,
+    items: logs,
+  });
 
   if (logCount === 0 && allLogs.length === 0) {
     return <EmptyState signal={SIGNALS.logs} />;
@@ -89,23 +75,16 @@ export function LogList() {
 
   return (
     <ListPanel
-      toolbarClassName="grid grid-cols-1 gap-2 @min-[48rem]/list:grid-cols-[minmax(0,1fr)_auto] @min-[48rem]/list:gap-3"
+      toolbarClassName={EVENT_LIST_TOOLBAR_CLASSNAME}
       toolbarSecondary={state.filters.length > 0 ? <LogFilterBar /> : null}
       toolbar={
-        <>
-          <div className="flex min-w-0 flex-1 items-center gap-2">
-            <SearchFilter
-              value={state.text}
-              onSubmit={setText}
-              placeholder="Search logs…"
-              className="min-w-0 max-w-none @min-[48rem]/list:max-w-80"
-            />
-            <LogAddFilter />
-          </div>
-          <div className="ml-auto shrink-0">
-            <EventWindowControls tone="log" />
-          </div>
-        </>
+        <EventListToolbar
+          searchValue={state.text}
+          onSearchSubmit={setText}
+          searchPlaceholder="Search logs…"
+          addFilter={<LogAddFilter />}
+          tone="log"
+        />
       }
     >
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden xl:flex-row">
@@ -113,7 +92,7 @@ export function LogList() {
           <div className="flex min-h-0 flex-1 flex-col">
             <EmptyMatches label="logs" />
             <LoadMoreRow
-              visible={renderWindow.olderCount > 0 || page.hasMore}
+              visible={canLoadMore}
               loadingMore={page.loadingMore}
               onClick={handleLoadMore}
             />
@@ -152,7 +131,7 @@ export function LogList() {
               </TableBody>
             </Table>
             <LoadMoreRow
-              visible={renderWindow.olderCount > 0 || page.hasMore}
+              visible={canLoadMore}
               loadingMore={page.loadingMore}
               onClick={handleLoadMore}
             />
@@ -235,25 +214,7 @@ function LogDetail({
   onShowContext: () => void;
 }) {
   useKeyboardShortcut("Escape", onClose);
-  const { addFilter } = useSignalQuery("logs");
-  const filterBy = (key: string, value: unknown) => {
-    const complex = typeof value === "object" && value !== null;
-    void addFilter(
-      draftTerm({
-        key,
-        operator: value == null ? "not_exists" : complex ? "exists" : "is",
-        value:
-          typeof value === "string"
-            ? value
-            : typeof value === "number" || typeof value === "boolean"
-              ? String(value)
-              : "",
-      }),
-    );
-  };
-  const filterAction = (key: string, value: unknown) => (
-    <AddFilterButton label={`Filter by ${key}`} onClick={() => filterBy(key, value)} />
-  );
+  const { filterBy, filterAction } = useFilterByAction("logs");
   return (
     <DetailSidebar
       title="Log Details"

@@ -1,8 +1,6 @@
 import { HelpTooltip } from "@/components/ui/help-tooltip";
-import { useSignalQuery, useTraceSelection, useRelatedSignals } from "@/hooks/use-signal-route";
-import { draftTerm } from "@/lib/log-filter";
-import { traceFields } from "@/lib/trace-search";
-import { AddFilterButton } from "@/components/filters/add-filter-button";
+import { useTraceSelection, useRelatedSignals } from "@/hooks/use-signal-route";
+import { useFilterByAction } from "@/hooks/use-filter-by-action";
 import { FileText, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CopyJsonButton } from "@/components/ui/copy-json-button";
@@ -117,24 +115,7 @@ function SpanDetail({
   traceStart: bigint;
   onClose: () => void;
 }) {
-  const { addFilter } = useSignalQuery("traces");
-  const filterBy = (key: string, value: unknown) =>
-    addFilter(
-      draftTerm(
-        {
-          key,
-          operator: value == null ? "not_exists" : typeof value === "object" ? "exists" : "is",
-          value:
-            typeof value === "string" || typeof value === "number" || typeof value === "boolean"
-              ? String(value)
-              : "",
-        },
-        traceFields,
-      ),
-    );
-  const action = (key: string, value: unknown) => (
-    <AddFilterButton label={`Filter by ${key}`} onClick={() => filterBy(key, value)} />
-  );
+  const { filterBy, filterAction: action } = useFilterByAction("traces");
 
   return (
     <DetailSidebar
