@@ -1,7 +1,10 @@
 import { useMemo, useState } from "react";
 import { useParentSize } from "@visx/responsive";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight, CircleAlert, Search } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { traceServiceColors, traceTimeline, type TimelineRange } from "./trace-timeline";
 import { Button } from "@/components/ui/button";
+import { Toggle } from "@/components/ui/toggle";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { ScrollArea as ScrollAreaPrimitive } from "@base-ui/react/scroll-area";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -9,22 +12,13 @@ import { formatDuration, createDurationFormatter } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { TraceData, SpanData } from "@/types/telemetry";
 
-const ERROR_COLOR = "oklch(0.70 0.22 25)";
-const SERVICE_COLORS = [
-  "oklch(0.65 0.14 195)",
-  "oklch(0.67 0.14 80)",
-  "oklch(0.63 0.14 300)",
-  "oklch(0.63 0.17 155)",
-  "oklch(0.60 0.18 15)",
-  "oklch(0.65 0.12 230)",
-  "oklch(0.61 0.14 50)",
-  "oklch(0.59 0.16 340)",
-];
+const ERROR_COLOR = "var(--destructive)";
 
 interface Props {
   trace: TraceData;
   onSelectSpan: (span: SpanData) => void;
   selectedSpan: SpanData | null;
+  range?: TimelineRange;
 }
 
 export interface FlatSpan {
@@ -87,57 +81,111 @@ export function SpanWaterfall(props: Props) {
   );
 }
 
-function WaterfallInner({ trace, onSelectSpan, selectedSpan, width }: Props & { width: number }) {
+function WaterfallInner({
+  trace,
+  onSelectSpan,
+  selectedSpan,
+  width,
+  range = [0, 100],
+}: Props & { width: number }) {
   const flatSpans = useMemo(() => buildTree(trace.spans), [trace.spans]);
   const [hoveredSpanId, setHoveredSpanId] = useState<string | null>(null);
   const [collapsedSet, setCollapsedSet] = useState<Set<string>>(new Set());
+  const [search, setSearch] = useState("");
+  const [errorsOnly, setErrorsOnly] = useState(false);
+  const matchingIds = useMemo(() => {
+    if (!search.trim() && !errorsOnly) return null;
+    const byId = new Map(trace.spans.map((span) => [span.spanId, span]));
+    const ids = new Set<string>();
+    const query = search.trim().toLowerCase();
+    for (const span of trace.spans) {
+      if (errorsOnly && span.statusCode !== "Error") continue;
+      if (query && !`${span.name} ${span.serviceName}`.toLowerCase().includes(query)) continue;
+      let current: SpanData | undefined = span;
+      while (current && !ids.has(current.spanId)) {
+        ids.add(current.spanId);
+        current = byId.get(current.parentSpanId);
+      }
+    }
+    return ids;
+  }, [trace.spans, search, errorsOnly]);
   const visibleSpans = useMemo(() => {
     const result: FlatSpan[] = [];
     let skipDepth: number | null = null;
     for (const f of flatSpans) {
+      if (matchingIds && !matchingIds.has(f.span.spanId)) continue;
       if (skipDepth !== null && f.depth > skipDepth) continue;
       skipDepth = null;
       result.push(f);
-      if (collapsedSet.has(f.span.spanId)) skipDepth = f.depth;
+      if (!matchingIds && collapsedSet.has(f.span.spanId)) skipDepth = f.depth;
     }
     return result;
-  }, [flatSpans, collapsedSet]);
-  const serviceColorMap = useMemo(() => {
-    const services = [...new Set(flatSpans.map((f) => f.span.serviceName))];
-    return new Map(
-      services.map((service, i) => [service, SERVICE_COLORS[i % SERVICE_COLORS.length]]),
-    );
-  }, [flatSpans]);
-  const { baseNs, totalNs } = useMemo(() => {
-    // The representative root may not cover later roots in a multi-root trace.
-    if (trace.duration > 0) return { baseNs: trace.startEpochNs, totalNs: trace.duration };
-    let minNs: bigint | null = null;
-    let maxNs: bigint | null = null;
-    for (const { span } of flatSpans) {
-      if (minNs === null || span.startEpochNs < minNs) minNs = span.startEpochNs;
-      if (maxNs === null || span.endEpochNs > maxNs) maxNs = span.endEpochNs;
-    }
-    return minNs !== null && maxNs !== null && maxNs > minNs
-      ? { baseNs: minNs, totalNs: Number(maxNs - minNs) }
-      : { baseNs: 0n, totalNs: 1 };
-  }, [trace.startEpochNs, trace.duration, flatSpans]);
-  const formatTick = createDurationFormatter(totalNs);
-  const labelWidth = Math.min(260, Math.max(170, width * 0.5));
-  const timelineWidth = width - labelWidth;
-  const tickCount = 5;
-  const gridTemplateColumns = `${labelWidth}px minmax(0, 1fr)`;
+  }, [flatSpans, collapsedSet, matchingIds]);
+  const serviceColorMap = useMemo(() => traceServiceColors(trace.spans), [trace.spans]);
+  const { start: baseNs, duration: totalNs } = useMemo(() => traceTimeline(trace), [trace]);
+  const viewStart = (totalNs * range[0]) / 100;
+  const viewEnd = (totalNs * range[1]) / 100;
+  const viewDuration = Math.max(1, viewEnd - viewStart);
+  const formatTick = createDurationFormatter(Math.min(viewDuration, totalNs));
+  const labelWidth = Math.min(260, Math.max(150, width * 0.27));
+  const serviceWidth = width < 650 ? 100 : 140;
+  const timelineWidth = Math.max(0, width - labelWidth - serviceWidth - 24);
+  const tickCount = Math.min(5, Math.max(1, Math.floor(timelineWidth / 100)));
+  const gridTemplateColumns = `${labelWidth}px ${serviceWidth}px minmax(0, 1fr)`;
+  const allCollapsed = flatSpans
+    .filter((row) => row.hasChildren)
+    .every((row) => collapsedSet.has(row.span.spanId));
 
   return (
     <div className="flex h-full min-h-0 flex-col" aria-label="Trace waterfall">
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border/50 px-3 py-2">
+        <div className="relative w-48">
+          <Search className="pointer-events-none absolute top-2.5 left-2 size-3.5 text-muted-foreground" />
+          <Input
+            aria-label="Find span"
+            placeholder="Find span…"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            className="h-8 pl-7 text-xs"
+          />
+        </div>
+        <Toggle variant="outline" size="sm" pressed={errorsOnly} onPressedChange={setErrorsOnly}>
+          <CircleAlert data-icon="inline-start" />
+          Errors only
+        </Toggle>
+        <Button
+          size="sm"
+          variant="ghost"
+          disabled={matchingIds !== null}
+          onClick={() =>
+            setCollapsedSet(
+              allCollapsed
+                ? new Set()
+                : new Set(flatSpans.filter((row) => row.hasChildren).map((row) => row.span.spanId)),
+            )
+          }
+          className="text-xs"
+        >
+          {allCollapsed ? "Expand all" : "Collapse all"}
+        </Button>
+        {matchingIds && (
+          <span className="text-xs text-muted-foreground">
+            {visibleSpans.length} of {flatSpans.length} spans · including parents
+          </span>
+        )}
+      </div>
       <div
-        className="grid h-7 shrink-0 border-b border-border text-[10px] text-muted-foreground"
+        className="grid h-9 shrink-0 border-b border-border text-[11px] text-muted-foreground"
         style={{
           gridTemplateColumns,
           background: "color-mix(in srgb, var(--muted-foreground) 10%, transparent)",
         }}
       >
-        <span className="flex items-center px-2 text-[11px] font-semibold">Operation</span>
-        <div className="relative font-mono">
+        <span className="flex items-center px-2 text-xs font-medium">Operation / Span</span>
+        <span className="flex items-center border-x border-border/50 px-3 text-xs font-medium">
+          Service
+        </span>
+        <div className="relative mx-3 font-mono">
           {Array.from({ length: tickCount + 1 }, (_, i) => (
             <div
               key={i}
@@ -145,21 +193,31 @@ function WaterfallInner({ trace, onSelectSpan, selectedSpan, width }: Props & { 
               style={{ left: `${(i / tickCount) * 100}%` }}
             >
               <span
-                className="absolute inset-y-0 border-l border-border"
+                className="absolute bottom-0 h-2 border-l border-border"
                 style={{ transform: i === tickCount ? "translateX(-100%)" : undefined }}
               />
               <span
-                className="absolute top-1/2 px-1 font-mono whitespace-nowrap"
+                className="absolute top-1 px-1 font-mono whitespace-nowrap"
                 style={{
-                  transform: `translate(${i === tickCount ? "-100%" : "0"}, -50%)`,
+                  transform: `translateX(${i === tickCount ? "-100%" : i === 0 ? "0" : "-50%"})`,
                 }}
               >
-                {formatTick((totalNs * i) / tickCount)}
+                {formatTick(viewStart + (viewDuration * i) / tickCount)}
               </span>
             </div>
           ))}
+          {Array.from({ length: tickCount }, (_, i) => (
+            <span
+              key={i}
+              className="absolute bottom-0 h-1 border-l border-border"
+              style={{ left: `${((i + 0.5) / tickCount) * 100}%` }}
+            />
+          ))}
         </div>
       </div>
+      {visibleSpans.length === 0 && (
+        <p className="p-4 text-sm text-muted-foreground">No matching spans.</p>
+      )}
       <ScrollArea className="min-h-0 flex-1" aria-label="Span rows">
         <div className="grid min-h-full" style={{ gridTemplateColumns }}>
           <ScrollAreaPrimitive.Root className="relative flex min-w-0 flex-col">
@@ -176,7 +234,7 @@ function WaterfallInner({ trace, onSelectSpan, selectedSpan, width }: Props & { 
                   return (
                     <div
                       key={span.spanId}
-                      className="relative h-8"
+                      className="relative h-8 border-b border-border/30"
                       onMouseEnter={() => setHoveredSpanId(span.spanId)}
                       onMouseLeave={() => setHoveredSpanId(null)}
                     >
@@ -201,22 +259,24 @@ function WaterfallInner({ trace, onSelectSpan, selectedSpan, width }: Props & { 
                           style={{
                             paddingLeft: 36 + indent,
                             background: isSelected
-                              ? `color-mix(in oklch, ${color} 8%, transparent)`
+                              ? "color-mix(in oklch, var(--trace) 10%, transparent)"
                               : undefined,
                           }}
                         >
                           <span
-                            className="h-3 w-1 shrink-0 rounded-[1px]"
-                            style={{ background: color }}
-                          />
-                          <span
                             className={cn(
-                              "whitespace-nowrap text-[11px] select-none",
+                              "whitespace-nowrap text-xs select-none",
                               !isSelected && "text-foreground/80",
                             )}
                           >
                             {span.name}
                           </span>
+                          {isError && (
+                            <CircleAlert
+                              aria-label="Error"
+                              className="size-3.5 shrink-0 text-destructive"
+                            />
+                          )}
                         </TooltipTrigger>
                         <TooltipContent>
                           <span className="flex min-w-0 flex-col gap-0.5">
@@ -233,8 +293,9 @@ function WaterfallInner({ trace, onSelectSpan, selectedSpan, width }: Props & { 
                           size="icon-xs"
                           className="absolute top-1"
                           style={{ left: 8 + indent }}
-                          aria-label={`${collapsedSet.has(span.spanId) ? "Expand" : "Collapse"} ${span.name}`}
-                          aria-expanded={!collapsedSet.has(span.spanId)}
+                          aria-label={`${!matchingIds && collapsedSet.has(span.spanId) ? "Expand" : "Collapse"} ${span.name}`}
+                          aria-expanded={matchingIds !== null || !collapsedSet.has(span.spanId)}
+                          disabled={matchingIds !== null}
                           onClick={() =>
                             setCollapsedSet((prev) => {
                               const next = new Set(prev);
@@ -244,7 +305,11 @@ function WaterfallInner({ trace, onSelectSpan, selectedSpan, width }: Props & { 
                             })
                           }
                         >
-                          {collapsedSet.has(span.spanId) ? <ChevronRight /> : <ChevronDown />}
+                          {!matchingIds && collapsedSet.has(span.spanId) ? (
+                            <ChevronRight />
+                          ) : (
+                            <ChevronDown />
+                          )}
                         </Button>
                       )}
                     </div>
@@ -254,8 +319,33 @@ function WaterfallInner({ trace, onSelectSpan, selectedSpan, width }: Props & { 
             </ScrollAreaPrimitive.Viewport>
             <ScrollBar orientation="horizontal" className="sticky! bottom-0 -mt-2.5 shrink-0" />
           </ScrollAreaPrimitive.Root>
-          <div className="relative min-w-0 bg-muted/30 pb-3" aria-label="Span timeline">
-            <div className="pointer-events-none absolute inset-0" aria-hidden="true">
+          <div className="min-w-0 border-x border-border/50 pb-3" aria-label="Span services">
+            {visibleSpans.map(({ span }) => (
+              <Tooltip key={span.spanId}>
+                <TooltipTrigger
+                  delay={0}
+                  aria-label={`${span.name} service ${span.serviceName}`}
+                  onClick={() => onSelectSpan(span)}
+                  onMouseEnter={() => setHoveredSpanId(span.spanId)}
+                  onMouseLeave={() => setHoveredSpanId(null)}
+                  className={cn(
+                    "flex h-8 w-full items-center gap-2 border-b border-border/30 px-3 text-left text-xs transition-colors",
+                    hoveredSpanId === span.spanId && "bg-trace/5",
+                    selectedSpan?.spanId === span.spanId && "bg-trace/10",
+                  )}
+                >
+                  <span
+                    className="size-2 shrink-0 rounded-full"
+                    style={{ background: serviceColorMap.get(span.serviceName) }}
+                  />
+                  <span className="truncate">{span.serviceName || "unknown"}</span>
+                </TooltipTrigger>
+                <TooltipContent>{span.serviceName || "unknown"}</TooltipContent>
+              </Tooltip>
+            ))}
+          </div>
+          <div className="relative min-w-0 bg-muted/20 pb-3" aria-label="Span timeline">
+            <div className="pointer-events-none absolute inset-y-0 inset-x-3" aria-hidden="true">
               {Array.from({ length: tickCount + 1 }, (_, i) => (
                 <span
                   key={i}
@@ -271,21 +361,26 @@ function WaterfallInner({ trace, onSelectSpan, selectedSpan, width }: Props & { 
               const isSelected = selectedSpan?.spanId === span.spanId;
               const isError = span.statusCode === "Error";
               const color = isError ? ERROR_COLOR : serviceColorMap.get(span.serviceName)!;
-              const start = Math.max(
+              const offset = toNsOffset(span.startEpochNs, baseNs);
+              const spanEnd = offset + Math.max(0, span.duration);
+              const intersects = spanEnd >= viewStart && offset <= viewEnd;
+              const start = Math.max(0, Math.min(100, ((offset - viewStart) / viewDuration) * 100));
+              const duration = Math.max(
                 0,
-                Math.min(100, (toNsOffset(span.startEpochNs, baseNs) / totalNs) * 100),
+                Math.min(
+                  100 - start,
+                  ((Math.min(spanEnd, viewEnd) - Math.max(offset, viewStart)) / viewDuration) * 100,
+                ),
               );
-              const duration = Math.max(0, Math.min(100 - start, (span.duration / totalNs) * 100));
               const durationLabel = formatDuration(span.duration);
-              const durationLabelWidth = durationLabel.length * 6;
               const barWidth = Math.max(3, (timelineWidth * duration) / 100);
               const barStart = Math.min(timelineWidth - 3, (timelineWidth * start) / 100);
               const labelInside = barWidth > 50;
               const labelOnLeft = !labelInside && barStart + barWidth / 2 > timelineWidth / 2;
               const durationLeft = labelInside
-                ? barStart + (barWidth - durationLabelWidth) / 2
+                ? barStart + barWidth / 2
                 : labelOnLeft
-                  ? barStart - durationLabelWidth - 4
+                  ? barStart - 4
                   : barStart + barWidth + 4;
 
               return (
@@ -298,35 +393,39 @@ function WaterfallInner({ trace, onSelectSpan, selectedSpan, width }: Props & { 
                   aria-pressed={isSelected}
                   onClick={() => onSelectSpan(span)}
                   className={cn(
-                    "relative block h-8 w-full cursor-pointer transition-colors outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+                    "relative block h-8 w-full cursor-pointer border-b border-border/30 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
                     hoveredSpanId === span.spanId && "bg-trace/5",
                   )}
                   style={{
                     background: isSelected
-                      ? `color-mix(in oklch, ${color} 8%, transparent)`
+                      ? "color-mix(in oklch, var(--trace) 10%, transparent)"
                       : undefined,
                   }}
                 >
-                  <span className="absolute inset-0">
-                    <span
-                      className="absolute top-1/2 h-4 -translate-y-1/2 rounded-[3px]"
-                      style={{
-                        left: `min(${start}%, calc(100% - 3px))`,
-                        width: `max(3px, ${duration}%)`,
-                        filter: isSelected ? `drop-shadow(0 0 2px ${color})` : undefined,
-                        background: `linear-gradient(to right, color-mix(in oklch, ${color} 90%, transparent), color-mix(in oklch, ${color} 60%, transparent))`,
-                      }}
-                    />
-                    <span
-                      className={cn(
-                        "absolute top-1/2 -translate-y-1/2 whitespace-nowrap text-center font-mono text-[10px] font-medium tabular-nums",
-                        labelInside ? "text-white/90" : "text-muted-foreground",
-                      )}
-                      style={{ left: durationLeft, width: durationLabelWidth }}
-                    >
-                      {durationLabel}
+                  {intersects && (
+                    <span className="absolute inset-y-0 inset-x-3 overflow-hidden">
+                      <span
+                        className="absolute top-1/2 h-4 -translate-y-1/2 rounded-[3px]"
+                        style={{
+                          left: `min(${start}%, calc(100% - 3px))`,
+                          width: `max(3px, ${duration}%)`,
+                          background: `linear-gradient(to right, color-mix(in oklch, ${color} 90%, transparent), color-mix(in oklch, ${color} 60%, transparent))`,
+                        }}
+                      />
+                      <span
+                        className={cn(
+                          "absolute top-1/2 whitespace-nowrap text-center font-mono text-[10px] font-medium tabular-nums",
+                          labelInside ? "text-white/90" : "text-muted-foreground",
+                        )}
+                        style={{
+                          left: durationLeft,
+                          transform: `translate(${labelInside ? "-50%" : labelOnLeft ? "-100%" : "0"}, -50%)`,
+                        }}
+                      >
+                        {durationLabel}
+                      </span>
                     </span>
-                  </span>
+                  )}
                 </button>
               );
             })}

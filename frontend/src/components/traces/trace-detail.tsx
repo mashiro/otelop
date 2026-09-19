@@ -7,7 +7,7 @@ import { X, FileText, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CopyJsonButton } from "@/components/ui/copy-json-button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { formatDuration, shortId } from "@/lib/format";
+import { formatDuration, shortId, formatTimestamp } from "@/lib/format";
 import { downloadJson } from "@/lib/export";
 import { useTraceSpans } from "@/hooks/use-trace-spans";
 import { SpanWaterfall } from "./span-waterfall";
@@ -15,31 +15,46 @@ import { KVSection } from "@/components/ui/kv-section";
 import { DetailPanel } from "@/components/common/detail-panel";
 import { Pill } from "@/components/common/pill";
 import { Field, Section } from "@/components/common/detail-field";
-import type { SpanData } from "@/types/telemetry";
+import type { SpanData, TraceData } from "@/types/telemetry";
+import { TraceOverview } from "./trace-overview";
+import { traceTimeline, type TimelineRange } from "./trace-timeline";
 import { useState } from "react";
 
 export function TraceDetail() {
   const { trace, selectTrace: setSelected } = useTraceSelection();
-  const { navigateToLogs } = useRelatedSignals();
-  const [selectedSpan, setSelectedSpan] = useState<SpanData | null>(null);
+
   // The trace list only loads summaries (see use-initial-load.ts); backfill
   // this trace's full span data the moment its detail view is open.
   useTraceSpans(trace);
 
   if (!trace) return null;
+  return <TraceDetailView key={trace.traceId} trace={trace} onClose={() => setSelected(null)} />;
+}
+
+function TraceDetailView({ trace, onClose }: { trace: TraceData; onClose: () => void }) {
+  const { navigateToLogs } = useRelatedSignals();
+  const [selectedSpanId, setSelectedSpanId] = useState<string | null>(null);
+  const selectedSpan = trace.spans.find((span) => span.spanId === selectedSpanId) ?? null;
+  const [range, setRange] = useState<TimelineRange>([0, 100]);
 
   return (
     <DetailPanel
-      onClose={() => setSelected(null)}
+      onClose={onClose}
       header={
-        <>
-          <span className="font-semibold text-foreground">
+        <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+          <span className="max-w-full truncate font-semibold text-foreground">
             {trace.rootSpan?.name ?? trace.spans[0]?.name}
           </span>
           <span className="font-mono text-xs text-muted-foreground">{shortId(trace.traceId)}</span>
+          {trace.spans.some((span) => span.statusCode === "Error") && (
+            <Pill tone="destructive">Error</Pill>
+          )}
           <Pill tone="trace">{trace.spanCount} spans</Pill>
+          <span className="text-xs text-muted-foreground">
+            {new Set(trace.spans.map((span) => span.serviceName)).size} services
+          </span>
           <span className="font-mono text-xs text-trace">{formatDuration(trace.duration)}</span>
-        </>
+        </div>
       }
       actions={
         <>
@@ -70,13 +85,24 @@ export function TraceDetail() {
         </>
       }
     >
+      <TraceOverview trace={trace} range={range} onRangeChange={setRange} />
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden xl:flex-row">
         <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
-          <SpanWaterfall trace={trace} onSelectSpan={setSelectedSpan} selectedSpan={selectedSpan} />
+          <SpanWaterfall
+            trace={trace}
+            onSelectSpan={(span) => setSelectedSpanId(span.spanId)}
+            selectedSpan={selectedSpan}
+            range={range}
+          />
         </div>
         {selectedSpan && (
-          <div className="h-[45%] min-h-0 shrink-0 border-t border-border/50 xl:h-auto xl:w-[420px] xl:border-t-0 xl:border-l">
-            <SpanDetail span={selectedSpan} onClose={() => setSelectedSpan(null)} />
+          <div className="h-[45%] min-h-0 shrink-0 border-t border-border/50 xl:h-auto xl:w-[360px] xl:border-t-0 xl:border-l">
+            <SpanDetail
+              key={selectedSpan.spanId}
+              span={selectedSpan}
+              traceStart={traceTimeline(trace).start}
+              onClose={() => setSelectedSpanId(null)}
+            />
           </div>
         )}
       </div>
@@ -84,7 +110,15 @@ export function TraceDetail() {
   );
 }
 
-function SpanDetail({ span, onClose }: { span: SpanData; onClose: () => void }) {
+function SpanDetail({
+  span,
+  traceStart,
+  onClose,
+}: {
+  span: SpanData;
+  traceStart: bigint;
+  onClose: () => void;
+}) {
   const { addFilter } = useSignalQuery("traces");
   const filterBy = (key: string, value: unknown) =>
     addFilter(
@@ -108,19 +142,34 @@ function SpanDetail({ span, onClose }: { span: SpanData; onClose: () => void }) 
     <div className="flex h-full flex-col">
       <div className="flex items-center justify-between border-b border-border/50 px-4 py-2">
         <h3 className="text-sm font-semibold text-trace">Span Details</h3>
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          onClick={onClose}
-          className="text-muted-foreground hover:text-foreground"
-        >
-          <X className="h-3 w-3" />
-        </Button>
+        <div className="flex items-center gap-1">
+          <CopyJsonButton data={span} size="xs" />
+          <Button
+            aria-label="Close span details"
+            variant="ghost"
+            size="icon-xs"
+            onClick={onClose}
+            className="text-muted-foreground hover:text-foreground"
+          >
+            <X className="h-3 w-3" />
+          </Button>
+        </div>
       </div>
       <ScrollArea className="min-h-0 flex-1">
         <div className="animate-slide-up-fade space-y-5 p-4">
+          <div className="space-y-2">
+            <div className="group/filter-field flex items-start justify-between gap-2">
+              <h4 className="min-w-0 break-words text-sm font-semibold">{span.name}</h4>
+              {action("name", span.name)}
+            </div>
+            {span.statusMessage && (
+              <div className="group/filter-field flex items-start justify-between gap-2">
+                <p className="min-w-0 break-words text-xs text-destructive">{span.statusMessage}</p>
+                {action("status_message", span.statusMessage)}
+              </div>
+            )}
+          </div>
           <div className="space-y-2.5">
-            <Field action={action("name", span.name)} label="Name" value={span.name} />
             <Field
               action={action("service_name", span.serviceName)}
               label="Service"
@@ -148,15 +197,14 @@ function SpanDetail({ span, onClose }: { span: SpanData; onClose: () => void }) 
             <Field
               action={action("status_code", span.statusCode)}
               label="Status"
-              value={span.statusCode}
+              value={span.statusCode === "Unset" ? "Not set" : span.statusCode}
             />
-            {span.statusMessage && (
-              <Field
-                action={action("status_message", span.statusMessage)}
-                label="Message"
-                value={span.statusMessage}
-              />
-            )}
+            <Field
+              label="Start"
+              value={formatDuration(Number(span.startEpochNs - traceStart))}
+              mono
+            />
+            <Field label="End" value={formatDuration(Number(span.endEpochNs - traceStart))} mono />
             <Field
               action={action("duration_ms", span.duration / 1e6)}
               label="Duration"
@@ -165,28 +213,29 @@ function SpanDetail({ span, onClose }: { span: SpanData; onClose: () => void }) 
               tone="trace"
             />
           </div>
-
           <KVSection
             title="Attributes"
             data={span.attributes}
             onFilter={(key, value) => filterBy(`attributes.${key}`, value)}
           />
-
-          {span.events.length > 0 && (
-            <Section title="Events">
-              {span.events.map((e, i) => (
-                <div key={i} className="text-xs">
-                  <span className="font-medium text-foreground/80">{e.name}</span>
-                </div>
-              ))}
-            </Section>
-          )}
-
           <KVSection
             title="Resource"
             data={span.resource}
             onFilter={(key, value) => filterBy(`resource.${key}`, value)}
           />
+          <Section title={`Events (${span.events.length})`}>
+            {span.events.length === 0 && (
+              <p className="text-xs text-muted-foreground">No events recorded.</p>
+            )}
+            {span.events.map((event, index) => (
+              <Section key={index} title={event.name}>
+                <p className="font-mono text-xs text-muted-foreground">
+                  {formatTimestamp(event.timestamp)}
+                </p>
+                <KVSection title="Attributes" data={event.attributes} />
+              </Section>
+            ))}
+          </Section>
         </div>
       </ScrollArea>
     </div>

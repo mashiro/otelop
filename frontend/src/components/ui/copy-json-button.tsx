@@ -13,7 +13,7 @@ export function CopyJsonButton({ data, size = "sm" }: { data: unknown; size?: "s
         variant="ghost"
         size={size === "xs" ? "sm" : size}
         onClick={() => copy(data)}
-        className={`gap-1 text-muted-foreground hover:text-foreground ${size === "xs" ? "text-[10px]" : "text-xs"}`}
+        className="gap-1 text-xs text-muted-foreground hover:text-foreground"
       >
         {copied ? <Check className={`${iconSize} text-success`} /> : <Copy className={iconSize} />}
         {copied ? "Copied" : "JSON"}
