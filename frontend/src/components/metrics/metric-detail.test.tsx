@@ -79,7 +79,7 @@ describe("MetricDetailBody control row", () => {
 
     expect(screen.getByText("Breakdown")).toBeTruthy();
     const rangeSelect = screen.getByRole("combobox", { name: "Time range" });
-    expect(rangeSelect.textContent).toContain("1h");
+    expect(rangeSelect.textContent).toContain("1 hour");
 
     // Both tab groups share one row container.
     const breakdownLabel = screen.getByText("Breakdown");
@@ -93,9 +93,9 @@ describe("MetricDetailBody control row", () => {
     });
 
     render(<MetricDetailBody metric={metric} />);
-    await selectRange("5m");
+    await selectRange("5 minutes");
 
-    expect(screen.getByRole("combobox", { name: "Time range" }).textContent).toContain("5m");
+    expect(screen.getByRole("combobox", { name: "Time range" }).textContent).toContain("5 minutes");
   });
 
   it("persists the selected range to the URL so a reload/share reopens the same window", async () => {
@@ -104,7 +104,7 @@ describe("MetricDetailBody control row", () => {
     });
 
     render(<MetricDetailBody metric={metric} />);
-    await selectRange("24h");
+    await selectRange("1 day");
 
     expect(routing.router.state.location.href).toBe("/metrics/frontend/http.requests?range=24h");
   });
@@ -137,7 +137,7 @@ describe("MetricDetailBody control row", () => {
     });
 
     render(<MetricDetailBody metric={metric} />);
-    await selectRange("5m");
+    await selectRange("5 minutes");
 
     // Once for the initial "1h" mount, once more after switching to "5m".
     const rangeCalls = requestMock.mock.calls.filter(
@@ -155,7 +155,7 @@ describe("MetricDetailBody stat tiles section label", () => {
     });
 
     render(<MetricDetailBody metric={metric} />);
-    expect(screen.getByText("Increase · 1h")).toBeTruthy();
+    expect(screen.getByText("Increase · 1 hour")).toBeTruthy();
 
     await selectRange("All");
     expect(screen.getByText("Increase · All")).toBeTruthy();
@@ -169,7 +169,7 @@ describe("MetricDetailBody stat tiles section label", () => {
 
     render(<MetricDetailBody metric={metric} />);
 
-    expect(screen.getByText("Latest · 1h")).toBeTruthy();
+    expect(screen.getByText("Latest · 1 hour")).toBeTruthy();
   });
 });
 
@@ -186,7 +186,7 @@ describe("MetricDetailBody data points table", () => {
     render(<MetricDetailBody metric={metric} />);
     expect(screen.getByText("Data Points (3)")).toBeTruthy();
 
-    await selectRange("5m");
+    await selectRange("5 minutes");
 
     await waitFor(() => expect(screen.getByText("Data Points (2)")).toBeTruthy());
   });
@@ -267,7 +267,7 @@ describe("MetricDetail data point sidebar", () => {
 
     // Narrowing to "5m" (anchored on the newest point, 00:20) drops "old"
     // (00:00) from rangeDataPoints while selectedDpId still points at it.
-    await selectRange("5m");
+    await selectRange("5 minutes");
     await waitFor(() => expect(screen.queryByText("Data Point Details")).toBeNull());
 
     fireEvent.keyDown(window, { key: "Escape" });

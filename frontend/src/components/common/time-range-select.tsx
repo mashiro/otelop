@@ -55,7 +55,7 @@ export function TimeRangeSelect({ range, onRangeChange, tone, size = "sm" }: Tim
           )}
           {CHART_TIME_RANGES.map(({ value, label }) => (
             <Fragment key={value}>
-              {(value === "1h" || value === "all") && <SelectSeparator />}
+              {(value === "1h" || value === "24h" || value === "all") && <SelectSeparator />}
               <SelectItem value={value}>{label}</SelectItem>
             </Fragment>
           ))}

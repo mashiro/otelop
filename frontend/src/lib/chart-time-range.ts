@@ -10,20 +10,22 @@ export type ChartTimeRange =
   | "6h"
   | "12h"
   | "24h"
+  | "3d"
   | "all";
 
 // No 7d option: the default retention window is 7d, so a 7d range would just
 // duplicate "all" instead of offering a genuinely narrower/wider choice.
 export const CHART_TIME_RANGES: { value: ChartTimeRange; label: string }[] = [
-  { value: "1m", label: "1m" },
-  { value: "5m", label: "5m" },
-  { value: "15m", label: "15m" },
-  { value: "30m", label: "30m" },
-  { value: "1h", label: "1h" },
-  { value: "3h", label: "3h" },
-  { value: "6h", label: "6h" },
-  { value: "12h", label: "12h" },
-  { value: "24h", label: "24h" },
+  { value: "1m", label: "1 minute" },
+  { value: "5m", label: "5 minutes" },
+  { value: "15m", label: "15 minutes" },
+  { value: "30m", label: "30 minutes" },
+  { value: "1h", label: "1 hour" },
+  { value: "3h", label: "3 hours" },
+  { value: "6h", label: "6 hours" },
+  { value: "12h", label: "12 hours" },
+  { value: "24h", label: "1 day" },
+  { value: "3d", label: "3 days" },
   { value: "all", label: "All" },
 ];
 
@@ -37,6 +39,7 @@ const RANGE_MINUTES: Record<Exclude<ChartTimeRange, "all">, number> = {
   "6h": 6 * 60,
   "12h": 12 * 60,
   "24h": 24 * 60,
+  "3d": 3 * 24 * 60,
 };
 
 // The metric detail view's default window (frontend defaults to a recent
