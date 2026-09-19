@@ -51,7 +51,7 @@ It's meant for the loop where you're writing instrumentation and just want to se
 - Trace waterfall with a minimap, range selection, span search, errors-only view, and trace-to-logs navigation
 - Metric charts with attribute breakdowns and legend-driven series selection
 - Structured filters for traces and logs with suggestions drawn from stored data
-- Time windows from 1 minute to 3 days (or everything), with previous/next navigation and infinite scrolling
+- Time windows from 1 minute to 3 days (or everything), with previous/next navigation and **Load more** paging into older results
 - Log context navigation for inspecting records around a selected event
 - Shareable URLs: the selected trace, span, metric, filters, and time window all live in the address bar
 - Keyboard shortcuts: `/` focuses search, `Esc` closes the details panel
