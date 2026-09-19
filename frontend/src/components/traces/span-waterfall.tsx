@@ -234,7 +234,7 @@ function WaterfallInner({
                   return (
                     <div
                       key={span.spanId}
-                      className="relative h-8 border-b border-border/30"
+                      className="relative h-8"
                       onMouseEnter={() => setHoveredSpanId(span.spanId)}
                       onMouseLeave={() => setHoveredSpanId(null)}
                     >
@@ -291,7 +291,7 @@ function WaterfallInner({
                         <Button
                           variant="ghost"
                           size="icon-xs"
-                          className="absolute top-1"
+                          className="absolute top-1 aria-expanded:not-hover:bg-transparent"
                           style={{ left: 8 + indent }}
                           aria-label={`${!matchingIds && collapsedSet.has(span.spanId) ? "Expand" : "Collapse"} ${span.name}`}
                           aria-expanded={matchingIds !== null || !collapsedSet.has(span.spanId)}
@@ -329,7 +329,7 @@ function WaterfallInner({
                   onMouseEnter={() => setHoveredSpanId(span.spanId)}
                   onMouseLeave={() => setHoveredSpanId(null)}
                   className={cn(
-                    "flex h-8 w-full items-center gap-2 border-b border-border/30 px-3 text-left text-xs transition-colors",
+                    "flex h-8 w-full items-center gap-2 px-3 text-left text-xs transition-colors",
                     hoveredSpanId === span.spanId && "bg-trace/5",
                     selectedSpan?.spanId === span.spanId && "bg-trace/10",
                   )}
@@ -393,7 +393,7 @@ function WaterfallInner({
                   aria-pressed={isSelected}
                   onClick={() => onSelectSpan(span)}
                   className={cn(
-                    "relative block h-8 w-full cursor-pointer border-b border-border/30 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+                    "relative block h-8 w-full cursor-pointer transition-colors outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
                     hoveredSpanId === span.spanId && "bg-trace/5",
                   )}
                   style={{
