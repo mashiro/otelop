@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	otelopdocs "github.com/mashiro/otelop/docs"
+	otelopdocs "github.com/mashiro/otelop/internal/docs"
 )
 
 func TestDocsListCommand(t *testing.T) {

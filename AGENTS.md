@@ -21,6 +21,11 @@ mise run build    # Build
 - Tests: `go test ./...`
 - Tests live alongside their packages; DuckDB storage coverage is in `internal/storage/`
 
+## Documentation
+
+- `internal/docs/` holds only the Markdown bundled into the binary and served by `otelop docs` (every file needs `description` frontmatter). Anything placed there ships to users
+- `docs/` is for repository-facing material (design notes, README images). It is not embedded
+
 ## Frontend
 
 - Uses vite-plus (vp). Run commands via package.json scripts
