@@ -18,13 +18,21 @@ const noTemplateLiteralClassName = defineRule({
     },
   },
   create(context) {
+    // Counted rather than matched on the attribute's root expression so a
+    // template nested in a call or conditional — cn(`p-${size}`) — is caught
+    // too; that form hides the fragment from Tailwind just the same.
+    let classNameDepth = 0;
+    const isClassName = (node: { name: { type: string; name?: unknown } }) =>
+      node.name.type === "JSXIdentifier" && node.name.name === "className";
     return {
       JSXAttribute(node) {
-        if (node.name.type !== "JSXIdentifier" || node.name.name !== "className") return;
-        const value = node.value;
-        if (!value || value.type !== "JSXExpressionContainer") return;
-        if (value.expression.type !== "TemplateLiteral") return;
-        context.report({ node: value.expression, messageId: "templateLiteralClassName" });
+        if (isClassName(node)) classNameDepth += 1;
+      },
+      "JSXAttribute:exit"(node) {
+        if (isClassName(node)) classNameDepth -= 1;
+      },
+      TemplateLiteral(node) {
+        if (classNameDepth > 0) context.report({ node, messageId: "templateLiteralClassName" });
       },
     };
   },
