@@ -5,7 +5,7 @@ import { MetricSummary } from "./metric-summary";
 import { DataPointsTable } from "./data-points-table";
 import { DataPointDetail } from "./data-point-detail";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { CopyJsonButton } from "@/components/ui/copy-json-button";
+import { CopyJsonButton } from "@/components/common/copy-json-button";
 import { DetailPanel } from "@/components/common/detail-panel";
 import { DetailSidebar } from "@/components/common/detail-sidebar";
 import { Pill } from "@/components/common/pill";
@@ -180,7 +180,7 @@ export function MetricDetailBody({ metric }: { metric: MetricData }) {
           tone="metric"
           onClose={() => setSelectedDpId(null)}
           closeLabel="Close data point details"
-          actions={<CopyJsonButton data={selectedDp} size="xs" />}
+          actions={<CopyJsonButton data={selectedDp} />}
         >
           <DataPointDetail
             dp={selectedDp}

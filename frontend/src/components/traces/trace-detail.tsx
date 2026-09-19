@@ -1,14 +1,14 @@
-import { HelpTooltip } from "@/components/ui/help-tooltip";
+import { HelpTooltip } from "@/components/common/help-tooltip";
 import { useTraceSelection, useRelatedSignals } from "@/hooks/use-signal-route";
 import { useFilterByAction } from "@/hooks/use-filter-by-action";
 import { FileText, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { CopyJsonButton } from "@/components/ui/copy-json-button";
+import { CopyJsonButton } from "@/components/common/copy-json-button";
 import { formatDuration, shortId, formatTimestamp } from "@/lib/format";
 import { downloadJson } from "@/lib/export";
 import { useTraceSpans } from "@/hooks/use-trace-spans";
 import { SpanWaterfall } from "./span-waterfall";
-import { KVSection } from "@/components/ui/kv-section";
+import { KVSection } from "@/components/common/kv-section";
 import { DetailPanel } from "@/components/common/detail-panel";
 import { DetailSidebar } from "@/components/common/detail-sidebar";
 import { Pill } from "@/components/common/pill";
@@ -122,7 +122,7 @@ function SpanDetail({
       tone="trace"
       onClose={onClose}
       closeLabel="Close span details"
-      actions={<CopyJsonButton data={span} size="xs" />}
+      actions={<CopyJsonButton data={span} />}
     >
       <div className="space-y-2">
         <div className="group/filter-field flex items-start justify-between gap-2">

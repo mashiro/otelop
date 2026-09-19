@@ -1,5 +1,5 @@
 import { Field } from "@/components/common/detail-field";
-import { KVSection } from "@/components/ui/kv-section";
+import { KVSection } from "@/components/common/kv-section";
 import { formatMetricValue } from "@/lib/format-metric";
 import { formatTimestamp } from "@/lib/format";
 import type { DataPoint } from "@/types/telemetry";

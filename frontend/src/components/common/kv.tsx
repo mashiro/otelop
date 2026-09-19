@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { cn } from "@/lib/utils";
 
 export function KV({ k, v }: { k: string; v: string }) {
   const [expanded, setExpanded] = useState(false);
@@ -7,7 +8,10 @@ export function KV({ k, v }: { k: string; v: string }) {
     <div className="text-xs">
       <div className="text-muted-foreground">{k}</div>
       <div
-        className={`whitespace-normal break-all pl-3 font-mono text-foreground/80 ${expanded ? "" : "line-clamp-2"}`}
+        className={cn(
+          "whitespace-normal break-all pl-3 font-mono text-foreground/80",
+          !expanded && "line-clamp-2",
+        )}
       >
         {v}
       </div>
@@ -15,7 +19,7 @@ export function KV({ k, v }: { k: string; v: string }) {
         <button
           type="button"
           onClick={() => setExpanded(!expanded)}
-          className="cursor-pointer pl-3 text-[10px] text-muted-foreground hover:text-foreground"
+          className="cursor-pointer pl-3 text-3xs text-muted-foreground hover:text-foreground"
         >
           {expanded ? "show less" : "show more..."}
         </button>

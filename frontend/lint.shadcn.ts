@@ -131,7 +131,7 @@ export const shadcnOverrides: LintConfig["overrides"] = [
   },
   {
     // The logo's brand colors are fixed; theme tokens shift between light and dark.
-    files: ["src/components/ui/logo.tsx"],
+    files: ["src/components/common/logo.tsx"],
     rules: { "shadcn/no-raw-colors": "off" },
   },
 ];

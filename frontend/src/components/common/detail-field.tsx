@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import type { Tone } from "@/lib/tones";
+import { cn } from "@/lib/utils";
 
 // FieldTone restricts Field's highlight color to the signal tones (trace,
 // metric, log) — a Field never needs the status tones (success, warning, ...).
@@ -33,7 +34,13 @@ export function Field({
     <div className="group/filter-field flex gap-2 text-sm">
       <dt className="w-20 shrink-0 text-muted-foreground">{label}</dt>
       <dd
-        className={`break-all ${action ? "min-w-0 flex-1" : ""} ${mono ? "font-mono text-xs leading-5" : ""} ${tone ? `${toneClasses[tone]} font-semibold` : ""}`}
+        className={cn(
+          "break-all",
+          action && "min-w-0 flex-1",
+          mono && "font-mono text-xs leading-5",
+          tone && toneClasses[tone],
+          tone && "font-semibold",
+        )}
       >
         {value}
       </dd>

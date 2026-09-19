@@ -1,12 +1,13 @@
 import { Link } from "@tanstack/react-router";
-import { HelpTooltip } from "@/components/ui/help-tooltip";
+import { HelpTooltip } from "@/components/common/help-tooltip";
 import { useAtomValue, useSetAtom } from "jotai";
 import { Sun, Moon, Monitor } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Logo } from "@/components/ui/logo";
+import { Logo } from "@/components/common/logo";
 import { wsStatusAtom, traceCountAtom, metricCountAtom, logCountAtom } from "@/stores/telemetry";
 import { themeAtom, type Theme } from "@/stores/theme";
 import { SIGNALS, type SignalConfig } from "@/lib/signals";
+import { cn } from "@/lib/utils";
 
 const statusConfig: Record<string, { color: string; glow: string; label: string }> = {
   connected: {
@@ -57,7 +58,7 @@ export function Header() {
 
       <div className="flex items-center gap-4">
         <div className="flex items-center gap-2">
-          <div className={`h-2 w-2 rounded-full ${status.color} ${status.glow}`} />
+          <div className={cn("h-2 w-2 rounded-full", status.color, status.glow)} />
           <span className="text-xs font-medium text-muted-foreground">{status.label}</span>
         </div>
 
@@ -70,11 +71,11 @@ export function Header() {
 function CounterBadge({ signal, count }: { signal: SignalConfig; count: number }) {
   const { bgLight, text } = signal.classes;
   return (
-    <div className={`flex items-center gap-1.5 rounded-md px-2 py-0.5 ${bgLight}`}>
-      <span className={`text-3xs font-bold uppercase tracking-wider ${text}`}>
+    <div className={cn("flex items-center gap-1.5 rounded-md px-2 py-0.5", bgLight)}>
+      <span className={cn("text-3xs font-bold uppercase tracking-wider", text)}>
         {signal.shortLabel}
       </span>
-      <span className={`font-mono text-xs font-semibold ${text}`}>{count}</span>
+      <span className={cn("font-mono text-xs font-semibold", text)}>{count}</span>
     </div>
   );
 }

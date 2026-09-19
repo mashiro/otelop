@@ -1,4 +1,4 @@
-import { HelpTooltip } from "@/components/ui/help-tooltip";
+import { HelpTooltip } from "@/components/common/help-tooltip";
 import { ListFilterPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 

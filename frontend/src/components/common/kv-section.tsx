@@ -13,7 +13,7 @@ export function KVSection({ title, data, onFilter }: Props) {
 
   return (
     <div>
-      <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+      <h4 className="mb-2 text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
         {title}
       </h4>
       <div className="space-y-1.5 rounded-md bg-muted/50 p-2.5">
