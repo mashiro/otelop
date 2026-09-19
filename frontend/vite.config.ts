@@ -45,9 +45,14 @@ export default defineConfig({
   fmt: { ignorePatterns: generatedSources },
   lint: {
     ignorePatterns: generatedSources,
-    jsPlugins: [{ name: "vite-plus", specifier: "vite-plus/oxlint-plugin" }, "@shadcn/lint"],
+    jsPlugins: [
+      { name: "vite-plus", specifier: "vite-plus/oxlint-plugin" },
+      "@shadcn/lint",
+      { name: "local", specifier: "./lint.local-rules.ts" },
+    ],
     rules: {
       "vite-plus/prefer-vite-plus-imports": "error",
+      "local/no-template-literal-classname": "error",
       ...shadcnRules,
     },
     overrides: shadcnOverrides,

@@ -1,4 +1,4 @@
-import { HelpTooltip } from "@/components/ui/help-tooltip";
+import { HelpTooltip } from "@/components/common/help-tooltip";
 import { ChevronLeft, ChevronRight, Radio } from "lucide-react";
 import { Temporal } from "temporal-polyfill";
 import { Button } from "@/components/ui/button";

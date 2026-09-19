@@ -1,4 +1,4 @@
-import { HelpTooltip } from "@/components/ui/help-tooltip";
+import { HelpTooltip } from "@/components/common/help-tooltip";
 import { useFilterSuggestions } from "@/hooks/use-filter-suggestions";
 import { useId, useState } from "react";
 import { useSignalQuery, useTimeWindow } from "@/hooks/use-signal-route";

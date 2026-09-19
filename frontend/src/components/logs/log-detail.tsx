@@ -1,10 +1,10 @@
-import { HelpTooltip } from "@/components/ui/help-tooltip";
+import { HelpTooltip } from "@/components/common/help-tooltip";
 import { useFilterByAction } from "@/hooks/use-filter-by-action";
 import { Logs } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { CopyJsonButton } from "@/components/ui/copy-json-button";
+import { CopyJsonButton } from "@/components/common/copy-json-button";
 import { formatTimestamp, isZeroId } from "@/lib/format";
-import { KVSection } from "@/components/ui/kv-section";
+import { KVSection } from "@/components/common/kv-section";
 import { Field, Section } from "@/components/common/detail-field";
 import { DetailSidebar } from "@/components/common/detail-sidebar";
 import { Pill } from "@/components/common/pill";
@@ -28,7 +28,7 @@ export function LogDetail({
       title="Log Details"
       tone="log"
       onClose={onClose}
-      actions={<CopyJsonButton data={log} size="xs" />}
+      actions={<CopyJsonButton data={log} />}
     >
       <div className="space-y-2.5">
         <Field

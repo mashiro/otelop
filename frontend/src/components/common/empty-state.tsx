@@ -1,4 +1,5 @@
 import type { SignalConfig } from "@/lib/signals";
+import { cn } from "@/lib/utils";
 import { SignalIcon } from "./signal-icon";
 
 interface EmptyStateProps {
@@ -10,7 +11,10 @@ export function EmptyState({ signal }: EmptyStateProps) {
     <div className="glass-card flex h-full items-center justify-center">
       <div className="animate-slide-up-fade flex flex-col items-center gap-4">
         <div
-          className={`flex h-14 w-14 items-center justify-center rounded-2xl ${signal.classes.bgLight}`}
+          className={cn(
+            "flex h-14 w-14 items-center justify-center rounded-2xl",
+            signal.classes.bgLight,
+          )}
         >
           <SignalIcon signal={signal} />
         </div>

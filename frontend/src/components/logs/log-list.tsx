@@ -1,4 +1,4 @@
-import { HelpTooltip } from "@/components/ui/help-tooltip";
+import { HelpTooltip } from "@/components/common/help-tooltip";
 import {
   useSignalQuery,
   useTimeWindow,
