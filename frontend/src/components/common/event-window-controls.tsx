@@ -60,7 +60,7 @@ export function TimeWindowControls({
   return (
     <div className="flex items-center gap-1">
       {window.mode === "fixed" && (
-        <span className="px-1 font-mono text-[11px] text-muted-foreground">
+        <span className="px-1 text-xs text-muted-foreground">
           {formatInstant(window.from)} – {formatInstant(window.to)}
         </span>
       )}
@@ -96,7 +96,6 @@ export function TimeWindowControls({
           </Button>
         </HelpTooltip>
       )}
-      {window.mode === "live" && <span aria-hidden className="size-7" />}
       <Button
         type="button"
         variant="ghost"

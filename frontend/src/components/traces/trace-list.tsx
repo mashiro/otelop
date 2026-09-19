@@ -1,4 +1,4 @@
-import { TraceFilterBar } from "./trace-filter-bar";
+import { TraceAddFilter, TraceFilterBar } from "./trace-filter-bar";
 import { useSignalQuery, useTimeWindow, useTraceSelection } from "@/hooks/use-signal-route";
 import { useAtomValue } from "jotai";
 import { useMemo, useState } from "react";
@@ -104,11 +104,19 @@ export function TraceList() {
 
   return (
     <ListPanel
-      toolbarSecondary={<TraceFilterBar />}
+      toolbarSecondary={state.filters.length > 0 ? <TraceFilterBar /> : null}
       toolbar={
         <>
-          <SearchFilter value={state.text} onSubmit={setText} placeholder="Search traces…" />
-          <div className="ml-auto">
+          <div className="flex min-w-0 max-w-[26rem] flex-1 items-center gap-2">
+            <SearchFilter
+              value={state.text}
+              onSubmit={setText}
+              placeholder="Search traces…"
+              className="min-w-0"
+            />
+            <TraceAddFilter />
+          </div>
+          <div className="ml-auto shrink-0">
             <EventWindowControls tone="trace" />
           </div>
         </>

@@ -2,7 +2,7 @@ import { HelpTooltip } from "@/components/ui/help-tooltip";
 import { useFilterSuggestions } from "@/hooks/use-filter-suggestions";
 import { useId, useState } from "react";
 import { useSignalQuery, useTimeWindow } from "@/hooks/use-signal-route";
-import { Filter, Pause, Play, Plus, X } from "lucide-react";
+import { Filter, FilterX, Pause, Play, Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
@@ -33,50 +33,54 @@ import {
 } from "@/lib/log-filter";
 import { type LogSearchTerm } from "@/lib/log-search";
 
-export function SignalFilterBar({
-  fields,
-  numericFields,
-  signal,
-  label,
-  description,
-}: {
+type SignalFilterProps = {
   fields: readonly string[];
   numericFields: readonly string[];
   signal: "logs" | "traces";
   label: string;
   description?: string;
-}) {
-  const { state, setState } = useSignalQuery(signal);
+};
+
+export function SignalAddFilter({ fields, numericFields, signal, description }: SignalFilterProps) {
+  const { setState } = useSignalQuery(signal);
   const [adding, setAdding] = useState(false);
+  return (
+    <Popover open={adding} onOpenChange={setAdding}>
+      <PopoverTrigger render={<Button variant="outline" size="sm" />}>
+        <Plus data-icon="inline-start" /> Add filter
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-96 max-w-[calc(100vw-2rem)] gap-4 p-4">
+        <PopoverHeader>
+          <PopoverTitle>Add filter</PopoverTitle>
+          <PopoverDescription>
+            {description ?? "Choose a key, an operator, and a value."}
+          </PopoverDescription>
+        </PopoverHeader>
+        <FilterEditor
+          signal={signal}
+          fields={fields}
+          numericFields={numericFields}
+          onCancel={() => setAdding(false)}
+          onApply={(term) => {
+            void setState((current) => ({
+              ...current,
+              filters: [...current.filters, newLogFilter(term)],
+            }));
+            setAdding(false);
+          }}
+        />
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+export function SignalFilterBar({ fields, numericFields, signal, label }: SignalFilterProps) {
+  const { state, setState } = useSignalQuery(signal);
   const [editing, setEditing] = useState<string | null>(null);
+  if (state.filters.length === 0) return null;
+
   return (
     <div className="flex flex-wrap items-center gap-2" aria-label={label}>
-      <Popover open={adding} onOpenChange={setAdding}>
-        <PopoverTrigger render={<Button variant="outline" size="sm" />}>
-          <Plus data-icon="inline-start" /> Add filter
-        </PopoverTrigger>
-        <PopoverContent align="start" className="w-96 max-w-[calc(100vw-2rem)] gap-4 p-4">
-          <PopoverHeader>
-            <PopoverTitle>Add filter</PopoverTitle>
-            <PopoverDescription>
-              {description ?? "Choose a key, an operator, and a value."}
-            </PopoverDescription>
-          </PopoverHeader>
-          <FilterEditor
-            signal={signal}
-            fields={fields}
-            numericFields={numericFields}
-            onCancel={() => setAdding(false)}
-            onApply={(term) => {
-              void setState((current) => ({
-                ...current,
-                filters: [...current.filters, newLogFilter(term)],
-              }));
-              setAdding(false);
-            }}
-          />
-        </PopoverContent>
-      </Popover>
       {state.filters.length > 1 && <span className="text-xs text-muted-foreground">Match all</span>}
       {state.filters.map((filter) => {
         const draft = filterDraft(filter);
@@ -189,10 +193,10 @@ export function SignalFilterBar({
         <Button
           variant="ghost"
           size="sm"
-          className="ml-auto text-muted-foreground"
+          className="text-muted-foreground"
           onClick={() => setState((current) => ({ ...current, filters: [] }))}
         >
-          Clear filters
+          <FilterX data-icon="inline-start" /> Clear filters
         </Button>
       )}
     </div>
