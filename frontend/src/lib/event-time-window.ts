@@ -129,6 +129,7 @@ export function eventWindowDomain(
   points: { time: Date }[],
   window: EventTimeWindow,
 ): [Date, Date] | null {
-  if (window.mode === "live") return timeRangeDomain(points, window.range);
-  return [new Date(window.from), new Date(window.to)];
+  if (window.mode === "live" && window.range === "all") return timeRangeDomain(points, "all");
+  const { from, to } = eventWindowBounds(window);
+  return [new Date(from!), new Date(to)];
 }

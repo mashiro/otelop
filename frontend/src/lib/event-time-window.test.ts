@@ -12,6 +12,37 @@ import {
 } from "./event-time-window";
 
 describe("event time window", () => {
+  it("keeps the full live chart window ending at now regardless of data extent", () => {
+    const now = vi
+      .spyOn(Temporal.Now, "instant")
+      .mockReturnValue(Temporal.Instant.from("2026-07-12T02:00:00Z"));
+    try {
+      for (const points of [
+        [],
+        [{ time: new Date("2026-07-12T01:30:00Z") }],
+        [{ time: new Date("2026-07-11T00:00:00Z") }],
+      ]) {
+        expect(eventWindowDomain(points, { mode: "live", range: "1h" })).toEqual([
+          new Date("2026-07-12T01:00:00Z"),
+          new Date("2026-07-12T02:00:00Z"),
+        ]);
+      }
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it("preserves the data extent for an unbounded All window", () => {
+    const points = [
+      { time: new Date("2026-07-12T01:20:00Z") },
+      { time: new Date("2026-07-12T01:40:00Z") },
+    ];
+    expect(eventWindowDomain(points, { mode: "live", range: "all" })).toEqual([
+      points[0]!.time,
+      points[1]!.time,
+    ]);
+  });
+
   it("sizes aggregate buckets from a custom fixed window's exact width", () => {
     expect(
       bucketSecondsForEventWindow({
