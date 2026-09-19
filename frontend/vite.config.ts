@@ -21,6 +21,9 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": resolve(import.meta.dirname, "./src"),
+      // class-variance-authority still imports clsx; route it to cn so the
+      // bundle carries a single class-joining implementation.
+      clsx: "cn",
     },
     dedupe: ["react", "react-dom"],
   },
