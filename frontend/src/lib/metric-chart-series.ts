@@ -2,10 +2,21 @@ import type { DataPoint } from "@/types/telemetry";
 import type { EventTimeWindow } from "@/lib/event-time-window";
 import { bucketSecondsForEventWindow } from "@/lib/event-time-window";
 import { bucketSecondsForDataExtent } from "@/lib/chart-time-range";
+import { attrKey, resolveFacetGroupColorIndex } from "@/lib/metric-stats";
+import { SERIES_COLORS, seriesColorIndexes } from "@/lib/metric-series-colors";
+import type { MetricFacet } from "@/lib/metric-catalog";
+import type { AggregateSeriesData } from "@/hooks/use-metric-aggregate-series";
 
 export interface MetricChartPoint {
   time: Date;
   value: number;
+}
+
+export interface MetricSeries {
+  key: string;
+  label: string;
+  color: string;
+  points: MetricChartPoint[];
 }
 
 export function bucketSecondsForRawMetricPoints(
@@ -110,4 +121,62 @@ export function chartTimeForAggregateTimestamp(timestamp: string, window: EventT
   const bucketMs = new Date(timestamp).getTime();
   if (window.mode === "live") return new Date(bucketMs);
   return new Date(Math.max(bucketMs, new Date(window.from).getTime()));
+}
+
+// Facet-active line series: render the server-summed series (the fix for the
+// zigzag bug — see use-metric-aggregate-series.ts) instead of grouping raw
+// points client-side. Both surfaces (chart + summary tiles) resolve the same
+// label/color per group via resolveFacetGroupColorIndex, so they never
+// disagree on identity.
+export function buildAggregatedFacetSeries(
+  aggregatedSeries: AggregateSeriesData[],
+  facet: MetricFacet,
+  window: EventTimeWindow,
+): MetricSeries[] {
+  const resolved = resolveFacetGroupColorIndex(aggregatedSeries, facet);
+  return aggregatedSeries.map((s, i) => {
+    const { label, colorIndex } = resolved[i]!;
+    return {
+      key: label,
+      label,
+      color: SERIES_COLORS[colorIndex],
+      points: [...s.points]
+        .map((p) => ({
+          time: chartTimeForAggregateTimestamp(p.timestamp, window),
+          value: p.value,
+        }))
+        .sort((a, b) => a.time.getTime() - b.time.getTime()),
+    };
+  });
+}
+
+// The facet="All" path: group raw points by full attribute combination and
+// bucket each group client-side.
+export function buildRawGroupedSeries(
+  dataPoints: DataPoint[],
+  metricType: string,
+  window: EventTimeWindow,
+): MetricSeries[] {
+  const groups = new Map<string, DataPoint[]>();
+  for (const dp of dataPoints) {
+    const key = attrKey(dp.attributes);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key)!.push(dp);
+  }
+  const result: MetricSeries[] = [];
+  const colorIndexes = seriesColorIndexes([...groups.keys()]);
+  // Match the server's auto mode: derive one shared grid from the whole
+  // metric extent, not a different bucket width for each All-view series.
+  const bucketSeconds = bucketSecondsForRawMetricPoints(dataPoints, window);
+  let index = 0;
+  for (const [key, points] of groups) {
+    result.push({
+      key,
+      label: key || "(no attributes)",
+      color: SERIES_COLORS[colorIndexes[index]!],
+      points: bucketRawMetricPoints(points, metricType, window, bucketSeconds),
+    });
+    index++;
+  }
+  return result;
 }

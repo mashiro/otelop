@@ -1,4 +1,4 @@
-import { memo, useCallback, useId, useMemo, useRef, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { Group } from "@visx/group";
@@ -11,29 +11,20 @@ import { useTooltip, TooltipWithBounds } from "@visx/tooltip";
 import type { MetricData } from "@/types/telemetry";
 import { formatMetricValue } from "@/lib/format-metric";
 import { resolveMetricUnit, type MetricFacet } from "@/lib/metric-catalog";
-import { facetSeriesKey, resolveFacetGroupColorIndex } from "@/lib/metric-stats";
 import { filterPointsInDomain } from "@/lib/chart-time-range";
 import { eventWindowDomain, type EventTimeWindow } from "@/lib/event-time-window";
 import type { AggregateSeriesData } from "@/hooks/use-metric-aggregate-series";
-import { SERIES_COLORS, seriesColorIndexes } from "@/lib/metric-series-colors";
 import {
-  bucketRawMetricPoints,
-  bucketSecondsForRawMetricPoints,
-  chartTimeForAggregateTimestamp,
+  buildAggregatedFacetSeries,
+  buildRawGroupedSeries,
   type MetricChartPoint,
+  type MetricSeries,
 } from "@/lib/metric-chart-series";
 
 const MARGIN = { top: 10, right: 20, bottom: 40, left: 72 };
 
 function formatTick(d: Date): string {
   return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-}
-
-interface SeriesData {
-  key: string;
-  label: string;
-  color: string;
-  points: PointData[];
 }
 
 type PointData = MetricChartPoint;
@@ -50,11 +41,11 @@ interface TooltipData {
 }
 
 interface Props {
-  // metric.dataPoints is already the range-scoped data (metric-detail.tsx's
-  // stableMetric sets it to rangeDataPoints — see use-metric-range-points.ts)
-  // — the same range-scoped data the stat tiles above the chart sum, so the
-  // two can't desync (see metric-stats.ts's computeStatTiles and
-  // MetricSummary).
+  // metric.dataPoints must already be the range-scoped data (metric-detail.tsx
+  // passes { ...metric, dataPoints: rangeDataPoints } — see
+  // use-metric-range-points.ts) — the same range-scoped data the stat tiles
+  // above the chart sum, so the two can't desync (see metric-stats.ts's
+  // computeStatTiles and MetricSummary).
   metric: MetricData;
   // Facet to group series by; when null/undefined, series are keyed by the
   // full attribute combination (the "All" view).
@@ -105,18 +96,7 @@ function closestPoint(points: PointData[], targetMs: number): PointData | undefi
   return best;
 }
 
-// Memoized so a WS delivery that doesn't change the props MetricDetailBody
-// passes down (rangeDataPoints/aggregatedSeries kept reference-stable via
-// useStableArray — see use-metric-range-points.ts / use-metric-
-// aggregate-series.ts) skips the SVG/axis/tooltip re-render entirely instead
-// of repainting the whole chart on every message.
-export const MetricChart = memo(function MetricChart({
-  metric,
-  facet,
-  window,
-  aggregatedSeries,
-  onWindowChange,
-}: Props) {
+export function MetricChart({ metric, facet, window, aggregatedSeries, onWindowChange }: Props) {
   return (
     <div className="flex h-full flex-col">
       <div className="min-h-0 flex-1">
@@ -139,7 +119,7 @@ export const MetricChart = memo(function MetricChart({
       </div>
     </div>
   );
-});
+}
 
 function ChartInner({
   metric,
@@ -166,73 +146,31 @@ function ChartInner({
   const [dragSelection, setDragSelection] = useState<{ startX: number; endX: number } | null>(null);
   const unit = resolveMetricUnit(metric.name, metric.unit);
 
-  const series = useMemo(() => {
-    // Facet active: render the server-summed series (the fix for the
-    // zigzag bug — see use-metric-aggregate-series.ts) instead of grouping
-    // raw points client-side. While the aggregated fetch is in flight or
-    // failed, render nothing rather than falling back to the raw
-    // (unsummed) grouping, which would reintroduce the zigzag.
-    if (facet) {
-      if (!aggregatedSeries) return [];
-      const resolved = resolveFacetGroupColorIndex(aggregatedSeries, facet);
-      return aggregatedSeries.map((s, i) => {
-        const { label, colorIndex } = resolved[i]!;
-        return {
-          key: label,
-          label,
-          color: SERIES_COLORS[colorIndex],
-          points: [...s.points]
-            .map((p) => ({
-              time: chartTimeForAggregateTimestamp(p.timestamp, window),
-              value: p.value,
-            }))
-            .sort((a, b) => a.time.getTime() - b.time.getTime()),
-        };
-      });
-    }
-
-    const groups = new Map<string, typeof metric.dataPoints>();
-    for (const dp of metric.dataPoints) {
-      const key = facetSeriesKey(dp.attributes, facet);
-      if (!groups.has(key)) groups.set(key, []);
-      groups.get(key)!.push(dp);
-    }
-    const result: SeriesData[] = [];
-    const colorIndexes = seriesColorIndexes([...groups.keys()]);
-    // Match the server's auto mode: derive one shared grid from the whole
-    // metric extent, not a different bucket width for each All-view series.
-    const bucketSeconds = bucketSecondsForRawMetricPoints(metric.dataPoints, window);
-    let index = 0;
-    for (const [key, points] of groups) {
-      result.push({
-        key,
-        label: key || "(no attributes)",
-        color: SERIES_COLORS[colorIndexes[index]!],
-        points: bucketRawMetricPoints(points, metric.type, window, bucketSeconds),
-      });
-      index++;
-    }
-    return result;
-  }, [metric.dataPoints, metric.type, facet, aggregatedSeries, window]);
+  // Facet active: render the server-summed series (the fix for the zigzag
+  // bug — see use-metric-aggregate-series.ts) instead of grouping raw points
+  // client-side. While the aggregated fetch is in flight or failed, render
+  // nothing rather than falling back to the raw (unsummed) grouping, which
+  // would reintroduce the zigzag.
+  const series: MetricSeries[] = facet
+    ? aggregatedSeries
+      ? buildAggregatedFacetSeries(aggregatedSeries, facet, window)
+      : []
+    : buildRawGroupedSeries(metric.dataPoints, metric.type, window);
 
   // Kept unfiltered: the "No data points" branch reflects the raw metric,
   // not the current time-range window.
-  const allPoints = useMemo(() => series.flatMap((s) => s.points), [series]);
+  const allPoints = series.flatMap((s) => s.points);
 
-  const domain = useMemo(() => eventWindowDomain(allPoints, window), [allPoints, window]);
+  const domain = eventWindowDomain(allPoints, window);
 
-  const visibleSeries = useMemo(
-    () =>
-      series
-        .filter((s) => selectedKeys === null || selectedKeys.has(s.key))
-        .map((s) => ({
-          ...s,
-          points: domain ? filterPointsInDomain(s.points, domain) : s.points,
-        })),
-    [series, domain, selectedKeys],
-  );
+  const visibleSeries = series
+    .filter((s) => selectedKeys === null || selectedKeys.has(s.key))
+    .map((s) => ({
+      ...s,
+      points: domain ? filterPointsInDomain(s.points, domain) : s.points,
+    }));
 
-  const visiblePoints = useMemo(() => visibleSeries.flatMap((s) => s.points), [visibleSeries]);
+  const visiblePoints = visibleSeries.flatMap((s) => s.points);
 
   // The legend and its controls take 52px out of the measured height; the axis must be
   // laid out against the shrunken svg or its tick labels get clipped below it.
@@ -242,123 +180,108 @@ function ChartInner({
   const innerWidth = width - MARGIN.left - MARGIN.right;
   const innerHeight = svgHeight - MARGIN.top - MARGIN.bottom;
 
-  const xScale = useMemo(() => {
-    if (domain) return scaleTime({ domain, range: [0, innerWidth] });
-    return scaleTime({ domain: [new Date(), new Date()], range: [0, innerWidth] });
-  }, [domain, innerWidth]);
+  const xScale = domain
+    ? scaleTime({ domain, range: [0, innerWidth] })
+    : scaleTime({ domain: [new Date(), new Date()], range: [0, innerWidth] });
 
-  const yScale = useMemo(() => {
-    let min = 0;
-    let max = 1;
-    for (const p of visiblePoints) {
-      if (p.value < min) min = p.value;
-      if (p.value > max) max = p.value;
-    }
-    const padding = (max - min) * 0.1 || 1;
-    return scaleLinear({
-      domain: [min - padding, max + padding],
-      range: [innerHeight, 0],
-    });
-  }, [visiblePoints, innerHeight]);
+  let yMin = 0;
+  let yMax = 1;
+  for (const p of visiblePoints) {
+    if (p.value < yMin) yMin = p.value;
+    if (p.value > yMax) yMax = p.value;
+  }
+  const yPadding = (yMax - yMin) * 0.1 || 1;
+  const yScale = scaleLinear({
+    domain: [yMin - yPadding, yMax + yPadding],
+    range: [innerHeight, 0],
+  });
 
   const { showTooltip, hideTooltip, tooltipData, tooltipLeft, tooltipTop, tooltipOpen } =
     useTooltip<TooltipData>();
 
-  const plotX = useCallback((clientX: number) => {
+  function plotX(clientX: number): number | null {
     const svg = svgRef.current;
     if (!svg) return null;
     return clientX - svg.getBoundingClientRect().left - MARGIN.left;
-  }, []);
+  }
 
-  const handlePointerDown = useCallback(
-    (event: React.PointerEvent<SVGRectElement>) => {
-      if (event.button !== 0 || !domain) return;
-      const x = plotX(event.clientX);
-      if (x === null) return;
-      const clampedX = Math.max(0, Math.min(innerWidth, x));
-      dragStartRef.current = clampedX;
-      setDragSelection({ startX: clampedX, endX: clampedX });
-      hideTooltip();
-      event.currentTarget.focus();
-      event.currentTarget.setPointerCapture(event.pointerId);
-    },
-    [domain, hideTooltip, innerWidth, plotX],
-  );
+  function handlePointerDown(event: React.PointerEvent<SVGRectElement>) {
+    if (event.button !== 0 || !domain) return;
+    const x = plotX(event.clientX);
+    if (x === null) return;
+    const clampedX = Math.max(0, Math.min(innerWidth, x));
+    dragStartRef.current = clampedX;
+    setDragSelection({ startX: clampedX, endX: clampedX });
+    hideTooltip();
+    event.currentTarget.focus();
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
 
-  const handlePointerMove = useCallback(
-    (event: React.PointerEvent<SVGRectElement>) => {
-      const startX = dragStartRef.current;
-      if (startX === null) return;
-      const x = plotX(event.clientX);
-      if (x === null) return;
-      setDragSelection({ startX, endX: Math.max(0, Math.min(innerWidth, x)) });
-    },
-    [innerWidth, plotX],
-  );
+  function handlePointerMove(event: React.PointerEvent<SVGRectElement>) {
+    const startX = dragStartRef.current;
+    if (startX === null) return;
+    const x = plotX(event.clientX);
+    if (x === null) return;
+    setDragSelection({ startX, endX: Math.max(0, Math.min(innerWidth, x)) });
+  }
 
-  const finishDrag = useCallback(
-    (event: React.PointerEvent<SVGRectElement>) => {
-      const startX = dragStartRef.current;
-      dragStartRef.current = null;
-      setDragSelection(null);
-      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-        event.currentTarget.releasePointerCapture(event.pointerId);
-      }
-      if (startX === null || !domain) return;
-      const x = plotX(event.clientX);
-      if (x === null) return;
-      const nextWindow = timeWindowFromDrag(domain, startX, x, innerWidth);
-      if (nextWindow) onWindowChange(nextWindow);
-    },
-    [domain, innerWidth, onWindowChange, plotX],
-  );
-
-  const cancelDrag = useCallback(() => {
+  function finishDrag(event: React.PointerEvent<SVGRectElement>) {
+    const startX = dragStartRef.current;
     dragStartRef.current = null;
     setDragSelection(null);
-  }, []);
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    if (startX === null || !domain) return;
+    const x = plotX(event.clientX);
+    if (x === null) return;
+    const nextWindow = timeWindowFromDrag(domain, startX, x, innerWidth);
+    if (nextWindow) onWindowChange(nextWindow);
+  }
+
+  function cancelDrag() {
+    dragStartRef.current = null;
+    setDragSelection(null);
+  }
 
   // Show all series values at the nearest timestamp.
-  const handleMouseMove = useCallback(
-    (event: React.MouseEvent<SVGRectElement>) => {
-      const svg = svgRef.current;
-      if (!svg) return;
-      const rect = svg.getBoundingClientRect();
-      const x = event.clientX - rect.left - MARGIN.left;
-      const mouseTime = xScale.invert(x).getTime();
+  function handleMouseMove(event: React.MouseEvent<SVGRectElement>) {
+    const svg = svgRef.current;
+    if (!svg) return;
+    const rect = svg.getBoundingClientRect();
+    const x = event.clientX - rect.left - MARGIN.left;
+    const mouseTime = xScale.invert(x).getTime();
 
-      // Find the globally closest point, then collect all series at that timestamp.
-      let nearestMs = 0;
-      let nearestDist = Infinity;
-      for (const s of visibleSeries) {
-        const p = closestPoint(s.points, mouseTime);
-        if (p) {
-          const d = Math.abs(p.time.getTime() - mouseTime);
-          if (d < nearestDist) {
-            nearestDist = d;
-            nearestMs = p.time.getTime();
-          }
+    // Find the globally closest point, then collect all series at that timestamp.
+    let nearestMs = 0;
+    let nearestDist = Infinity;
+    for (const s of visibleSeries) {
+      const p = closestPoint(s.points, mouseTime);
+      if (p) {
+        const d = Math.abs(p.time.getTime() - mouseTime);
+        if (d < nearestDist) {
+          nearestDist = d;
+          nearestMs = p.time.getTime();
         }
       }
+    }
 
-      const rows: TooltipRow[] = [];
-      for (const s of visibleSeries) {
-        const p = closestPoint(s.points, nearestMs);
-        if (p) {
-          rows.push({ label: s.label, color: s.color, value: p.value });
-        }
+    const rows: TooltipRow[] = [];
+    for (const s of visibleSeries) {
+      const p = closestPoint(s.points, nearestMs);
+      if (p) {
+        rows.push({ label: s.label, color: s.color, value: p.value });
       }
+    }
 
-      if (rows.length > 0) {
-        showTooltip({
-          tooltipData: { time: new Date(nearestMs), rows },
-          tooltipLeft: xScale(new Date(nearestMs)) + MARGIN.left,
-          tooltipTop: event.clientY - rect.top,
-        });
-      }
-    },
-    [visibleSeries, xScale, showTooltip],
-  );
+    if (rows.length > 0) {
+      showTooltip({
+        tooltipData: { time: new Date(nearestMs), rows },
+        tooltipLeft: xScale(new Date(nearestMs)) + MARGIN.left,
+        tooltipTop: event.clientY - rect.top,
+      });
+    }
+  }
 
   if (allPoints.length === 0) {
     return (

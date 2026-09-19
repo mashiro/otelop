@@ -76,6 +76,26 @@ export function filterDraftError(
   return null;
 }
 
+// Used by hooks/use-filter-by-action.tsx's filterBy, shared between the
+// traces and logs detail sidebars: builds a filter draft from an arbitrary
+// attribute/field value clicked there, then hands it to draftTerm. Kept
+// separate from draftTerm itself because that hook passes draftTerm a
+// different `fields` list per signal (traces: traceFields; logs: the
+// default).
+export function valueToFilterDraft(key: string, value: unknown): LogFilterDraft {
+  const complex = typeof value === "object" && value !== null;
+  return {
+    key,
+    operator: value == null ? "not_exists" : complex ? "exists" : "is",
+    value:
+      typeof value === "string"
+        ? value
+        : typeof value === "number" || typeof value === "boolean"
+          ? String(value)
+          : "",
+  };
+}
+
 export function draftTerm(
   draft: LogFilterDraft,
   fields: readonly string[] = Object.keys(logFields),

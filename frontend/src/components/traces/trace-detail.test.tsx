@@ -46,4 +46,16 @@ describe("span detail navigation", () => {
     await waitFor(() => expect(router.state.location.pathname).toBe("/traces"));
     expect(router.state.location.search.range).toBe("6h");
   });
+
+  it("filters by a field recognized as a trace field, not an attribute", async () => {
+    // "kind" is in traceFields (lib/trace-search.ts) but not in the default
+    // fields draftTerm falls back to — this is the one thing
+    // useFilterByAction("traces") (hooks/use-filter-by-action.tsx) branches
+    // on, so a wrong `fields` list here would silently turn every trace
+    // filter into an attributes.* term instead.
+    const router = await setup("/traces/t1/spans/s1?range=6h");
+    fireEvent.click(screen.getByRole("button", { name: "Filter by kind" }));
+    await waitFor(() => expect(router.state.location.search.filter).toHaveLength(1));
+    expect(router.state.location.search.filter?.[0]).toBe('kind:"Server"');
+  });
 });

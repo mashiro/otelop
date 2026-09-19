@@ -14,7 +14,9 @@ import {
   cleanup,
   waitFor,
 } from "@testing-library/react";
-import { MetricDetailBody } from "./metric-detail";
+import { getDefaultStore } from "jotai";
+import { MetricDetail, MetricDetailBody } from "./metric-detail";
+import { metricsAtom } from "@/stores/telemetry";
 import { makeDataPoint, makeMetric } from "@/test/factories";
 
 // Base UI's ScrollArea calls Element.getAnimations(), which happy-dom (this
@@ -187,5 +189,88 @@ describe("MetricDetailBody data points table", () => {
     await selectRange("5m");
 
     await waitFor(() => expect(screen.getByText("Data Points (2)")).toBeTruthy());
+  });
+});
+
+// The data point sidebar (DetailSidebar) registers its own capture-phase
+// Escape listener (hooks/use-keyboard-shortcut.ts), which runs before
+// DetailPanel's bubble-phase one and consumes the event — the same
+// one-Escape-per-level contract trace-detail.test.tsx verifies for spans
+// (see "dismisses one detail level per Escape").
+describe("MetricDetail data point sidebar", () => {
+  it("gives the data point close button an accessible name distinct from the metric detail's own close button", async () => {
+    const store = getDefaultStore();
+    store.set(metricsAtom, [
+      makeMetric({
+        serviceName: "frontend",
+        name: "http.requests",
+        dataPoints: [makeDataPoint({ id: "dp-a", attributes: { k: "v" } })],
+      }),
+    ]);
+
+    render(<MetricDetail />);
+    fireEvent.click(screen.getByText('k="v"').closest("tr")!);
+
+    expect(screen.getByText("Data Point Details")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Close data point details" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Close details" })).toBeTruthy();
+  });
+
+  it("dismisses one detail level per Escape: the data point sidebar first, the metric detail second", async () => {
+    const store = getDefaultStore();
+    store.set(metricsAtom, [
+      makeMetric({
+        serviceName: "frontend",
+        name: "http.requests",
+        dataPoints: [makeDataPoint({ id: "dp-a", attributes: { k: "v" } })],
+      }),
+    ]);
+
+    render(<MetricDetail />);
+    fireEvent.click(screen.getByText('k="v"').closest("tr")!);
+    expect(screen.getByText("Data Point Details")).toBeTruthy();
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByText("Data Point Details")).toBeNull();
+    expect(screen.getByText("http.requests")).toBeTruthy();
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(routing.router.state.location.pathname).toBe("/metrics"));
+  });
+
+  // Regression for the bug where a time-window change (or live-buffer
+  // eviction) drops the selected point from rangeDataPoints without
+  // clearing selectedDpId: the sidebar unmounts on its own, so its
+  // capture-phase Escape listener unmounts with it, and a single Escape
+  // must reach DetailPanel's listener directly instead of being swallowed
+  // by a sidebar the user can no longer see.
+  it("closes the metric detail with a single Escape after the selected data point falls out of the range window", async () => {
+    const store = getDefaultStore();
+    store.set(metricsAtom, [
+      makeMetric({
+        serviceName: "frontend",
+        name: "http.requests",
+        dataPoints: [
+          makeDataPoint({ id: "old", timestamp: "2024-01-01T00:00:00Z", attributes: { k: "old" } }),
+          makeDataPoint({
+            id: "newest",
+            timestamp: "2024-01-01T00:20:00Z",
+            attributes: { k: "newest" },
+          }),
+        ],
+      }),
+    ]);
+
+    render(<MetricDetail />);
+    fireEvent.click(screen.getByText('k="old"').closest("tr")!);
+    expect(screen.getByText("Data Point Details")).toBeTruthy();
+
+    // Narrowing to "5m" (anchored on the newest point, 00:20) drops "old"
+    // (00:00) from rangeDataPoints while selectedDpId still points at it.
+    await selectRange("5m");
+    await waitFor(() => expect(screen.queryByText("Data Point Details")).toBeNull());
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(routing.router.state.location.pathname).toBe("/metrics"));
   });
 });

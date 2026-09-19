@@ -1,5 +1,4 @@
-import { useSearch, useNavigate } from "@tanstack/react-router";
-import { useMetricSelection } from "@/hooks/use-signal-route";
+import { useMetricQuery, useMetricSelection } from "@/hooks/use-signal-route";
 import { useMemo } from "react";
 import { useAtomValue } from "jotai";
 import { metricsAtom, renderWindowMaxAtom } from "@/stores/telemetry";
@@ -35,8 +34,7 @@ function metricRowId(metric: MetricData): string {
 
 export function MetricList() {
   const allMetrics = useAtomValue(metricsAtom);
-  const search = useSearch({ strict: false, select: (search) => search.q ?? "" });
-  const navigate = useNavigate();
+  const { search, setSearch } = useMetricQuery();
   useMetricListSearch(search);
   const filtered = useAtomValue(useMemo(() => createFilteredMetricsAtom(search), [search]));
   const metrics = useMemo(
@@ -78,14 +76,7 @@ export function MetricList() {
   return (
     <ListPanel
       toolbar={
-        <SearchFilter
-          value={search}
-          onSubmit={(q) => {
-            void navigate({ to: ".", search: (previous) => ({ ...previous, q: q || undefined }) });
-            return q;
-          }}
-          placeholder="Search metric names…"
-        />
+        <SearchFilter value={search} onSubmit={setSearch} placeholder="Search metric names…" />
       }
     >
       {metrics.length === 0 ? (

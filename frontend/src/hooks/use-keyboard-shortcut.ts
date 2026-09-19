@@ -1,7 +1,22 @@
 import { useEffect, useEffectEvent } from "react";
 
-export function useKeyboardShortcut(key: string, action: () => void) {
+interface UseKeyboardShortcutOptions {
+  // A capture-phase window listener always runs before every bubble-phase
+  // one, regardless of mount order. Since the handler calls
+  // preventDefault(), an enclosing panel's bubble-phase Escape listener then
+  // sees the event as already handled — this is how a nested, innermost
+  // visible layer (e.g. a sidebar inside a panel that also listens for
+  // Escape) wins without needing to coordinate with what encloses it.
+  capture?: boolean;
+}
+
+export function useKeyboardShortcut(
+  key: string,
+  action: () => void,
+  options?: UseKeyboardShortcutOptions,
+) {
   const onShortcut = useEffectEvent(action);
+  const capture = options?.capture ?? false;
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -45,7 +60,7 @@ export function useKeyboardShortcut(key: string, action: () => void) {
       onShortcut();
     };
 
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [key]);
+    window.addEventListener("keydown", handleKeyDown, capture);
+    return () => window.removeEventListener("keydown", handleKeyDown, capture);
+  }, [key, capture]);
 }

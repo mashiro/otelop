@@ -29,7 +29,7 @@ export interface SpanDataWire {
 }
 
 // View model: SpanDataWire plus the epoch-nanosecond fields the waterfall's
-// sort/offset math (components/traces/span-waterfall.tsx) compares against.
+// sort/offset math (components/traces/span-tree.ts) compares against.
 // Required (not optional) so a new ingest entry point that forgets to run
 // lib/normalize.ts's normalizeSpan fails to compile, instead of silently
 // falling back to a per-comparison Temporal.Instant.from parse — see that

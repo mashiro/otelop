@@ -18,8 +18,8 @@ export interface SignalListPage {
   // treats a thenable return value from an updater specially, so making this
   // awaitable would force every existing `act(() => loadMore())` call site
   // (this hook's own tests) to switch to `await act(async () => ...)`.
-  // trace-list.tsx/log-list.tsx detect completion by watching `loadingMore`
-  // fall back to false instead — see their pendingSlide state.
+  // hooks/use-load-older-rows.ts detects completion by watching
+  // `loadingMore` fall back to false instead — see its pendingSlide state.
   loadMore: () => void;
   // Identifies the current browsing/search scope (mirrors the internal
   // requestKey below). trace-list.tsx/log-list.tsx key their render-window

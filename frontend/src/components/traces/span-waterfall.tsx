@@ -1,8 +1,14 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useParentSize } from "@visx/responsive";
 import { ChevronDown, ChevronRight, CircleAlert, Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { traceServiceColors, traceTimeline, type TimelineRange } from "./trace-timeline";
+import {
+  buildTree,
+  matchingSpanIds,
+  toNsOffset,
+  visibleSpans as computeVisibleSpans,
+} from "./span-tree";
 import { Button } from "@/components/ui/button";
 import { Toggle } from "@/components/ui/toggle";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
@@ -19,56 +25,6 @@ interface Props {
   onSelectSpan: (span: SpanData) => void;
   selectedSpan: SpanData | null;
   range?: TimelineRange;
-}
-
-export interface FlatSpan {
-  span: SpanData;
-  depth: number;
-  hasChildren: boolean;
-}
-
-/** Offset of a span's pre-parsed start epoch relative to a base instant. */
-function toNsOffset(startEpochNs: bigint, baseNs: bigint): number {
-  return Number(startEpochNs - baseNs);
-}
-
-function compareByStartTime(a: SpanData, b: SpanData): number {
-  if (a.startEpochNs < b.startEpochNs) return -1;
-  if (a.startEpochNs > b.startEpochNs) return 1;
-  return 0;
-}
-
-export function buildTree(spans: SpanData[]): FlatSpan[] {
-  const byId = new Map<string, SpanData>();
-  const children = new Map<string, SpanData[]>();
-
-  for (const s of spans) {
-    byId.set(s.spanId, s);
-    const parentId = s.parentSpanId || "";
-    if (!children.has(parentId)) children.set(parentId, []);
-    children.get(parentId)!.push(s);
-  }
-
-  const result: FlatSpan[] = [];
-  function walk(parentId: string, depth: number) {
-    const kids = children.get(parentId) ?? [];
-    kids.sort(compareByStartTime);
-    for (const s of kids) {
-      const hasKids = (children.get(s.spanId)?.length ?? 0) > 0;
-      result.push({ span: s, depth, hasChildren: hasKids });
-      walk(s.spanId, depth + 1);
-    }
-  }
-
-  const roots = spans.filter((s) => !s.parentSpanId || !byId.has(s.parentSpanId));
-  roots.sort(compareByStartTime);
-  for (const r of roots) {
-    const hasKids = (children.get(r.spanId)?.length ?? 0) > 0;
-    result.push({ span: r, depth: 0, hasChildren: hasKids });
-    walk(r.spanId, 1);
-  }
-
-  return result;
 }
 
 export function SpanWaterfall(props: Props) {
@@ -88,41 +44,15 @@ function WaterfallInner({
   width,
   range = [0, 100],
 }: Props & { width: number }) {
-  const flatSpans = useMemo(() => buildTree(trace.spans), [trace.spans]);
+  const flatSpans = buildTree(trace.spans);
   const [hoveredSpanId, setHoveredSpanId] = useState<string | null>(null);
   const [collapsedSet, setCollapsedSet] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState("");
   const [errorsOnly, setErrorsOnly] = useState(false);
-  const matchingIds = useMemo(() => {
-    if (!search.trim() && !errorsOnly) return null;
-    const byId = new Map(trace.spans.map((span) => [span.spanId, span]));
-    const ids = new Set<string>();
-    const query = search.trim().toLowerCase();
-    for (const span of trace.spans) {
-      if (errorsOnly && span.statusCode !== "Error") continue;
-      if (query && !`${span.name} ${span.serviceName}`.toLowerCase().includes(query)) continue;
-      let current: SpanData | undefined = span;
-      while (current && !ids.has(current.spanId)) {
-        ids.add(current.spanId);
-        current = byId.get(current.parentSpanId);
-      }
-    }
-    return ids;
-  }, [trace.spans, search, errorsOnly]);
-  const visibleSpans = useMemo(() => {
-    const result: FlatSpan[] = [];
-    let skipDepth: number | null = null;
-    for (const f of flatSpans) {
-      if (matchingIds && !matchingIds.has(f.span.spanId)) continue;
-      if (skipDepth !== null && f.depth > skipDepth) continue;
-      skipDepth = null;
-      result.push(f);
-      if (!matchingIds && collapsedSet.has(f.span.spanId)) skipDepth = f.depth;
-    }
-    return result;
-  }, [flatSpans, collapsedSet, matchingIds]);
-  const serviceColorMap = useMemo(() => traceServiceColors(trace.spans), [trace.spans]);
-  const { start: baseNs, duration: totalNs } = useMemo(() => traceTimeline(trace), [trace]);
+  const matchingIds = matchingSpanIds(trace.spans, { query: search, errorsOnly });
+  const visibleSpans = computeVisibleSpans(flatSpans, collapsedSet, matchingIds);
+  const serviceColorMap = traceServiceColors(trace.spans);
+  const { start: baseNs, duration: totalNs } = traceTimeline(trace);
   const viewStart = (totalNs * range[0]) / 100;
   const viewEnd = (totalNs * range[1]) / 100;
   const viewDuration = Math.max(1, viewEnd - viewStart);

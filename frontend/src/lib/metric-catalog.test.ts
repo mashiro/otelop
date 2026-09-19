@@ -1,10 +1,12 @@
 import { describe, it, expect } from "vite-plus/test";
 import {
+  computeAttributeCardinality,
   facetId,
   lookupMetricRule,
   resolveMetricFacets,
   resolveMetricUnit,
 } from "./metric-catalog";
+import { makeDataPoint } from "@/test/factories";
 
 describe("lookupMetricRule", () => {
   it("matches exact well-known metric names", () => {
@@ -121,6 +123,52 @@ describe("resolveMetricFacets", () => {
 
   it("returns empty list when there are no attributes", () => {
     expect(resolveMetricFacets("http.server.request.duration", m([]))).toEqual([]);
+  });
+});
+
+describe("computeAttributeCardinality", () => {
+  it("counts distinct string values per attribute", () => {
+    const counts = computeAttributeCardinality([
+      makeDataPoint({ attributes: { model: "opus" } }),
+      makeDataPoint({ attributes: { model: "haiku" } }),
+      makeDataPoint({ attributes: { model: "opus" } }),
+    ]);
+    expect(counts.get("model")).toBe(2);
+  });
+
+  it("skips null and undefined values without counting them", () => {
+    const counts = computeAttributeCardinality([
+      makeDataPoint({ attributes: { region: null, tier: undefined } }),
+    ]);
+    expect(counts.has("region")).toBe(false);
+    expect(counts.has("tier")).toBe(false);
+  });
+
+  it("JSON-stringifies non-string values", () => {
+    const counts = computeAttributeCardinality([
+      makeDataPoint({ attributes: { count: 1 } }),
+      makeDataPoint({ attributes: { count: true } }),
+      makeDataPoint({ attributes: { count: { a: 1 } } }),
+    ]);
+    // 1, true, and {a:1} are three distinct stringified values.
+    expect(counts.get("count")).toBe(3);
+  });
+
+  it("caps the tracked set at DISCOVERED_FACET_MAX + 1 so it can still read above the cap", () => {
+    const exactlyAtCap = computeAttributeCardinality(
+      Array.from({ length: 20 }, (_, i) => makeDataPoint({ attributes: { id: `v${i}` } })),
+    );
+    expect(exactlyAtCap.get("id")).toBe(20);
+
+    const oneOverCap = computeAttributeCardinality(
+      Array.from({ length: 21 }, (_, i) => makeDataPoint({ attributes: { id: `v${i}` } })),
+    );
+    expect(oneOverCap.get("id")).toBe(21);
+
+    const wayOverCap = computeAttributeCardinality(
+      Array.from({ length: 25 }, (_, i) => makeDataPoint({ attributes: { id: `v${i}` } })),
+    );
+    expect(wayOverCap.get("id")).toBe(21);
   });
 });
 

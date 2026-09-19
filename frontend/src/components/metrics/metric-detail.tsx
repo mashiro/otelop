@@ -1,30 +1,28 @@
-import { memo, useMemo, useState } from "react";
-import { X } from "lucide-react";
+import { useState } from "react";
 import { useMetricSelection, useTimeWindow } from "@/hooks/use-signal-route";
 import { MetricChart } from "./metric-chart";
 import { MetricSummary } from "./metric-summary";
-import { attrKey } from "@/lib/metric-stats";
-import { Button } from "@/components/ui/button";
+import { DataPointsTable } from "./data-points-table";
+import { DataPointDetail } from "./data-point-detail";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { CopyJsonButton } from "@/components/ui/copy-json-button";
 import { DetailPanel } from "@/components/common/detail-panel";
+import { DetailSidebar } from "@/components/common/detail-sidebar";
 import { Pill } from "@/components/common/pill";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TimeWindowControls } from "@/components/common/event-window-controls";
-import { KVSection } from "@/components/ui/kv-section";
-import { Field } from "@/components/common/detail-field";
 import {
+  computeAttributeCardinality,
   facetId,
   isDistributionMetric,
   resolveMetricFacets,
   resolveMetricUnit,
   type MetricFacet,
 } from "@/lib/metric-catalog";
-import { formatMetricValue } from "@/lib/format-metric";
-import { formatTimestamp } from "@/lib/format";
 import { useMetricRangePoints } from "@/hooks/use-metric-range-points";
 import { useMetricAggregateSeries } from "@/hooks/use-metric-aggregate-series";
 import { useMetricDistributionStats } from "@/hooks/use-metric-distribution-stats";
-import type { DataPoint, MetricData } from "@/types/telemetry";
+import type { MetricData } from "@/types/telemetry";
 
 const ALL_FACET = "__all__";
 
@@ -34,10 +32,11 @@ export function MetricDetail() {
   if (!metric) return null;
 
   const displayUnit = resolveMetricUnit(metric.name, metric.unit);
+  const onClose = () => setSelected(null);
 
   return (
     <DetailPanel
-      onClose={() => setSelected(null)}
+      onClose={onClose}
       header={
         <>
           <span className="font-semibold text-foreground">{metric.name}</span>
@@ -52,11 +51,26 @@ export function MetricDetail() {
   );
 }
 
+// Resolves the facet tab a picked id currently maps to: an explicit "All"
+// pick, a match against the current facet list, or the first facet as the
+// default (facets can reorder/change as data arrives, so pickedId is an id to
+// re-resolve, not a stored MetricFacet).
+function resolveEffectiveFacet(pickedId: string | null, facets: MetricFacet[]): MetricFacet | null {
+  if (pickedId === ALL_FACET) return null;
+  if (pickedId) {
+    const match = facets.find((f) => facetId(f) === pickedId);
+    if (match) return match;
+  }
+  return facets[0] ?? null;
+}
+
 // Facet selection lives here (not in the chart) because the summary tiles and
 // the chart must break down by the same dimension. Exported for direct
 // testing (see metric-detail.test.tsx), the same way DataPointsTable/
-// DataPointDetail below are, so tests can supply a metric directly.
+// DataPointDetail are, so tests can supply a metric directly.
 export function MetricDetailBody({ metric }: { metric: MetricData }) {
+  const [selectedDpId, setSelectedDpId] = useState<string | null>(null);
+
   // Time range is the scope for the whole detail view (tiles, chart, and
   // table all read the same window), so it's lifted here rather than owned
   // by MetricChart — see metric-stats.ts's computeStatTiles. Defaults to a
@@ -73,41 +87,11 @@ export function MetricDetailBody({ metric }: { metric: MetricData }) {
   // rows despite its history already being fetched.
   const rangeDataPoints = useMetricRangePoints(metric, window);
 
-  const attributeCardinality = useMemo(() => {
-    // Count distinct values per attribute, capping at max+1 so high-cardinality
-    // identifiers can still be excluded by resolveMetricFacets.
-    const values = new Map<string, Set<string>>();
-    for (const dp of rangeDataPoints) {
-      for (const [k, v] of Object.entries(dp.attributes)) {
-        if (v === undefined || v === null) continue;
-        let set = values.get(k);
-        if (!set) {
-          set = new Set<string>();
-          values.set(k, set);
-        }
-        if (set.size > 20) continue;
-        set.add(typeof v === "string" ? v : JSON.stringify(v));
-      }
-    }
-    const counts = new Map<string, number>();
-    for (const [k, s] of values) counts.set(k, s.size);
-    return counts;
-  }, [rangeDataPoints]);
-
-  const facets = useMemo(
-    () => resolveMetricFacets(metric.name, attributeCardinality),
-    [metric.name, attributeCardinality],
-  );
+  const attributeCardinality = computeAttributeCardinality(rangeDataPoints);
+  const facets = resolveMetricFacets(metric.name, attributeCardinality);
 
   const [pickedId, setPickedId] = useState<string | null>(null);
-  const effectiveFacet = useMemo<MetricFacet | null>(() => {
-    if (pickedId === ALL_FACET) return null;
-    if (pickedId) {
-      const match = facets.find((f) => facetId(f) === pickedId);
-      if (match) return match;
-    }
-    return facets[0] ?? null;
-  }, [pickedId, facets]);
+  const effectiveFacet = resolveEffectiveFacet(pickedId, facets);
 
   const tabValue =
     pickedId === ALL_FACET ? ALL_FACET : effectiveFacet ? facetId(effectiveFacet) : ALL_FACET;
@@ -116,57 +100,16 @@ export function MetricDetailBody({ metric }: { metric: MetricData }) {
   const distributionGroupBy = effectiveFacet?.attributes ?? null;
   const distributionStats = useMetricDistributionStats(metric, window, distributionGroupBy);
 
-  // MetricSummary/DataPointsTable only read a metric's identity/display
-  // fields (name/type/unit/description/resource) plus their own
-  // rangeDataPoints/aggregatedSeries props, never metric.dataPoints directly
-  // — so rebuild the object they receive from primitives that stay
-  // referentially stable across a WS delivery, instead of the ever-new
-  // `metric` object, for the React.memo wrapping on those three to actually
-  // take effect. dataPoints is set to rangeDataPoints (already stable) so
-  // MetricChart — which reads metric.dataPoints as its range-scoped series,
-  // see metric-chart.tsx's Props doc — renders the same range-scoped data
-  // the tiles/table below it do.
-  const stableMetric = useMemo<MetricData>(
-    () => ({
-      serviceName: metric.serviceName,
-      name: metric.name,
-      type: metric.type,
-      unit: metric.unit,
-      description: metric.description,
-      resource: metric.resource,
-      dataPoints: rangeDataPoints,
-      pointCount: metric.pointCount,
-      latestValue: metric.latestValue,
-      // Deliberately excluded from the deps below: none of the three memoized
-      // consumers read it, and tracking it would re-churn stableMetric's
-      // reference on every WS delivery, defeating this whole memoization.
-      receivedAt: metric.receivedAt,
-    }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [
-      metric.serviceName,
-      metric.name,
-      metric.type,
-      metric.unit,
-      metric.description,
-      metric.resource,
-      metric.pointCount,
-      metric.latestValue,
-      rangeDataPoints,
-    ],
-  );
-
   // Resolving against rangeDataPoints (not metric.dataPoints, which starts
   // empty until a WS delivery — issue #162) rather than storing the
   // DataPoint itself lets the sidebar both work for a point that only ever
   // came from the range fetch AND disappear automatically once the client
   // buffer evicts it or a range change drops the id.
-  const [selectedDpId, setSelectedDpId] = useState<string | null>(null);
   const selectedDp = rangeDataPoints.find((dp) => dp.id === selectedDpId) ?? null;
 
   return (
-    <div className="flex flex-1 overflow-hidden">
-      <ScrollArea className="min-h-0 flex-1">
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden xl:flex-row">
+      <ScrollArea className="min-h-0 min-w-0 flex-1">
         <div className="p-4">
           {metric.description && (
             <p className="mb-4 text-sm text-muted-foreground">{metric.description}</p>
@@ -200,7 +143,7 @@ export function MetricDetailBody({ metric }: { metric: MetricData }) {
           </div>
 
           <MetricSummary
-            metric={stableMetric}
+            metric={metric}
             facet={effectiveFacet}
             window={window}
             rangeDataPoints={rangeDataPoints}
@@ -212,7 +155,7 @@ export function MetricDetailBody({ metric }: { metric: MetricData }) {
           <div className="mb-4 rounded-lg border border-border/30 bg-muted/50 p-4">
             <div className="h-84">
               <MetricChart
-                metric={stableMetric}
+                metric={{ ...metric, dataPoints: rangeDataPoints }}
                 facet={effectiveFacet}
                 window={window}
                 aggregatedSeries={aggregatedSeries}
@@ -223,7 +166,7 @@ export function MetricDetailBody({ metric }: { metric: MetricData }) {
 
           {rangeDataPoints.length > 0 && (
             <DataPointsTable
-              metric={stableMetric}
+              metric={metric}
               dataPoints={rangeDataPoints}
               selectedId={selectedDpId}
               onSelect={setSelectedDpId}
@@ -232,150 +175,21 @@ export function MetricDetailBody({ metric }: { metric: MetricData }) {
         </div>
       </ScrollArea>
       {selectedDp && (
-        <div className="w-105 border-l border-border/50">
-          <div className="flex h-full flex-col">
-            <div className="flex items-center justify-between border-b border-border/50 px-4 py-2">
-              <h3 className="text-sm font-semibold text-metric">Data Point Details</h3>
-              <Button variant="ghost-muted" size="icon-xs" onClick={() => setSelectedDpId(null)}>
-                <X className="h-3 w-3" />
-              </Button>
-            </div>
-            <DataPointDetail
-              dp={selectedDp}
-              resource={metric.resource}
-              unit={resolveMetricUnit(metric.name, metric.unit)}
-              isDistribution={isDistributionMetric(metric.type)}
-            />
-          </div>
-        </div>
+        <DetailSidebar
+          title="Data Point Details"
+          tone="metric"
+          onClose={() => setSelectedDpId(null)}
+          closeLabel="Close data point details"
+          actions={<CopyJsonButton data={selectedDp} size="xs" />}
+        >
+          <DataPointDetail
+            dp={selectedDp}
+            resource={metric.resource}
+            unit={resolveMetricUnit(metric.name, metric.unit)}
+            isDistribution={isDistributionMetric(metric.type)}
+          />
+        </DetailSidebar>
       )}
     </div>
-  );
-}
-
-const headCls = "px-3 py-2 text-2xs font-semibold uppercase tracking-wider text-muted-foreground";
-const numCellCls = "px-3 py-1.5 text-right font-mono text-foreground/70";
-
-function formatDistributionCell(v: number | null | undefined, unit: string): string {
-  return v != null ? formatMetricValue(v, unit) : "-";
-}
-
-// Memoized so a WS delivery that doesn't move rangeDataPoints/stableMetric
-// (both kept reference-stable above) skips re-rendering
-// and re-reversing/re-mapping every row.
-export const DataPointsTable = memo(function DataPointsTable({
-  metric,
-  dataPoints,
-  selectedId,
-  onSelect,
-}: {
-  metric: MetricData;
-  // Range-windowed rows from useMetricRangePoints, so the table reflects the
-  // same scope as the tiles and chart above it.
-  dataPoints: DataPoint[];
-  selectedId: string | null;
-  onSelect: (id: string | null) => void;
-}) {
-  const hasAttributes = dataPoints.some((dp) => Object.keys(dp.attributes).length > 0);
-  const isDistribution = isDistributionMetric(metric.type);
-  const unit = resolveMetricUnit(metric.name, metric.unit);
-
-  return (
-    <div>
-      <h4 className="mb-2 text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
-        Data Points ({dataPoints.length})
-      </h4>
-      <div className="max-h-90 overflow-auto rounded-md border border-border/30 bg-muted/50">
-        <table className="w-full text-xs">
-          <thead>
-            <tr className="border-b border-border/30">
-              <th className={`${headCls} text-left`}>Timestamp</th>
-              {hasAttributes && <th className={`${headCls} text-left`}>Attributes</th>}
-              <th className={`${headCls} text-right`}>{isDistribution ? "Mean" : "Value"}</th>
-              {isDistribution && (
-                <>
-                  <th className={`${headCls} text-right`}>Count</th>
-                  <th className={`${headCls} text-right`}>Sum</th>
-                  <th className={`${headCls} text-right`}>Min</th>
-                  <th className={`${headCls} text-right`}>Max</th>
-                </>
-              )}
-            </tr>
-          </thead>
-          <tbody>
-            {[...dataPoints].reverse().map((dp) => {
-              const isSelected = selectedId === dp.id;
-              return (
-                <tr
-                  key={dp.id}
-                  className={`cursor-pointer border-b border-border/20 last:border-0 transition-colors hover:bg-metric/5 ${isSelected ? "bg-metric/10" : ""}`}
-                  onClick={() => onSelect(isSelected ? null : dp.id)}
-                >
-                  <td className="px-3 py-1.5 font-mono text-muted-foreground">
-                    {new Date(dp.timestamp).toLocaleTimeString()}
-                  </td>
-                  {hasAttributes && (
-                    <td className="max-w-62.5 truncate px-3 py-1.5 font-mono text-foreground/60">
-                      {attrKey(dp.attributes) || "-"}
-                    </td>
-                  )}
-                  <td className="px-3 py-1.5 text-right font-mono text-metric">
-                    {formatMetricValue(dp.value, unit)}
-                  </td>
-                  {isDistribution && (
-                    <>
-                      <td className={numCellCls}>
-                        {dp.count != null ? dp.count.toLocaleString() : "-"}
-                      </td>
-                      <td className={numCellCls}>{formatDistributionCell(dp.sum, unit)}</td>
-                      <td className={numCellCls}>{formatDistributionCell(dp.min, unit)}</td>
-                      <td className={numCellCls}>{formatDistributionCell(dp.max, unit)}</td>
-                    </>
-                  )}
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-});
-
-export function DataPointDetail({
-  dp,
-  resource,
-  unit,
-  isDistribution,
-}: {
-  dp: DataPoint;
-  resource: Record<string, unknown>;
-  unit: string;
-  isDistribution: boolean;
-}) {
-  return (
-    <ScrollArea className="min-h-0 flex-1">
-      <div className="animate-slide-up-fade space-y-5 p-4">
-        <div className="space-y-2.5">
-          <Field label="Timestamp" value={formatTimestamp(dp.timestamp)} mono />
-          <Field label="Value" mono value={formatMetricValue(dp.value, unit)} tone="metric" />
-          {isDistribution && dp.count != null && (
-            <Field label="Count" value={dp.count.toLocaleString()} mono />
-          )}
-          {isDistribution && dp.sum != null && (
-            <Field label="Sum" value={formatMetricValue(dp.sum, unit)} mono />
-          )}
-          {isDistribution && dp.min != null && (
-            <Field label="Min" value={formatMetricValue(dp.min, unit)} mono />
-          )}
-          {isDistribution && dp.max != null && (
-            <Field label="Max" value={formatMetricValue(dp.max, unit)} mono />
-          )}
-        </div>
-
-        <KVSection title="Attributes" data={dp.attributes} />
-        <KVSection title="Resource" data={resource} />
-      </div>
-    </ScrollArea>
   );
 }
