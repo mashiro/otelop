@@ -1,4 +1,3 @@
-import { memo, useMemo } from "react";
 import {
   attrKey,
   computeStatTiles,
@@ -26,11 +25,7 @@ function rangeLabel(window: EventTimeWindow): string {
   return CHART_TIME_RANGES.find((r) => r.value === range)?.label ?? range;
 }
 
-// Memoized so a WS delivery that doesn't move rangeDataPoints/aggregatedSeries
-// (both kept reference-stable upstream — see use-metric-range-points.ts /
-// use-metric-aggregate-series.ts / metric-detail.tsx's stableMetric) skips
-// recomputing and re-rendering the tiles.
-export const MetricSummary = memo(function MetricSummary({
+export function MetricSummary({
   metric,
   facet,
   window,
@@ -51,12 +46,12 @@ export const MetricSummary = memo(function MetricSummary({
   const isHistogram = metric.type === "Histogram" || metric.type === "ExponentialHistogram";
   const unit = resolveMetricUnit(metric.name, metric.unit);
   const showsLatest = metric.type === "Gauge" || isDistribution;
-  const tiles = useMemo(() => {
-    // Increase eligibility must read rangeDataPoints (the fetched-range + live
-    // buffer merge), because the metrics list no longer loads point history.
-    // Latest mode only needs a point and therefore applies to Gauge and
-    // distribution metrics without a cumulative-family field.
-    if (!showsLatest && !hasIncreaseStatTileSignal(rangeDataPoints)) return [];
+  // Increase eligibility must read rangeDataPoints (the fetched-range + live
+  // buffer merge), because the metrics list no longer loads point history.
+  // Latest mode only needs a point and therefore applies to Gauge and
+  // distribution metrics without a cumulative-family field.
+  let tiles: StatTile[] = [];
+  if (showsLatest || hasIncreaseStatTileSignal(rangeDataPoints)) {
     // A Gauge's "Latest" is the latest underlying observation, not the mean
     // of whichever aggregate bucket happens to be last. Bucket width may
     // change when the window changes; the summary value must not.
@@ -79,8 +74,8 @@ export const MetricSummary = memo(function MetricSummary({
               metric.type === "Gauge" ? "latest-sum-series" : showsLatest ? "latest" : "increase",
             includeLatestCount: isDistribution,
           };
-    return computeStatTiles(input);
-  }, [facet, aggregatedSeries, rangeDataPoints, window, isDistribution, showsLatest, metric.type]);
+    tiles = computeStatTiles(input);
+  }
 
   if (isHistogram && distributionStats) {
     return (
@@ -123,7 +118,7 @@ export const MetricSummary = memo(function MetricSummary({
       </div>
     </div>
   );
-});
+}
 
 function HistogramSummary({
   series,
