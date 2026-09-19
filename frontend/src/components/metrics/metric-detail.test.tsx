@@ -5,7 +5,7 @@ function render(ui: ReactElement) {
   return renderUI(ui, { wrapper: routing.wrapper });
 }
 import { describe, it, expect, vi, beforeEach, afterEach } from "vite-plus/test";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import {
   act,
   render as renderUI,
@@ -14,8 +14,26 @@ import {
   cleanup,
   waitFor,
 } from "@testing-library/react";
-import { MetricDetailBody } from "./metric-detail";
+import { getDefaultStore } from "jotai";
+import { MetricDetail, MetricDetailBody } from "./metric-detail";
+import { metricsAtom } from "@/stores/telemetry";
 import { makeDataPoint, makeMetric } from "@/test/factories";
+import type { MetricData } from "@/types/telemetry";
+
+// MetricDetailBody's selectedDpId/onSelectDataPoint are controlled by its
+// real caller (MetricDetailView); most of these tests don't care about the
+// data point sidebar, so this wrapper owns the state locally to keep every
+// other render call a plain `<ControlledBody metric={metric} />`.
+function ControlledBody({ metric }: { metric: MetricData }) {
+  const [selectedDpId, setSelectedDpId] = useState<string | null>(null);
+  return (
+    <MetricDetailBody
+      metric={metric}
+      selectedDpId={selectedDpId}
+      onSelectDataPoint={setSelectedDpId}
+    />
+  );
+}
 
 // Base UI's ScrollArea calls Element.getAnimations(), which happy-dom (this
 // project's test environment) doesn't implement — an environment gap
@@ -73,7 +91,7 @@ describe("MetricDetailBody control row", () => {
       ],
     });
 
-    render(<MetricDetailBody metric={metric} />);
+    render(<ControlledBody metric={metric} />);
 
     expect(screen.getByText("Breakdown")).toBeTruthy();
     const rangeSelect = screen.getByRole("combobox", { name: "Time range" });
@@ -90,7 +108,7 @@ describe("MetricDetailBody control row", () => {
       dataPoints: [makeDataPoint({ id: "a", timestamp: "2024-01-01T00:00:00Z", value: 1 })],
     });
 
-    render(<MetricDetailBody metric={metric} />);
+    render(<ControlledBody metric={metric} />);
     await selectRange("5m");
 
     expect(screen.getByRole("combobox", { name: "Time range" }).textContent).toContain("5m");
@@ -101,7 +119,7 @@ describe("MetricDetailBody control row", () => {
       dataPoints: [makeDataPoint({ id: "a", timestamp: "2024-01-01T00:00:00Z", value: 1 })],
     });
 
-    render(<MetricDetailBody metric={metric} />);
+    render(<ControlledBody metric={metric} />);
     await selectRange("24h");
 
     expect(routing.router.state.location.href).toBe("/metrics/frontend/http.requests?range=24h");
@@ -110,7 +128,7 @@ describe("MetricDetailBody control row", () => {
   it("moves to the previous metric window and fetches its explicit bounds", async () => {
     const metric = makeMetric({ serviceName: "frontend", name: "http.requests" });
 
-    render(<MetricDetailBody metric={metric} />);
+    render(<ControlledBody metric={metric} />);
     await act(async () => fireEvent.click(screen.getByRole("button", { name: "Previous window" })));
 
     expect(screen.getByRole("button", { name: "Next window" })).toBeTruthy();
@@ -134,7 +152,7 @@ describe("MetricDetailBody control row", () => {
       dataPoints: [makeDataPoint({ id: "a", timestamp: "2024-01-01T00:00:00Z", value: 1 })],
     });
 
-    render(<MetricDetailBody metric={metric} />);
+    render(<ControlledBody metric={metric} />);
     await selectRange("5m");
 
     // Once for the initial "1h" mount, once more after switching to "5m".
@@ -152,7 +170,7 @@ describe("MetricDetailBody stat tiles section label", () => {
       dataPoints: [makeDataPoint({ id: "a", timestamp: "2024-01-01T00:00:00Z", cumulative: 1 })],
     });
 
-    render(<MetricDetailBody metric={metric} />);
+    render(<ControlledBody metric={metric} />);
     expect(screen.getByText("Increase · 1h")).toBeTruthy();
 
     await selectRange("All");
@@ -165,7 +183,7 @@ describe("MetricDetailBody stat tiles section label", () => {
       dataPoints: [makeDataPoint({ id: "a", value: 1 }), makeDataPoint({ id: "b", value: 2 })],
     });
 
-    render(<MetricDetailBody metric={metric} />);
+    render(<ControlledBody metric={metric} />);
 
     expect(screen.getByText("Latest · 1h")).toBeTruthy();
   });
@@ -181,11 +199,57 @@ describe("MetricDetailBody data points table", () => {
       ],
     });
 
-    render(<MetricDetailBody metric={metric} />);
+    render(<ControlledBody metric={metric} />);
     expect(screen.getByText("Data Points (3)")).toBeTruthy();
 
     await selectRange("5m");
 
     await waitFor(() => expect(screen.getByText("Data Points (2)")).toBeTruthy());
+  });
+});
+
+// MetricDetail (not MetricDetailBody) owns selectedDpId so it can give
+// DetailPanel's onEscape prop the "close the data point sidebar first"
+// state — the same one-Escape-per-level contract trace-detail.test.tsx
+// verifies for spans (see "dismisses one detail level per Escape").
+describe("MetricDetail data point sidebar", () => {
+  it("gives the data point close button an accessible name distinct from the metric detail's own close button", async () => {
+    const store = getDefaultStore();
+    store.set(metricsAtom, [
+      makeMetric({
+        serviceName: "frontend",
+        name: "http.requests",
+        dataPoints: [makeDataPoint({ id: "dp-a", attributes: { k: "v" } })],
+      }),
+    ]);
+
+    render(<MetricDetail />);
+    fireEvent.click(screen.getByText('k="v"').closest("tr")!);
+
+    expect(screen.getByText("Data Point Details")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Close data point details" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Close details" })).toBeTruthy();
+  });
+
+  it("dismisses one detail level per Escape: the data point sidebar first, the metric detail second", async () => {
+    const store = getDefaultStore();
+    store.set(metricsAtom, [
+      makeMetric({
+        serviceName: "frontend",
+        name: "http.requests",
+        dataPoints: [makeDataPoint({ id: "dp-a", attributes: { k: "v" } })],
+      }),
+    ]);
+
+    render(<MetricDetail />);
+    fireEvent.click(screen.getByText('k="v"').closest("tr")!);
+    expect(screen.getByText("Data Point Details")).toBeTruthy();
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByText("Data Point Details")).toBeNull();
+    expect(screen.getByText("http.requests")).toBeTruthy();
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(routing.router.state.location.pathname).toBe("/metrics"));
   });
 });

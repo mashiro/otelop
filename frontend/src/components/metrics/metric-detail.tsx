@@ -1,12 +1,12 @@
 import { memo, useMemo, useState } from "react";
-import { X } from "lucide-react";
 import { useMetricSelection, useTimeWindow } from "@/hooks/use-signal-route";
 import { MetricChart } from "./metric-chart";
 import { MetricSummary } from "./metric-summary";
 import { attrKey } from "@/lib/metric-stats";
-import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { CopyJsonButton } from "@/components/ui/copy-json-button";
 import { DetailPanel } from "@/components/common/detail-panel";
+import { DetailSidebar } from "@/components/common/detail-sidebar";
 import { Pill } from "@/components/common/pill";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TimeWindowControls } from "@/components/common/event-window-controls";
@@ -33,11 +33,20 @@ export function MetricDetail() {
 
   if (!metric) return null;
 
+  return <MetricDetailView metric={metric} onClose={() => setSelected(null)} />;
+}
+
+function MetricDetailView({ metric, onClose }: { metric: MetricData; onClose: () => void }) {
   const displayUnit = resolveMetricUnit(metric.name, metric.unit);
+  // Lifted out of MetricDetailBody so a single Escape closes only the data
+  // point sidebar first, mirroring TraceDetailView's selectedSpanId handling
+  // — see DetailPanel's onEscape prop.
+  const [selectedDpId, setSelectedDpId] = useState<string | null>(null);
 
   return (
     <DetailPanel
-      onClose={() => setSelected(null)}
+      onClose={onClose}
+      onEscape={selectedDpId ? () => setSelectedDpId(null) : onClose}
       header={
         <>
           <span className="font-semibold text-foreground">{metric.name}</span>
@@ -47,7 +56,11 @@ export function MetricDetail() {
         </>
       }
     >
-      <MetricDetailBody metric={metric} />
+      <MetricDetailBody
+        metric={metric}
+        selectedDpId={selectedDpId}
+        onSelectDataPoint={setSelectedDpId}
+      />
     </DetailPanel>
   );
 }
@@ -56,7 +69,19 @@ export function MetricDetail() {
 // the chart must break down by the same dimension. Exported for direct
 // testing (see metric-detail.test.tsx), the same way DataPointsTable/
 // DataPointDetail below are, so tests can supply a metric directly.
-export function MetricDetailBody({ metric }: { metric: MetricData }) {
+//
+// selectedDpId/onSelectDataPoint are controlled by MetricDetailView so it can
+// give DetailPanel's onEscape prop the "close the data point sidebar first"
+// state — see MetricDetailView above.
+export function MetricDetailBody({
+  metric,
+  selectedDpId,
+  onSelectDataPoint,
+}: {
+  metric: MetricData;
+  selectedDpId: string | null;
+  onSelectDataPoint: (id: string | null) => void;
+}) {
   // Time range is the scope for the whole detail view (tiles, chart, and
   // table all read the same window), so it's lifted here rather than owned
   // by MetricChart — see metric-stats.ts's computeStatTiles. Defaults to a
@@ -161,12 +186,11 @@ export function MetricDetailBody({ metric }: { metric: MetricData }) {
   // DataPoint itself lets the sidebar both work for a point that only ever
   // came from the range fetch AND disappear automatically once the client
   // buffer evicts it or a range change drops the id.
-  const [selectedDpId, setSelectedDpId] = useState<string | null>(null);
   const selectedDp = rangeDataPoints.find((dp) => dp.id === selectedDpId) ?? null;
 
   return (
-    <div className="flex flex-1 overflow-hidden">
-      <ScrollArea className="min-h-0 flex-1">
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden xl:flex-row">
+      <ScrollArea className="min-h-0 min-w-0 flex-1">
         <div className="p-4">
           {metric.description && (
             <p className="mb-4 text-sm text-muted-foreground">{metric.description}</p>
@@ -226,28 +250,26 @@ export function MetricDetailBody({ metric }: { metric: MetricData }) {
               metric={stableMetric}
               dataPoints={rangeDataPoints}
               selectedId={selectedDpId}
-              onSelect={setSelectedDpId}
+              onSelect={onSelectDataPoint}
             />
           )}
         </div>
       </ScrollArea>
       {selectedDp && (
-        <div className="w-105 border-l border-border/50">
-          <div className="flex h-full flex-col">
-            <div className="flex items-center justify-between border-b border-border/50 px-4 py-2">
-              <h3 className="text-sm font-semibold text-metric">Data Point Details</h3>
-              <Button variant="ghost-muted" size="icon-xs" onClick={() => setSelectedDpId(null)}>
-                <X className="h-3 w-3" />
-              </Button>
-            </div>
-            <DataPointDetail
-              dp={selectedDp}
-              resource={metric.resource}
-              unit={resolveMetricUnit(metric.name, metric.unit)}
-              isDistribution={isDistributionMetric(metric.type)}
-            />
-          </div>
-        </div>
+        <DetailSidebar
+          title="Data Point Details"
+          tone="metric"
+          onClose={() => onSelectDataPoint(null)}
+          closeLabel="Close data point details"
+          actions={<CopyJsonButton data={selectedDp} size="xs" />}
+        >
+          <DataPointDetail
+            dp={selectedDp}
+            resource={metric.resource}
+            unit={resolveMetricUnit(metric.name, metric.unit)}
+            isDistribution={isDistributionMetric(metric.type)}
+          />
+        </DetailSidebar>
       )}
     </div>
   );
@@ -354,28 +376,26 @@ export function DataPointDetail({
   isDistribution: boolean;
 }) {
   return (
-    <ScrollArea className="min-h-0 flex-1">
-      <div className="animate-slide-up-fade space-y-5 p-4">
-        <div className="space-y-2.5">
-          <Field label="Timestamp" value={formatTimestamp(dp.timestamp)} mono />
-          <Field label="Value" mono value={formatMetricValue(dp.value, unit)} tone="metric" />
-          {isDistribution && dp.count != null && (
-            <Field label="Count" value={dp.count.toLocaleString()} mono />
-          )}
-          {isDistribution && dp.sum != null && (
-            <Field label="Sum" value={formatMetricValue(dp.sum, unit)} mono />
-          )}
-          {isDistribution && dp.min != null && (
-            <Field label="Min" value={formatMetricValue(dp.min, unit)} mono />
-          )}
-          {isDistribution && dp.max != null && (
-            <Field label="Max" value={formatMetricValue(dp.max, unit)} mono />
-          )}
-        </div>
-
-        <KVSection title="Attributes" data={dp.attributes} />
-        <KVSection title="Resource" data={resource} />
+    <>
+      <div className="space-y-2.5">
+        <Field label="Timestamp" value={formatTimestamp(dp.timestamp)} mono />
+        <Field label="Value" mono value={formatMetricValue(dp.value, unit)} tone="metric" />
+        {isDistribution && dp.count != null && (
+          <Field label="Count" value={dp.count.toLocaleString()} mono />
+        )}
+        {isDistribution && dp.sum != null && (
+          <Field label="Sum" value={formatMetricValue(dp.sum, unit)} mono />
+        )}
+        {isDistribution && dp.min != null && (
+          <Field label="Min" value={formatMetricValue(dp.min, unit)} mono />
+        )}
+        {isDistribution && dp.max != null && (
+          <Field label="Max" value={formatMetricValue(dp.max, unit)} mono />
+        )}
       </div>
-    </ScrollArea>
+
+      <KVSection title="Attributes" data={dp.attributes} />
+      <KVSection title="Resource" data={resource} />
+    </>
   );
 }

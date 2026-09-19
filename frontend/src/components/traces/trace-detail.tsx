@@ -3,16 +3,16 @@ import { useSignalQuery, useTraceSelection, useRelatedSignals } from "@/hooks/us
 import { draftTerm } from "@/lib/log-filter";
 import { traceFields } from "@/lib/trace-search";
 import { AddFilterButton } from "@/components/filters/add-filter-button";
-import { X, FileText, Download } from "lucide-react";
+import { FileText, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CopyJsonButton } from "@/components/ui/copy-json-button";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { formatDuration, shortId, formatTimestamp } from "@/lib/format";
 import { downloadJson } from "@/lib/export";
 import { useTraceSpans } from "@/hooks/use-trace-spans";
 import { SpanWaterfall } from "./span-waterfall";
 import { KVSection } from "@/components/ui/kv-section";
 import { DetailPanel } from "@/components/common/detail-panel";
+import { DetailSidebar } from "@/components/common/detail-sidebar";
 import { Pill } from "@/components/common/pill";
 import { Field, Section } from "@/components/common/detail-field";
 import type { SpanData, TraceData } from "@/types/telemetry";
@@ -96,14 +96,12 @@ function TraceDetailView({ trace, onClose }: { trace: TraceData; onClose: () => 
           />
         </div>
         {selectedSpan && (
-          <div className="h-[45%] min-h-0 shrink-0 border-t border-border/50 xl:h-auto xl:w-90 xl:border-t-0 xl:border-l">
-            <SpanDetail
-              key={selectedSpan.spanId}
-              span={selectedSpan}
-              traceStart={traceTimeline(trace).start}
-              onClose={() => setSelectedSpanId(null)}
-            />
-          </div>
+          <SpanDetail
+            key={selectedSpan.spanId}
+            span={selectedSpan}
+            traceStart={traceTimeline(trace).start}
+            onClose={() => setSelectedSpanId(null)}
+          />
         )}
       </div>
     </DetailPanel>
@@ -139,104 +137,83 @@ function SpanDetail({
   );
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between border-b border-border/50 px-4 py-2">
-        <h3 className="text-sm font-semibold text-trace">Span Details</h3>
-        <div className="flex items-center gap-1">
-          <CopyJsonButton data={span} size="xs" />
-          <Button
-            aria-label="Close span details"
-            variant="ghost-muted"
-            size="icon-xs"
-            onClick={onClose}
-          >
-            <X className="h-3 w-3" />
-          </Button>
+    <DetailSidebar
+      title="Span Details"
+      tone="trace"
+      onClose={onClose}
+      closeLabel="Close span details"
+      actions={<CopyJsonButton data={span} size="xs" />}
+    >
+      <div className="space-y-2">
+        <div className="group/filter-field flex items-start justify-between gap-2">
+          <h4 className="min-w-0 break-words text-sm font-semibold">{span.name}</h4>
+          {action("name", span.name)}
         </div>
+        {span.statusMessage && (
+          <div className="group/filter-field flex items-start justify-between gap-2">
+            <p className="min-w-0 break-words text-xs text-destructive">{span.statusMessage}</p>
+            {action("status_message", span.statusMessage)}
+          </div>
+        )}
       </div>
-      <ScrollArea className="min-h-0 flex-1">
-        <div className="animate-slide-up-fade space-y-5 p-4">
-          <div className="space-y-2">
-            <div className="group/filter-field flex items-start justify-between gap-2">
-              <h4 className="min-w-0 break-words text-sm font-semibold">{span.name}</h4>
-              {action("name", span.name)}
-            </div>
-            {span.statusMessage && (
-              <div className="group/filter-field flex items-start justify-between gap-2">
-                <p className="min-w-0 break-words text-xs text-destructive">{span.statusMessage}</p>
-                {action("status_message", span.statusMessage)}
-              </div>
-            )}
-          </div>
-          <div className="space-y-2.5">
-            <Field
-              action={action("service_name", span.serviceName)}
-              label="Service"
-              value={span.serviceName}
-            />
-            <Field
-              label="Trace ID"
-              value={span.traceId}
-              mono
-              action={action("trace_id", span.traceId)}
-            />
-            <Field
-              action={action("span_id", span.spanId)}
-              label="Span ID"
-              value={span.spanId}
-              mono
-            />
-            <Field
-              action={action("parent_span_id", span.parentSpanId || undefined)}
-              label="Parent"
-              value={span.parentSpanId || "(root)"}
-              mono
-            />
-            <Field action={action("kind", span.kind)} label="Kind" value={span.kind} />
-            <Field
-              action={action("status_code", span.statusCode)}
-              label="Status"
-              value={span.statusCode === "Unset" ? "Not set" : span.statusCode}
-            />
-            <Field
-              label="Start"
-              value={formatDuration(Number(span.startEpochNs - traceStart))}
-              mono
-            />
-            <Field label="End" value={formatDuration(Number(span.endEpochNs - traceStart))} mono />
-            <Field
-              action={action("duration_ms", span.duration / 1e6)}
-              label="Duration"
-              value={formatDuration(span.duration)}
-              mono
-              tone="trace"
-            />
-          </div>
-          <KVSection
-            title="Attributes"
-            data={span.attributes}
-            onFilter={(key, value) => filterBy(`attributes.${key}`, value)}
-          />
-          <KVSection
-            title="Resource"
-            data={span.resource}
-            onFilter={(key, value) => filterBy(`resource.${key}`, value)}
-          />
-          <Section title={`Events (${span.events.length})`}>
-            {span.events.length === 0 && (
-              <p className="text-xs text-muted-foreground">No events recorded.</p>
-            )}
-            {span.events.map((event, index) => (
-              <Section key={index} title={event.name}>
-                <p className="font-mono text-xs text-muted-foreground">
-                  {formatTimestamp(event.timestamp)}
-                </p>
-                <KVSection title="Attributes" data={event.attributes} />
-              </Section>
-            ))}
+      <div className="space-y-2.5">
+        <Field
+          action={action("service_name", span.serviceName)}
+          label="Service"
+          value={span.serviceName}
+        />
+        <Field
+          label="Trace ID"
+          value={span.traceId}
+          mono
+          action={action("trace_id", span.traceId)}
+        />
+        <Field action={action("span_id", span.spanId)} label="Span ID" value={span.spanId} mono />
+        <Field
+          action={action("parent_span_id", span.parentSpanId || undefined)}
+          label="Parent"
+          value={span.parentSpanId || "(root)"}
+          mono
+        />
+        <Field action={action("kind", span.kind)} label="Kind" value={span.kind} />
+        <Field
+          action={action("status_code", span.statusCode)}
+          label="Status"
+          value={span.statusCode === "Unset" ? "Not set" : span.statusCode}
+        />
+        <Field label="Start" value={formatDuration(Number(span.startEpochNs - traceStart))} mono />
+        <Field label="End" value={formatDuration(Number(span.endEpochNs - traceStart))} mono />
+        <Field
+          action={action("duration_ms", span.duration / 1e6)}
+          label="Duration"
+          value={formatDuration(span.duration)}
+          mono
+          tone="trace"
+        />
+      </div>
+      <KVSection
+        title="Attributes"
+        data={span.attributes}
+        onFilter={(key, value) => filterBy(`attributes.${key}`, value)}
+      />
+      <KVSection
+        title="Resource"
+        data={span.resource}
+        onFilter={(key, value) => filterBy(`resource.${key}`, value)}
+      />
+      <Section title={`Events (${span.events.length})`}>
+        {span.events.length === 0 && (
+          <p className="text-xs text-muted-foreground">No events recorded.</p>
+        )}
+        {span.events.map((event, index) => (
+          <Section key={index} title={event.name}>
+            <p className="font-mono text-xs text-muted-foreground">
+              {formatTimestamp(event.timestamp)}
+            </p>
+            <KVSection title="Attributes" data={event.attributes} />
           </Section>
-        </div>
-      </ScrollArea>
-    </div>
+        ))}
+      </Section>
+    </DetailSidebar>
   );
 }

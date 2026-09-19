@@ -11,7 +11,7 @@ import { AddFilterButton } from "@/components/filters/add-filter-button";
 import { LogAddFilter, LogFilterBar } from "./log-filter-bar";
 import { useAtomValue } from "jotai";
 import { useMemo, useState } from "react";
-import { Logs, X } from "lucide-react";
+import { Logs } from "lucide-react";
 import { logsAtom, logCountAtom, renderWindowMaxAtom } from "@/stores/telemetry";
 import { createFilteredLogsAtom } from "@/stores/filters";
 import { Button } from "@/components/ui/button";
@@ -28,6 +28,7 @@ import { CopyJsonButton } from "@/components/ui/copy-json-button";
 import { formatTimestamp, isZeroId, shortId } from "@/lib/format";
 import { KVSection } from "@/components/ui/kv-section";
 import { Field, Section } from "@/components/common/detail-field";
+import { DetailSidebar } from "@/components/common/detail-sidebar";
 import { SearchFilter } from "@/components/filters/search-filter";
 import { ListPanel } from "@/components/common/list-panel";
 import { EmptyState, EmptyMatches } from "@/components/common/empty-state";
@@ -158,16 +159,14 @@ export function LogList() {
           </ScrollArea>
         )}
         {selectedLog && (
-          <div className="h-[45%] min-h-0 shrink-0 border-t border-border/50 xl:h-auto xl:w-105 xl:border-t-0 xl:border-l">
-            <LogDetail
-              log={selectedLog}
-              onClose={() => setSelectedLog(null)}
-              onNavigateToTrace={navigateToTrace}
-              onShowContext={() => {
-                void showSurroundingLogs(eventWindowAround(selectedLog.timestamp, window));
-              }}
-            />
-          </div>
+          <LogDetail
+            log={selectedLog}
+            onClose={() => setSelectedLog(null)}
+            onNavigateToTrace={navigateToTrace}
+            onShowContext={() => {
+              void showSurroundingLogs(eventWindowAround(selectedLog.timestamp, window));
+            }}
+          />
         )}
       </div>
     </ListPanel>
@@ -256,101 +255,86 @@ function LogDetail({
     <AddFilterButton label={`Filter by ${key}`} onClick={() => filterBy(key, value)} />
   );
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between border-b border-border/50 px-4 py-2">
-        <h3 className="text-sm font-semibold text-log">Log Details</h3>
-        <div className="flex items-center gap-1">
-          <CopyJsonButton data={log} size="xs" />
-          <Button
-            variant="ghost-muted"
-            size="icon-xs"
-            onClick={onClose}
-            aria-label="Close details"
-            aria-keyshortcuts="Escape"
-            title="Close details (Esc)"
-          >
-            <X className="h-3 w-3" />
-          </Button>
-        </div>
+    <DetailSidebar
+      title="Log Details"
+      tone="log"
+      onClose={onClose}
+      actions={<CopyJsonButton data={log} size="xs" />}
+    >
+      <div className="space-y-2.5">
+        <Field
+          label="Timestamp"
+          value={formatTimestamp(log.timestamp)}
+          mono
+          action={
+            <HelpTooltip content="Show surrounding logs">
+              <Button
+                variant="ghost-muted"
+                size="icon-xs"
+                onClick={onShowContext}
+                aria-label="Show surrounding logs"
+              >
+                <Logs />
+              </Button>
+            </HelpTooltip>
+          }
+        />
+        <Field
+          label="Severity"
+          action={filterAction("severity_number", log.severityNumber)}
+          value={
+            <Pill tone={severityTone(log.severityText)} dot>
+              {log.severityText || "UNSET"}
+            </Pill>
+          }
+        />
+        <Field
+          label="Service"
+          value={log.serviceName || "-"}
+          action={filterAction("service_name", log.serviceName)}
+        />
+        {!isZeroId(log.traceId) && (
+          <Field
+            label="Trace ID"
+            action={filterAction("trace_id", log.traceId)}
+            mono
+            value={
+              <button
+                className="text-trace underline decoration-trace/30 underline-offset-2 transition-colors hover:decoration-trace/60"
+                onClick={() => onNavigateToTrace(log.traceId)}
+              >
+                {log.traceId}
+              </button>
+            }
+          />
+        )}
+        {!isZeroId(log.spanId) && (
+          <Field
+            label="Span ID"
+            value={log.spanId}
+            mono
+            action={filterAction("span_id", log.spanId)}
+          />
+        )}
       </div>
-      <ScrollArea className="min-h-0 min-w-0 flex-1">
-        <div className="animate-slide-up-fade space-y-5 p-4">
-          <div className="space-y-2.5">
-            <Field
-              label="Timestamp"
-              value={formatTimestamp(log.timestamp)}
-              mono
-              action={
-                <HelpTooltip content="Show surrounding logs">
-                  <Button
-                    variant="ghost-muted"
-                    size="icon-xs"
-                    onClick={onShowContext}
-                    aria-label="Show surrounding logs"
-                  >
-                    <Logs />
-                  </Button>
-                </HelpTooltip>
-              }
-            />
-            <Field
-              label="Severity"
-              action={filterAction("severity_number", log.severityNumber)}
-              value={
-                <Pill tone={severityTone(log.severityText)} dot>
-                  {log.severityText || "UNSET"}
-                </Pill>
-              }
-            />
-            <Field
-              label="Service"
-              value={log.serviceName || "-"}
-              action={filterAction("service_name", log.serviceName)}
-            />
-            {!isZeroId(log.traceId) && (
-              <Field
-                label="Trace ID"
-                action={filterAction("trace_id", log.traceId)}
-                mono
-                value={
-                  <button
-                    className="text-trace underline decoration-trace/30 underline-offset-2 transition-colors hover:decoration-trace/60"
-                    onClick={() => onNavigateToTrace(log.traceId)}
-                  >
-                    {log.traceId}
-                  </button>
-                }
-              />
-            )}
-            {!isZeroId(log.spanId) && (
-              <Field
-                label="Span ID"
-                value={log.spanId}
-                mono
-                action={filterAction("span_id", log.spanId)}
-              />
-            )}
-          </div>
 
-          <Section title="Body" action={filterAction("body", log.body)}>
-            <div className="whitespace-pre-wrap break-all font-mono text-xs text-foreground/80">
-              {log.body}
-            </div>
-          </Section>
-
-          <KVSection
-            title="Attributes"
-            data={log.attributes}
-            onFilter={(key, value) => filterBy(`attributes.${key}`, value)}
-          />
-
-          <KVSection
-            title="Resource"
-            data={log.resource}
-            onFilter={(key, value) => filterBy(`resource.${key}`, value)}
-          />
+      <Section title="Body" action={filterAction("body", log.body)}>
+        <div className="whitespace-pre-wrap break-all font-mono text-xs text-foreground/80">
+          {log.body}
         </div>
-      </ScrollArea>
-    </div>
+      </Section>
+
+      <KVSection
+        title="Attributes"
+        data={log.attributes}
+        onFilter={(key, value) => filterBy(`attributes.${key}`, value)}
+      />
+
+      <KVSection
+        title="Resource"
+        data={log.resource}
+        onFilter={(key, value) => filterBy(`resource.${key}`, value)}
+      />
+    </DetailSidebar>
   );
 }
