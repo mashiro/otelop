@@ -33,13 +33,14 @@ export function TraceDetail() {
 
 function TraceDetailView({ trace, onClose }: { trace: TraceData; onClose: () => void }) {
   const { navigateToLogs } = useRelatedSignals();
-  const [selectedSpanId, setSelectedSpanId] = useState<string | null>(null);
+  const { spanId: selectedSpanId, selectSpan: setSelectedSpanId } = useTraceSelection();
   const selectedSpan = trace.spans.find((span) => span.spanId === selectedSpanId) ?? null;
   const [range, setRange] = useState<TimelineRange>([0, 100]);
 
   return (
     <DetailPanel
       onClose={onClose}
+      onEscape={selectedSpanId ? () => setSelectedSpanId(null) : onClose}
       header={
         <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
           <span className="max-w-full truncate font-semibold text-foreground">

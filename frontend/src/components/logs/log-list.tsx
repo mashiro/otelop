@@ -107,7 +107,7 @@ export function LogList() {
         </>
       }
     >
-      <div className="flex min-h-0 flex-1 overflow-hidden">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden xl:flex-row">
         {logs.length === 0 ? (
           <div className="flex min-h-0 flex-1 flex-col">
             <EmptyMatches label="logs" />
@@ -118,7 +118,7 @@ export function LogList() {
             />
           </div>
         ) : (
-          <ScrollArea className="min-h-0 flex-1">
+          <ScrollArea className="min-h-0 min-w-0 flex-1">
             <BackToLatestRow
               count={renderWindow.newerCount}
               label="newer — back to latest"
@@ -155,7 +155,7 @@ export function LogList() {
           </ScrollArea>
         )}
         {selectedLog && (
-          <div className="w-[420px] border-l border-border/50">
+          <div className="h-[45%] min-h-0 shrink-0 border-t border-border/50 xl:h-auto xl:w-[420px] xl:border-t-0 xl:border-l">
             <LogDetail
               log={selectedLog}
               onClose={() => setSelectedLog(null)}
@@ -270,7 +270,7 @@ function LogDetail({
           </Button>
         </div>
       </div>
-      <ScrollArea className="min-h-0 flex-1">
+      <ScrollArea className="min-h-0 min-w-0 flex-1">
         <div className="animate-slide-up-fade space-y-5 p-4">
           <div className="space-y-2.5">
             <Field

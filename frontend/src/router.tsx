@@ -17,6 +17,7 @@ import { initialLoadOptions } from "@/hooks/use-initial-load";
 type SignalDestination = { search: SignalSearch } & (
   | { to: "/" | "/traces" | "/logs" | "/metrics"; params?: never }
   | { to: "/traces/$traceId"; params: { traceId: string } }
+  | { to: "/traces/$traceId/spans/$spanId"; params: { traceId: string; spanId: string } }
   | { to: "/logs/$logId"; params: { logId: string } }
   | { to: "/metrics/$serviceName/$name"; params: { serviceName: string; name: string } }
 );
@@ -75,13 +76,23 @@ export function createAppRouter(history?: RouterHistory, store = getDefaultStore
     staticData: { signal: "traces" },
     getParentRoute: () => tracesRoute,
     path: "$traceId",
-    beforeLoad: ({ context, params, search, preload }) => {
-      if (!preload) remember(context, "traces", { to: "/traces/$traceId", params, search });
+    beforeLoad: ({ context, params, search, preload, matches }) => {
+      if (!preload && matches.at(-1)?.routeId === "/traces/$traceId")
+        remember(context, "traces", { to: "/traces/$traceId", params, search });
     },
     loader: ({ context, params }) => {
       if (!context.store.get(tracesAtom).some((trace) => trace.traceId === params.traceId)) {
         void queryClient.prefetchQuery(traceByIdOptions(params.traceId));
       }
+    },
+  });
+  const spanRoute = createRoute({
+    staticData: { signal: "traces" },
+    getParentRoute: () => traceRoute,
+    path: "spans/$spanId",
+    beforeLoad: ({ context, params, search, preload }) => {
+      if (!preload)
+        remember(context, "traces", { to: "/traces/$traceId/spans/$spanId", params, search });
     },
   });
   const logsRoute = createRoute({
@@ -123,7 +134,7 @@ export function createAppRouter(history?: RouterHistory, store = getDefaultStore
   });
   const routeTree = rootRoute.addChildren([
     homeRoute,
-    tracesRoute.addChildren([traceRoute]),
+    tracesRoute.addChildren([traceRoute.addChildren([spanRoute])]),
     logsRoute.addChildren([logRoute]),
     metricsRoute.addChildren([metricRoute]),
   ]);
