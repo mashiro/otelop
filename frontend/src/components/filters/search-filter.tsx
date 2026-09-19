@@ -52,7 +52,7 @@ export function SearchFilter({
   };
 
   return (
-    <div className={cn("relative min-w-40 flex-1", className)}>
+    <div className={cn("relative min-w-40 max-w-80 flex-1", className)}>
       <Search className="absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground" />
       <Input
         ref={inputRef}
@@ -63,7 +63,7 @@ export function SearchFilter({
         value={input}
         onChange={handleChange}
         onKeyDown={handleKeyDown}
-        className="h-7 w-full pl-7 pr-7 text-xs"
+        className="h-7 w-full pl-7 pr-7"
       />
       {input && (
         <button
