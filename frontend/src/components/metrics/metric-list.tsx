@@ -99,25 +99,24 @@ export function MetricList() {
           />
           <Table>
             <TableHeader>
-              <TableRow className="border-b border-border/50 bg-muted hover:bg-muted">
-                <TableHead className="text-metric/70">Service</TableHead>
-                <TableHead className="text-metric/70">Name</TableHead>
-                <TableHead className="text-metric/70">Description</TableHead>
-                <TableHead className="text-metric/70">Type</TableHead>
-                <TableHead className="text-metric/70">Unit</TableHead>
-                <TableHead className="text-right text-metric/70">Points</TableHead>
-                <TableHead className="text-right text-metric/70">Latest Value</TableHead>
-                <TableHead className="text-metric/70">Received</TableHead>
+              <TableRow>
+                <TableHead tone="metric">Service</TableHead>
+                <TableHead tone="metric">Name</TableHead>
+                <TableHead tone="metric">Description</TableHead>
+                <TableHead tone="metric">Type</TableHead>
+                <TableHead tone="metric">Unit</TableHead>
+                <TableHead className="text-right" tone="metric">
+                  Points
+                </TableHead>
+                <TableHead className="text-right" tone="metric">
+                  Latest Value
+                </TableHead>
+                <TableHead tone="metric">Received</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {renderWindow.visible.map((metric, i) => (
-                <MetricRow
-                  key={metricRowId(metric)}
-                  metric={metric}
-                  index={i}
-                  onSelect={setSelectedMetric}
-                />
+              {renderWindow.visible.map((metric) => (
+                <MetricRow key={metricRowId(metric)} metric={metric} onSelect={setSelectedMetric} />
               ))}
             </TableBody>
           </Table>
@@ -134,34 +133,29 @@ export function MetricList() {
 
 interface MetricRowProps {
   metric: MetricData;
-  index: number;
   onSelect: (metric: MetricData) => void;
 }
 
 // Row bail-out is provided by React Compiler.
-function MetricRow({ metric, index, onSelect }: MetricRowProps) {
+function MetricRow({ metric, onSelect }: MetricRowProps) {
   return (
-    <TableRow
-      className="stagger-row cursor-pointer border-b border-border/30 transition-colors hover:bg-metric/5"
-      style={{ animationDelay: `${Math.min(index * 20, 200)}ms` }}
-      onClick={() => onSelect(metric)}
-    >
-      <TableCell className="font-medium">{metric.serviceName || "-"}</TableCell>
-      <TableCell className="text-foreground/80">{metric.name}</TableCell>
-      <TableCell className="max-w-xs truncate text-muted-foreground">
+    <TableRow tone="metric" interactive stagger onClick={() => onSelect(metric)}>
+      <TableCell emphasis="strong">{metric.serviceName || "-"}</TableCell>
+      <TableCell emphasis="secondary">{metric.name}</TableCell>
+      <TableCell emphasis="muted" truncate className="max-w-xs">
         {metric.description || "-"}
       </TableCell>
       <TableCell>
         <Pill tone="metric">{metric.type}</Pill>
       </TableCell>
-      <TableCell className="text-muted-foreground">
-        {resolveMetricUnit(metric.name, metric.unit) || "-"}
+      <TableCell emphasis="muted">{resolveMetricUnit(metric.name, metric.unit) || "-"}</TableCell>
+      <TableCell variant="mono" align="right">
+        {metric.pointCount}
       </TableCell>
-      <TableCell className="text-right font-mono text-xs">{metric.pointCount}</TableCell>
-      <TableCell className="text-right font-mono text-xs text-metric">
+      <TableCell variant="mono" tone="metric" align="right">
         {metric.latestValue != null ? metric.latestValue.toLocaleString() : "-"}
       </TableCell>
-      <TableCell className="text-xs text-muted-foreground">
+      <TableCell emphasis="muted" size="xs">
         {formatRelativeTime(metric.receivedAt)}
       </TableCell>
     </TableRow>

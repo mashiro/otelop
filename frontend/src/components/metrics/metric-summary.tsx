@@ -101,7 +101,7 @@ export const MetricSummary = memo(function MetricSummary({
   return (
     <div className="mb-4">
       <div
-        className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground"
+        className="mb-2 text-3xs font-semibold uppercase tracking-wider text-muted-foreground"
         title={
           showsLatest
             ? `Latest value in the selected ${rangeLabel(window)} window`
@@ -161,12 +161,12 @@ function HistogramSummary({
   ] as const;
   return (
     <div className="mb-4">
-      <div className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+      <div className="mb-2 text-3xs font-semibold uppercase tracking-wider text-muted-foreground">
         Distribution · {rangeLabel(window)}
       </div>
       <div className="overflow-x-auto rounded-lg border border-border/30 bg-muted/50">
-        <table className="w-full min-w-[880px] text-left text-xs">
-          <thead className="border-b border-border/30 text-[10px] uppercase tracking-wider text-muted-foreground">
+        <table className="w-full min-w-220 text-left text-xs">
+          <thead className="border-b border-border/30 text-3xs uppercase tracking-wider text-muted-foreground">
             <tr>
               <th className="px-3 py-2 font-semibold">Breakdown</th>
               <th className="px-3 py-2 text-right font-semibold">Observations</th>

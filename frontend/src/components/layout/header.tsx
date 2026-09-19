@@ -71,7 +71,7 @@ function CounterBadge({ signal, count }: { signal: SignalConfig; count: number }
   const { bgLight, text } = signal.classes;
   return (
     <div className={`flex items-center gap-1.5 rounded-md px-2 py-0.5 ${bgLight}`}>
-      <span className={`text-[10px] font-bold uppercase tracking-wider ${text}`}>
+      <span className={`text-3xs font-bold uppercase tracking-wider ${text}`}>
         {signal.shortLabel}
       </span>
       <span className={`font-mono text-xs font-semibold ${text}`}>{count}</span>
@@ -99,13 +99,7 @@ function ThemeToggle({ theme, setTheme }: { theme: Theme; setTheme: (t: Theme) =
   const Icon = themeIcons[theme];
   return (
     <HelpTooltip content={themeLabels[theme]}>
-      <Button
-        aria-label={themeLabels[theme]}
-        variant="ghost"
-        size="sm"
-        onClick={next}
-        className="text-muted-foreground hover:text-foreground"
-      >
+      <Button aria-label={themeLabels[theme]} variant="ghost-muted" size="sm" onClick={next}>
         <Icon className="h-3.5 w-3.5" />
       </Button>
     </HelpTooltip>

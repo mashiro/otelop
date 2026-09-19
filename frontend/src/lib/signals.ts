@@ -1,5 +1,9 @@
 export type SignalKey = "traces" | "metrics" | "logs";
 
+// Shared shorthand for SignalConfig["token"], used by ui components (Table,
+// Tabs, Select, ...) that accept a signal-colored `tone` prop.
+export type SignalTone = SignalConfig["token"];
+
 // Signal-specific Tailwind class literals. Tailwind v4 scans source files for
 // exact class tokens, so we keep all combinations here as plain strings.
 // Using `bg-${token}/10` at call sites would fail to produce the class.

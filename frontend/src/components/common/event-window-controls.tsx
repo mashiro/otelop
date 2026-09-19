@@ -98,22 +98,16 @@ export function TimeWindowControls({
       )}
       <Button
         type="button"
-        variant="ghost"
+        variant={isLive ? "success" : "ghost-muted"}
         size="sm"
         onClick={() => onWindowChange(range ? { mode: "live", range } : DEFAULT_EVENT_TIME_WINDOW)}
         disabled={isLive}
-        className={cn(
-          "disabled:opacity-100",
-          isLive
-            ? "bg-emerald-500/10 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400"
-            : "text-muted-foreground",
-        )}
       >
         <Radio
           className={cn(
             "size-3",
             isLive
-              ? "animate-pulse-glow text-emerald-500 drop-shadow-[0_0_4px_oklch(0.72_0.17_155/0.7)]"
+              ? "animate-pulse-glow text-success drop-shadow-glow drop-shadow-success/70"
               : "text-muted-foreground",
           )}
         />

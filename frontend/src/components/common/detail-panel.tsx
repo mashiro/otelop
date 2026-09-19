@@ -25,13 +25,12 @@ export function DetailPanel({ header, actions, onClose, onEscape, children }: De
       <div className="flex items-center justify-between border-b border-border/50 px-4 py-2.5">
         <div className="flex min-w-0 flex-1 items-center gap-3">
           <Button
-            variant="ghost"
+            variant="ghost-muted"
             size="icon-sm"
             onClick={onClose}
             aria-label="Close details"
             aria-keyshortcuts="Escape"
             title="Close details (Esc)"
-            className="text-muted-foreground hover:text-foreground"
           >
             <X className="h-4 w-4" />
           </Button>
