@@ -82,20 +82,18 @@ export function TimeWindowControls({
         tone={tone}
         size={size}
       />
-      {window.mode === "fixed" && (
-        <HelpTooltip content="Next window">
-          <Button
-            aria-label="Next window"
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            onClick={() => onWindowChange(shiftEventWindow(window, 1))}
-            disabled={!canMove}
-          >
-            <ChevronRight />
-          </Button>
-        </HelpTooltip>
-      )}
+      <HelpTooltip content="Next window">
+        <Button
+          aria-label="Next window"
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          onClick={() => onWindowChange(shiftEventWindow(window, 1))}
+          disabled={isLive || !canMove}
+        >
+          <ChevronRight />
+        </Button>
+      </HelpTooltip>
       <Button
         type="button"
         variant={isLive ? "success" : "ghost-muted"}
