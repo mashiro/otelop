@@ -77,6 +77,51 @@ describe("application routing", () => {
     await screen.findByText("Trace route");
     expect(router.state.location.search).toMatchObject({ range: "30m", q: "checkout" });
   });
+  it("remembers home as the traces destination when switching tabs", async () => {
+    await show("/?q=checkout");
+    await screen.findByText("Trace route");
+    fireEvent.click(screen.getByRole("tab", { name: "Metrics" }));
+    await screen.findByText("Metric route");
+    fireEvent.click(screen.getByRole("tab", { name: "Traces" }));
+    await screen.findByText("Trace route");
+    expect(router.state.location.pathname).toBe("/");
+    expect(router.state.location.search).toMatchObject({ q: "checkout" });
+  });
+  it("remembers a span destination when switching tabs", async () => {
+    await show("/traces/abc/spans/span1?q=checkout");
+    await screen.findByText("Trace route");
+    fireEvent.click(screen.getByRole("tab", { name: "Logs" }));
+    await screen.findByText("Log route");
+    fireEvent.click(screen.getByRole("tab", { name: "Traces" }));
+    await screen.findByText("Trace route");
+    expect(router.state.location.pathname).toBe("/traces/abc/spans/span1");
+    expect(router.state.location.search).toMatchObject({ q: "checkout" });
+  });
+  it("remembers a log destination when switching tabs", async () => {
+    await show("/logs/log1?q=checkout");
+    await screen.findByText("Log route");
+    fireEvent.click(screen.getByRole("tab", { name: "Traces" }));
+    await screen.findByText("Trace route");
+    fireEvent.click(screen.getByRole("tab", { name: "Logs" }));
+    await screen.findByText("Log route");
+    expect(router.state.location.pathname).toBe("/logs/log1");
+    expect(router.state.location.search).toMatchObject({ q: "checkout" });
+  });
+  it("keeps the shared event window unaffected by metrics searches", async () => {
+    await show("/traces?range=6h&q=checkout");
+    await screen.findByText("Trace route");
+    await act(async () => {
+      await router.navigate({
+        to: "/metrics/$serviceName/$name",
+        params: { serviceName: "api/worker", name: "cpu.usage" },
+        search: { range: "24h", q: "cpu" },
+      });
+    });
+    await screen.findByText("Metric route");
+    fireEvent.click(screen.getByRole("tab", { name: "Logs" }));
+    await screen.findByText("Log route");
+    expect(router.state.location.search).toMatchObject({ range: "6h" });
+  });
   it("leaves modifier-click behavior to Link", async () => {
     await show("/traces/abc?q=checkout");
     const link = await screen.findByRole("link", { name: "otelop" });
