@@ -118,6 +118,17 @@ export function useMetricSelection() {
         : navigate({ to: "/metrics", search: true }),
   };
 }
+export function useMetricQuery() {
+  const search = useSearch({ strict: false, select: (search) => search.q ?? "" });
+  const navigate = useNavigate();
+  return {
+    search,
+    setSearch: (q: string) => {
+      void navigate({ to: ".", search: (previous) => ({ ...previous, q: q || undefined }) });
+      return q;
+    },
+  };
+}
 export function useLogSelection() {
   const { logId } = useParams({ strict: false });
   const logs = useAtomValue(logsAtom);
