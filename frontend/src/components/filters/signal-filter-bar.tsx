@@ -253,7 +253,7 @@ function FilterEditor({
             list={`${id}-keys`}
             value={draft.key}
             placeholder="attributes.http.status_code"
-            className="font-mono text-xs"
+            className="font-mono"
             onChange={(event) => setDraft({ ...draft, key: event.target.value })}
             autoComplete="off"
           />

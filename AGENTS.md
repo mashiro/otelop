@@ -59,6 +59,7 @@ mise run build    # Build
 - Always run `mise run check` and `mise run test` after making changes
 - Use agent-browser to verify both light and dark mode
 - When changing the UI design, capture screenshots of the updated UI in both light and dark mode and attach them to the pull request.
+- Store screenshots intended for pull requests outside the repository (for example, in `/tmp`). Do not save or commit them under `docs/` or any other repository directory.
 
 ### Verification environment
 
