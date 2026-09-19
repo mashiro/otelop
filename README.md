@@ -293,8 +293,6 @@ readinessProbe:
   periodSeconds: 5
 ```
 
-`mise run dev` also waits for `/readyz`, with a 10-second retry budget.
-
 ## Development
 
 The main development tasks are managed by mise:

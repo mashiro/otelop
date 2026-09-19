@@ -1,7 +1,7 @@
 import { beforeEach, afterEach, describe, expect, it } from "vite-plus/test";
 import { createStore } from "jotai";
 import { act, render, screen, fireEvent, cleanup, within, waitFor } from "@testing-library/react";
-import { LogFilterBar } from "./log-filter-bar";
+import { LogAddFilter, LogFilterBar } from "./log-filter-bar";
 import { createTestRouter } from "@/test/router";
 import { readFilterQuery } from "@/lib/log-query-state";
 afterEach(cleanup);
@@ -14,7 +14,13 @@ describe("Key / Operator / Value filters", () => {
   ])("adds, edits, disables, enables, and removes %s", async (key, first, second) => {
     const store = createStore();
     const { router, wrapper } = await createTestRouter("/logs", store);
-    render(<LogFilterBar />, { wrapper });
+    render(
+      <>
+        <LogAddFilter />
+        <LogFilterBar />
+      </>,
+      { wrapper },
+    );
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Add filter" }));
     });
@@ -62,7 +68,13 @@ describe("Key / Operator / Value filters", () => {
   it("does not add an invalid key", async () => {
     const store = createStore();
     const { router, wrapper } = await createTestRouter("/logs", store);
-    render(<LogFilterBar />, { wrapper });
+    render(
+      <>
+        <LogAddFilter />
+        <LogFilterBar />
+      </>,
+      { wrapper },
+    );
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Add filter" }));
     });
@@ -78,7 +90,13 @@ describe("Key / Operator / Value filters", () => {
 it("replaces a standard field with an attribute without retaining its old field mapping", async () => {
   const store = createStore();
   const { router, wrapper } = await createTestRouter("/logs?filter=trace_id%3A%22abc%22", store);
-  render(<LogFilterBar />, { wrapper });
+  render(
+    <>
+      <LogAddFilter />
+      <LogFilterBar />
+    </>,
+    { wrapper },
+  );
   await act(async () => {
     fireEvent.click(screen.getByRole("button", { name: "Edit filter trace_id" }));
   });

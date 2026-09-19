@@ -51,24 +51,22 @@ function App() {
       <Tabs
         value={activeTab}
         onValueChange={(v) => setActiveTab(v as SignalKey)}
-        className="flex flex-1 flex-col overflow-hidden"
+        className="flex flex-1 flex-col gap-3 overflow-hidden px-5 pb-4 pt-3"
       >
-        <div className="px-5 pt-3">
-          <TabsList className="w-fit gap-1 bg-transparent p-0">
-            {SIGNAL_LIST.map((signal) => (
-              <TabsTrigger
-                key={signal.key}
-                value={signal.key}
-                className={tabTriggerClasses[signal.key]}
-              >
-                {signal.label}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-        </div>
+        <TabsList className="w-fit shrink-0 gap-1 bg-transparent p-0">
+          {SIGNAL_LIST.map((signal) => (
+            <TabsTrigger
+              key={signal.key}
+              value={signal.key}
+              className={tabTriggerClasses[signal.key]}
+            >
+              {signal.label}
+            </TabsTrigger>
+          ))}
+        </TabsList>
         <TabsContent
           value={activeTab}
-          className="relative z-10 flex flex-1 flex-col overflow-hidden px-5 pb-4 pt-2"
+          className="relative z-10 flex flex-1 flex-col overflow-hidden"
         >
           <Outlet />
         </TabsContent>

@@ -6,9 +6,9 @@ backend_origin="${OTELOP_BACKEND_ORIGIN:-http://127.0.0.1:4319}"
 echo "Waiting for backend at ${backend_origin}..."
 if ! curl --fail --silent --output /dev/null \
   --connect-timeout 1 --max-time 2 \
-  --retry 10 --retry-connrefused --retry-delay 1 --retry-max-time 10 \
+  --retry 60 --retry-connrefused --retry-delay 1 --retry-max-time 60 \
   "${backend_origin%/}/readyz"; then
-  echo "Backend readiness check failed (10-second wait limit): ${backend_origin}" >&2
+  echo "Backend readiness check failed (60-second wait limit): ${backend_origin}" >&2
   exit 1
 fi
 

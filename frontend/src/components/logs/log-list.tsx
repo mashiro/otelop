@@ -8,7 +8,7 @@ import {
 } from "@/hooks/use-signal-route";
 import { draftTerm } from "@/lib/log-filter";
 import { AddFilterButton } from "@/components/filters/add-filter-button";
-import { LogFilterBar } from "./log-filter-bar";
+import { LogAddFilter, LogFilterBar } from "./log-filter-bar";
 import { useAtomValue } from "jotai";
 import { useMemo, useState } from "react";
 import { Logs, X } from "lucide-react";
@@ -88,14 +88,21 @@ export function LogList() {
 
   return (
     <ListPanel
-      toolbarSecondary={<LogFilterBar />}
+      toolbarClassName="grid grid-cols-1 gap-2 @min-[48rem]/list:grid-cols-[minmax(0,1fr)_auto] @min-[48rem]/list:gap-3"
+      toolbarSecondary={state.filters.length > 0 ? <LogFilterBar /> : null}
       toolbar={
         <>
-          <div className="flex w-full flex-wrap items-center gap-2">
-            <SearchFilter value={state.text} onSubmit={setText} placeholder="Search logs…" />
-            <div className="ml-auto">
-              <EventWindowControls tone="log" />
-            </div>
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            <SearchFilter
+              value={state.text}
+              onSubmit={setText}
+              placeholder="Search logs…"
+              className="min-w-0 max-w-none @min-[48rem]/list:max-w-80"
+            />
+            <LogAddFilter />
+          </div>
+          <div className="ml-auto shrink-0">
+            <EventWindowControls tone="log" />
           </div>
         </>
       }

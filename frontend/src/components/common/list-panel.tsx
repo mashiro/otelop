@@ -17,7 +17,7 @@ export function ListPanel({
   children,
 }: ListPanelProps) {
   return (
-    <div className="glass-card flex h-full flex-col overflow-hidden">
+    <div className="glass-card @container/list flex h-full flex-col overflow-hidden">
       <ListToolbar className={toolbarClassName} secondary={toolbarSecondary}>
         {toolbar}
       </ListToolbar>
