@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { describe, it, expect, vi, afterEach } from "vite-plus/test";
 import { render, screen, cleanup, fireEvent } from "@testing-library/react";
 import { DetailSidebar } from "./detail-sidebar";
+import { useKeyboardShortcut } from "@/hooks/use-keyboard-shortcut";
 
 // Base UI's ScrollArea calls Element.getAnimations(), which happy-dom (this
 // project's test environment) doesn't implement — see the identical mock in
@@ -73,5 +74,24 @@ describe("DetailSidebar", () => {
 
     const closeButton = screen.getByRole("button", { name: "Close data point details" });
     expect(closeButton.getAttribute("title")).toBe("Close data point details (Esc)");
+  });
+
+  it("closes on Escape, taking priority over an enclosing panel's own Escape listener", () => {
+    const onClose = vi.fn();
+    const onPanelEscape = vi.fn();
+    function EnclosingPanel() {
+      useKeyboardShortcut("Escape", onPanelEscape);
+      return (
+        <DetailSidebar title="Span Details" tone="trace" onClose={onClose}>
+          <p>body</p>
+        </DetailSidebar>
+      );
+    }
+    render(<EnclosingPanel />);
+
+    fireEvent.keyDown(document.body, { key: "Escape" });
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(onPanelEscape).not.toHaveBeenCalled();
   });
 });

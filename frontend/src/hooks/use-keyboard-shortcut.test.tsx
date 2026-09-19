@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { DetailPanel } from "@/components/common/detail-panel";
 import { SearchFilter } from "@/components/filters/search-filter";
+import { useKeyboardShortcut } from "./use-keyboard-shortcut";
 
 afterEach(cleanup);
 
@@ -109,5 +110,36 @@ describe("page keyboard shortcuts", () => {
     expect(document.activeElement).toBe(search);
     expect(onClose).not.toHaveBeenCalled();
     expect(onSubmit).not.toHaveBeenCalled();
+  });
+});
+
+function BubbleShortcut({ action }: { action: () => void }) {
+  useKeyboardShortcut("Escape", action);
+  return null;
+}
+
+function CaptureShortcut({ action }: { action: () => void }) {
+  useKeyboardShortcut("Escape", action, { capture: true });
+  return null;
+}
+
+describe("useKeyboardShortcut capture option", () => {
+  it("fires only a mounted capture-phase shortcut over a bubble-phase one, then falls back to the bubble one once it unmounts", () => {
+    const outer = vi.fn();
+    const inner = vi.fn();
+    const { rerender } = render(
+      <>
+        <BubbleShortcut action={outer} />
+        <CaptureShortcut action={inner} />
+      </>,
+    );
+
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    expect(inner).toHaveBeenCalledTimes(1);
+    expect(outer).not.toHaveBeenCalled();
+
+    rerender(<BubbleShortcut action={outer} />);
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    expect(outer).toHaveBeenCalledTimes(1);
   });
 });

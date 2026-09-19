@@ -1,4 +1,3 @@
-import { useKeyboardShortcut } from "@/hooks/use-keyboard-shortcut";
 import { HelpTooltip } from "@/components/ui/help-tooltip";
 import { useFilterByAction } from "@/hooks/use-filter-by-action";
 import { Logs } from "lucide-react";
@@ -23,7 +22,6 @@ export function LogDetail({
   onNavigateToTrace: (id: string) => void;
   onShowContext: () => void;
 }) {
-  useKeyboardShortcut("Escape", onClose);
   const { filterBy, filterAction } = useFilterByAction("logs");
   return (
     <DetailSidebar

@@ -38,7 +38,6 @@ function TraceDetailView({ trace, onClose }: { trace: TraceData; onClose: () => 
   return (
     <DetailPanel
       onClose={onClose}
-      onEscape={selectedSpanId ? () => setSelectedSpanId(null) : onClose}
       header={
         <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
           <span className="max-w-full truncate font-semibold text-foreground">

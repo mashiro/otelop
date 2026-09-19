@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { useKeyboardShortcut } from "@/hooks/use-keyboard-shortcut";
 import { cn } from "@/lib/utils";
 import type { Tone } from "@/lib/tones";
 
@@ -38,6 +39,12 @@ export function DetailSidebar({
   closeLabel = "Close details",
   children,
 }: DetailSidebarProps) {
+  // Nested inside a DetailPanel that also listens for Escape (see
+  // detail-panel.tsx): capture phase makes this, the innermost visible
+  // layer, see and consume the key first, so one Escape closes only the
+  // sidebar instead of both levels at once.
+  useKeyboardShortcut("Escape", onClose, { capture: true });
+
   return (
     <div className="h-[45%] min-h-0 shrink-0 border-t border-border/50 xl:h-auto xl:w-105 xl:border-t-0 xl:border-l">
       <div className="flex h-full flex-col">

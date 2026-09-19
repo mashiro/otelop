@@ -10,15 +10,14 @@ interface DetailPanelProps {
   // Right-hand side of the header: action buttons (copy, download, navigate…).
   actions?: ReactNode;
   onClose: () => void;
-  onEscape?: () => void;
   children: ReactNode;
 }
 
 // DetailPanel is the glass-card shell used by trace/metric detail views.
 // It owns the outer card, header bar, close button, and layout so individual
 // detail pages only supply header content, actions, and body.
-export function DetailPanel({ header, actions, onClose, onEscape, children }: DetailPanelProps) {
-  useKeyboardShortcut("Escape", onEscape ?? onClose);
+export function DetailPanel({ header, actions, onClose, children }: DetailPanelProps) {
+  useKeyboardShortcut("Escape", onClose);
 
   return (
     <div className="glass-card animate-fade-in flex h-full flex-col overflow-hidden">

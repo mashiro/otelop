@@ -31,20 +31,12 @@ export function MetricDetail() {
 
   if (!metric) return null;
 
-  return <MetricDetailView metric={metric} onClose={() => setSelected(null)} />;
-}
-
-function MetricDetailView({ metric, onClose }: { metric: MetricData; onClose: () => void }) {
   const displayUnit = resolveMetricUnit(metric.name, metric.unit);
-  // Lifted out of MetricDetailBody so a single Escape closes only the data
-  // point sidebar first, mirroring TraceDetailView's selectedSpanId handling
-  // — see DetailPanel's onEscape prop.
-  const [selectedDpId, setSelectedDpId] = useState<string | null>(null);
+  const onClose = () => setSelected(null);
 
   return (
     <DetailPanel
       onClose={onClose}
-      onEscape={selectedDpId ? () => setSelectedDpId(null) : onClose}
       header={
         <>
           <span className="font-semibold text-foreground">{metric.name}</span>
@@ -54,11 +46,7 @@ function MetricDetailView({ metric, onClose }: { metric: MetricData; onClose: ()
         </>
       }
     >
-      <MetricDetailBody
-        metric={metric}
-        selectedDpId={selectedDpId}
-        onSelectDataPoint={setSelectedDpId}
-      />
+      <MetricDetailBody metric={metric} />
     </DetailPanel>
   );
 }
@@ -80,19 +68,9 @@ function resolveEffectiveFacet(pickedId: string | null, facets: MetricFacet[]): 
 // the chart must break down by the same dimension. Exported for direct
 // testing (see metric-detail.test.tsx), the same way DataPointsTable/
 // DataPointDetail are, so tests can supply a metric directly.
-//
-// selectedDpId/onSelectDataPoint are controlled by MetricDetailView so it can
-// give DetailPanel's onEscape prop the "close the data point sidebar first"
-// state — see MetricDetailView above.
-export function MetricDetailBody({
-  metric,
-  selectedDpId,
-  onSelectDataPoint,
-}: {
-  metric: MetricData;
-  selectedDpId: string | null;
-  onSelectDataPoint: (id: string | null) => void;
-}) {
+export function MetricDetailBody({ metric }: { metric: MetricData }) {
+  const [selectedDpId, setSelectedDpId] = useState<string | null>(null);
+
   // Time range is the scope for the whole detail view (tiles, chart, and
   // table all read the same window), so it's lifted here rather than owned
   // by MetricChart — see metric-stats.ts's computeStatTiles. Defaults to a
@@ -191,7 +169,7 @@ export function MetricDetailBody({
               metric={metric}
               dataPoints={rangeDataPoints}
               selectedId={selectedDpId}
-              onSelect={onSelectDataPoint}
+              onSelect={setSelectedDpId}
             />
           )}
         </div>
@@ -200,7 +178,7 @@ export function MetricDetailBody({
         <DetailSidebar
           title="Data Point Details"
           tone="metric"
-          onClose={() => onSelectDataPoint(null)}
+          onClose={() => setSelectedDpId(null)}
           closeLabel="Close data point details"
           actions={<CopyJsonButton data={selectedDp} size="xs" />}
         >

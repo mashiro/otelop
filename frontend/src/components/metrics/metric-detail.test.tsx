@@ -5,7 +5,7 @@ function render(ui: ReactElement) {
   return renderUI(ui, { wrapper: routing.wrapper });
 }
 import { describe, it, expect, vi, beforeEach, afterEach } from "vite-plus/test";
-import { useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import {
   act,
   render as renderUI,
@@ -18,22 +18,6 @@ import { getDefaultStore } from "jotai";
 import { MetricDetail, MetricDetailBody } from "./metric-detail";
 import { metricsAtom } from "@/stores/telemetry";
 import { makeDataPoint, makeMetric } from "@/test/factories";
-import type { MetricData } from "@/types/telemetry";
-
-// MetricDetailBody's selectedDpId/onSelectDataPoint are controlled by its
-// real caller (MetricDetailView); most of these tests don't care about the
-// data point sidebar, so this wrapper owns the state locally to keep every
-// other render call a plain `<ControlledBody metric={metric} />`.
-function ControlledBody({ metric }: { metric: MetricData }) {
-  const [selectedDpId, setSelectedDpId] = useState<string | null>(null);
-  return (
-    <MetricDetailBody
-      metric={metric}
-      selectedDpId={selectedDpId}
-      onSelectDataPoint={setSelectedDpId}
-    />
-  );
-}
 
 // Base UI's ScrollArea calls Element.getAnimations(), which happy-dom (this
 // project's test environment) doesn't implement — an environment gap
@@ -91,7 +75,7 @@ describe("MetricDetailBody control row", () => {
       ],
     });
 
-    render(<ControlledBody metric={metric} />);
+    render(<MetricDetailBody metric={metric} />);
 
     expect(screen.getByText("Breakdown")).toBeTruthy();
     const rangeSelect = screen.getByRole("combobox", { name: "Time range" });
@@ -108,7 +92,7 @@ describe("MetricDetailBody control row", () => {
       dataPoints: [makeDataPoint({ id: "a", timestamp: "2024-01-01T00:00:00Z", value: 1 })],
     });
 
-    render(<ControlledBody metric={metric} />);
+    render(<MetricDetailBody metric={metric} />);
     await selectRange("5m");
 
     expect(screen.getByRole("combobox", { name: "Time range" }).textContent).toContain("5m");
@@ -119,7 +103,7 @@ describe("MetricDetailBody control row", () => {
       dataPoints: [makeDataPoint({ id: "a", timestamp: "2024-01-01T00:00:00Z", value: 1 })],
     });
 
-    render(<ControlledBody metric={metric} />);
+    render(<MetricDetailBody metric={metric} />);
     await selectRange("24h");
 
     expect(routing.router.state.location.href).toBe("/metrics/frontend/http.requests?range=24h");
@@ -128,7 +112,7 @@ describe("MetricDetailBody control row", () => {
   it("moves to the previous metric window and fetches its explicit bounds", async () => {
     const metric = makeMetric({ serviceName: "frontend", name: "http.requests" });
 
-    render(<ControlledBody metric={metric} />);
+    render(<MetricDetailBody metric={metric} />);
     await act(async () => fireEvent.click(screen.getByRole("button", { name: "Previous window" })));
 
     expect(screen.getByRole("button", { name: "Next window" })).toBeTruthy();
@@ -152,7 +136,7 @@ describe("MetricDetailBody control row", () => {
       dataPoints: [makeDataPoint({ id: "a", timestamp: "2024-01-01T00:00:00Z", value: 1 })],
     });
 
-    render(<ControlledBody metric={metric} />);
+    render(<MetricDetailBody metric={metric} />);
     await selectRange("5m");
 
     // Once for the initial "1h" mount, once more after switching to "5m".
@@ -170,7 +154,7 @@ describe("MetricDetailBody stat tiles section label", () => {
       dataPoints: [makeDataPoint({ id: "a", timestamp: "2024-01-01T00:00:00Z", cumulative: 1 })],
     });
 
-    render(<ControlledBody metric={metric} />);
+    render(<MetricDetailBody metric={metric} />);
     expect(screen.getByText("Increase · 1h")).toBeTruthy();
 
     await selectRange("All");
@@ -183,7 +167,7 @@ describe("MetricDetailBody stat tiles section label", () => {
       dataPoints: [makeDataPoint({ id: "a", value: 1 }), makeDataPoint({ id: "b", value: 2 })],
     });
 
-    render(<ControlledBody metric={metric} />);
+    render(<MetricDetailBody metric={metric} />);
 
     expect(screen.getByText("Latest · 1h")).toBeTruthy();
   });
@@ -199,7 +183,7 @@ describe("MetricDetailBody data points table", () => {
       ],
     });
 
-    render(<ControlledBody metric={metric} />);
+    render(<MetricDetailBody metric={metric} />);
     expect(screen.getByText("Data Points (3)")).toBeTruthy();
 
     await selectRange("5m");
@@ -208,10 +192,11 @@ describe("MetricDetailBody data points table", () => {
   });
 });
 
-// MetricDetail (not MetricDetailBody) owns selectedDpId so it can give
-// DetailPanel's onEscape prop the "close the data point sidebar first"
-// state — the same one-Escape-per-level contract trace-detail.test.tsx
-// verifies for spans (see "dismisses one detail level per Escape").
+// The data point sidebar (DetailSidebar) registers its own capture-phase
+// Escape listener (hooks/use-keyboard-shortcut.ts), which runs before
+// DetailPanel's bubble-phase one and consumes the event — the same
+// one-Escape-per-level contract trace-detail.test.tsx verifies for spans
+// (see "dismisses one detail level per Escape").
 describe("MetricDetail data point sidebar", () => {
   it("gives the data point close button an accessible name distinct from the metric detail's own close button", async () => {
     const store = getDefaultStore();
@@ -248,6 +233,42 @@ describe("MetricDetail data point sidebar", () => {
     fireEvent.keyDown(window, { key: "Escape" });
     expect(screen.queryByText("Data Point Details")).toBeNull();
     expect(screen.getByText("http.requests")).toBeTruthy();
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(routing.router.state.location.pathname).toBe("/metrics"));
+  });
+
+  // Regression for the bug where a time-window change (or live-buffer
+  // eviction) drops the selected point from rangeDataPoints without
+  // clearing selectedDpId: the sidebar unmounts on its own, so its
+  // capture-phase Escape listener unmounts with it, and a single Escape
+  // must reach DetailPanel's listener directly instead of being swallowed
+  // by a sidebar the user can no longer see.
+  it("closes the metric detail with a single Escape after the selected data point falls out of the range window", async () => {
+    const store = getDefaultStore();
+    store.set(metricsAtom, [
+      makeMetric({
+        serviceName: "frontend",
+        name: "http.requests",
+        dataPoints: [
+          makeDataPoint({ id: "old", timestamp: "2024-01-01T00:00:00Z", attributes: { k: "old" } }),
+          makeDataPoint({
+            id: "newest",
+            timestamp: "2024-01-01T00:20:00Z",
+            attributes: { k: "newest" },
+          }),
+        ],
+      }),
+    ]);
+
+    render(<MetricDetail />);
+    fireEvent.click(screen.getByText('k="old"').closest("tr")!);
+    expect(screen.getByText("Data Point Details")).toBeTruthy();
+
+    // Narrowing to "5m" (anchored on the newest point, 00:20) drops "old"
+    // (00:00) from rangeDataPoints while selectedDpId still points at it.
+    await selectRange("5m");
+    await waitFor(() => expect(screen.queryByText("Data Point Details")).toBeNull());
 
     fireEvent.keyDown(window, { key: "Escape" });
     await waitFor(() => expect(routing.router.state.location.pathname).toBe("/metrics"));

@@ -1,6 +1,7 @@
 import { attrKey } from "@/lib/metric-stats";
 import { isDistributionMetric, resolveMetricUnit } from "@/lib/metric-catalog";
 import { formatMetricValue } from "@/lib/format-metric";
+import { formatTimestamp } from "@/lib/format";
 import type { DataPoint, MetricData } from "@/types/telemetry";
 
 const headCls = "px-3 py-2 text-2xs font-semibold uppercase tracking-wider text-muted-foreground";
@@ -59,7 +60,7 @@ export function DataPointsTable({
                   onClick={() => onSelect(isSelected ? null : dp.id)}
                 >
                   <td className="px-3 py-1.5 font-mono text-muted-foreground">
-                    {new Date(dp.timestamp).toLocaleTimeString()}
+                    {formatTimestamp(dp.timestamp)}
                   </td>
                   {hasAttributes && (
                     <td className="max-w-62.5 truncate px-3 py-1.5 font-mono text-foreground/60">
