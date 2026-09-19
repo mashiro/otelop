@@ -109,6 +109,22 @@ describe("MetricDetailBody control row", () => {
     expect(routing.router.state.location.href).toBe("/metrics/frontend/http.requests?range=24h");
   });
 
+  it("keeps Next visible and disabled in Live mode without changing the window on click", async () => {
+    const metric = makeMetric({ serviceName: "frontend", name: "http.requests" });
+
+    render(<MetricDetailBody metric={metric} />);
+
+    const nextButton = screen.getByRole("button", { name: "Next window" });
+    expect(nextButton.hasAttribute("disabled")).toBe(true);
+    const initialUrl = routing.router.state.location.href;
+
+    await act(async () => fireEvent.click(nextButton));
+
+    expect(routing.router.state.location.href).toBe(initialUrl);
+    expect(screen.getByRole("button", { name: "Live" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("combobox", { name: "Time range" }).textContent).toContain("1 hour");
+  });
+
   it("moves to the previous metric window and fetches its explicit bounds", async () => {
     const metric = makeMetric({ serviceName: "frontend", name: "http.requests" });
 
