@@ -1,52 +1,30 @@
-import { useCallback, useMemo, useRef, useState } from "react";
-import { Group } from "@visx/group";
-import { scaleLinear } from "@visx/scale";
-import { ParentSize } from "@visx/responsive";
-import { useTooltip, TooltipWithBounds } from "@visx/tooltip";
-import { ScrollArea } from "@/components/ui/scroll-area";
+import { useMemo, useState } from "react";
+import { useParentSize } from "@visx/responsive";
+import { ChevronDown, ChevronRight, CircleAlert, Search } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { traceServiceColors, traceTimeline, type TimelineRange } from "./trace-timeline";
+import { Button } from "@/components/ui/button";
+import { Toggle } from "@/components/ui/toggle";
+import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
+import { ScrollArea as ScrollAreaPrimitive } from "@base-ui/react/scroll-area";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { formatDuration, createDurationFormatter } from "@/lib/format";
+import { cn } from "@/lib/utils";
 import type { TraceData, SpanData } from "@/types/telemetry";
 
-const ROW_HEIGHT = 32;
-const HEADER_HEIGHT = 28;
-const LABEL_WIDTH = 260;
-const BAR_PADDING = 8;
-const MIN_BAR_WIDTH = 3;
-const INDENT_BASE = 8;
-const INDENT_PER_DEPTH = 16;
-const TOGGLE_WIDTH = 14;
-const SERVICE_BAR_WIDTH = 4;
-const SERVICE_GAP = 6;
-const AVG_CHAR_WIDTH = 6;
-const TICK_COUNT = 5;
-const ERROR_COLOR = "oklch(0.70 0.22 25)";
-
-const SERVICE_COLORS = [
-  "oklch(0.65 0.14 195)",
-  "oklch(0.67 0.14 80)",
-  "oklch(0.63 0.14 300)",
-  "oklch(0.63 0.17 155)",
-  "oklch(0.60 0.18 15)",
-  "oklch(0.65 0.12 230)",
-  "oklch(0.61 0.14 50)",
-  "oklch(0.59 0.16 340)",
-];
+const ERROR_COLOR = "var(--destructive)";
 
 interface Props {
   trace: TraceData;
   onSelectSpan: (span: SpanData) => void;
   selectedSpan: SpanData | null;
+  range?: TimelineRange;
 }
 
 export interface FlatSpan {
   span: SpanData;
   depth: number;
   hasChildren: boolean;
-}
-
-interface TooltipData {
-  service: string;
-  name: string;
 }
 
 /** Offset of a span's pre-parsed start epoch relative to a base instant. */
@@ -93,392 +71,367 @@ export function buildTree(spans: SpanData[]): FlatSpan[] {
   return result;
 }
 
-export function SpanWaterfall({ trace, onSelectSpan, selectedSpan }: Props) {
+export function SpanWaterfall(props: Props) {
+  const { parentRef, width } = useParentSize();
+
   return (
-    <ParentSize>
-      {({ width, height }) =>
-        width > 0 ? (
-          <WaterfallInner
-            trace={trace}
-            width={width}
-            height={height}
-            onSelectSpan={onSelectSpan}
-            selectedSpan={selectedSpan}
-          />
-        ) : null
-      }
-    </ParentSize>
+    <div ref={parentRef} className="h-full">
+      {width > 0 && <WaterfallInner key={props.trace.traceId} {...props} width={width} />}
+    </div>
   );
 }
 
 function WaterfallInner({
   trace,
-  width,
-  height,
   onSelectSpan,
   selectedSpan,
-}: Props & { width: number; height: number }) {
-  const containerRef = useRef<HTMLDivElement>(null);
+  width,
+  range = [0, 100],
+}: Props & { width: number }) {
   const flatSpans = useMemo(() => buildTree(trace.spans), [trace.spans]);
+  const [hoveredSpanId, setHoveredSpanId] = useState<string | null>(null);
   const [collapsedSet, setCollapsedSet] = useState<Set<string>>(new Set());
-
+  const [search, setSearch] = useState("");
+  const [errorsOnly, setErrorsOnly] = useState(false);
+  const matchingIds = useMemo(() => {
+    if (!search.trim() && !errorsOnly) return null;
+    const byId = new Map(trace.spans.map((span) => [span.spanId, span]));
+    const ids = new Set<string>();
+    const query = search.trim().toLowerCase();
+    for (const span of trace.spans) {
+      if (errorsOnly && span.statusCode !== "Error") continue;
+      if (query && !`${span.name} ${span.serviceName}`.toLowerCase().includes(query)) continue;
+      let current: SpanData | undefined = span;
+      while (current && !ids.has(current.spanId)) {
+        ids.add(current.spanId);
+        current = byId.get(current.parentSpanId);
+      }
+    }
+    return ids;
+  }, [trace.spans, search, errorsOnly]);
   const visibleSpans = useMemo(() => {
-    if (collapsedSet.size === 0) return flatSpans;
     const result: FlatSpan[] = [];
     let skipDepth: number | null = null;
     for (const f of flatSpans) {
+      if (matchingIds && !matchingIds.has(f.span.spanId)) continue;
       if (skipDepth !== null && f.depth > skipDepth) continue;
       skipDepth = null;
       result.push(f);
-      if (collapsedSet.has(f.span.spanId)) {
-        skipDepth = f.depth;
-      }
+      if (!matchingIds && collapsedSet.has(f.span.spanId)) skipDepth = f.depth;
     }
     return result;
-  }, [flatSpans, collapsedSet]);
-
-  const handleToggleCollapse = useCallback((spanId: string) => {
-    setCollapsedSet((prev) => {
-      const next = new Set(prev);
-      if (next.has(spanId)) next.delete(spanId);
-      else next.add(spanId);
-      return next;
-    });
-  }, []);
-
-  const serviceColorMap = useMemo(() => {
-    const map = new Map<string, string>();
-    const services = [...new Set(flatSpans.map((f) => f.span.serviceName))];
-    services.forEach((s, i) => map.set(s, SERVICE_COLORS[i % SERVICE_COLORS.length]));
-    return map;
-  }, [flatSpans]);
-
-  const { baseNs, totalNs } = useMemo(() => {
-    // Prefer trace.startTime + trace.duration: the server reports these as the
-    // full trace range (min start → max end) even for multi-root Codex traces.
-    // Anchoring the waterfall to trace.rootSpan would truncate long-running
-    // sibling branches when the representative root is short.
-    if (trace.duration > 0) return { baseNs: trace.startEpochNs, totalNs: trace.duration };
-    let minNs: bigint | null = null;
-    let maxNs: bigint | null = null;
-    for (const f of flatSpans) {
-      const s = f.span.startEpochNs;
-      const e = f.span.endEpochNs;
-      if (minNs === null || s < minNs) minNs = s;
-      if (maxNs === null || e > maxNs) maxNs = e;
-    }
-    if (minNs !== null && maxNs !== null && maxNs > minNs) {
-      return { baseNs: minNs, totalNs: Number(maxNs - minNs) };
-    }
-    return { baseNs: 0n, totalNs: 1 };
-  }, [trace.startEpochNs, trace.duration, flatSpans]);
-
-  const barWidth = width - LABEL_WIDTH;
-  const xScale = useMemo(
-    () => scaleLinear({ domain: [0, totalNs], range: [0, barWidth] }),
-    [totalNs, barWidth],
-  );
-
-  const formatTick = useMemo(() => createDurationFormatter(totalNs), [totalNs]);
-
-  const ticks = useMemo(() => {
-    const result = [];
-    for (let i = 0; i <= TICK_COUNT; i++) {
-      const ns = (totalNs / TICK_COUNT) * i;
-      result.push({ ns, x: xScale(ns), isLast: i === TICK_COUNT });
-    }
-    return result;
-  }, [totalNs, xScale]);
-
-  const svgHeight = Math.max(visibleSpans.length * ROW_HEIGHT + HEADER_HEIGHT, height);
-
-  const { showTooltip, hideTooltip, tooltipData, tooltipLeft, tooltipTop, tooltipOpen } =
-    useTooltip<TooltipData>();
-
-  const handleMouseEnter = useCallback(
-    (e: React.MouseEvent, span: SpanData) => {
-      const container = containerRef.current;
-      if (!container) return;
-      const rect = container.getBoundingClientRect();
-      showTooltip({
-        tooltipData: { service: span.serviceName, name: span.name },
-        tooltipLeft: e.clientX - rect.left,
-        tooltipTop: e.clientY - rect.top,
-      });
-    },
-    [showTooltip],
-  );
+  }, [flatSpans, collapsedSet, matchingIds]);
+  const serviceColorMap = useMemo(() => traceServiceColors(trace.spans), [trace.spans]);
+  const { start: baseNs, duration: totalNs } = useMemo(() => traceTimeline(trace), [trace]);
+  const viewStart = (totalNs * range[0]) / 100;
+  const viewEnd = (totalNs * range[1]) / 100;
+  const viewDuration = Math.max(1, viewEnd - viewStart);
+  const formatTick = createDurationFormatter(Math.min(viewDuration, totalNs));
+  const labelWidth = Math.min(260, Math.max(150, width * 0.27));
+  const serviceWidth = width < 650 ? 100 : 140;
+  const timelineWidth = Math.max(0, width - labelWidth - serviceWidth - 24);
+  const tickCount = Math.min(5, Math.max(1, Math.floor(timelineWidth / 100)));
+  const gridTemplateColumns = `${labelWidth}px ${serviceWidth}px minmax(0, 1fr)`;
+  const allCollapsed = flatSpans
+    .filter((row) => row.hasChildren)
+    .every((row) => collapsedSet.has(row.span.spanId));
 
   return (
-    <div ref={containerRef} className="relative h-full">
-      <ScrollArea className="h-full">
-        <svg width={width} height={svgHeight}>
-          <defs>
-            {[...serviceColorMap.entries()].map(([service, color]) => (
-              <linearGradient
-                key={service}
-                id={`grad-${service.replace(/\W/g, "")}`}
-                x1="0"
-                y1="0"
-                x2="1"
-                y2="0"
-              >
-                <stop offset="0%" stopColor={color} stopOpacity="0.9" />
-                <stop offset="100%" stopColor={color} stopOpacity="0.6" />
-              </linearGradient>
-            ))}
-            <linearGradient id="grad-error" x1="0" y1="0" x2="1" y2="0">
-              <stop offset="0%" stopColor={ERROR_COLOR} stopOpacity="0.9" />
-              <stop offset="100%" stopColor={ERROR_COLOR} stopOpacity="0.6" />
-            </linearGradient>
-            <filter id="bar-glow" x="-20%" y="-50%" width="140%" height="200%">
-              <feGaussianBlur in="SourceGraphic" stdDeviation="2" result="blur" />
-              <feMerge>
-                <feMergeNode in="blur" />
-                <feMergeNode in="SourceGraphic" />
-              </feMerge>
-            </filter>
-          </defs>
-
-          {/* Timeline header */}
-          <Group top={0}>
-            <rect
-              x={0}
-              y={0}
-              width={width}
-              height={HEADER_HEIGHT}
-              fill="var(--muted-foreground)"
-              opacity={0.1}
-            />
-            <text
-              x={INDENT_BASE}
-              y={HEADER_HEIGHT / 2}
-              dominantBaseline="central"
-              fontSize={11}
-              fontFamily="var(--font-sans)"
-              fontWeight="600"
-              fill="var(--muted-foreground)"
-              className="select-none"
+    <div className="flex h-full min-h-0 flex-col" aria-label="Trace waterfall">
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border/50 px-3 py-2">
+        <div className="relative w-48">
+          <Search className="pointer-events-none absolute top-2.5 left-2 size-3.5 text-muted-foreground" />
+          <Input
+            aria-label="Find span"
+            placeholder="Find span…"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            className="h-8 pl-7 text-xs"
+          />
+        </div>
+        <Toggle variant="outline" size="sm" pressed={errorsOnly} onPressedChange={setErrorsOnly}>
+          <CircleAlert data-icon="inline-start" />
+          Errors only
+        </Toggle>
+        <Button
+          size="sm"
+          variant="ghost"
+          disabled={matchingIds !== null}
+          onClick={() =>
+            setCollapsedSet(
+              allCollapsed
+                ? new Set()
+                : new Set(flatSpans.filter((row) => row.hasChildren).map((row) => row.span.spanId)),
+            )
+          }
+          className="text-xs"
+        >
+          {allCollapsed ? "Expand all" : "Collapse all"}
+        </Button>
+        {matchingIds && (
+          <span className="text-xs text-muted-foreground">
+            {visibleSpans.length} of {flatSpans.length} spans · including parents
+          </span>
+        )}
+      </div>
+      <div
+        className="grid h-9 shrink-0 border-b border-border text-[11px] text-muted-foreground"
+        style={{
+          gridTemplateColumns,
+          background: "color-mix(in srgb, var(--muted-foreground) 10%, transparent)",
+        }}
+      >
+        <span className="flex items-center px-2 text-xs font-medium">Operation / Span</span>
+        <span className="flex items-center border-x border-border/50 px-3 text-xs font-medium">
+          Service
+        </span>
+        <div className="relative mx-3 font-mono">
+          {Array.from({ length: tickCount + 1 }, (_, i) => (
+            <div
+              key={i}
+              className="absolute inset-y-0"
+              style={{ left: `${(i / tickCount) * 100}%` }}
             >
-              Operation
-            </text>
-            {ticks.map((tick) => (
-              <Group key={tick.ns} left={LABEL_WIDTH + tick.x}>
-                <line
-                  x1={0}
-                  y1={0}
-                  x2={0}
-                  y2={HEADER_HEIGHT}
-                  stroke="var(--border)"
-                  strokeWidth={1}
-                />
-                <text
-                  x={tick.isLast ? -4 : 4}
-                  y={HEADER_HEIGHT / 2}
-                  dominantBaseline="central"
-                  textAnchor={tick.isLast ? "end" : "start"}
-                  fontSize={10}
-                  fontFamily="var(--font-mono)"
-                  fill="var(--muted-foreground)"
-                  className="select-none"
-                >
-                  {formatTick(tick.ns)}
-                </text>
-              </Group>
-            ))}
-            <line
-              x1={0}
-              y1={HEADER_HEIGHT}
-              x2={width}
-              y2={HEADER_HEIGHT}
-              stroke="var(--border)"
-              strokeWidth={1}
-            />
-          </Group>
-
-          {/* Bar area background & divider */}
-          <rect
-            x={LABEL_WIDTH}
-            y={HEADER_HEIGHT}
-            width={width - LABEL_WIDTH}
-            height={svgHeight - HEADER_HEIGHT}
-            fill="var(--muted)"
-            opacity={0.3}
-          />
-          <line
-            x1={LABEL_WIDTH}
-            y1={HEADER_HEIGHT}
-            x2={LABEL_WIDTH}
-            y2={svgHeight}
-            stroke="var(--border)"
-            strokeWidth={1}
-          />
-          {/* Tick grid lines */}
-          {ticks.map((tick) => (
-            <line
-              key={tick.ns}
-              x1={LABEL_WIDTH + tick.x}
-              y1={HEADER_HEIGHT}
-              x2={LABEL_WIDTH + tick.x}
-              y2={svgHeight}
-              stroke="var(--border)"
-              strokeWidth={1}
+              <span
+                className="absolute bottom-0 h-2 border-l border-border"
+                style={{ transform: i === tickCount ? "translateX(-100%)" : undefined }}
+              />
+              <span
+                className="absolute top-1 px-1 font-mono whitespace-nowrap"
+                style={{
+                  transform: `translateX(${i === tickCount ? "-100%" : i === 0 ? "0" : "-50%"})`,
+                }}
+              >
+                {formatTick(viewStart + (viewDuration * i) / tickCount)}
+              </span>
+            </div>
+          ))}
+          {Array.from({ length: tickCount }, (_, i) => (
+            <span
+              key={i}
+              className="absolute bottom-0 h-1 border-l border-border"
+              style={{ left: `${((i + 0.5) / tickCount) * 100}%` }}
             />
           ))}
-
-          {visibleSpans.map((f, i) => {
-            const startOffset = toNsOffset(f.span.startEpochNs, baseNs);
-            const spanDurNs = f.span.duration > 0 ? f.span.duration : 0;
-            const x = xScale(Math.max(startOffset, 0));
-            const w = Math.max(xScale(spanDurNs) - xScale(0), MIN_BAR_WIDTH);
-            const y = i * ROW_HEIGHT + HEADER_HEIGHT;
-            const isSelected = selectedSpan?.spanId === f.span.spanId;
-            const isError = f.span.statusCode === "Error";
-            const serviceKey = f.span.serviceName.replace(/\W/g, "");
-            const gradId = isError ? "grad-error" : `grad-${serviceKey}`;
-            const color = isError ? ERROR_COLOR : serviceColorMap.get(f.span.serviceName)!;
-            const labelX =
-              INDENT_BASE +
-              f.depth * INDENT_PER_DEPTH +
-              TOGGLE_WIDTH +
-              SERVICE_BAR_WIDTH +
-              SERVICE_GAP;
-            const availChars = Math.floor((LABEL_WIDTH - labelX) / AVG_CHAR_WIDTH);
-            const durLabel = formatDuration(f.span.duration);
-
-            return (
-              <Group
-                key={f.span.spanId}
-                top={y}
-                className="cursor-pointer"
-                onClick={() => onSelectSpan(f.span)}
-              >
-                {isSelected && (
-                  <rect x={0} y={0} width={width} height={ROW_HEIGHT} fill={color} opacity={0.08} />
-                )}
-
-                <rect
-                  x={0}
-                  y={0}
-                  width={width}
-                  height={ROW_HEIGHT}
-                  fill="transparent"
-                  className="opacity-0 transition-opacity hover:opacity-100"
-                />
-
-                {f.depth > 0 && (
-                  <line
-                    x1={INDENT_BASE + (f.depth - 1) * INDENT_PER_DEPTH + 4}
-                    y1={0}
-                    x2={INDENT_BASE + (f.depth - 1) * INDENT_PER_DEPTH + 4}
-                    y2={ROW_HEIGHT}
-                    stroke={color}
-                    strokeWidth={1}
-                    opacity={0.15}
-                  />
-                )}
-
-                {f.hasChildren && (
-                  <text
-                    x={INDENT_BASE + f.depth * INDENT_PER_DEPTH + TOGGLE_WIDTH / 2}
-                    y={ROW_HEIGHT / 2}
-                    dominantBaseline="central"
-                    textAnchor="middle"
-                    fontSize={9}
-                    fill="var(--muted-foreground)"
-                    className="cursor-pointer select-none"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleToggleCollapse(f.span.spanId);
-                    }}
-                  >
-                    {collapsedSet.has(f.span.spanId) ? "▶" : "▼"}
-                  </text>
-                )}
-
-                <rect
-                  x={INDENT_BASE + f.depth * INDENT_PER_DEPTH + TOGGLE_WIDTH}
-                  y={ROW_HEIGHT / 2 - 6}
-                  width={SERVICE_BAR_WIDTH}
-                  height={12}
-                  rx={1}
-                  fill={color}
-                />
-
-                <text
-                  x={labelX}
-                  y={ROW_HEIGHT / 2}
-                  dominantBaseline="central"
-                  fontSize={11}
-                  fontFamily="var(--font-sans)"
-                  fill="var(--foreground)"
-                  opacity={isSelected ? 1 : 0.8}
-                  className="select-none"
-                  onMouseEnter={(e) => handleMouseEnter(e, f.span)}
-                  onMouseLeave={hideTooltip}
-                >
-                  {truncate(f.span.name, availChars)}
-                </text>
-
-                <rect
-                  x={LABEL_WIDTH + x}
-                  y={BAR_PADDING}
-                  width={w}
-                  height={ROW_HEIGHT - BAR_PADDING * 2}
-                  rx={3}
-                  fill={`url(#${gradId})`}
-                  filter={isSelected ? "url(#bar-glow)" : undefined}
-                />
-
-                {(() => {
-                  const inside = w > 50;
-                  const placeLeft = !inside && x + w / 2 > barWidth / 2;
-                  return (
-                    <text
-                      x={
-                        inside
-                          ? LABEL_WIDTH + x + w / 2
-                          : placeLeft
-                            ? LABEL_WIDTH + x - 4
-                            : LABEL_WIDTH + x + w + 4
-                      }
-                      y={ROW_HEIGHT / 2}
-                      dominantBaseline="central"
-                      textAnchor={inside ? "middle" : placeLeft ? "end" : "start"}
-                      fontSize={10}
-                      fontFamily="var(--font-mono)"
-                      fontWeight="500"
-                      fill={inside ? "white" : "var(--muted-foreground)"}
-                      opacity={inside ? 0.9 : 1}
-                      className="select-none"
-                    >
-                      {durLabel}
-                    </text>
-                  );
-                })()}
-              </Group>
-            );
-          })}
-        </svg>
-      </ScrollArea>
-
-      {tooltipOpen && tooltipData && (
-        <TooltipWithBounds
-          left={tooltipLeft}
-          top={tooltipTop}
-          unstyled
-          applyPositionStyle
-          className="pointer-events-none z-50 flex flex-col items-center gap-0.5 whitespace-nowrap rounded-md bg-accent px-3 py-1.5 text-xs text-foreground shadow-sm"
-        >
-          <span className="opacity-60">{tooltipData.service}</span>
-          <span>{tooltipData.name}</span>
-        </TooltipWithBounds>
+        </div>
+      </div>
+      {visibleSpans.length === 0 && (
+        <p className="p-4 text-sm text-muted-foreground">No matching spans.</p>
       )}
+      <ScrollArea className="min-h-0 flex-1" aria-label="Span rows">
+        <div className="grid min-h-full" style={{ gridTemplateColumns }}>
+          <ScrollAreaPrimitive.Root className="relative flex min-w-0 flex-col">
+            <ScrollAreaPrimitive.Viewport
+              aria-label="Span tree"
+              className="flex-1 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+            >
+              <ScrollAreaPrimitive.Content className="w-max min-w-full! pb-3">
+                {visibleSpans.map(({ span, depth, hasChildren }) => {
+                  const isSelected = selectedSpan?.spanId === span.spanId;
+                  const isError = span.statusCode === "Error";
+                  const color = isError ? ERROR_COLOR : serviceColorMap.get(span.serviceName)!;
+                  const indent = depth * 16;
+                  return (
+                    <div
+                      key={span.spanId}
+                      className="relative h-8 border-b border-border/30"
+                      onMouseEnter={() => setHoveredSpanId(span.spanId)}
+                      onMouseLeave={() => setHoveredSpanId(null)}
+                    >
+                      {depth > 0 && (
+                        <span
+                          aria-hidden="true"
+                          className="pointer-events-none absolute inset-y-0 w-px"
+                          style={{ left: 20 + (depth - 1) * 16, background: color, opacity: 0.15 }}
+                        />
+                      )}
+                      <Tooltip>
+                        <TooltipTrigger
+                          delay={0}
+                          type="button"
+                          aria-label={`${span.name}, ${span.serviceName}, ${formatDuration(span.duration)}${isError ? ", Error" : ""}`}
+                          aria-pressed={isSelected}
+                          onClick={() => onSelectSpan(span)}
+                          className={cn(
+                            "flex h-full w-full cursor-pointer items-center gap-1.5 transition-colors pr-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+                            hoveredSpanId === span.spanId && "bg-trace/5",
+                          )}
+                          style={{
+                            paddingLeft: 36 + indent,
+                            background: isSelected
+                              ? "color-mix(in oklch, var(--trace) 10%, transparent)"
+                              : undefined,
+                          }}
+                        >
+                          <span
+                            className={cn(
+                              "whitespace-nowrap text-xs select-none",
+                              !isSelected && "text-foreground/80",
+                            )}
+                          >
+                            {span.name}
+                          </span>
+                          {isError && (
+                            <CircleAlert
+                              aria-label="Error"
+                              className="size-3.5 shrink-0 text-destructive"
+                            />
+                          )}
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <span className="flex min-w-0 flex-col gap-0.5">
+                            <span className="break-words">{span.name}</span>
+                            <span className="break-words text-muted-foreground">
+                              {span.serviceName}
+                            </span>
+                          </span>
+                        </TooltipContent>
+                      </Tooltip>
+                      {hasChildren && (
+                        <Button
+                          variant="ghost"
+                          size="icon-xs"
+                          className="absolute top-1"
+                          style={{ left: 8 + indent }}
+                          aria-label={`${!matchingIds && collapsedSet.has(span.spanId) ? "Expand" : "Collapse"} ${span.name}`}
+                          aria-expanded={matchingIds !== null || !collapsedSet.has(span.spanId)}
+                          disabled={matchingIds !== null}
+                          onClick={() =>
+                            setCollapsedSet((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(span.spanId)) next.delete(span.spanId);
+                              else next.add(span.spanId);
+                              return next;
+                            })
+                          }
+                        >
+                          {!matchingIds && collapsedSet.has(span.spanId) ? (
+                            <ChevronRight />
+                          ) : (
+                            <ChevronDown />
+                          )}
+                        </Button>
+                      )}
+                    </div>
+                  );
+                })}
+              </ScrollAreaPrimitive.Content>
+            </ScrollAreaPrimitive.Viewport>
+            <ScrollBar orientation="horizontal" className="sticky! bottom-0 -mt-2.5 shrink-0" />
+          </ScrollAreaPrimitive.Root>
+          <div className="min-w-0 border-x border-border/50 pb-3" aria-label="Span services">
+            {visibleSpans.map(({ span }) => (
+              <Tooltip key={span.spanId}>
+                <TooltipTrigger
+                  delay={0}
+                  aria-label={`${span.name} service ${span.serviceName}`}
+                  onClick={() => onSelectSpan(span)}
+                  onMouseEnter={() => setHoveredSpanId(span.spanId)}
+                  onMouseLeave={() => setHoveredSpanId(null)}
+                  className={cn(
+                    "flex h-8 w-full items-center gap-2 border-b border-border/30 px-3 text-left text-xs transition-colors",
+                    hoveredSpanId === span.spanId && "bg-trace/5",
+                    selectedSpan?.spanId === span.spanId && "bg-trace/10",
+                  )}
+                >
+                  <span
+                    className="size-2 shrink-0 rounded-full"
+                    style={{ background: serviceColorMap.get(span.serviceName) }}
+                  />
+                  <span className="truncate">{span.serviceName || "unknown"}</span>
+                </TooltipTrigger>
+                <TooltipContent>{span.serviceName || "unknown"}</TooltipContent>
+              </Tooltip>
+            ))}
+          </div>
+          <div className="relative min-w-0 bg-muted/20 pb-3" aria-label="Span timeline">
+            <div className="pointer-events-none absolute inset-y-0 inset-x-3" aria-hidden="true">
+              {Array.from({ length: tickCount + 1 }, (_, i) => (
+                <span
+                  key={i}
+                  className="absolute inset-y-0 border-l border-border"
+                  style={{
+                    left: `${(i / tickCount) * 100}%`,
+                    transform: i === tickCount ? "translateX(-100%)" : undefined,
+                  }}
+                />
+              ))}
+            </div>
+            {visibleSpans.map(({ span }) => {
+              const isSelected = selectedSpan?.spanId === span.spanId;
+              const isError = span.statusCode === "Error";
+              const color = isError ? ERROR_COLOR : serviceColorMap.get(span.serviceName)!;
+              const offset = toNsOffset(span.startEpochNs, baseNs);
+              const spanEnd = offset + Math.max(0, span.duration);
+              const intersects = spanEnd >= viewStart && offset <= viewEnd;
+              const start = Math.max(0, Math.min(100, ((offset - viewStart) / viewDuration) * 100));
+              const duration = Math.max(
+                0,
+                Math.min(
+                  100 - start,
+                  ((Math.min(spanEnd, viewEnd) - Math.max(offset, viewStart)) / viewDuration) * 100,
+                ),
+              );
+              const durationLabel = formatDuration(span.duration);
+              const barWidth = Math.max(3, (timelineWidth * duration) / 100);
+              const barStart = Math.min(timelineWidth - 3, (timelineWidth * start) / 100);
+              const labelInside = barWidth > 50;
+              const labelOnLeft = !labelInside && barStart + barWidth / 2 > timelineWidth / 2;
+              const durationLeft = labelInside
+                ? barStart + barWidth / 2
+                : labelOnLeft
+                  ? barStart - 4
+                  : barStart + barWidth + 4;
+
+              return (
+                <button
+                  key={span.spanId}
+                  type="button"
+                  aria-label={`${span.name} timeline`}
+                  onMouseEnter={() => setHoveredSpanId(span.spanId)}
+                  onMouseLeave={() => setHoveredSpanId(null)}
+                  aria-pressed={isSelected}
+                  onClick={() => onSelectSpan(span)}
+                  className={cn(
+                    "relative block h-8 w-full cursor-pointer border-b border-border/30 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+                    hoveredSpanId === span.spanId && "bg-trace/5",
+                  )}
+                  style={{
+                    background: isSelected
+                      ? "color-mix(in oklch, var(--trace) 10%, transparent)"
+                      : undefined,
+                  }}
+                >
+                  {intersects && (
+                    <span className="absolute inset-y-0 inset-x-3 overflow-hidden">
+                      <span
+                        className="absolute top-1/2 h-4 -translate-y-1/2 rounded-[3px]"
+                        style={{
+                          left: `min(${start}%, calc(100% - 3px))`,
+                          width: `max(3px, ${duration}%)`,
+                          background: `linear-gradient(to right, color-mix(in oklch, ${color} 90%, transparent), color-mix(in oklch, ${color} 60%, transparent))`,
+                        }}
+                      />
+                      <span
+                        className={cn(
+                          "absolute top-1/2 whitespace-nowrap text-center font-mono text-[10px] font-medium tabular-nums",
+                          labelInside ? "text-white/90" : "text-muted-foreground",
+                        )}
+                        style={{
+                          left: durationLeft,
+                          transform: `translate(${labelInside ? "-50%" : labelOnLeft ? "-100%" : "0"}, -50%)`,
+                        }}
+                      >
+                        {durationLabel}
+                      </span>
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </ScrollArea>
     </div>
   );
-}
-
-function truncate(s: string, maxLen: number): string {
-  if (s.length <= maxLen) return s;
-  return s.slice(0, Math.max(maxLen - 1, 0)) + "\u2026";
 }
