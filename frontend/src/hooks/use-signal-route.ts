@@ -78,11 +78,22 @@ function addQueryFilter(state: LogQueryState, term: LogSearchTerm): LogQueryStat
 }
 
 export function useTraceSelection() {
-  const { traceId } = useParams({ strict: false });
+  const { traceId, spanId } = useParams({ strict: false });
   const traces = useAtomValue(tracesAtom);
   const navigate = useNavigate();
   return {
     traceId: traceId ?? null,
+    spanId: spanId ?? null,
+    selectSpan: (spanId: string | null) => {
+      if (!traceId) return;
+      return spanId
+        ? navigate({
+            to: "/traces/$traceId/spans/$spanId",
+            params: { traceId, spanId },
+            search: true,
+          })
+        : navigate({ to: "/traces/$traceId", params: { traceId }, search: true });
+    },
     trace: traces.find((trace) => trace.traceId === traceId) ?? null,
     selectTrace: (trace: TraceData | null) =>
       trace
