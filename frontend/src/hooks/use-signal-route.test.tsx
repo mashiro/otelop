@@ -7,6 +7,7 @@ import {
   useTimeWindow,
   useTraceSelection,
   useMetricSelection,
+  useMetricQuery,
   useLogSelection,
   useRelatedSignals,
 } from "./use-signal-route";
@@ -55,6 +56,23 @@ describe("URL-backed signal state", () => {
     });
     expect(result.current.log).toBe(log);
     expect(router.state.location.pathname).toBe("/logs/log%2F1");
+  });
+
+  it("round-trips the metrics search, clearing q while preserving other params", async () => {
+    const { router, wrapper } = await setup("/metrics?range=6h");
+    const { result } = renderHook(() => useMetricQuery(), { wrapper });
+    expect(result.current.search).toBe("");
+    await act(async () => {
+      expect(result.current.setSearch("cpu")).toBe("cpu");
+    });
+    expect(result.current.search).toBe("cpu");
+    expect(router.state.location.search.range).toBe("6h");
+    await act(async () => {
+      expect(result.current.setSearch("")).toBe("");
+    });
+    expect(result.current.search).toBe("");
+    expect(router.state.location.search.q).toBeUndefined();
+    expect(router.state.location.search.range).toBe("6h");
   });
 
   it.each(["traces", "logs"] as const)(
