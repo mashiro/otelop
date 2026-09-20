@@ -1,5 +1,40 @@
 # Changelog
 
+## [2.0.0](https://github.com/mashiro/otelop/compare/v1.2.3...v2.0.0) (2026-09-19)
+
+
+### Features
+
+* add health probes and automatic dev server reload ([#309](https://github.com/mashiro/otelop/issues/309)) ([d27b609](https://github.com/mashiro/otelop/commit/d27b60910c291523216e8bcaa5d1dbb21f5976a4))
+* **frontend:** add keyboard shortcuts for details and search ([#312](https://github.com/mashiro/otelop/issues/312)) ([3583901](https://github.com/mashiro/otelop/commit/3583901a8d5f79df0d224edbb3b51583b8a6275b))
+* **frontend:** add trace range selection and span navigation ([#316](https://github.com/mashiro/otelop/issues/316)) ([412b805](https://github.com/mashiro/otelop/commit/412b805891d7667ada946de2c5890f869c5bf0d3))
+* **frontend:** adopt TanStack Router and Query ([#307](https://github.com/mashiro/otelop/issues/307)) ([cf826c8](https://github.com/mashiro/otelop/commit/cf826c8d9d7d76a4e79409759b5077b72072fa33))
+* **frontend:** improve time window controls and add three-day range ([#334](https://github.com/mashiro/otelop/issues/334)) ([4ce023a](https://github.com/mashiro/otelop/commit/4ce023a32a71f1fc88235936f9b41f5654e58319))
+* **frontend:** select metric series from chart legends ([#308](https://github.com/mashiro/otelop/issues/308)) ([fe80062](https://github.com/mashiro/otelop/commit/fe80062b4f63a6f65d0f18c9f4f76ec1668c7d41))
+* **search:** add signal filters and database-backed suggestions ([#300](https://github.com/mashiro/otelop/issues/300)) ([e294d1e](https://github.com/mashiro/otelop/commit/e294d1e4a98cdc5876af836d658d746911e54829))
+
+
+### Bug Fixes
+
+* **deps:** update all non-major dependencies ([#310](https://github.com/mashiro/otelop/issues/310)) ([b417cda](https://github.com/mashiro/otelop/commit/b417cda028cac879f0f1e5164ae0a1ac3903c34a))
+* **deps:** update all non-major dependencies ([#314](https://github.com/mashiro/otelop/issues/314)) ([c61d045](https://github.com/mashiro/otelop/commit/c61d045bd2d51869457d029592ab1fdb40eeb627))
+* **deps:** update dependency lucide-react to v1.45.0 ([#301](https://github.com/mashiro/otelop/issues/301)) ([6eb4d00](https://github.com/mashiro/otelop/commit/6eb4d005edb3a0daa53a9206f9446e03470d33e5))
+* **deps:** update dependency tailwind-merge to v3.7.0 ([#313](https://github.com/mashiro/otelop/issues/313)) ([279d518](https://github.com/mashiro/otelop/commit/279d5180caffea92813a8481e4396aad929a1c6d))
+* **deps:** update opentelemetry-collector ([#317](https://github.com/mashiro/otelop/issues/317)) ([ebaec78](https://github.com/mashiro/otelop/commit/ebaec78f85b14f789b237a37070ad33b6b46735a))
+* **frontend:** anchor live metric charts to current time ([#335](https://github.com/mashiro/otelop/issues/335)) ([867e6a2](https://github.com/mashiro/otelop/commit/867e6a290e30204273d79509bd8536d347f6804a))
+* **frontend:** consolidate signal filtering controls ([#321](https://github.com/mashiro/otelop/issues/321)) ([54c9004](https://github.com/mashiro/otelop/commit/54c9004e2bf1978d122b0ab32d6804980062004d))
+* **frontend:** make surrounding logs action less prominent ([#303](https://github.com/mashiro/otelop/issues/303)) ([786f5bd](https://github.com/mashiro/otelop/commit/786f5bd19e34ac262c3338e78641cc4252d0affb))
+* **frontend:** persist span selection and align responsive details ([#323](https://github.com/mashiro/otelop/issues/323)) ([8b53f51](https://github.com/mashiro/otelop/commit/8b53f5117a5451a53ac0a886b4893a400be392a6))
+* **frontend:** replace action title attributes with tooltips ([#305](https://github.com/mashiro/otelop/issues/305)) ([6fbcaad](https://github.com/mashiro/otelop/commit/6fbcaad81e148bff5bba49fd69f807b67d2f02eb))
+* **frontend:** simplify load more button design ([#311](https://github.com/mashiro/otelop/issues/311)) ([2a86dde](https://github.com/mashiro/otelop/commit/2a86dde483c3fafecf46315e4432ce3a451d9413))
+* **frontend:** unify detail sidebars and consolidate trace/log/metric view logic ([#326](https://github.com/mashiro/otelop/issues/326)) ([eb1163f](https://github.com/mashiro/otelop/commit/eb1163ff050a16f9624ad386ae0c20ec278e0f14))
+* **frontend:** unify trace collapse styling and remove row borders ([#324](https://github.com/mashiro/otelop/issues/324)) ([e3d8dc2](https://github.com/mashiro/otelop/commit/e3d8dc24f9c85e7bdb74e4a5a97bdbad0d8790ae))
+
+
+### Documentation
+
+* **readme:** refresh README and screenshots for 2.0.0 ([#338](https://github.com/mashiro/otelop/issues/338)) ([7ecbc58](https://github.com/mashiro/otelop/commit/7ecbc58ea0f9f7db44dbeb435002d2c77fbd2e7b))
+
 ## [1.2.3](https://github.com/mashiro/otelop/compare/v1.2.2...v1.2.3) (2026-09-13)
 
 
