@@ -379,11 +379,8 @@ prebuilt per-target static libraries.
   only for local use (`mise run release-snapshot`, via
   `goreleaser build --single-target` since a single host only has a native
   toolchain for its own goos/goarch) and for `goreleaser check` in CI.
-- The Dockerfile's base image moved from `distroless/static` to
-  `debian:bookworm-slim` with `libstdc++6` installed explicitly: a CGO
-  binary linking DuckDB links glibc and libstdc++ dynamically (confirmed via
-  `otool -L` on the darwin build), and neither distroless/static nor
-  distroless/cc ships a C++ runtime.
+- The Dockerfile uses `ubuntu:24.04` to match the Linux release builders'
+  glibc baseline, with `libstdc++6` installed for DuckDB's C++ runtime.
 - Binary size grows by tens of MB (embedded DuckDB). Accepted for a local
   tool.
 
