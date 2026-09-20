@@ -10,12 +10,7 @@ case "$(uname -m)" in
 esac
 platform="linux/${arch}"
 
-# The Dockerfile's binary links glibc + libstdc++ (CGO, for the DuckDB
-# driver — see docs/design/duckdb-storage.md). On a non-Linux host there is
-# no cross C toolchain for that, so compile inside a Linux (bookworm, to
-# match the runtime base image's glibc/libstdc++) container instead of on
-# the host. Docker's own Linux VM builds this natively when its arch matches
-# the host's (the common case), no cross-arch emulation required.
+# Build in Linux because DuckDB requires a native CGO toolchain.
 ctx="$(mktemp -d)"
 trap 'rm -rf "$ctx"' EXIT
 mkdir -p "$ctx/$platform"

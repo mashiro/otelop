@@ -1,11 +1,5 @@
-# CGO is required by the DuckDB storage driver (see
-# docs/design/duckdb-storage.md "Build and release impact"), so the binary
-# links glibc and libstdc++ dynamically (verified locally: `otool -L` on the
-# darwin build shows libc++; the linux equivalent is libstdc++.so.6 +
-# libgcc_s.so.1). distroless/static and distroless/base ship neither
-# libstdc++ nor a C++ runtime, so this moved off distroless to a glibc base
-# with libstdc++ installed explicitly.
-FROM debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171
+# DuckDB requires CGO with glibc and libstdc++.
+FROM ubuntu:24.04@sha256:008173c23f95b170204355c12626cb5a965d779a7e1283b09e9cffbb1bf33ca3
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates libstdc++6 \
