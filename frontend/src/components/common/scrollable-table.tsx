@@ -57,7 +57,7 @@ export function ScrollableTable({
     <div ref={rootRef} className="flex min-h-0 min-w-0 flex-1 flex-col">
       {before}
       <div ref={headerRef} className="shrink-0 overflow-hidden border-b border-border/50">
-        <Table spacing={spacing} className="table-fixed">
+        <Table spacing={spacing} className="table-fixed" aria-hidden="true">
           {cloneElement(header, { className: "static [&_tr]:border-0" })}
         </Table>
       </div>
@@ -66,10 +66,10 @@ export function ScrollableTable({
         viewportClassName={bounded ? "max-h-80" : undefined}
       >
         <Table spacing={spacing}>
-          {/* A collapsed sizing header keeps native column sizing without a second visible header. */}
+          {/* Keep native column sizing and accessible headers in the same table as the cells. */}
           {cloneElement(header, {
-            "aria-hidden": true,
-            className: "collapse static [&_tr]:border-0",
+            className:
+              "static [clip-path:inset(50%)] [&_tr]:border-0 [&_th]:h-0 [&_th]:py-0 [&_th]:leading-0",
           })}
           {children}
         </Table>

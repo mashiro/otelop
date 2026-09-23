@@ -165,7 +165,7 @@ function LogRow({ log, isSelected, onSelect, onNavigateToTrace }: LogRowProps) {
         {formatTimestamp(log.timestamp)}
       </TableCell>
       <TableCell>
-        <Badge variant="soft" size="sm" tone={severityTone(log.severityText)}>
+        <Badge variant="soft" size="sm" tone={severityTone(log.severityText, log.severityNumber)}>
           <BadgeDot />
           {log.severityText || "UNSET"}
         </Badge>

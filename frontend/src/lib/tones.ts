@@ -28,13 +28,20 @@ export function traceStatusTone(status: SpanStatus): Tone {
   }
 }
 
-// severityTone maps an OTel log severity text to a badge tone. Unknown or
-// absent severities fall back to muted so the UI stays quiet.
+// Unknown or absent severity text falls back to the OTel severity number.
+// Records without a valid text or number remain muted.
 // Severity text is free-form in OTel, and sources like the collector's
 // filelog parsers or Python logging emit "info" / "WARNING" / "CRITICAL",
 // so match case-insensitively and accept those common aliases.
-export function severityTone(severity: string | undefined): Tone {
-  switch (severity?.toUpperCase()) {
+export function severityTone(severity: string | undefined, severityNumber?: number): Tone {
+  switch (
+    severity
+      ?.trim()
+      .toUpperCase()
+      .replace(/^(TRACE|DEBUG|INFO|WARN|ERROR|FATAL)[2-4]$/, "$1")
+  ) {
+    case "TRACE":
+      return "muted";
     case "DEBUG":
       return "debug";
     case "INFO":
@@ -48,6 +55,15 @@ export function severityTone(severity: string | undefined): Tone {
     case "CRITICAL":
       return "fatal";
     default:
+      if (
+        severityNumber != null &&
+        Number.isInteger(severityNumber) &&
+        severityNumber >= 1 &&
+        severityNumber <= 24
+      ) {
+        const tones: Tone[] = ["muted", "debug", "info", "warning", "destructive", "fatal"];
+        return tones[Math.floor((severityNumber - 1) / 4)]!;
+      }
       return "muted";
   }
 }
