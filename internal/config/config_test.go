@@ -23,6 +23,9 @@ func TestDefaults_AppliedWhenFileMissing(t *testing.T) {
 	if cfg.Storage.MaxSize != DefaultStorageMaxSize {
 		t.Errorf("Storage.MaxSize = %q, want %q", cfg.Storage.MaxSize, DefaultStorageMaxSize)
 	}
+	if cfg.Storage.MemoryLimit != DefaultStorageMemoryLimit {
+		t.Errorf("Storage.MemoryLimit = %q, want %q", cfg.Storage.MemoryLimit, DefaultStorageMemoryLimit)
+	}
 	if cfg.Storage.Path != "" {
 		t.Errorf("Storage.Path = %q, want empty default", cfg.Storage.Path)
 	}
@@ -53,6 +56,7 @@ debug = true
 [storage]
 retention = "24h"
 max_size = "1GB"
+memory_limit = "256MB"
 `
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		t.Fatalf("write config: %v", err)
@@ -74,6 +78,9 @@ max_size = "1GB"
 	}
 	if cfg.Storage.MaxSize != "1GB" {
 		t.Errorf("Storage.MaxSize = %q, want 1GB", cfg.Storage.MaxSize)
+	}
+	if cfg.Storage.MemoryLimit != "256MB" {
+		t.Errorf("Storage.MemoryLimit = %q, want 256MB", cfg.Storage.MemoryLimit)
 	}
 	if !cfg.Debug {
 		t.Errorf("Debug = false, want true")
@@ -265,6 +272,40 @@ func TestParseMaxSize(t *testing.T) {
 			}
 			if got != tc.want {
 				t.Errorf("ParseMaxSize(%q) = %d, want %d", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestParseMemoryLimit(t *testing.T) {
+	tests := []struct {
+		in      string
+		want    int64
+		wantErr bool
+	}{
+		{in: "512MB", want: 512_000_000},
+		{in: "512MiB", want: 512 << 20},
+		{in: "1GiB", want: 1 << 30},
+		{in: "1024", want: 1024},
+		{in: "", wantErr: true},
+		{in: "not-a-size", wantErr: true},
+		{in: "0", wantErr: true},
+		{in: "-1MB", wantErr: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.in, func(t *testing.T) {
+			got, err := ParseMemoryLimit(tc.in)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("ParseMemoryLimit(%q) = %v, want error", tc.in, got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("ParseMemoryLimit(%q): %v", tc.in, err)
+			}
+			if got != tc.want {
+				t.Errorf("ParseMemoryLimit(%q) = %d, want %d", tc.in, got, tc.want)
 			}
 		})
 	}

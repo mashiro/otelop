@@ -39,12 +39,19 @@ const (
 	DefaultOTLPHTTPAddr = "0.0.0.0:4318"
 	DefaultLogLevel     = "warn"
 
-	// DefaultStorageRetention and DefaultStorageMaxSize are the storage
-	// section's defaults, per docs/design/duckdb-storage.md. Both are
-	// human-readable strings — ParseRetention/ParseMaxSize turn them into
-	// the time.Duration/byte-count internal/storage.Options wants.
+	// DefaultStorageRetention, DefaultStorageMaxSize, and
+	// DefaultStorageMemoryLimit are the storage section's defaults, per
+	// docs/design/duckdb-storage.md. All are human-readable strings —
+	// ParseRetention/ParseMaxSize/ParseMemoryLimit turn them into the
+	// time.Duration/byte-counts internal/storage.Options wants.
 	DefaultStorageRetention = "7d"
 	DefaultStorageMaxSize   = "4GB"
+	// DefaultStorageMemoryLimit caps DuckDB's buffer pool/query memory.
+	// Without it DuckDB defaults to 80% of physical RAM and keeps cached
+	// blocks resident up to that ceiling. 512MB ran the UI's heavy reads
+	// against a week of real data without errors, while 256MB hit DuckDB
+	// Out of Memory errors in operators that cannot spill to disk.
+	DefaultStorageMemoryLimit = "512MB"
 
 	// DefaultRenderWindowMax is the ui section's default: how many rows the
 	// frontend's traces/metrics/logs tables mount at once (they render every
@@ -69,10 +76,10 @@ type ProxyConfig struct {
 }
 
 // StorageConfig is the `[storage]` TOML section (docs/design/duckdb-storage.md's
-// "Configuration changes (breaking)"). Retention and MaxSize are kept as the
-// raw human-readable strings the file/CLI/env surfaces all use — parse with
-// ParseRetention/ParseMaxSize at the point they're needed as a
-// time.Duration/byte count (internal/storage.Options).
+// "Configuration changes (breaking)"). Retention, MaxSize, and MemoryLimit are
+// kept as the raw human-readable strings the file/CLI/env surfaces all use —
+// parse with ParseRetention/ParseMaxSize/ParseMemoryLimit at the point
+// they're needed as a time.Duration/byte count (internal/storage.Options).
 type StorageConfig struct {
 	// Path is the database file location. Empty means the XDG default
 	// ($XDG_DATA_HOME/otelop/otelop.duckdb, falling back to
@@ -83,6 +90,9 @@ type StorageConfig struct {
 	Retention string `toml:"retention"`
 	// MaxSize accepts a human byte size ("4GB", "4GiB"); see ParseMaxSize.
 	MaxSize string `toml:"max_size"`
+	// MemoryLimit accepts a human byte size ("512MB", "1GiB") and caps
+	// DuckDB's buffer pool/query memory; see ParseMemoryLimit.
+	MemoryLimit string `toml:"memory_limit"`
 }
 
 // UIConfig is the `[ui]` TOML section: settings that shape frontend
@@ -123,8 +133,9 @@ func Defaults() Config {
 		OTLPGRPCAddr: DefaultOTLPGRPCAddr,
 		OTLPHTTPAddr: DefaultOTLPHTTPAddr,
 		Storage: StorageConfig{
-			Retention: DefaultStorageRetention,
-			MaxSize:   DefaultStorageMaxSize,
+			Retention:   DefaultStorageRetention,
+			MaxSize:     DefaultStorageMaxSize,
+			MemoryLimit: DefaultStorageMemoryLimit,
 		},
 		UI: UIConfig{
 			RenderWindowMax: DefaultRenderWindowMax,
@@ -155,10 +166,11 @@ func ParseRetention(s string) (time.Duration, error) {
 	return d, nil
 }
 
-// maxSizeUnits maps a case-normalized suffix to its byte multiplier. Checked
+// byteSizeUnits maps a case-normalized suffix to its byte multiplier. Checked
 // in this order so "kib"/"mib"/"gib" are matched before the shorter
 // "kb"/"mb"/"gb" (both would otherwise match a string ending in "b").
-var maxSizeUnits = []struct {
+// Shared by ParseMaxSize and ParseMemoryLimit via parseByteSize.
+var byteSizeUnits = []struct {
 	suffix     string
 	multiplier float64
 }{
@@ -171,26 +183,51 @@ var maxSizeUnits = []struct {
 	{"b", 1},
 }
 
-// ParseMaxSize parses a human disk-size string ("4GB", "4GiB", or a bare
-// byte count) into a byte count.
-func ParseMaxSize(s string) (int64, error) {
+// parseByteSize parses a human byte-size string ("4GB", "4GiB", or a bare
+// byte count) into a byte count. field names the config key the value came
+// from (e.g. "max_size", "memory_limit") so error messages point at the
+// right key — ParseMaxSize and ParseMemoryLimit are thin wrappers over this.
+func parseByteSize(field, s string) (int64, error) {
 	trimmed := strings.TrimSpace(s)
 	if trimmed == "" {
-		return 0, errors.New("max_size: empty value")
+		return 0, fmt.Errorf("%s: empty value", field)
 	}
 	lower := strings.ToLower(trimmed)
-	for _, u := range maxSizeUnits {
+	for _, u := range byteSizeUnits {
 		if num, ok := strings.CutSuffix(lower, u.suffix); ok {
 			n, err := strconv.ParseFloat(strings.TrimSpace(num), 64)
 			if err != nil {
-				return 0, fmt.Errorf("max_size: invalid %q: %w", s, err)
+				return 0, fmt.Errorf("%s: invalid %q: %w", field, s, err)
 			}
 			return int64(n * u.multiplier), nil
 		}
 	}
 	n, err := strconv.ParseInt(trimmed, 10, 64)
 	if err != nil {
-		return 0, fmt.Errorf("max_size: invalid %q: %w", s, err)
+		return 0, fmt.Errorf("%s: invalid %q: %w", field, s, err)
+	}
+	return n, nil
+}
+
+// ParseMaxSize parses a human disk-size string ("4GB", "4GiB", or a bare
+// byte count) into a byte count.
+func ParseMaxSize(s string) (int64, error) {
+	return parseByteSize("max_size", s)
+}
+
+// ParseMemoryLimit parses a human byte-size string ("512MB", "1GiB", or a
+// bare byte count) into a byte count for DuckDB's memory_limit setting.
+// Unlike ParseMaxSize, non-positive values are rejected outright: a
+// memory_limit of 0 would hand DuckDB a ceiling it can't operate under, so
+// failing fast here is clearer than a mysterious DuckDB error deep in
+// storage.Open.
+func ParseMemoryLimit(s string) (int64, error) {
+	n, err := parseByteSize("memory_limit", s)
+	if err != nil {
+		return 0, err
+	}
+	if n <= 0 {
+		return 0, fmt.Errorf("memory_limit: must be > 0, got %q", s)
 	}
 	return n, nil
 }

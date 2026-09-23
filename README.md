@@ -221,6 +221,7 @@ otelop docs show <name> # print one document as Markdown
   --storage-path     DuckDB database path             (default: XDG data directory)
   --retention        telemetry retention period       (default 7d)
   --max-size         database size ceiling            (default 4GB)
+  --memory-limit     DuckDB memory ceiling             (default 512MB)
   --render-window-max max rows the traces/metrics/logs tables render at once (default 500)
   --log-level        debug|info|warn|error           (default warn)
   --debug            export otelop's own telemetry to itself
@@ -267,6 +268,7 @@ debug = false
 path = "" # empty uses $XDG_DATA_HOME/otelop/otelop.duckdb
 retention = "7d"
 max_size = "4GB"
+memory_limit = "512MB"
 
 [ui]
 render_window_max = 500 # max rows the traces/metrics/logs tables render at once
@@ -292,6 +294,7 @@ Each key maps to an environment variable:
 | `storage.path` | `OTELOP_STORAGE_PATH` |
 | `storage.retention` | `OTELOP_RETENTION` |
 | `storage.max_size` | `OTELOP_MAX_SIZE` |
+| `storage.memory_limit` | `OTELOP_MEMORY_LIMIT` |
 | `ui.render_window_max` | `OTELOP_RENDER_WINDOW_MAX` |
 | `proxy.url` | `OTELOP_PROXY_URL` |
 | `proxy.protocol` | `OTELOP_PROXY_PROTOCOL` |

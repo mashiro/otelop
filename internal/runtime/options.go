@@ -33,6 +33,7 @@ type Options struct {
 	StoragePath     string
 	Retention       string
 	MaxSize         string
+	MemoryLimit     string
 	RenderWindowMax int
 	LogLevel        string
 	Debug           bool
@@ -214,25 +215,29 @@ func ResolveStoragePath(raw string) (string, error) {
 	return config.DefaultStoragePath()
 }
 
-func resolveStorageOptions(opts Options) (path string, retention time.Duration, maxSize int64, err error) {
+func resolveStorageOptions(opts Options) (path string, retention time.Duration, maxSize int64, memoryLimit int64, err error) {
 	path, err = ResolveStoragePath(opts.StoragePath)
 	if err != nil {
-		return "", 0, 0, fmt.Errorf("resolve storage path: %w", err)
+		return "", 0, 0, 0, fmt.Errorf("resolve storage path: %w", err)
 	}
 	if path != "" {
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			return "", 0, 0, fmt.Errorf("create storage directory: %w", err)
+			return "", 0, 0, 0, fmt.Errorf("create storage directory: %w", err)
 		}
 	}
 	retention, err = config.ParseRetention(opts.Retention)
 	if err != nil {
-		return "", 0, 0, err
+		return "", 0, 0, 0, err
 	}
 	maxSize, err = config.ParseMaxSize(opts.MaxSize)
 	if err != nil {
-		return "", 0, 0, err
+		return "", 0, 0, 0, err
 	}
-	return path, retention, maxSize, nil
+	memoryLimit, err = config.ParseMemoryLimit(opts.MemoryLimit)
+	if err != nil {
+		return "", 0, 0, 0, err
+	}
+	return path, retention, maxSize, memoryLimit, nil
 }
 
 // RedactURL removes credentials before a proxy URL is persisted or displayed.

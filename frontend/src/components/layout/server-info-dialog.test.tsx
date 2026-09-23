@@ -57,6 +57,14 @@ describe("ServerInfoDialog", () => {
     expect(within(dialog).getByText(":4319")).toBeTruthy();
   });
 
+  it("shows DuckDB memory usage against its limit", async () => {
+    requestMock.mockResolvedValue(makeServerInfoResponse());
+    const dialog = await openDialog();
+
+    const memory = await within(dialog).findByText("Memory");
+    expect(memory.parentElement?.textContent).toBe("Memory8.39 MB / 537 MB");
+  });
+
   it("formats large row counts with thousands separators", async () => {
     requestMock.mockResolvedValue(
       makeServerInfoResponse({ storage: { tables: [{ name: "spans", rows: 1_234_567 }] } }),

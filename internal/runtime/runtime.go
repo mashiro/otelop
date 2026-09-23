@@ -63,7 +63,7 @@ func Start(ctx context.Context, opts Options) (*Runtime, error) {
 	rt.hub = ws.NewHub()
 	go rt.hub.Run(ctx)
 
-	storagePath, retention, maxSize, err := resolveStorageOptions(opts)
+	storagePath, retention, maxSize, memoryLimit, err := resolveStorageOptions(opts)
 	if err != nil {
 		rt.Shutdown()
 		return nil, err
@@ -74,9 +74,10 @@ func Start(ctx context.Context, opts Options) (*Runtime, error) {
 		rt.hub.BroadcastContext(ctx, ws.Message{Type: sig, Data: data})
 	}
 	st, err = storage.Open(ctx, storage.Options{
-		Path:      storagePath,
-		Retention: retention,
-		MaxSize:   maxSize,
+		Path:        storagePath,
+		Retention:   retention,
+		MaxSize:     maxSize,
+		MemoryLimit: memoryLimit,
 		OnCommitBatch: func(deliveries []storage.CommitDelivery) {
 			broadcast.NewBatch(st, onAdd, func() bool { return rt.hub.ClientCount() > 0 })(deliveries)
 		},

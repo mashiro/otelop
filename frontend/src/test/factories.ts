@@ -144,6 +144,7 @@ export function makeServerInfoResponse(
     usedBlocks: 64,
     freeBlocks: 64,
     memoryUsageBytes: 8_388_608,
+    memoryLimitBytes: 536_870_912,
     tempStorageBytes: 0,
     maxSizeBytes: 4_294_967_296,
     retentionMs: 604_800_000,
@@ -210,6 +211,7 @@ export function makeLargeServerInfoResponse(): ServerInfoQuery {
       usedBlocks: 322_048,
       freeBlocks: 1_024,
       memoryUsageBytes: 268_435_456,
+      memoryLimitBytes: 1_073_741_824,
       tempStorageBytes: 5_242_880,
       tables: [
         { name: "resources", rows: 4_211 },

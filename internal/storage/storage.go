@@ -29,8 +29,9 @@ import (
 )
 
 const (
-	defaultRetention = 7 * 24 * time.Hour
-	defaultMaxSize   = 4 << 30 // 4 GiB
+	defaultRetention   = 7 * 24 * time.Hour
+	defaultMaxSize     = 4 << 30   // 4 GiB
+	defaultMemoryLimit = 512 << 20 // 512 MiB
 
 	// writeQueueSize bounds the channel between AddX callers and the writer
 	// goroutine. Sized to absorb a burst without blocking OTLP receivers;
@@ -85,6 +86,10 @@ type Options struct {
 	// MaxSize is the on-disk ceiling in bytes for a file-backed database.
 	// Ignored for in-memory databases. Defaults to 4 GiB.
 	MaxSize int64
+	// MemoryLimit caps DuckDB's buffer pool/query memory in bytes. Without
+	// it DuckDB defaults to 80% of physical RAM and never evicts under that
+	// ceiling. Defaults to 512 MiB.
+	MemoryLimit int64
 	// OnCommit, if set, is invoked once per flushed batch after its fact rows
 	// are durably written — see docs/design/duckdb-storage.md's ingest step 4
 	// ("after flush, invoke onAdd ... to feed the WebSocket hub, mirroring
@@ -254,12 +259,24 @@ func Open(ctx context.Context, opts Options) (*Storage, error) {
 	if opts.MaxSize <= 0 {
 		opts.MaxSize = defaultMaxSize
 	}
+	if opts.MemoryLimit <= 0 {
+		opts.MemoryLimit = defaultMemoryLimit
+	}
 
 	connector, err := duckdb.NewConnector(opts.Path, nil)
 	if err != nil {
 		return nil, fmt.Errorf("storage: open connector: %w", err)
 	}
 	db := sql.OpenDB(connector)
+
+	// Set via SQL rather than a DSN parameter: duckdb-go url.Parses the DSN,
+	// so a "#" in the storage path would turn "?memory_limit=" into a URL
+	// fragment and silently drop the limit. memory_limit is database-global,
+	// so one SET before migrate covers every pooled connection.
+	if _, err := db.ExecContext(ctx, fmt.Sprintf("SET memory_limit = '%dB'", opts.MemoryLimit)); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("storage: set memory_limit: %w", err)
+	}
 
 	if err := migrate(ctx, db); err != nil {
 		_ = db.Close()

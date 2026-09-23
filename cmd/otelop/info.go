@@ -61,6 +61,7 @@ func printInfoResolved(w io.Writer, cfgPath string, opts otelruntime.Options) er
 		{"Storage path", storagePath},
 		{"Retention", opts.Retention},
 		{"Max size", opts.MaxSize},
+		{"Memory limit", opts.MemoryLimit},
 	})
 	return nil
 }

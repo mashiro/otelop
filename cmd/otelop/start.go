@@ -136,7 +136,7 @@ func printStartBanner(w io.Writer, opts otelruntime.Options) {
 		{"OTLP gRPC", opts.OTLPGRPCAddr},
 		{"OTLP HTTP", opts.OTLPHTTPAddr},
 		{"Proxy", formatProxy(opts.ProxyURL, opts.ProxyProtocol, "disabled")},
-		{"Storage", fmt.Sprintf("%s (retention=%s, max-size=%s)", storagePath, opts.Retention, opts.MaxSize)},
+		{"Storage", fmt.Sprintf("%s (retention=%s, max-size=%s, memory-limit=%s)", storagePath, opts.Retention, opts.MaxSize, opts.MemoryLimit)},
 	})
 }
 

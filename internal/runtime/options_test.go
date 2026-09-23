@@ -5,6 +5,42 @@ import (
 	"testing"
 )
 
+func TestResolveStorageOptions_ParsesMemoryLimit(t *testing.T) {
+	dir := t.TempDir()
+	path, retention, maxSize, memoryLimit, err := resolveStorageOptions(Options{
+		StoragePath: dir + "/otelop.duckdb",
+		Retention:   "7d",
+		MaxSize:     "4GB",
+		MemoryLimit: "256MB",
+	})
+	if err != nil {
+		t.Fatalf("resolveStorageOptions: %v", err)
+	}
+	if path == "" {
+		t.Errorf("path = %q, want non-empty", path)
+	}
+	if retention <= 0 {
+		t.Errorf("retention = %v, want > 0", retention)
+	}
+	if maxSize != 4_000_000_000 {
+		t.Errorf("maxSize = %d, want 4_000_000_000", maxSize)
+	}
+	if memoryLimit != 256_000_000 {
+		t.Errorf("memoryLimit = %d, want 256_000_000", memoryLimit)
+	}
+}
+
+func TestResolveStorageOptions_InvalidMemoryLimitErrors(t *testing.T) {
+	_, _, _, _, err := resolveStorageOptions(Options{
+		Retention:   "7d",
+		MaxSize:     "4GB",
+		MemoryLimit: "not-a-size",
+	})
+	if err == nil || !strings.Contains(err.Error(), "memory_limit") {
+		t.Fatalf("resolveStorageOptions error = %v, want it to mention memory_limit", err)
+	}
+}
+
 func TestValidateProxyOptionsRejectsSelfProxy(t *testing.T) {
 	opts := Options{
 		OTLPGRPCAddr:  "0.0.0.0:4317",

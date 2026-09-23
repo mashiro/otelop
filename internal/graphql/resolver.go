@@ -166,6 +166,7 @@ func (s *StatusResolver) Storage(ctx context.Context) (*StorageStatusResolver, e
 	return &StorageStatusResolver{
 		stats:          stats,
 		maxSize:        s.parent.storage.MaxSize(),
+		memoryLimit:    s.parent.storage.MemoryLimit(),
 		retention:      s.parent.storage.Retention(),
 		sweepInterval:  s.parent.storage.SweepInterval(),
 		lastSweep:      lastSweep,
@@ -178,6 +179,7 @@ func (s *StatusResolver) Storage(ctx context.Context) (*StorageStatusResolver, e
 type StorageStatusResolver struct {
 	stats          storage.Stats
 	maxSize        int64
+	memoryLimit    int64
 	retention      time.Duration
 	sweepInterval  time.Duration
 	lastSweep      storage.SweepResult
@@ -197,6 +199,7 @@ func (r *StorageStatusResolver) FreeBlocks() float64       { return float64(r.st
 func (r *StorageStatusResolver) MemoryUsageBytes() float64 { return float64(r.stats.MemoryUsageBytes) }
 func (r *StorageStatusResolver) TempStorageBytes() float64 { return float64(r.stats.TempStorageBytes) }
 func (r *StorageStatusResolver) MaxSizeBytes() float64     { return float64(r.maxSize) }
+func (r *StorageStatusResolver) MemoryLimitBytes() float64 { return float64(r.memoryLimit) }
 func (r *StorageStatusResolver) RetentionMs() float64      { return float64(r.retention.Milliseconds()) }
 func (r *StorageStatusResolver) SweepIntervalMs() float64 {
 	return float64(r.sweepInterval.Milliseconds())
