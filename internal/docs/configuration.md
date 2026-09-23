@@ -23,6 +23,7 @@ debug = false
 path = ""
 retention = "7d"
 max_size = "4GB"
+memory_limit = "512MB"
 
 [ui]
 render_window_max = 500
@@ -48,7 +49,7 @@ counts, use the endpoint reported by `otelop status` and query:
     httpAddr otlpGrpcAddr otlpHttpAddr proxyUrl proxyProtocol
     config { storagePath retention maxSize traceCount metricCount logCount }
     storage {
-      fileSizeBytes maxSizeBytes walSizeBytes memoryUsageBytes tempStorageBytes
+      fileSizeBytes maxSizeBytes walSizeBytes memoryUsageBytes memoryLimitBytes tempStorageBytes
       databaseSizeBytes totalBlocks usedBlocks freeBlocks
       tables { name rows }
       oldestTimestamp newestTimestamp
@@ -74,6 +75,12 @@ scheduled time, not a completion deadline.
 `databaseSizeBytes` and block counts describe DuckDB allocation; free blocks can
 be reused without shrinking the file. `fileSizeBytes` excludes the separately
 reported WAL. The existing `status.dbSizeBytes` also reports the database file size.
+
+`memory_limit` caps DuckDB's buffer pool and query memory (`memoryLimitBytes`
+in `storage`); queries that need more spill to a temp directory next to the
+database file instead of growing resident memory further. Some operations
+cannot spill, so setting it much lower than the default can make queries fail
+with DuckDB `Out of Memory` errors.
 
 The Web UI and GraphQL endpoint have no authentication and bind to
 `127.0.0.1` by default. A loopback listener rejects non-local `Host` headers

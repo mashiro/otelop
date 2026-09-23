@@ -231,6 +231,7 @@ func TestStatusQuery_Storage(t *testing.T) {
 				databaseSizeBytes
 				totalBlocks
 				maxSizeBytes
+				memoryLimitBytes
 				retentionMs
 				sweepIntervalMs
 				nextSweepAt
@@ -252,6 +253,9 @@ func TestStatusQuery_Storage(t *testing.T) {
 	}
 	if storageStatus["maxSizeBytes"].(float64) <= 0 {
 		t.Errorf("maxSizeBytes = %v, want > 0 (default ceiling)", storageStatus["maxSizeBytes"])
+	}
+	if storageStatus["memoryLimitBytes"].(float64) <= 0 {
+		t.Errorf("memoryLimitBytes = %v, want > 0 (default ceiling)", storageStatus["memoryLimitBytes"])
 	}
 	if storageStatus["retentionMs"].(float64) <= 0 {
 		t.Errorf("retentionMs = %v, want > 0 (default retention)", storageStatus["retentionMs"])

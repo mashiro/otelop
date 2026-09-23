@@ -32,6 +32,7 @@ const ServerInfoQuery = graphql(`
         usedBlocks
         freeBlocks
         memoryUsageBytes
+        memoryLimitBytes
         tempStorageBytes
         maxSizeBytes
         retentionMs

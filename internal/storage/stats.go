@@ -40,6 +40,12 @@ type Stats struct {
 // MaxSize is the numeric counterpart to RuntimeInfo.MaxSizeDisplay's human string.
 func (s *Storage) MaxSize() int64 { return s.opts.MaxSize }
 
+// MemoryLimit is the configured DuckDB memory_limit ceiling in bytes (see
+// Options.MemoryLimit). Reporting the value we configured rather than
+// re-querying DuckDB (e.g. via duckdb_settings()) keeps this a plain field
+// read, matching MaxSize's pattern.
+func (s *Storage) MemoryLimit() int64 { return s.opts.MemoryLimit }
+
 // Retention is the numeric counterpart to RuntimeInfo.RetentionDisplay's human string.
 func (s *Storage) Retention() time.Duration { return s.opts.Retention }
 

@@ -39,6 +39,7 @@ protocol = "grpc"
 path = %q
 retention = "24h"
 max_size = "1GB"
+memory_limit = "256MB"
 
 [ui]
 render_window_max = 250
@@ -64,6 +65,7 @@ render_window_max = 250
 		dbPath,
 		"24h",
 		"1GB",
+		"256MB",
 		"250",
 	} {
 		if !strings.Contains(stdout, want) {
@@ -141,6 +143,7 @@ debug = false
 path = %q
 retention = "1h"
 max_size = "500MB"
+memory_limit = "128MB"
 `, cfgStoragePath)
 	if err := os.WriteFile(cfgPath, []byte(body), 0o644); err != nil {
 		t.Fatalf("write config: %v", err)
@@ -154,6 +157,7 @@ max_size = "500MB"
 	t.Setenv("OTELOP_STORAGE_PATH", envStoragePath)
 	t.Setenv("OTELOP_RETENTION", "48h")
 	t.Setenv("OTELOP_MAX_SIZE", "2GB")
+	t.Setenv("OTELOP_MEMORY_LIMIT", "384MB")
 	t.Setenv("OTELOP_LOG_LEVEL", "error")
 	t.Setenv("OTELOP_PROXY_URL", "https://env-upstream.example.com:4318")
 	t.Setenv("OTELOP_PROXY_PROTOCOL", "http")
@@ -171,6 +175,7 @@ max_size = "500MB"
 		envStoragePath,
 		"48h",
 		"2GB",
+		"384MB",
 		"error",
 		"HTTP https://env-upstream.example.com:4318",
 		"750",
@@ -185,6 +190,7 @@ max_size = "500MB"
 		cfgStoragePath,
 		"1h",
 		"500MB",
+		"128MB",
 	} {
 		if strings.Contains(stdout, unwanted) {
 			t.Errorf("output should not show config-file value %q, env should win:\n%s", unwanted, stdout)

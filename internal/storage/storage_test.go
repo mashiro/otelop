@@ -776,6 +776,42 @@ func TestStorage_Open_DefaultsRetentionAndMaxSize(t *testing.T) {
 	if s.opts.MaxSize != defaultMaxSize {
 		t.Errorf("MaxSize = %d, want default %d", s.opts.MaxSize, defaultMaxSize)
 	}
+	if s.opts.MemoryLimit != defaultMemoryLimit {
+		t.Errorf("MemoryLimit = %d, want default %d", s.opts.MemoryLimit, defaultMemoryLimit)
+	}
+}
+
+// TestStorage_Open_AppliesConfiguredMemoryLimit asserts the memory_limit
+// DSN parameter (see storageDSN) actually reaches DuckDB, not just
+// s.opts.MemoryLimit's bookkeeping copy.
+func TestStorage_Open_AppliesConfiguredMemoryLimit(t *testing.T) {
+	s := openTestStorage(t, Options{MemoryLimit: 256 << 20})
+
+	var got string
+	if err := s.DB().QueryRowContext(context.Background(), "SELECT current_setting('memory_limit')").Scan(&got); err != nil {
+		t.Fatalf("query current_setting(memory_limit): %v", err)
+	}
+	if got != "256.0 MiB" {
+		t.Errorf("current_setting(memory_limit) = %q, want %q", got, "256.0 MiB")
+	}
+	if s.MemoryLimit() != 256<<20 {
+		t.Errorf("MemoryLimit() = %d, want %d", s.MemoryLimit(), 256<<20)
+	}
+}
+
+// TestStorage_Open_DefaultMemoryLimitAppliesToDuckDB is the unset-option
+// counterpart of TestStorage_Open_AppliesConfiguredMemoryLimit: the default
+// substituted in Open must reach DuckDB the same way an explicit value does.
+func TestStorage_Open_DefaultMemoryLimitAppliesToDuckDB(t *testing.T) {
+	s := openTestStorage(t, Options{})
+
+	var got string
+	if err := s.DB().QueryRowContext(context.Background(), "SELECT current_setting('memory_limit')").Scan(&got); err != nil {
+		t.Fatalf("query current_setting(memory_limit): %v", err)
+	}
+	if got != "512.0 MiB" {
+		t.Errorf("current_setting(memory_limit) = %q, want %q", got, "512.0 MiB")
+	}
 }
 
 func TestStorage_Open_FileBacked(t *testing.T) {

@@ -183,6 +183,8 @@ type StorageStatus {
   freeBlocks: Float!
   "DuckDB buffer manager memory usage in bytes."
   memoryUsageBytes: Float!
+  "Configured DuckDB memory_limit ceiling in bytes."
+  memoryLimitBytes: Float!
   "DuckDB temporary storage (spill-to-disk) usage in bytes."
   tempStorageBytes: Float!
   "Configured on-disk size ceiling in bytes (0 if none configured)."

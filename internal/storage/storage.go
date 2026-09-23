@@ -29,8 +29,9 @@ import (
 )
 
 const (
-	defaultRetention = 7 * 24 * time.Hour
-	defaultMaxSize   = 4 << 30 // 4 GiB
+	defaultRetention   = 7 * 24 * time.Hour
+	defaultMaxSize     = 4 << 30   // 4 GiB
+	defaultMemoryLimit = 512 << 20 // 512 MiB
 
 	// writeQueueSize bounds the channel between AddX callers and the writer
 	// goroutine. Sized to absorb a burst without blocking OTLP receivers;
@@ -85,6 +86,11 @@ type Options struct {
 	// MaxSize is the on-disk ceiling in bytes for a file-backed database.
 	// Ignored for in-memory databases. Defaults to 4 GiB.
 	MaxSize int64
+	// MemoryLimit caps DuckDB's buffer pool/query memory in bytes, applied
+	// to the database via DSN (see storageDSN). Without it DuckDB defaults
+	// to 80% of physical RAM and never evicts under that ceiling. Defaults
+	// to 512 MiB.
+	MemoryLimit int64
 	// OnCommit, if set, is invoked once per flushed batch after its fact rows
 	// are durably written — see docs/design/duckdb-storage.md's ingest step 4
 	// ("after flush, invoke onAdd ... to feed the WebSocket hub, mirroring
@@ -241,6 +247,20 @@ type Storage struct {
 	telemetry      atomic.Pointer[storageTelemetry]
 }
 
+// storageDSN builds the DSN passed to duckdb.NewConnector: path (or ""
+// for an in-memory database) plus a memory_limit query parameter.
+// duckdb-go parses DSN query parameters into DuckDB's database-creation
+// config (see prepareConfig in github.com/duckdb/duckdb-go/v2), so this
+// applies memory_limit while the database is created — before migrate runs
+// or any connection is handed out — rather than after the fact via a
+// per-connection connInitFn. memory_limit is a database-global DuckDB
+// setting (confirmed via duckdb_settings()'s GLOBAL scope), so setting it
+// once here is both sufficient and simpler than re-issuing a redundant SET
+// on every pooled connection Connect creates.
+func storageDSN(path string, memoryLimitBytes int64) string {
+	return fmt.Sprintf("%s?memory_limit=%dB", path, memoryLimitBytes)
+}
+
 // Open creates or opens a DuckDB database at opts.Path (or an in-memory
 // database if empty), applies schema migrations, and starts the writer and
 // sweep goroutines.
@@ -254,8 +274,11 @@ func Open(ctx context.Context, opts Options) (*Storage, error) {
 	if opts.MaxSize <= 0 {
 		opts.MaxSize = defaultMaxSize
 	}
+	if opts.MemoryLimit <= 0 {
+		opts.MemoryLimit = defaultMemoryLimit
+	}
 
-	connector, err := duckdb.NewConnector(opts.Path, nil)
+	connector, err := duckdb.NewConnector(storageDSN(opts.Path, opts.MemoryLimit), nil)
 	if err != nil {
 		return nil, fmt.Errorf("storage: open connector: %w", err)
 	}

@@ -18,7 +18,7 @@ function pathSegments(path: string): ReactNode[] {
   return nodes;
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
+function Stat({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div>
       <div className="text-xs text-muted-foreground">{label}</div>
@@ -58,7 +58,17 @@ export function StorageCard({ status }: { status: Status }) {
           )}
           <div className="grid grid-cols-3 gap-3">
             <Stat label="WAL" value={formatBytes(storage.walSizeBytes)} />
-            <Stat label="Memory" value={formatBytes(storage.memoryUsageBytes)} />
+            <Stat
+              label="Memory"
+              value={
+                <>
+                  <span className="whitespace-nowrap">{formatBytes(storage.memoryUsageBytes)}</span>{" "}
+                  <span className="whitespace-nowrap text-muted-foreground">
+                    / {formatBytes(storage.memoryLimitBytes)}
+                  </span>
+                </>
+              }
+            />
             <Stat label="Temp storage" value={formatBytes(storage.tempStorageBytes)} />
           </div>
           <ServerInfoRow
