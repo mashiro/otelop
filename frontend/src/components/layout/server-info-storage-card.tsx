@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { ServerInfoRow } from "./server-info-row";
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
+import { Item, ItemHeader, ItemTitle, ItemDescription, ItemContent } from "@/components/ui/item";
 import { Progress } from "@/components/ui/progress";
 import { formatBytes } from "@/lib/format-metric";
 import type { ServerInfoQuery } from "@/gql/graphql";
@@ -33,14 +33,14 @@ export function StorageCard({ status }: { status: Status }) {
   const pct = storage.maxSizeBytes > 0 ? (storage.fileSizeBytes / storage.maxSizeBytes) * 100 : 0;
 
   return (
-    <Card size="sm" className="min-w-0">
-      <CardHeader>
-        <CardTitle>Storage</CardTitle>
-        <CardDescription title={path || undefined}>
+    <Item variant="muted" className="min-w-0 flex-col items-stretch">
+      <ItemHeader className="basis-auto flex-col items-start">
+        <ItemTitle>Storage</ItemTitle>
+        <ItemDescription title={path || undefined}>
           <span className="break-words font-mono">{path ? pathSegments(path) : "in-memory"}</span>
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
+        </ItemDescription>
+      </ItemHeader>
+      <ItemContent>
         <div className="flex flex-col gap-3">
           {storage.maxSizeBytes > 0 && (
             <div>
@@ -67,7 +67,7 @@ export function StorageCard({ status }: { status: Status }) {
             value={`${storage.usedBlocks.toLocaleString("en-US")} used · ${storage.freeBlocks.toLocaleString("en-US")} free`}
           />
         </div>
-      </CardContent>
-    </Card>
+      </ItemContent>
+    </Item>
   );
 }

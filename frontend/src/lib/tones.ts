@@ -2,6 +2,9 @@ import type { SpanStatus } from "@/types/telemetry";
 
 // Reuse existing semantic tones before adding new ones.
 export type Tone =
+  | "debug"
+  | "info"
+  | "fatal"
   | "success"
   | "destructive"
   | "warning"
@@ -32,15 +35,18 @@ export function traceStatusTone(status: SpanStatus): Tone {
 // so match case-insensitively and accept those common aliases.
 export function severityTone(severity: string | undefined): Tone {
   switch (severity?.toUpperCase()) {
+    case "DEBUG":
+      return "debug";
     case "INFO":
-      return "primary";
+      return "info";
     case "WARN":
     case "WARNING":
       return "warning";
     case "ERROR":
+      return "destructive";
     case "FATAL":
     case "CRITICAL":
-      return "destructive";
+      return "fatal";
     default:
       return "muted";
   }

@@ -1,4 +1,4 @@
-import { Card, CardHeader, CardContent } from "@/components/ui/card";
+import { Item, ItemHeader, ItemContent } from "@/components/ui/item";
 import {
   Table,
   TableHeader,
@@ -168,49 +168,51 @@ function HistogramSummary({
       <div className="mb-2 text-3xs font-semibold uppercase tracking-wider text-muted-foreground">
         Distribution · {rangeLabel(window)}
       </div>
-      <Card size="flush" className="overflow-x-auto">
-        <Table className="min-w-220">
-          <TableHeader>
-            <TableRow>
-              <TableHead>Breakdown</TableHead>
-              <TableHead align="right">Observations</TableHead>
-              {columns.map(([label]) => (
-                <TableHead key={label} align="right">
-                  {label}
-                </TableHead>
-              ))}
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {rows.map(({ item, label }, index) => (
-              <TableRow key={JSON.stringify(groupBy ? item.groupValues : item.attributes)}>
-                <TableCell className="max-w-64">
-                  <div className="flex items-center gap-1.5">
-                    <span
-                      className="size-2 shrink-0 rounded-full"
-                      style={{ backgroundColor: SERIES_COLORS[colorIndexes[index]!] }}
-                    />
-                    <span className="truncate font-mono text-foreground/70" title={label}>
-                      {label}
-                    </span>
-                  </div>
-                </TableCell>
-                <TableCell variant="mono" align="right">
-                  {item.count.toLocaleString()}
-                </TableCell>
-                {columns.map(([column, value]) => {
-                  const number = value(item);
-                  return (
-                    <TableCell key={column} variant="mono" align="right">
-                      {number != null ? formatMetricValue(number, unit) : "-"}
-                    </TableCell>
-                  );
-                })}
+      <Item variant="muted">
+        <ItemContent className="min-w-0 overflow-x-auto">
+          <Table className="min-w-220">
+            <TableHeader surface="muted">
+              <TableRow>
+                <TableHead>Breakdown</TableHead>
+                <TableHead align="right">Observations</TableHead>
+                {columns.map(([label]) => (
+                  <TableHead key={label} align="right">
+                    {label}
+                  </TableHead>
+                ))}
               </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </Card>
+            </TableHeader>
+            <TableBody>
+              {rows.map(({ item, label }, index) => (
+                <TableRow key={JSON.stringify(groupBy ? item.groupValues : item.attributes)}>
+                  <TableCell className="max-w-64">
+                    <div className="flex items-center gap-1.5">
+                      <span
+                        className="size-2 shrink-0 rounded-full"
+                        style={{ backgroundColor: SERIES_COLORS[colorIndexes[index]!] }}
+                      />
+                      <span className="truncate font-mono text-foreground/70" title={label}>
+                        {label}
+                      </span>
+                    </div>
+                  </TableCell>
+                  <TableCell variant="mono" align="right">
+                    {item.count.toLocaleString()}
+                  </TableCell>
+                  {columns.map(([column, value]) => {
+                    const number = value(item);
+                    return (
+                      <TableCell key={column} variant="mono" align="right">
+                        {number != null ? formatMetricValue(number, unit) : "-"}
+                      </TableCell>
+                    );
+                  })}
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </ItemContent>
+      </Item>
     </div>
   );
 }
@@ -235,23 +237,23 @@ function Tile({
   const count = isDistribution && tile.count != null ? tile.count.toLocaleString() : null;
 
   return (
-    <Card size="sm">
+    <Item variant="muted" className="flex-col items-stretch">
       {showLabel && (
-        <CardHeader>
+        <ItemHeader className="basis-auto">
           <div className="flex items-center gap-1.5">
             <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: color }} />
             <span className="truncate font-mono text-xs text-foreground/60" title={tile.label}>
               {tile.label}
             </span>
           </div>
-        </CardHeader>
+        </ItemHeader>
       )}
-      <CardContent>
+      <ItemContent>
         <div className="text-2xl font-semibold text-foreground">{main}</div>
         {count !== null && (
           <div className="mt-0.5 text-xs text-muted-foreground">count {count}</div>
         )}
-      </CardContent>
-    </Card>
+      </ItemContent>
+    </Item>
   );
 }

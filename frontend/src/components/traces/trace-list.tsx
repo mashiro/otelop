@@ -112,13 +112,19 @@ export function TraceList() {
           header={
             <TableHeader>
               <TableRow>
-                <TableHead>Service</TableHead>
-                <TableHead>Name</TableHead>
-                <TableHead>Trace ID</TableHead>
-                <TableHead className="text-right">Spans</TableHead>
-                <TableHead className="text-right">Duration</TableHead>
-                <TableHead className="w-27.5">Started</TableHead>
-                <TableHead>Status</TableHead>
+                <TableHead tone="trace">Service</TableHead>
+                <TableHead tone="trace">Name</TableHead>
+                <TableHead tone="trace">Trace ID</TableHead>
+                <TableHead tone="trace" className="text-right">
+                  Spans
+                </TableHead>
+                <TableHead tone="trace" className="text-right">
+                  Duration
+                </TableHead>
+                <TableHead tone="trace" className="w-27.5">
+                  Started
+                </TableHead>
+                <TableHead tone="trace">Status</TableHead>
               </TableRow>
             </TableHeader>
           }

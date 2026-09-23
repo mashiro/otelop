@@ -1,14 +1,14 @@
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { Item, ItemHeader, ItemTitle, ItemContent } from "@/components/ui/item";
 import { ServerInfoRow } from "./server-info-row";
 import type { ServerInfoQuery } from "@/gql/graphql";
 
 export function TablesCard({ storage }: { storage: ServerInfoQuery["status"]["storage"] }) {
   return (
-    <Card size="sm" className="min-w-0">
-      <CardHeader>
-        <CardTitle>Tables</CardTitle>
-      </CardHeader>
-      <CardContent>
+    <Item variant="muted" className="min-w-0 flex-col items-stretch">
+      <ItemHeader className="basis-auto flex-col items-start">
+        <ItemTitle>Tables</ItemTitle>
+      </ItemHeader>
+      <ItemContent>
         <div className="flex flex-col gap-2">
           {storage.tables.map((table) => (
             <ServerInfoRow
@@ -24,7 +24,7 @@ export function TablesCard({ storage }: { storage: ServerInfoQuery["status"]["st
             />
           ))}
         </div>
-      </CardContent>
-    </Card>
+      </ItemContent>
+    </Item>
   );
 }

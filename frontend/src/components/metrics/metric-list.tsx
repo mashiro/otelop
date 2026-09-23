@@ -86,14 +86,18 @@ export function MetricList() {
           header={
             <TableHeader>
               <TableRow>
-                <TableHead>Service</TableHead>
-                <TableHead>Name</TableHead>
-                <TableHead>Description</TableHead>
-                <TableHead>Type</TableHead>
-                <TableHead>Unit</TableHead>
-                <TableHead className="text-right">Points</TableHead>
-                <TableHead className="text-right">Latest Value</TableHead>
-                <TableHead>Received</TableHead>
+                <TableHead tone="metric">Service</TableHead>
+                <TableHead tone="metric">Name</TableHead>
+                <TableHead tone="metric">Description</TableHead>
+                <TableHead tone="metric">Type</TableHead>
+                <TableHead tone="metric">Unit</TableHead>
+                <TableHead tone="metric" className="text-right">
+                  Points
+                </TableHead>
+                <TableHead tone="metric" className="text-right">
+                  Latest Value
+                </TableHead>
+                <TableHead tone="metric">Received</TableHead>
               </TableRow>
             </TableHeader>
           }

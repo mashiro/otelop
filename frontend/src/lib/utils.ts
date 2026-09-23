@@ -5,6 +5,7 @@ export const cn = createCn({
   extend: {
     theme: {
       text: ["2xs", "3xs"],
+      shadow: ["glow"],
     },
   },
 });

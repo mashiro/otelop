@@ -101,7 +101,7 @@ function ThemeToggle({ theme, setTheme }: { theme: Theme; setTheme: (t: Theme) =
   const Icon = themeIcons[theme];
   return (
     <HelpTooltip content={themeLabels[theme]}>
-      <Button aria-label={themeLabels[theme]} variant="ghost-muted" size="icon-sm" onClick={next}>
+      <Button aria-label={themeLabels[theme]} variant="ghost-muted" size="icon" onClick={next}>
         <Icon />
       </Button>
     </HelpTooltip>

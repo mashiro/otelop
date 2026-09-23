@@ -184,10 +184,10 @@ importers:
       '@fontsource-variable/geist':
         specifier: 5.3.0
         version: 5.3.0
-      '@fontsource-variable/inter':
-        specifier: ^5.3.0
-        version: 5.3.0
       '@fontsource-variable/jetbrains-mono':
+        specifier: 5.3.0
+        version: 5.3.0
+      '@fontsource-variable/outfit':
         specifier: 5.3.0
         version: 5.3.0
       '@tanstack/react-query':
@@ -565,11 +565,11 @@ packages:
   '@fontsource-variable/geist@5.3.0':
     resolution: {integrity: sha512-j0m+vLQuG5XAYoHtGCVu0spvlGreR3EzpECUVzkFmI1mTVnAO38l/NEPDCFgZ177JxzYJCLSmTQibIiYPilGrA==}
 
-  '@fontsource-variable/inter@5.3.0':
-    resolution: {integrity: sha512-OupL48va4JNofb97w6NYeF9S7W/kHNKM0Er8Dem5nqi4jeOLrVJDoE8tZEpnMJmtkvNbB1EIPPwHcdkF6b1oUA==}
-
   '@fontsource-variable/jetbrains-mono@5.3.0':
     resolution: {integrity: sha512-F32xpS2NsGYoQi2ADSkKTgpJj7ozajsGgDJ8woTnqjmIB+dxDIqImjl4pXZVEExu8UFZ2ndhmX18EBS/hdz3Lw==}
+
+  '@fontsource-variable/outfit@5.3.0':
+    resolution: {integrity: sha512-fPb5XnYK0k7SbR++HEmm4+ZqDszmLKQ+sPRUr8oQ/KNC0vy6r6hazJFe8iYozv4cqlHbvJ/JECkJWrfDodUMVQ==}
 
   '@graphql-codegen/add@7.1.0':
     resolution: {integrity: sha512-bytJg1kel5zfgK3JSYbGwtpbNe6F9OPZSR6DiMDe9RVxblAgl6w4zEEPd/mM3rhNJ1VmGYLbNnf5e1eUfXQEbg==}
@@ -4857,9 +4857,9 @@ snapshots:
 
   '@fontsource-variable/geist@5.3.0': {}
 
-  '@fontsource-variable/inter@5.3.0': {}
-
   '@fontsource-variable/jetbrains-mono@5.3.0': {}
+
+  '@fontsource-variable/outfit@5.3.0': {}
 
   '@graphql-codegen/add@7.1.0(graphql@16.14.2)':
     dependencies:

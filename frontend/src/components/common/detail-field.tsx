@@ -1,3 +1,4 @@
+import { Item, ItemContent } from "@/components/ui/item";
 import type { ReactNode } from "react";
 import type { Tone } from "@/lib/tones";
 import { cn } from "@/lib/utils";
@@ -66,7 +67,9 @@ export function Section({
         </h4>
         {action}
       </div>
-      <div className="space-y-1.5 rounded-md bg-muted/50 p-2.5">{children}</div>
+      <Item variant="muted">
+        <ItemContent className="min-w-0">{children}</ItemContent>
+      </Item>
     </div>
   );
 }

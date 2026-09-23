@@ -66,6 +66,11 @@ const tabsTriggerVariants = cva(
         log: "data-active:bg-log/15 data-active:text-log dark:data-active:bg-log/15 dark:data-active:text-log",
       },
     },
+    compoundVariants: [
+      { size: "lg", tone: "trace", class: "data-active:shadow-glow data-active:shadow-trace/20" },
+      { size: "lg", tone: "metric", class: "data-active:shadow-glow data-active:shadow-metric/20" },
+      { size: "lg", tone: "log", class: "data-active:shadow-glow data-active:shadow-log/20" },
+    ],
     defaultVariants: {
       size: "default",
     },

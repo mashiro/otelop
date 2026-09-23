@@ -9,23 +9,46 @@ import type { SignalTone } from "@/lib/signals";
 // Shared signal tone for table rows and cells.
 export type { SignalTone };
 
-function Table({ className, ...props }: React.ComponentProps<"table">) {
+function Table({
+  className,
+  spacing = "default",
+  ...props
+}: React.ComponentProps<"table"> & { spacing?: "default" | "comfortable" }) {
   return (
     <div data-slot="table-container" className="relative w-full">
       <table
         data-slot="table"
-        className={cn("w-full caption-bottom text-xs", className)}
+        className={cn(
+          "w-full caption-bottom text-xs [--cell-padding-x:--spacing(2)]",
+          spacing === "comfortable" && "[--cell-padding-x:--spacing(4)]",
+          className,
+        )}
         {...props}
       />
     </div>
   );
 }
 
-function TableHeader({ className, ...props }: React.ComponentProps<"thead">) {
+const tableHeaderVariants = cva("sticky top-0 z-10 [&_tr]:border-b [&_tr]:border-border/50", {
+  variants: {
+    surface: {
+      card: "bg-card",
+      // Match a muted Item over a Card without letting scrolled rows show through.
+      muted: "bg-[color-mix(in_srgb,var(--muted)_50%,var(--card))]",
+    },
+  },
+  defaultVariants: { surface: "card" },
+});
+
+function TableHeader({
+  className,
+  surface,
+  ...props
+}: React.ComponentProps<"thead"> & VariantProps<typeof tableHeaderVariants>) {
   return (
     <thead
       data-slot="table-header"
-      className={cn("sticky top-0 z-10 [&_tr]:border-b [&_tr]:border-border/50 bg-card", className)}
+      className={cn(tableHeaderVariants({ surface }), className)}
       {...props}
     />
   );
@@ -106,10 +129,11 @@ function TableRow({
 }
 
 const tableHeadVariants = cva(
-  "h-10 px-2 text-left align-middle font-medium whitespace-nowrap text-foreground [&:has([role=checkbox])]:pr-0",
+  "h-10 px-(--cell-padding-x) text-left align-middle font-medium whitespace-nowrap text-foreground [&:has([role=checkbox])]:pr-0",
   {
     variants: {
       align: { left: "", right: "text-right" },
+      tone: { trace: "text-trace/70", metric: "text-metric/70", log: "text-log/70" },
     },
   },
 );
@@ -117,57 +141,65 @@ const tableHeadVariants = cva(
 function TableHead({
   className,
   align = "left",
+  tone,
   ...props
 }: React.ComponentProps<"th"> & VariantProps<typeof tableHeadVariants>) {
   return (
-    <th data-slot="table-head" className={cn(tableHeadVariants({ align }), className)} {...props} />
+    <th
+      data-slot="table-head"
+      className={cn(tableHeadVariants({ align, tone }), className)}
+      {...props}
+    />
   );
 }
 
-const tableCellVariants = cva("p-2 align-middle whitespace-nowrap [&:has([role=checkbox])]:pr-0", {
-  variants: {
-    // Font family/scale axis, orthogonal to `emphasis`'s color/weight axis
-    // (e.g. `mono` + `emphasis="muted"` reproduces the old "mono-muted").
-    variant: {
-      default: "",
-      mono: "font-mono text-xs",
+const tableCellVariants = cva(
+  "px-(--cell-padding-x) py-2 align-middle whitespace-nowrap [&:has([role=checkbox])]:pr-0",
+  {
+    variants: {
+      // Font family/scale axis, orthogonal to `emphasis`'s color/weight axis
+      // (e.g. `mono` + `emphasis="muted"` reproduces the old "mono-muted").
+      variant: {
+        default: "",
+        mono: "font-mono text-xs",
+      },
+      emphasis: {
+        default: "",
+        strong: "font-medium",
+        secondary: "text-foreground/80",
+        muted: "text-muted-foreground",
+      },
+      // Only needed to reproduce the old "muted-xs" (`emphasis="muted"
+      // size="xs"`); `mono` already implies `text-xs` on its own.
+      size: {
+        default: "",
+        xs: "text-xs",
+      },
+      tone: {
+        none: "",
+        trace: "text-trace",
+        metric: "text-metric",
+        log: "text-log",
+      },
+      align: {
+        left: "",
+        right: "text-right",
+      },
+      truncate: {
+        true: "truncate",
+        false: "",
+      },
     },
-    emphasis: {
-      default: "",
-      strong: "font-medium",
-      secondary: "text-foreground/80",
-      muted: "text-muted-foreground",
-    },
-    // Only needed to reproduce the old "muted-xs" (`emphasis="muted"
-    // size="xs"`); `mono` already implies `text-xs` on its own.
-    size: {
-      default: "",
-      xs: "text-xs",
-    },
-    tone: {
-      none: "",
-      trace: "text-trace",
-      metric: "text-metric",
-      log: "text-log",
-    },
-    align: {
-      left: "",
-      right: "text-right",
-    },
-    truncate: {
-      true: "truncate",
-      false: "",
+    defaultVariants: {
+      variant: "default",
+      emphasis: "default",
+      size: "default",
+      tone: "none",
+      align: "left",
+      truncate: false,
     },
   },
-  defaultVariants: {
-    variant: "default",
-    emphasis: "default",
-    size: "default",
-    tone: "none",
-    align: "left",
-    truncate: false,
-  },
-});
+);
 
 function TableCell({
   className,

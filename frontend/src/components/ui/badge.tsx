@@ -19,6 +19,9 @@ const badgeVariants = cva(
         link: "text-primary underline-offset-4 hover:underline",
       },
       tone: {
+        debug: "bg-debug/15 text-debug",
+        info: "bg-info/15 text-info",
+        fatal: "bg-fatal/15 text-fatal",
         success: "bg-success/15 text-success",
         destructive: "bg-destructive/15 text-destructive",
         warning: "bg-warning/15 text-warning",

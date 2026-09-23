@@ -3,13 +3,22 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Table, type TableHeader } from "@/components/ui/table";
 
 interface ScrollableTableProps {
+  bounded?: boolean;
+  spacing?: React.ComponentProps<typeof Table>["spacing"];
   header: ReactElement<React.ComponentProps<typeof TableHeader>>;
   children: ReactNode;
   before?: ReactNode;
   after?: ReactNode;
 }
 
-export function ScrollableTable({ header, children, before, after }: ScrollableTableProps) {
+export function ScrollableTable({
+  header,
+  children,
+  before,
+  after,
+  spacing = "comfortable",
+  bounded = false,
+}: ScrollableTableProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const headerRef = useRef<HTMLDivElement>(null);
 
@@ -48,12 +57,15 @@ export function ScrollableTable({ header, children, before, after }: ScrollableT
     <div ref={rootRef} className="flex min-h-0 min-w-0 flex-1 flex-col">
       {before}
       <div ref={headerRef} className="shrink-0 overflow-hidden border-b border-border/50">
-        <Table className="table-fixed">
+        <Table spacing={spacing} className="table-fixed">
           {cloneElement(header, { className: "static [&_tr]:border-0" })}
         </Table>
       </div>
-      <ScrollArea className="min-h-0 min-w-0 flex-1">
-        <Table>
+      <ScrollArea
+        className="min-h-0 min-w-0 flex-1"
+        viewportClassName={bounded ? "max-h-80" : undefined}
+      >
+        <Table spacing={spacing}>
           {/* A collapsed sizing header keeps native column sizing without a second visible header. */}
           {cloneElement(header, {
             "aria-hidden": true,

@@ -105,10 +105,7 @@ function WaterfallInner({
       </div>
       <div
         className="grid h-9 shrink-0 border-b border-border text-2xs text-muted-foreground"
-        style={{
-          gridTemplateColumns,
-          background: "color-mix(in srgb, var(--muted-foreground) 10%, transparent)",
-        }}
+        style={{ gridTemplateColumns }}
       >
         <span className="flex items-center px-2 text-xs font-medium">Operation / Span</span>
         <span className="flex items-center border-x border-border px-3 text-xs font-medium">

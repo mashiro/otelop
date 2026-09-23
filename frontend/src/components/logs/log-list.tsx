@@ -95,11 +95,15 @@ export function LogList() {
             header={
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-27.5">Timestamp</TableHead>
-                  <TableHead className="w-22.5">Severity</TableHead>
-                  <TableHead>Service</TableHead>
-                  <TableHead>Body</TableHead>
-                  <TableHead>Trace ID</TableHead>
+                  <TableHead tone="log" className="w-27.5">
+                    Timestamp
+                  </TableHead>
+                  <TableHead tone="log" className="w-22.5">
+                    Severity
+                  </TableHead>
+                  <TableHead tone="log">Service</TableHead>
+                  <TableHead tone="log">Body</TableHead>
+                  <TableHead tone="log">Trace ID</TableHead>
                 </TableRow>
               </TableHeader>
             }

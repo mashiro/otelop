@@ -29,7 +29,7 @@ export function ServerInfoDialog() {
     <Dialog open={open} onOpenChange={setOpen}>
       <HelpTooltip content="Server info">
         <DialogTrigger
-          render={<Button aria-label="Server info" variant="ghost-muted" size="icon-sm" />}
+          render={<Button aria-label="Server info" variant="ghost-muted" size="icon" />}
         >
           <Info />
         </DialogTrigger>
@@ -49,8 +49,7 @@ export function ServerInfoDialog() {
             </DialogDescription>
           )}
         </DialogHeader>
-        {/* Keep card rings visible inside the scroll container on short screens. */}
-        <div className="-m-1 min-h-0 overflow-y-auto p-1">
+        <div className="min-h-0 overflow-y-auto">
           {isPending && (
             <div role="status" className="flex flex-col gap-3">
               <span className="sr-only">Loading server info…</span>

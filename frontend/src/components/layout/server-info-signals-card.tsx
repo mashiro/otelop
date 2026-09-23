@@ -1,4 +1,4 @@
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { Item, ItemHeader, ItemTitle, ItemContent } from "@/components/ui/item";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 import { SIGNAL_LIST, type SignalKey } from "@/lib/signals";
@@ -24,11 +24,11 @@ function signalCount(config: Status["config"], key: SignalKey): number {
 export function SignalsCard({ status }: { status: Status }) {
   const { config, storage } = status;
   return (
-    <Card size="sm" className="min-w-0">
-      <CardHeader>
-        <CardTitle>Signals</CardTitle>
-      </CardHeader>
-      <CardContent>
+    <Item variant="muted" className="min-w-0 flex-col items-stretch">
+      <ItemHeader className="basis-auto flex-col items-start">
+        <ItemTitle>Signals</ItemTitle>
+      </ItemHeader>
+      <ItemContent>
         <div className="flex flex-col gap-2">
           {SIGNAL_LIST.map((signal) => (
             <ServerInfoRow
@@ -55,7 +55,7 @@ export function SignalsCard({ status }: { status: Status }) {
             value={storage.newestTimestamp ? formatDateTime(storage.newestTimestamp) : "—"}
           />
         </div>
-      </CardContent>
-    </Card>
+      </ItemContent>
+    </Item>
   );
 }

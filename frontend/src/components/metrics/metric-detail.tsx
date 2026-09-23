@@ -1,4 +1,4 @@
-import { Card, CardContent } from "@/components/ui/card";
+import { Item, ItemContent } from "@/components/ui/item";
 import { useState } from "react";
 import { useMetricSelection, useTimeWindow } from "@/hooks/use-signal-route";
 import { MetricChart } from "./metric-chart";
@@ -40,12 +40,14 @@ export function MetricDetail() {
       onClose={onClose}
       header={
         <>
-          <span className="font-semibold text-foreground">{metric.name}</span>
+          <span className="min-w-0 break-all font-semibold text-foreground">{metric.name}</span>
           <Badge variant="soft" size="sm" tone="metric">
             {metric.type}
           </Badge>
           {displayUnit && <span className="text-xs text-muted-foreground">({displayUnit})</span>}
-          <span className="text-xs text-muted-foreground">{metric.serviceName}</span>
+          <span className="min-w-0 break-all text-xs text-muted-foreground">
+            {metric.serviceName}
+          </span>
         </>
       }
     >
@@ -155,8 +157,8 @@ export function MetricDetailBody({ metric }: { metric: MetricData }) {
             distributionGroupBy={distributionGroupBy}
           />
 
-          <Card className="mb-4">
-            <CardContent className="h-84">
+          <Item variant="muted" className="mb-4">
+            <ItemContent className="h-84 min-w-0">
               <MetricChart
                 metric={{ ...metric, dataPoints: rangeDataPoints }}
                 facet={effectiveFacet}
@@ -164,8 +166,8 @@ export function MetricDetailBody({ metric }: { metric: MetricData }) {
                 aggregatedSeries={aggregatedSeries}
                 onWindowChange={setWindow}
               />
-            </CardContent>
-          </Card>
+            </ItemContent>
+          </Item>
 
           {rangeDataPoints.length > 0 && (
             <DataPointsTable

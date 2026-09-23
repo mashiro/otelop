@@ -20,8 +20,8 @@ export function DetailPanel({ header, actions, onClose, children }: DetailPanelP
   return (
     <Card size="flush" className="h-full">
       <CardHeader className="shrink-0">
-        <div className="flex w-full items-center justify-between border-b border-border px-4 py-2.5">
-          <div className="flex min-w-0 flex-1 items-center gap-3">
+        <div className="flex w-full flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-2.5">
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-2">
             <Button
               variant="ghost-muted"
               size="icon-sm"
