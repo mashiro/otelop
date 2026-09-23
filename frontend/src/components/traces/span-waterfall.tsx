@@ -68,15 +68,15 @@ function WaterfallInner({
 
   return (
     <div className="flex h-full min-h-0 flex-col" aria-label="Trace waterfall">
-      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border/50 px-3 py-2">
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border px-3 py-2">
         <div className="relative w-48">
-          <Search className="pointer-events-none absolute top-2.5 left-2 size-3.5 text-muted-foreground" />
+          <Search className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
             aria-label="Find span"
             placeholder="Find span…"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            className="h-8 pl-7 text-xs"
+            className="pl-7"
           />
         </div>
         <Toggle variant="outline" size="sm" pressed={errorsOnly} onPressedChange={setErrorsOnly}>
@@ -111,7 +111,7 @@ function WaterfallInner({
         }}
       >
         <span className="flex items-center px-2 text-xs font-medium">Operation / Span</span>
-        <span className="flex items-center border-x border-border/50 px-3 text-xs font-medium">
+        <span className="flex items-center border-x border-border px-3 text-xs font-medium">
           Service
         </span>
         <div className="relative mx-3 font-mono">
@@ -258,7 +258,7 @@ function WaterfallInner({
             </ScrollAreaPrimitive.Viewport>
             <ScrollBar orientation="horizontal" className="sticky! bottom-0 -mt-2.5 shrink-0" />
           </ScrollAreaPrimitive.Root>
-          <div className="min-w-0 border-x border-border/50 pb-3" aria-label="Span services">
+          <div className="min-w-0 border-x border-border pb-3" aria-label="Span services">
             {visibleSpans.map(({ span }) => (
               <Tooltip key={span.spanId}>
                 <TooltipTrigger

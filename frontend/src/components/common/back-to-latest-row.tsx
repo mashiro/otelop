@@ -16,7 +16,7 @@ export function BackToLatestRow({ count, label, onClick }: BackToLatestRowProps)
   if (count <= 0) return null;
 
   return (
-    <div className="border-b border-border/30 p-2">
+    <div className="border-b border-border p-2">
       <Button variant="outline" size="sm" className="w-full" onClick={onClick}>
         {count.toLocaleString()} {label}
       </Button>

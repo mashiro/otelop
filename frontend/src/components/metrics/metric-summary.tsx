@@ -168,7 +168,7 @@ function HistogramSummary({
       <div className="mb-2 text-3xs font-semibold uppercase tracking-wider text-muted-foreground">
         Distribution · {rangeLabel(window)}
       </div>
-      <Card variant="inset" size="flush" className="overflow-x-auto">
+      <Card size="flush" className="overflow-x-auto">
         <Table className="min-w-220">
           <TableHeader>
             <TableRow>
@@ -235,7 +235,7 @@ function Tile({
   const count = isDistribution && tile.count != null ? tile.count.toLocaleString() : null;
 
   return (
-    <Card variant="inset" size="sm">
+    <Card size="sm">
       {showLabel && (
         <CardHeader>
           <div className="flex items-center gap-1.5">

@@ -13,7 +13,7 @@ export function AddFilterButton({ label, onClick }: { label: string; onClick: ()
         aria-label={label}
         onClick={onClick}
       >
-        <ListFilterPlus className="size-3" />
+        <ListFilterPlus />
       </Button>
     </HelpTooltip>
   );

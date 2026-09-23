@@ -39,7 +39,7 @@ export function DataPointsTable({
       <h4 className="mb-2 text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
         Data Points ({dataPoints.length})
       </h4>
-      <Card variant="inset" size="flush" className="max-h-90 overflow-auto">
+      <Card size="flush" className="max-h-90 overflow-auto">
         <Table>
           <TableHeader>
             <TableRow>

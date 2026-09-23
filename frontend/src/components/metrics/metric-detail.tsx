@@ -124,13 +124,13 @@ export function MetricDetailBody({ metric }: { metric: MetricData }) {
                 Breakdown
               </span>
               <Tabs value={tabValue} onValueChange={setPickedId}>
-                <TabsList size="sm">
+                <TabsList>
                   {facets.map((f) => (
-                    <TabsTrigger key={facetId(f)} value={facetId(f)} size="sm" tone="metric">
+                    <TabsTrigger key={facetId(f)} value={facetId(f)} tone="metric">
                       {f.label}
                     </TabsTrigger>
                   ))}
-                  <TabsTrigger value={ALL_FACET} size="sm" tone="metric">
+                  <TabsTrigger value={ALL_FACET} tone="metric">
                     All
                   </TabsTrigger>
                 </TabsList>
@@ -155,7 +155,7 @@ export function MetricDetailBody({ metric }: { metric: MetricData }) {
             distributionGroupBy={distributionGroupBy}
           />
 
-          <Card variant="inset" className="mb-4">
+          <Card className="mb-4">
             <CardContent className="h-84">
               <MetricChart
                 metric={{ ...metric, dataPoints: rangeDataPoints }}

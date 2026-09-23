@@ -10,15 +10,8 @@ import { useAtomValue } from "jotai";
 import { useMemo } from "react";
 import { logsAtom, logCountAtom, renderWindowMaxAtom } from "@/stores/telemetry";
 import { createFilteredLogsAtom } from "@/stores/filters";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { ScrollableTable } from "@/components/common/scrollable-table";
+import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatTimestamp, isZeroId, shortId } from "@/lib/format";
 import {
   EventListToolbar,
@@ -91,44 +84,45 @@ export function LogList() {
             />
           </div>
         ) : (
-          <ScrollArea className="min-h-0 min-w-0 flex-1">
-            <BackToLatestRow
-              count={renderWindow.newerCount}
-              label="newer — back to latest"
-              onClick={renderWindow.backToLatest}
-            />
-            <Table>
+          <ScrollableTable
+            before={
+              <BackToLatestRow
+                count={renderWindow.newerCount}
+                label="newer — back to latest"
+                onClick={renderWindow.backToLatest}
+              />
+            }
+            header={
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-27.5" tone="log">
-                    Timestamp
-                  </TableHead>
-                  <TableHead className="w-22.5" tone="log">
-                    Severity
-                  </TableHead>
-                  <TableHead tone="log">Service</TableHead>
-                  <TableHead tone="log">Body</TableHead>
-                  <TableHead tone="log">Trace ID</TableHead>
+                  <TableHead className="w-27.5">Timestamp</TableHead>
+                  <TableHead className="w-22.5">Severity</TableHead>
+                  <TableHead>Service</TableHead>
+                  <TableHead>Body</TableHead>
+                  <TableHead>Trace ID</TableHead>
                 </TableRow>
               </TableHeader>
-              <TableBody>
-                {renderWindow.visible.map((log) => (
-                  <LogRow
-                    key={log.id}
-                    log={log}
-                    isSelected={selectedLog?.id === log.id}
-                    onSelect={setSelectedLog}
-                    onNavigateToTrace={navigateToTrace}
-                  />
-                ))}
-              </TableBody>
-            </Table>
-            <LoadMoreRow
-              visible={canLoadMore}
-              loadingMore={page.loadingMore}
-              onClick={handleLoadMore}
-            />
-          </ScrollArea>
+            }
+            after={
+              <LoadMoreRow
+                visible={canLoadMore}
+                loadingMore={page.loadingMore}
+                onClick={handleLoadMore}
+              />
+            }
+          >
+            <TableBody>
+              {renderWindow.visible.map((log) => (
+                <LogRow
+                  key={log.id}
+                  log={log}
+                  isSelected={selectedLog?.id === log.id}
+                  onSelect={setSelectedLog}
+                  onNavigateToTrace={navigateToTrace}
+                />
+              ))}
+            </TableBody>
+          </ScrollableTable>
         )}
         {selectedLog && (
           <LogDetail

@@ -21,7 +21,7 @@ export function TraceOverview({
   return (
     <section
       aria-label="Trace overview"
-      className="flex shrink-0 items-center gap-4 border-b border-border/50 px-4 py-2"
+      className="flex shrink-0 items-center gap-4 border-b border-border px-4 py-2"
     >
       <Slider.Root
         {...selectionHandlers}
