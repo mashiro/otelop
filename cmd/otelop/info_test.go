@@ -39,6 +39,9 @@ protocol = "grpc"
 path = %q
 retention = "24h"
 max_size = "1GB"
+
+[ui]
+render_window_max = 250
 `, dbPath)
 	if err := os.WriteFile(cfgPath, []byte(body), 0o644); err != nil {
 		t.Fatalf("write config: %v", err)
@@ -61,6 +64,7 @@ max_size = "1GB"
 		dbPath,
 		"24h",
 		"1GB",
+		"250",
 	} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("output missing %q\noutput:\n%s", want, stdout)
@@ -68,6 +72,32 @@ max_size = "1GB"
 	}
 	if strings.Contains(stdout, "not found") {
 		t.Errorf("output should not mark the config file as not found:\n%s", stdout)
+	}
+}
+
+func TestInfoCommand_ValidatesRenderWindowMax(t *testing.T) {
+	dir := t.TempDir()
+	isolateInfoEnv(t, filepath.Join(dir, "missing.toml"))
+
+	_, _, err := runTestApp("info", "--render-window-max", "0")
+	if err == nil {
+		t.Fatal("run info --render-window-max 0: want error, got nil")
+	}
+	if !strings.Contains(err.Error(), "render-window-max") {
+		t.Errorf("error %q should mention render-window-max", err.Error())
+	}
+}
+
+func TestInfoCommand_ValidatesProxyAuth(t *testing.T) {
+	dir := t.TempDir()
+	isolateInfoEnv(t, filepath.Join(dir, "missing.toml"))
+
+	_, _, err := runTestApp("info", "--proxy-auth-type", "bearer")
+	if err == nil {
+		t.Fatal("run info --proxy-auth-type bearer: want error, got nil")
+	}
+	if !strings.Contains(err.Error(), "proxy-url") {
+		t.Errorf("error %q should mention proxy-url", err.Error())
 	}
 }
 
@@ -127,6 +157,7 @@ max_size = "500MB"
 	t.Setenv("OTELOP_LOG_LEVEL", "error")
 	t.Setenv("OTELOP_PROXY_URL", "https://env-upstream.example.com:4318")
 	t.Setenv("OTELOP_PROXY_PROTOCOL", "http")
+	t.Setenv("OTELOP_RENDER_WINDOW_MAX", "750")
 
 	stdout, _, err := runTestApp("info")
 	if err != nil {
@@ -142,6 +173,7 @@ max_size = "500MB"
 		"2GB",
 		"error",
 		"HTTP https://env-upstream.example.com:4318",
+		"750",
 	} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("output missing %q\noutput:\n%s", want, stdout)

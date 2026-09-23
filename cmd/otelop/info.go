@@ -24,6 +24,9 @@ func infoCommand(version string) *cli.Command {
 		Flags: configFlags(cfg),
 		Action: func(_ context.Context, cmd *cli.Command) error {
 			opts := runtimeOptionsFromCmd(cmd, version)
+			if err := otelruntime.Validate(opts); err != nil {
+				return err
+			}
 			return printInfoResolved(cmd.Writer, cfgPath, opts)
 		},
 		Description: configDescription(cfgPath),
@@ -54,6 +57,7 @@ func printInfoResolved(w io.Writer, cfgPath string, opts otelruntime.Options) er
 		{"Proxy", formatProxy(opts.ProxyURL, opts.ProxyProtocol, "(none)")},
 		{"Log level", opts.LogLevel},
 		{"Debug", strconv.FormatBool(opts.Debug)},
+		{"Render window max", strconv.Itoa(opts.RenderWindowMax)},
 		{"Storage path", storagePath},
 		{"Retention", opts.Retention},
 		{"Max size", opts.MaxSize},

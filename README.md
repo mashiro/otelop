@@ -197,7 +197,7 @@ otelop start [flags]   # launch in the background (default), or foreground with 
 otelop restart [flags] # restart with the current flags, environment, and config
 otelop stop            # stop the background server
 otelop status          # show whether it's running: PID, version, uptime, listen addresses
-otelop info            # show config-file values, built-in defaults, and resolved paths
+otelop info            # show the resolved configuration (flags, env, config file, defaults)
 otelop logs [-f]       # print the daemon log, or follow it with -f
 otelop version
 otelop docs list       # list documentation bundled with this binary (--json for JSON)
@@ -229,8 +229,8 @@ otelop docs show <name> # print one document as Markdown
 PID, log, and metadata files live in `$XDG_STATE_HOME/otelop/` (defaults to
 `~/.local/state/otelop/`). The DuckDB database defaults to
 `$XDG_DATA_HOME/otelop/otelop.duckdb` (or
-`~/.local/share/otelop/otelop.duckdb`). Use `otelop info` to see config-file
-values and resolved paths. Query GraphQL `status` for the running instance's
+`~/.local/share/otelop/otelop.duckdb`). Use `otelop info` to see the resolved
+configuration and paths. Query GraphQL `status` for the running instance's
 effective storage settings, file size, and logical signal counts.
 
 ## Bundled documentation
