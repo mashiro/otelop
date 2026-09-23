@@ -60,7 +60,8 @@ counts, use the endpoint reported by `otelop status` and query:
 ```
 
 The header's **Server info** button shows these details in a read-only dialog,
-refreshed every five seconds while open.
+refreshed once a minute while open. Reopening within a minute reuses the cached
+result to avoid repeating full-data statistics queries.
 
 `storage` sizes are bytes and durations are milliseconds. `tables` reports row
 counts for resources, metric series, spans, metric points, and logs; these differ

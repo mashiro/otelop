@@ -48,7 +48,6 @@ describe("ServerInfoDialog", () => {
 
     await within(dialog).findByText("Storage");
     expect(within(dialog).getByText("Signals")).toBeTruthy();
-    // "Retention" is both the card title and a row label inside it.
     expect(within(dialog).getAllByText("Retention").length).toBeGreaterThanOrEqual(2);
     expect(within(dialog).getByText("Tables")).toBeTruthy();
     expect(within(dialog).getByText("Endpoints")).toBeTruthy();
