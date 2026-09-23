@@ -67,7 +67,7 @@ export function Header() {
       </div>
 
       <div className="flex shrink-0 items-center gap-2">
-        <div className="flex items-center gap-2">
+        <div className="mx-2 flex items-center gap-2">
           <div className={cn("h-2 w-2 rounded-full", status.color, status.glow)} />
           <span className="sr-only text-xs font-medium text-muted-foreground sm:not-sr-only">
             {status.label}
