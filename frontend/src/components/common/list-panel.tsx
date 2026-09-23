@@ -1,3 +1,4 @@
+import { Card, CardContent } from "@/components/ui/card";
 import type { ReactNode } from "react";
 import { ListToolbar } from "@/components/filters/list-toolbar";
 
@@ -8,8 +9,6 @@ interface ListPanelProps {
   children: ReactNode;
 }
 
-// ListPanel is the glass-card + toolbar shell shared by every signal list view.
-// The body is left to the caller because each signal has its own list layout.
 export function ListPanel({
   toolbar,
   toolbarClassName,
@@ -17,11 +16,11 @@ export function ListPanel({
   children,
 }: ListPanelProps) {
   return (
-    <div className="glass-card @container/list flex h-full flex-col overflow-hidden">
+    <Card size="flush" className="@container/list h-full">
       <ListToolbar className={toolbarClassName} secondary={toolbarSecondary}>
         {toolbar}
       </ListToolbar>
-      {children}
-    </div>
+      <CardContent className="flex min-h-0 flex-1 flex-col overflow-hidden">{children}</CardContent>
+    </Card>
   );
 }

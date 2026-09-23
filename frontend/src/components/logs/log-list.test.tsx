@@ -29,14 +29,15 @@ const { requestMock } = vi.hoisted(() => ({
 }));
 vi.mock("@/lib/graphql", () => ({ gqlClient: { request: requestMock } }));
 
-// A leaf every row renders (the severity Pill) whose render count doubles as
+// A leaf every row renders (the severity badge) whose render count doubles as
 // a proxy for "how many rows actually re-rendered" — this guards the
 // React Compiler's row-level bail-out (LogRow is a plain function; no
 // React.memo involved).
-const { pillRenders } = vi.hoisted(() => ({ pillRenders: { current: 0 } }));
-vi.mock("@/components/common/pill", () => ({
-  Pill: ({ children }: { children: ReactNode }) => {
-    pillRenders.current++;
+const { badgeRenders } = vi.hoisted(() => ({ badgeRenders: { current: 0 } }));
+vi.mock("@/components/ui/badge", () => ({
+  BadgeDot: () => null,
+  Badge: ({ children }: { children: ReactNode }) => {
+    badgeRenders.current++;
     return <span>{children}</span>;
   },
 }));
@@ -48,7 +49,7 @@ beforeEach(async () => {
   store.set(renderWindowMaxAtom, TEST_RENDER_WINDOW_MAX);
   requestMock.mockReset();
   requestMock.mockResolvedValue({ logs: { items: [], hasNextPage: false, endCursor: null } });
-  pillRenders.current = 0;
+  badgeRenders.current = 0;
 });
 afterEach(cleanup);
 
@@ -121,7 +122,7 @@ describe("LogList row rendering", () => {
     store.set(logsAtom, makeLogs(5));
 
     render(<LogList />);
-    const rendersAfterMount = pillRenders.current;
+    const rendersAfterMount = badgeRenders.current;
     expect(rendersAfterMount).toBe(5);
 
     // Same log objects, new outer array reference — simulates a derived-atom
@@ -130,7 +131,7 @@ describe("LogList row rendering", () => {
       store.set(logsAtom, (prev) => [...prev]);
     });
 
-    expect(pillRenders.current).toBe(rendersAfterMount);
+    expect(badgeRenders.current).toBe(rendersAfterMount);
   });
 
   it("re-renders only the affected rows when a single log's selection state changes", async () => {
@@ -139,16 +140,16 @@ describe("LogList row rendering", () => {
     store.set(logsAtom, logs);
 
     render(<LogList />);
-    const rendersAfterMount = pillRenders.current;
+    const rendersAfterMount = badgeRenders.current;
 
     await act(async () => {
       await routing.router.navigate({ to: "/logs/$logId", params: { logId: logs[2].id } });
     });
 
-    // Selecting a log swaps in the detail pane (which renders its own Pill)
+    // Selecting a log swaps in the detail pane (which renders its own badge)
     // on top of re-rendering that one list row — bounded, not a full
-    // re-render of all 5 rows' Pills.
-    expect(pillRenders.current).toBeLessThan(rendersAfterMount + 5);
+    // re-render of all 5 rows' badges.
+    expect(badgeRenders.current).toBeLessThan(rendersAfterMount + 5);
   });
 
   it("still renders correctly after a log is updated (its row reflects the new data)", async () => {

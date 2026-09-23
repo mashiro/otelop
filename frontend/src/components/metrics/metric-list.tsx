@@ -21,7 +21,7 @@ import { formatRelativeTime } from "@/lib/format";
 import { resolveMetricUnit } from "@/lib/metric-catalog";
 import { MetricDetail } from "./metric-detail";
 import { EmptyState } from "@/components/common/empty-state";
-import { Pill } from "@/components/common/pill";
+import { Badge } from "@/components/ui/badge";
 import { SIGNALS } from "@/lib/signals";
 import { useMetricListSearch } from "@/hooks/use-metric-list-search";
 import { SIGNAL_PAGE_SIZE } from "@/hooks/use-signal-list-page";
@@ -137,7 +137,9 @@ function MetricRow({ metric, onSelect }: MetricRowProps) {
         {metric.description || "-"}
       </TableCell>
       <TableCell>
-        <Pill tone="metric">{metric.type}</Pill>
+        <Badge variant="soft" size="sm" tone="metric">
+          {metric.type}
+        </Badge>
       </TableCell>
       <TableCell emphasis="muted">{resolveMetricUnit(metric.name, metric.unit) || "-"}</TableCell>
       <TableCell variant="mono" align="right">

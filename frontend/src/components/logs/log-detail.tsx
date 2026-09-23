@@ -7,7 +7,7 @@ import { formatTimestamp, isZeroId } from "@/lib/format";
 import { KVSection } from "@/components/common/kv-section";
 import { Field, Section } from "@/components/common/detail-field";
 import { DetailSidebar } from "@/components/common/detail-sidebar";
-import { Pill } from "@/components/common/pill";
+import { Badge, BadgeDot } from "@/components/ui/badge";
 import { severityTone } from "@/lib/tones";
 import type { LogData } from "@/types/telemetry";
 
@@ -52,9 +52,10 @@ export function LogDetail({
           label="Severity"
           action={filterAction("severity_number", log.severityNumber)}
           value={
-            <Pill tone={severityTone(log.severityText)} dot>
+            <Badge variant="soft" size="sm" tone={severityTone(log.severityText)}>
+              <BadgeDot />
               {log.severityText || "UNSET"}
-            </Pill>
+            </Badge>
           }
         />
         <Field

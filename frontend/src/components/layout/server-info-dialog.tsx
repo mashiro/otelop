@@ -28,7 +28,9 @@ export function ServerInfoDialog() {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <HelpTooltip content="Server info">
-        <DialogTrigger render={<Button aria-label="Server info" variant="ghost-muted" size="sm" />}>
+        <DialogTrigger
+          render={<Button aria-label="Server info" variant="ghost-muted" size="icon-sm" />}
+        >
           <Info />
         </DialogTrigger>
       </HelpTooltip>

@@ -1,3 +1,4 @@
+import { Card, CardContent } from "@/components/ui/card";
 import { useState } from "react";
 import { useMetricSelection, useTimeWindow } from "@/hooks/use-signal-route";
 import { MetricChart } from "./metric-chart";
@@ -8,7 +9,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { CopyJsonButton } from "@/components/common/copy-json-button";
 import { DetailPanel } from "@/components/common/detail-panel";
 import { DetailSidebar } from "@/components/common/detail-sidebar";
-import { Pill } from "@/components/common/pill";
+import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TimeWindowControls } from "@/components/common/event-window-controls";
 import {
@@ -40,7 +41,9 @@ export function MetricDetail() {
       header={
         <>
           <span className="font-semibold text-foreground">{metric.name}</span>
-          <Pill tone="metric">{metric.type}</Pill>
+          <Badge variant="soft" size="sm" tone="metric">
+            {metric.type}
+          </Badge>
           {displayUnit && <span className="text-xs text-muted-foreground">({displayUnit})</span>}
           <span className="text-xs text-muted-foreground">{metric.serviceName}</span>
         </>
@@ -152,8 +155,8 @@ export function MetricDetailBody({ metric }: { metric: MetricData }) {
             distributionGroupBy={distributionGroupBy}
           />
 
-          <div className="mb-4 rounded-lg border border-border/30 bg-muted/50 p-4">
-            <div className="h-84">
+          <Card variant="inset" className="mb-4">
+            <CardContent className="h-84">
               <MetricChart
                 metric={{ ...metric, dataPoints: rangeDataPoints }}
                 facet={effectiveFacet}
@@ -161,8 +164,8 @@ export function MetricDetailBody({ metric }: { metric: MetricData }) {
                 aggregatedSeries={aggregatedSeries}
                 onWindowChange={setWindow}
               />
-            </div>
-          </div>
+            </CardContent>
+          </Card>
 
           {rangeDataPoints.length > 0 && (
             <DataPointsTable

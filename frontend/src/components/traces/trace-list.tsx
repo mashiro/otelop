@@ -1,3 +1,7 @@
+import { Card } from "@/components/ui/card";
+import { Empty, EmptyHeader, EmptyTitle, EmptyContent } from "@/components/ui/empty";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Skeleton } from "@/components/ui/skeleton";
 import { TraceAddFilter, TraceFilterBar } from "./trace-filter-bar";
 import { useSignalQuery, useTimeWindow, useTraceSelection } from "@/hooks/use-signal-route";
 import { useAtomValue } from "jotai";
@@ -30,7 +34,7 @@ import {
 import { formatDuration, formatTimestamp, shortId } from "@/lib/format";
 import { TraceDetail } from "./trace-detail";
 import { EmptyState } from "@/components/common/empty-state";
-import { Pill } from "@/components/common/pill";
+import { Badge, BadgeDot } from "@/components/ui/badge";
 import { SIGNALS } from "@/lib/signals";
 import { traceStatusTone } from "@/lib/tones";
 import type { TraceData } from "@/types/telemetry";
@@ -172,9 +176,10 @@ function TraceRow({ trace, onSelect }: TraceRowProps) {
         {formatTimestamp(trace.startTime)}
       </TableCell>
       <TableCell>
-        <Pill tone={traceStatusTone(status)} dot>
+        <Badge variant="soft" size="sm" tone={traceStatusTone(status)}>
+          <BadgeDot />
           {status === "Unset" ? "Unset" : status}
-        </Pill>
+        </Badge>
       </TableCell>
     </TableRow>
   );
@@ -191,28 +196,40 @@ function TraceLoadState({
 }) {
   const unavailable = status === "not-found";
   return (
-    <div className="glass-card flex h-full items-center justify-center">
-      <div className="flex flex-col items-center gap-3 text-center">
-        <p className="text-sm font-medium text-foreground/70">
-          {status === "loading"
-            ? "Loading trace…"
-            : unavailable
-              ? "Trace is no longer retained"
-              : "Unable to load trace"}
-        </p>
-        {status !== "loading" && (
-          <div className="flex gap-2">
-            {!unavailable && (
-              <Button variant="outline" size="sm" onClick={onRetry}>
-                Retry
-              </Button>
-            )}
-            <Button variant="ghost" size="sm" onClick={onBack}>
-              Back to traces
-            </Button>
-          </div>
+    <Card size="flush" className="h-full">
+      <Empty>
+        {status === "loading" ? (
+          <EmptyContent role="status">
+            <EmptyTitle>Loading trace…</EmptyTitle>
+            <Skeleton className="h-4 w-48" />
+            <Skeleton className="h-4 w-32" />
+          </EmptyContent>
+        ) : (
+          <>
+            <EmptyHeader>
+              {unavailable ? (
+                <EmptyTitle>Trace is no longer retained</EmptyTitle>
+              ) : (
+                <Alert variant="destructive">
+                  <AlertDescription>Unable to load trace</AlertDescription>
+                </Alert>
+              )}
+            </EmptyHeader>
+            <EmptyContent>
+              <div className="flex gap-2">
+                {!unavailable && (
+                  <Button variant="outline" size="sm" onClick={onRetry}>
+                    Retry
+                  </Button>
+                )}
+                <Button variant="ghost" size="sm" onClick={onBack}>
+                  Back to traces
+                </Button>
+              </div>
+            </EmptyContent>
+          </>
         )}
-      </div>
-    </div>
+      </Empty>
+    </Card>
   );
 }

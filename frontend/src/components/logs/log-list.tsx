@@ -28,7 +28,7 @@ import { ListPanel } from "@/components/common/list-panel";
 import { EmptyState, EmptyMatches } from "@/components/common/empty-state";
 import { LoadMoreRow } from "@/components/common/load-more-row";
 import { BackToLatestRow } from "@/components/common/back-to-latest-row";
-import { Pill } from "@/components/common/pill";
+import { Badge, BadgeDot } from "@/components/ui/badge";
 import { SIGNALS } from "@/lib/signals";
 import { severityTone } from "@/lib/tones";
 import { useLogListPage } from "@/hooks/use-log-list-page";
@@ -167,9 +167,10 @@ function LogRow({ log, isSelected, onSelect, onNavigateToTrace }: LogRowProps) {
         {formatTimestamp(log.timestamp)}
       </TableCell>
       <TableCell>
-        <Pill tone={severityTone(log.severityText)} dot>
+        <Badge variant="soft" size="sm" tone={severityTone(log.severityText)}>
+          <BadgeDot />
           {log.severityText || "UNSET"}
-        </Pill>
+        </Badge>
       </TableCell>
       <TableCell emphasis="strong">{log.serviceName || "-"}</TableCell>
       <TableCell emphasis="secondary" truncate className="max-w-100">

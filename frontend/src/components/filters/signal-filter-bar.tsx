@@ -1,3 +1,4 @@
+import { ButtonGroup } from "@/components/ui/button-group";
 import { HelpTooltip } from "@/components/common/help-tooltip";
 import { useFilterSuggestions } from "@/hooks/use-filter-suggestions";
 import { useId, useState } from "react";
@@ -88,12 +89,10 @@ export function SignalFilterBar({ fields, numericFields, signal, label }: Signal
           (operator) => operator.value === draft.operator,
         )?.label;
         return (
-          <div
+          <ButtonGroup
             key={filter.id}
-            className={cn(
-              "flex h-7 min-w-0 max-w-full items-center rounded-md border border-border bg-muted",
-              !filter.enabled && "bg-background text-muted-foreground",
-            )}
+            aria-label={`Filter ${draft.key}`}
+            className="min-w-0 max-w-full"
           >
             <Popover
               open={editing === filter.id}
@@ -101,13 +100,7 @@ export function SignalFilterBar({ fields, numericFields, signal, label }: Signal
             >
               <HelpTooltip content={draft.key}>
                 <PopoverTrigger
-                  render={
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-full min-w-0 gap-1.5 rounded-r-none"
-                    />
-                  }
+                  render={<Button variant="outline" size="sm" className="min-w-0" />}
                   aria-label={`Edit filter ${draft.key}`}
                 >
                   <Filter data-icon="inline-start" className="text-muted-foreground" />
@@ -154,8 +147,8 @@ export function SignalFilterBar({ fields, numericFields, signal, label }: Signal
             </Popover>
             <HelpTooltip content={filter.enabled ? "Disable filter" : "Enable filter"}>
               <Button
-                variant="ghost"
-                size="icon-xs"
+                variant="outline"
+                size="icon-sm"
                 aria-label={`${filter.enabled ? "Disable" : "Enable"} filter ${draft.key}`}
                 aria-pressed={filter.enabled}
                 onClick={() =>
@@ -172,10 +165,9 @@ export function SignalFilterBar({ fields, numericFields, signal, label }: Signal
             </HelpTooltip>
             <HelpTooltip content="Remove filter">
               <Button
-                variant="ghost"
-                size="icon-xs"
+                variant="outline"
+                size="icon-sm"
                 aria-label={`Remove filter ${draft.key}`}
-                className="mr-0.5"
                 onClick={() =>
                   void setState((current) => ({
                     ...current,
@@ -186,7 +178,7 @@ export function SignalFilterBar({ fields, numericFields, signal, label }: Signal
                 <X />
               </Button>
             </HelpTooltip>
-          </div>
+          </ButtonGroup>
         );
       })}
       {state.filters.length > 0 && (

@@ -3,11 +3,12 @@ import { HelpTooltip } from "@/components/common/help-tooltip";
 import { useAtomValue, useSetAtom } from "jotai";
 import { Sun, Moon, Monitor } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Logo } from "@/components/common/logo";
 import { ServerInfoDialog } from "@/components/layout/server-info-dialog";
 import { wsStatusAtom, traceCountAtom, metricCountAtom, logCountAtom } from "@/stores/telemetry";
 import { themeAtom, type Theme } from "@/stores/theme";
-import { SIGNALS, type SignalConfig } from "@/lib/signals";
+import { SIGNAL_LIST } from "@/lib/signals";
 import { cn } from "@/lib/utils";
 
 const statusConfig: Record<string, { color: string; glow: string; label: string }> = {
@@ -33,6 +34,7 @@ export function Header() {
   const traceCount = useAtomValue(traceCountAtom);
   const metricCount = useAtomValue(metricCountAtom);
   const logCount = useAtomValue(logCountAtom);
+  const counts = { traces: traceCount, metrics: metricCount, logs: logCount };
   const theme = useAtomValue(themeAtom);
   const setTheme = useSetAtom(themeAtom);
 
@@ -52,14 +54,20 @@ export function Header() {
 
         {/* Counters give way first so the header controls stay reachable on narrow screens. */}
         <div className="flex min-w-0 items-center gap-2 overflow-hidden sm:gap-3">
-          <CounterBadge signal={SIGNALS.traces} count={traceCount} />
-          <CounterBadge signal={SIGNALS.metrics} count={metricCount} />
-          <CounterBadge signal={SIGNALS.logs} count={logCount} />
+          {SIGNAL_LIST.map((signal) => (
+            <Badge key={signal.key} variant="soft" tone={signal.token} size="counter">
+              <span className="sr-only">{signal.label}: </span>
+              <span aria-hidden="true" className="text-3xs font-bold uppercase tracking-wider">
+                {signal.shortLabel}
+              </span>
+              <span className="font-mono text-xs font-semibold">{counts[signal.key]}</span>
+            </Badge>
+          ))}
         </div>
       </div>
 
-      <div className="flex shrink-0 items-center gap-2 sm:gap-4">
-        <div className="flex items-center gap-2">
+      <div className="flex shrink-0 items-center gap-2">
+        <div className="mx-2 flex items-center gap-2">
           <div className={cn("h-2 w-2 rounded-full", status.color, status.glow)} />
           <span className="sr-only text-xs font-medium text-muted-foreground sm:not-sr-only">
             {status.label}
@@ -70,18 +78,6 @@ export function Header() {
         <ThemeToggle theme={theme} setTheme={setTheme} />
       </div>
     </header>
-  );
-}
-
-function CounterBadge({ signal, count }: { signal: SignalConfig; count: number }) {
-  const { bgLight, text } = signal.classes;
-  return (
-    <div className={cn("flex shrink-0 items-center gap-1.5 rounded-md px-2 py-0.5", bgLight)}>
-      <span className={cn("text-3xs font-bold uppercase tracking-wider", text)}>
-        {signal.shortLabel}
-      </span>
-      <span className={cn("font-mono text-xs font-semibold", text)}>{count}</span>
-    </div>
   );
 }
 
@@ -105,8 +101,8 @@ function ThemeToggle({ theme, setTheme }: { theme: Theme; setTheme: (t: Theme) =
   const Icon = themeIcons[theme];
   return (
     <HelpTooltip content={themeLabels[theme]}>
-      <Button aria-label={themeLabels[theme]} variant="ghost-muted" size="sm" onClick={next}>
-        <Icon className="h-3.5 w-3.5" />
+      <Button aria-label={themeLabels[theme]} variant="ghost-muted" size="icon-sm" onClick={next}>
+        <Icon />
       </Button>
     </HelpTooltip>
   );
