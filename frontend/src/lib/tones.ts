@@ -29,14 +29,19 @@ export function traceStatusTone(status: SpanStatus): Tone {
 
 // severityTone maps an OTel log severity text to a Pill tone. Unknown or
 // absent severities fall back to muted so the UI stays quiet.
+// Severity text is free-form in OTel, and sources like the collector's
+// filelog parsers or Python logging emit "info" / "WARNING" / "CRITICAL",
+// so match case-insensitively and accept those common aliases.
 export function severityTone(severity: string | undefined): Tone {
-  switch (severity) {
+  switch (severity?.toUpperCase()) {
     case "INFO":
       return "primary";
     case "WARN":
+    case "WARNING":
       return "warning";
     case "ERROR":
     case "FATAL":
+    case "CRITICAL":
       return "destructive";
     default:
       return "muted";

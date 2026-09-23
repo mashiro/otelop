@@ -24,6 +24,16 @@ describe("severityTone", () => {
     expect(severityTone("ERROR")).toBe("destructive");
     expect(severityTone("FATAL")).toBe("destructive");
   });
+  it("matches severity text case-insensitively", () => {
+    expect(severityTone("info")).toBe("primary");
+    expect(severityTone("Warn")).toBe("warning");
+    expect(severityTone("error")).toBe("destructive");
+    expect(severityTone("fatal")).toBe("destructive");
+  });
+  it("maps WARNING and CRITICAL aliases", () => {
+    expect(severityTone("WARNING")).toBe("warning");
+    expect(severityTone("critical")).toBe("destructive");
+  });
   it("maps TRACE/DEBUG and unknown values to muted", () => {
     expect(severityTone("TRACE")).toBe("muted");
     expect(severityTone("DEBUG")).toBe("muted");
