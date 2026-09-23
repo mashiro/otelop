@@ -50,7 +50,7 @@ export function SignalAddFilter({ fields, numericFields, signal, description }: 
       <PopoverTrigger render={<Button variant="outline" size="sm" />}>
         <Plus data-icon="inline-start" /> Add filter
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-96 max-w-[calc(100vw-2rem)] gap-4 p-4">
+      <PopoverContent align="start" className="w-96 max-w-[calc(100vw-2rem)]">
         <PopoverHeader>
           <PopoverTitle>Add filter</PopoverTitle>
           <PopoverDescription>
@@ -121,7 +121,7 @@ export function SignalFilterBar({ fields, numericFields, signal, label }: Signal
                   </span>
                 </PopoverTrigger>
               </HelpTooltip>
-              <PopoverContent align="start" className="w-96 max-w-[calc(100vw-2rem)] gap-4 p-4">
+              <PopoverContent align="start" className="w-96 max-w-[calc(100vw-2rem)]">
                 <PopoverHeader>
                   <PopoverTitle>Edit filter</PopoverTitle>
                 </PopoverHeader>
@@ -236,7 +236,7 @@ function FilterEditor({
         if (!error) onApply(draftTerm(draft, fields));
       }}
     >
-      <FieldGroup className="gap-3">
+      <FieldGroup>
         <Field>
           <FieldLabel htmlFor={`${id}-key`}>Key</FieldLabel>
           <Input

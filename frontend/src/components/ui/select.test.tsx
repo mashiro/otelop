@@ -23,7 +23,7 @@ describe("SelectTrigger", () => {
     const trigger = renderTrigger({});
 
     expect(trigger.className).toContain("focus-visible:border-ring");
-    expect(trigger.className).toContain("focus-visible:ring-ring/50");
+    expect(trigger.className).toContain("focus-visible:ring-ring/30");
     expect(trigger.className).not.toContain("bg-muted/50");
   });
 
@@ -39,21 +39,13 @@ describe("SelectTrigger", () => {
       expect(trigger.className).toContain(border);
       expect(trigger.className).toContain(ring);
       expect(trigger.className).not.toContain("focus-visible:border-ring");
-      expect(trigger.className).not.toContain("focus-visible:ring-ring/50");
+      expect(trigger.className).not.toContain("focus-visible:ring-ring/30");
     },
   );
 
-  it("applies the muted variant's background and typography", () => {
-    const trigger = renderTrigger({ variant: "muted" });
-
-    expect(trigger.className).toContain("bg-muted/50");
-    expect(trigger.className).toContain("text-xs");
-    expect(trigger.className).toContain("font-medium");
-  });
-
   it.each([
-    ["default", "data-[size=default]:h-8"],
-    ["sm", "data-[size=sm]:h-7"],
+    ["default", "data-[size=default]:h-7"],
+    ["sm", "data-[size=sm]:h-6"],
   ] as const)("sets data-size=%s and keeps the matching height class", (size, expectedClass) => {
     const trigger = renderTrigger({ size });
 
@@ -62,10 +54,9 @@ describe("SelectTrigger", () => {
   });
 
   it("merges a caller className alongside the variant classes", () => {
-    const trigger = renderTrigger({ tone: "trace", variant: "muted", className: "min-w-18" });
+    const trigger = renderTrigger({ tone: "trace", className: "min-w-18" });
 
     expect(trigger.className).toContain("min-w-18");
-    expect(trigger.className).toContain("bg-muted/50");
     expect(trigger.className).toContain("focus-visible:border-trace/60");
   });
 });

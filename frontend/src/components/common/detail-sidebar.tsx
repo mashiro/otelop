@@ -46,9 +46,9 @@ export function DetailSidebar({
   useKeyboardShortcut("Escape", onClose, { capture: true });
 
   return (
-    <div className="h-[45%] min-h-0 shrink-0 border-t border-border/50 xl:h-auto xl:w-105 xl:border-t-0 xl:border-l">
+    <div className="h-[45%] min-h-0 shrink-0 border-t border-border xl:h-auto xl:w-105 xl:border-t-0 xl:border-l">
       <div className="flex h-full flex-col">
-        <div className="flex items-center justify-between border-b border-border/50 px-4 py-2">
+        <div className="flex items-center justify-between border-b border-border px-4 py-2">
           <h3 className={cn("text-sm font-semibold", titleToneClasses[tone])}>{title}</h3>
           <div className="flex items-center gap-1">
             {actions}
@@ -60,7 +60,7 @@ export function DetailSidebar({
               aria-keyshortcuts="Escape"
               title={`${closeLabel} (Esc)`}
             >
-              <X className="h-3 w-3" />
+              <X />
             </Button>
           </div>
         </div>

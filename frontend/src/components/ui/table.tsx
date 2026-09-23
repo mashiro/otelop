@@ -6,30 +6,49 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 import type { SignalTone } from "@/lib/signals";
 
-// Re-exported so consumers only need one import when destructuring a
-// TableRow/TableHead's `tone` prop type alongside the table components.
+// Shared signal tone for table rows and cells.
 export type { SignalTone };
 
-function Table({ className, ...props }: React.ComponentProps<"table">) {
+function Table({
+  className,
+  spacing = "default",
+  ...props
+}: React.ComponentProps<"table"> & { spacing?: "default" | "comfortable" }) {
   return (
     <div data-slot="table-container" className="relative w-full">
       <table
         data-slot="table"
-        className={cn("w-full caption-bottom text-sm", className)}
+        className={cn(
+          "w-full caption-bottom text-xs [--cell-padding-x:--spacing(2)]",
+          spacing === "comfortable" && "[--cell-padding-x:--spacing(4)]",
+          className,
+        )}
         {...props}
       />
     </div>
   );
 }
 
-function TableHeader({ className, ...props }: React.ComponentProps<"thead">) {
+const tableHeaderVariants = cva("sticky top-0 z-10 [&_tr]:border-b [&_tr]:border-border/50", {
+  variants: {
+    surface: {
+      card: "bg-card",
+      // Match a muted Item over a Card without letting scrolled rows show through.
+      muted: "bg-[color-mix(in_srgb,var(--muted)_50%,var(--card))]",
+    },
+  },
+  defaultVariants: { surface: "card" },
+});
+
+function TableHeader({
+  className,
+  surface,
+  ...props
+}: React.ComponentProps<"thead"> & VariantProps<typeof tableHeaderVariants>) {
   return (
     <thead
       data-slot="table-header"
-      className={cn(
-        "sticky top-0 z-10 [&_tr]:border-b [&_tr]:border-border/50 [&_tr]:bg-muted [&_tr]:hover:bg-muted",
-        className,
-      )}
+      className={cn(tableHeaderVariants({ surface }), className)}
       {...props}
     />
   );
@@ -49,19 +68,22 @@ function TableFooter({ className, ...props }: React.ComponentProps<"tfoot">) {
   return (
     <tfoot
       data-slot="table-footer"
-      className={cn("border-t bg-muted/50 font-medium [&>tr]:last:border-b-0", className)}
+      className={cn(
+        "border-t border-border/50 bg-muted/50 font-medium [&>tr]:last:border-b-0",
+        className,
+      )}
       {...props}
     />
   );
 }
 
-const tableRowVariants = cva("border-b transition-colors", {
+const tableRowVariants = cva("border-b border-border/40 transition-colors", {
   variants: {
     tone: {
       none: "hover:bg-muted/50 has-aria-expanded:bg-muted/50 data-[state=selected]:bg-muted",
-      trace: "border-border/30 hover:bg-trace/5",
-      metric: "border-border/30 hover:bg-metric/5",
-      log: "border-border/30 hover:bg-log/5",
+      trace: "hover:bg-trace/5",
+      metric: "hover:bg-metric/5",
+      log: "hover:bg-log/5",
     },
     interactive: {
       true: "cursor-pointer focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring",
@@ -107,19 +129,11 @@ function TableRow({
 }
 
 const tableHeadVariants = cva(
-  "h-10 px-3 first:pl-4 last:pr-4 text-left align-middle font-medium whitespace-nowrap text-foreground [&:has([role=checkbox])]:pr-0",
+  "h-10 px-(--cell-padding-x) text-left align-middle font-medium whitespace-nowrap text-foreground [&:has([role=checkbox])]:pr-0",
   {
     variants: {
       align: { left: "", right: "text-right" },
-      tone: {
-        none: "",
-        trace: "text-trace/70",
-        metric: "text-metric/70",
-        log: "text-log/70",
-      },
-    },
-    defaultVariants: {
-      tone: "none",
+      tone: { trace: "text-trace/70", metric: "text-metric/70", log: "text-log/70" },
     },
   },
 );
@@ -127,20 +141,20 @@ const tableHeadVariants = cva(
 function TableHead({
   className,
   align = "left",
-  tone = "none",
+  tone,
   ...props
 }: React.ComponentProps<"th"> & VariantProps<typeof tableHeadVariants>) {
   return (
     <th
       data-slot="table-head"
-      className={cn(tableHeadVariants({ tone, align }), className)}
+      className={cn(tableHeadVariants({ align, tone }), className)}
       {...props}
     />
   );
 }
 
 const tableCellVariants = cva(
-  "px-3 py-2 first:pl-4 last:pr-4 align-middle whitespace-nowrap [&:has([role=checkbox])]:pr-0",
+  "px-(--cell-padding-x) py-2 align-middle whitespace-nowrap [&:has([role=checkbox])]:pr-0",
   {
     variants: {
       // Font family/scale axis, orthogonal to `emphasis`'s color/weight axis
@@ -213,7 +227,7 @@ function TableCaption({ className, ...props }: React.ComponentProps<"caption">) 
   return (
     <caption
       data-slot="table-caption"
-      className={cn("mt-4 text-sm text-muted-foreground", className)}
+      className={cn("mt-4 text-xs text-muted-foreground", className)}
       {...props}
     />
   );

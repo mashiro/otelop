@@ -52,7 +52,11 @@ export function LogDetail({
           label="Severity"
           action={filterAction("severity_number", log.severityNumber)}
           value={
-            <Badge variant="soft" size="sm" tone={severityTone(log.severityText)}>
+            <Badge
+              variant="soft"
+              size="sm"
+              tone={severityTone(log.severityText, log.severityNumber)}
+            >
               <BadgeDot />
               {log.severityText || "UNSET"}
             </Badge>

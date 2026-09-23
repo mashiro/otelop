@@ -8,7 +8,7 @@ import { useAtomValue } from "jotai";
 import { useMemo } from "react";
 import { traceCountAtom, tracesAtom, renderWindowMaxAtom } from "@/stores/telemetry";
 import { createFilteredTracesAtom } from "@/stores/filters";
-import { ScrollArea } from "@/components/ui/scroll-area";
+import { ScrollableTable } from "@/components/common/scrollable-table";
 import {
   EventListToolbar,
   EVENT_LIST_TOOLBAR_CLASSNAME,
@@ -23,14 +23,7 @@ import { useRenderWindow } from "@/hooks/use-render-window";
 import { useLoadOlderRows } from "@/hooks/use-load-older-rows";
 import { useTraceById, type TraceByIdStatus } from "@/hooks/use-trace-by-id";
 import { Button } from "@/components/ui/button";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatDuration, formatTimestamp, shortId } from "@/lib/format";
 import { TraceDetail } from "./trace-detail";
 import { EmptyState } from "@/components/common/empty-state";
@@ -108,42 +101,47 @@ export function TraceList() {
           />
         </div>
       ) : (
-        <ScrollArea className="min-h-0 flex-1">
-          <BackToLatestRow
-            count={renderWindow.newerCount}
-            label="newer — back to latest"
-            onClick={renderWindow.backToLatest}
-          />
-          <Table>
+        <ScrollableTable
+          before={
+            <BackToLatestRow
+              count={renderWindow.newerCount}
+              label="newer — back to latest"
+              onClick={renderWindow.backToLatest}
+            />
+          }
+          header={
             <TableHeader>
               <TableRow>
                 <TableHead tone="trace">Service</TableHead>
                 <TableHead tone="trace">Name</TableHead>
                 <TableHead tone="trace">Trace ID</TableHead>
-                <TableHead className="text-right" tone="trace">
+                <TableHead tone="trace" className="text-right">
                   Spans
                 </TableHead>
-                <TableHead className="text-right" tone="trace">
+                <TableHead tone="trace" className="text-right">
                   Duration
                 </TableHead>
-                <TableHead className="w-27.5" tone="trace">
+                <TableHead tone="trace" className="w-27.5">
                   Started
                 </TableHead>
                 <TableHead tone="trace">Status</TableHead>
               </TableRow>
             </TableHeader>
-            <TableBody>
-              {renderWindow.visible.map((trace) => (
-                <TraceRow key={trace.traceId} trace={trace} onSelect={setSelectedTrace} />
-              ))}
-            </TableBody>
-          </Table>
-          <LoadMoreRow
-            visible={canLoadMore}
-            loadingMore={page.loadingMore}
-            onClick={handleLoadMore}
-          />
-        </ScrollArea>
+          }
+          after={
+            <LoadMoreRow
+              visible={canLoadMore}
+              loadingMore={page.loadingMore}
+              onClick={handleLoadMore}
+            />
+          }
+        >
+          <TableBody>
+            {renderWindow.visible.map((trace) => (
+              <TraceRow key={trace.traceId} trace={trace} onSelect={setSelectedTrace} />
+            ))}
+          </TableBody>
+        </ScrollableTable>
       )}
     </ListPanel>
   );

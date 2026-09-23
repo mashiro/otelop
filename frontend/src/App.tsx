@@ -35,7 +35,7 @@ function App() {
   };
 
   return (
-    <div className="noise-bg mesh-bg flex h-screen flex-col text-foreground">
+    <div className="flex h-screen flex-col bg-background text-foreground">
       <Header />
       <Tabs
         value={activeTab}
@@ -44,7 +44,7 @@ function App() {
       >
         <TabsList variant="pill" className="shrink-0">
           {SIGNAL_LIST.map((signal) => (
-            <TabsTrigger key={signal.key} value={signal.key} size="lg" tone={signal.token} glow>
+            <TabsTrigger key={signal.key} value={signal.key} size="lg" tone={signal.token}>
               {signal.label}
             </TabsTrigger>
           ))}

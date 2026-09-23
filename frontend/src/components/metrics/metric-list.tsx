@@ -3,20 +3,13 @@ import { useMemo } from "react";
 import { useAtomValue } from "jotai";
 import { metricsAtom, renderWindowMaxAtom } from "@/stores/telemetry";
 import { createFilteredMetricsAtom } from "@/stores/filters";
-import { ScrollArea } from "@/components/ui/scroll-area";
+import { ScrollableTable } from "@/components/common/scrollable-table";
 import { SearchFilter } from "@/components/filters/search-filter";
 import { ListPanel } from "@/components/common/list-panel";
 import { EmptyMatches } from "@/components/common/empty-state";
 import { LoadMoreRow } from "@/components/common/load-more-row";
 import { BackToLatestRow } from "@/components/common/back-to-latest-row";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatRelativeTime } from "@/lib/format";
 import { resolveMetricUnit } from "@/lib/metric-catalog";
 import { MetricDetail } from "./metric-detail";
@@ -82,13 +75,15 @@ export function MetricList() {
       {metrics.length === 0 ? (
         <EmptyMatches label="metrics" />
       ) : (
-        <ScrollArea className="min-h-0 flex-1">
-          <BackToLatestRow
-            count={renderWindow.newerCount}
-            label="earlier — back to top"
-            onClick={renderWindow.backToLatest}
-          />
-          <Table>
+        <ScrollableTable
+          before={
+            <BackToLatestRow
+              count={renderWindow.newerCount}
+              label="earlier — back to top"
+              onClick={renderWindow.backToLatest}
+            />
+          }
+          header={
             <TableHeader>
               <TableRow>
                 <TableHead tone="metric">Service</TableHead>
@@ -96,27 +91,30 @@ export function MetricList() {
                 <TableHead tone="metric">Description</TableHead>
                 <TableHead tone="metric">Type</TableHead>
                 <TableHead tone="metric">Unit</TableHead>
-                <TableHead className="text-right" tone="metric">
+                <TableHead tone="metric" className="text-right">
                   Points
                 </TableHead>
-                <TableHead className="text-right" tone="metric">
+                <TableHead tone="metric" className="text-right">
                   Latest Value
                 </TableHead>
                 <TableHead tone="metric">Received</TableHead>
               </TableRow>
             </TableHeader>
-            <TableBody>
-              {renderWindow.visible.map((metric) => (
-                <MetricRow key={metricRowId(metric)} metric={metric} onSelect={setSelectedMetric} />
-              ))}
-            </TableBody>
-          </Table>
-          <LoadMoreRow
-            visible={renderWindow.olderCount > 0}
-            loadingMore={false}
-            onClick={handleSlide}
-          />
-        </ScrollArea>
+          }
+          after={
+            <LoadMoreRow
+              visible={renderWindow.olderCount > 0}
+              loadingMore={false}
+              onClick={handleSlide}
+            />
+          }
+        >
+          <TableBody>
+            {renderWindow.visible.map((metric) => (
+              <MetricRow key={metricRowId(metric)} metric={metric} onSelect={setSelectedMetric} />
+            ))}
+          </TableBody>
+        </ScrollableTable>
       )}
     </ListPanel>
   );

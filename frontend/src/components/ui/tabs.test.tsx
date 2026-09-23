@@ -39,20 +39,6 @@ describe("TabsList", () => {
     expect(cls).toContain("data-[variant=pill]:p-0");
     expect(cls).not.toContain("bg-muted");
   });
-
-  it("size=sm dims the segmented background without leaving the opaque default", () => {
-    render(
-      <Tabs value="a">
-        <TabsList size="sm">
-          <TabsTrigger value="a">A</TabsTrigger>
-        </TabsList>
-      </Tabs>,
-    );
-    const list = screen.getByRole("tablist");
-    const cls = classes(list);
-    expect(cls).toContain("bg-muted/50");
-    expect(cls).not.toContain("bg-muted");
-  });
 });
 
 describe("TabsTrigger", () => {
@@ -84,19 +70,17 @@ describe("TabsTrigger", () => {
     expect(cls).toContain("data-active:text-foreground");
   });
 
-  it("size=sm + tone applies the small facet chrome and tone color, dropping the default active background", () => {
+  it("tone applies the signal color, dropping the default active background", () => {
     render(
       <Tabs value="a">
-        <TabsList size="sm">
-          <TabsTrigger value="a" size="sm" tone="metric">
+        <TabsList>
+          <TabsTrigger value="a" tone="metric">
             A
           </TabsTrigger>
         </TabsList>
       </Tabs>,
     );
     const cls = classes(screen.getByRole("tab"));
-    expect(cls).toContain("h-7");
-    expect(cls).toContain("px-3");
     expect(cls).toContain("text-xs");
     expect(cls).toContain("data-active:bg-metric/15");
     expect(cls).toContain("data-active:text-metric");
@@ -104,40 +88,22 @@ describe("TabsTrigger", () => {
     expect(cls).not.toContain("data-active:shadow-glow");
   });
 
-  it("size=lg + tone + glow renders the nav pill chrome with the tone glow, dropping the default active background", () => {
+  it("size=lg + tone renders the nav pill chrome, dropping the default active background", () => {
     render(
       <Tabs value="a">
         <TabsList variant="pill">
-          <TabsTrigger value="a" size="lg" tone="trace" glow>
+          <TabsTrigger value="a" size="lg" tone="trace">
             A
           </TabsTrigger>
         </TabsList>
       </Tabs>,
     );
     const cls = classes(screen.getByRole("tab"));
-    expect(cls).toContain("rounded-lg");
-    expect(cls).toContain("px-4");
-    expect(cls).toContain("py-1.5");
+    expect(cls).toContain("rounded-md");
+    expect(cls).toContain("px-3");
+    expect(cls).toContain("py-1");
     expect(cls).toContain("data-active:bg-trace/15");
     expect(cls).toContain("data-active:text-trace");
-    expect(cls).toContain("data-active:shadow-glow");
-    expect(cls).toContain("data-active:shadow-trace/20");
     expect(cls).not.toContain("data-active:bg-background");
-  });
-
-  it("glow defaults to false: tone alone does not add the glow shadow", () => {
-    render(
-      <Tabs value="a">
-        <TabsList variant="pill">
-          <TabsTrigger value="a" size="lg" tone="log">
-            A
-          </TabsTrigger>
-        </TabsList>
-      </Tabs>,
-    );
-    const cls = classes(screen.getByRole("tab"));
-    expect(cls).toContain("data-active:bg-log/15");
-    expect(cls).not.toContain("data-active:shadow-glow");
-    expect(cls).not.toContain("data-active:shadow-log/20");
   });
 });

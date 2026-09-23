@@ -23,35 +23,7 @@ describe("TableHeader", () => {
     const thead = screen.getByRole("rowgroup");
     expect(thead.className).toContain("[&_tr]:border-b");
     expect(thead.className).toContain("[&_tr]:border-border/50");
-    expect(thead.className).toContain("[&_tr]:bg-muted");
-    expect(thead.className).toContain("[&_tr]:hover:bg-muted");
-  });
-});
-
-describe("TableHead tone", () => {
-  it.each([
-    ["none", ""],
-    ["trace", "text-trace/70"],
-    ["metric", "text-metric/70"],
-    ["log", "text-log/70"],
-  ] as const)("tone=%s applies %s", (tone, expected) => {
-    render(
-      <table>
-        <thead>
-          <tr>
-            <TableHead tone={tone}>Col</TableHead>
-          </tr>
-        </thead>
-      </table>,
-    );
-    const th = screen.getByRole("columnheader");
-    if (expected) {
-      expect(th.className).toContain(expected);
-    } else {
-      expect(th.className).not.toContain("text-trace/70");
-      expect(th.className).not.toContain("text-metric/70");
-      expect(th.className).not.toContain("text-log/70");
-    }
+    expect(thead.className).toContain("bg-card");
   });
 });
 

@@ -104,9 +104,7 @@ export function TimeWindowControls({
         <Radio
           className={cn(
             "size-3",
-            isLive
-              ? "animate-pulse-glow text-success drop-shadow-glow drop-shadow-success/70"
-              : "text-muted-foreground",
+            isLive ? "animate-pulse-glow text-success" : "text-muted-foreground",
           )}
         />
         Live

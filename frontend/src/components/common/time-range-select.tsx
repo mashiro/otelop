@@ -38,7 +38,6 @@ export function TimeRangeSelect({ range, onRangeChange, tone, size = "sm" }: Tim
       <SelectTrigger
         size={size === "sm" ? "sm" : "default"}
         tone={tone}
-        variant="muted"
         className="min-w-18"
         aria-label="Time range"
       >

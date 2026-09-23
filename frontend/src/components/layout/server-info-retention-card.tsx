@@ -1,4 +1,4 @@
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { Item, ItemHeader, ItemTitle, ItemContent } from "@/components/ui/item";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { HelpTooltip } from "@/components/common/help-tooltip";
 import { ServerInfoRow } from "./server-info-row";
@@ -16,11 +16,11 @@ export function RetentionCard({
 }) {
   const sweep = storage.lastSweep;
   return (
-    <Card size="sm" className="min-w-0">
-      <CardHeader>
-        <CardTitle>Retention</CardTitle>
-      </CardHeader>
-      <CardContent>
+    <Item variant="muted" className="min-w-0 flex-col items-stretch">
+      <ItemHeader className="basis-auto flex-col items-start">
+        <ItemTitle>Retention</ItemTitle>
+      </ItemHeader>
+      <ItemContent>
         <div className="flex flex-col gap-2">
           <ServerInfoRow label="Retention" mono value={config.retention} />
           <ServerInfoRow
@@ -63,7 +63,7 @@ export function RetentionCard({
             </Alert>
           )}
         </div>
-      </CardContent>
-    </Card>
+      </ItemContent>
+    </Item>
   );
 }

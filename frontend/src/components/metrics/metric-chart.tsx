@@ -450,7 +450,7 @@ function ChartInner({
           top={tooltipTop}
           unstyled
           applyPositionStyle
-          className="pointer-events-none z-50 max-w-80 rounded-lg border border-border/50 bg-card px-3 py-2 shadow-sm backdrop-blur-md"
+          className="pointer-events-none z-50 max-w-80 rounded-lg border border-border bg-card px-3 py-2 shadow-sm backdrop-blur-md"
         >
           <div className="mb-1.5 font-mono text-3xs text-muted-foreground">
             {tooltipData.time.toLocaleTimeString()}

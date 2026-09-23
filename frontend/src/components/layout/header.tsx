@@ -11,20 +11,20 @@ import { themeAtom, type Theme } from "@/stores/theme";
 import { SIGNAL_LIST } from "@/lib/signals";
 import { cn } from "@/lib/utils";
 
-const statusConfig: Record<string, { color: string; glow: string; label: string }> = {
+const statusConfig: Record<string, { color: string; animation: string; label: string }> = {
   connected: {
     color: "bg-success",
-    glow: "animate-breathe",
+    animation: "",
     label: "Connected",
   },
   connecting: {
     color: "bg-warning",
-    glow: "animate-pulse-glow",
+    animation: "animate-pulse-glow",
     label: "Connecting",
   },
   disconnected: {
     color: "bg-destructive",
-    glow: "",
+    animation: "",
     label: "Offline",
   },
 };
@@ -41,7 +41,7 @@ export function Header() {
   const status = statusConfig[wsStatus] ?? statusConfig.disconnected;
 
   return (
-    <header className="relative z-10 flex items-center justify-between gap-3 border-b border-border/50 px-3 py-3 sm:px-5">
+    <header className="relative z-10 flex items-center justify-between gap-3 border-b border-border px-3 py-3 sm:px-5">
       <div className="flex min-w-0 items-center gap-3 sm:gap-5">
         <Link
           to="/"
@@ -68,7 +68,7 @@ export function Header() {
 
       <div className="flex shrink-0 items-center gap-2">
         <div className="mx-2 flex items-center gap-2">
-          <div className={cn("h-2 w-2 rounded-full", status.color, status.glow)} />
+          <div className={cn("h-2 w-2 rounded-full", status.color, status.animation)} />
           <span className="sr-only text-xs font-medium text-muted-foreground sm:not-sr-only">
             {status.label}
           </span>
@@ -101,7 +101,7 @@ function ThemeToggle({ theme, setTheme }: { theme: Theme; setTheme: (t: Theme) =
   const Icon = themeIcons[theme];
   return (
     <HelpTooltip content={themeLabels[theme]}>
-      <Button aria-label={themeLabels[theme]} variant="ghost-muted" size="icon-sm" onClick={next}>
+      <Button aria-label={themeLabels[theme]} variant="ghost-muted" size="icon" onClick={next}>
         <Icon />
       </Button>
     </HelpTooltip>

@@ -63,7 +63,7 @@ export function SearchFilter({
         value={input}
         onChange={handleChange}
         onKeyDown={handleKeyDown}
-        className="h-7 w-full pl-7 pr-7"
+        className="pl-7 pr-7"
       />
       {input && (
         <button
