@@ -15,11 +15,18 @@ function stringifyJson(data: unknown): string {
   return JSON.stringify(data, bigintSafeReplacer, 2);
 }
 
+export async function copyTextToClipboard(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function copyJsonToClipboard(data: unknown): Promise<boolean> {
   try {
-    const json = stringifyJson(data);
-    await navigator.clipboard.writeText(json);
-    return true;
+    return await copyTextToClipboard(stringifyJson(data));
   } catch {
     return false;
   }
