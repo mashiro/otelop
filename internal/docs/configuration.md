@@ -45,11 +45,34 @@ counts, use the endpoint reported by `otelop status` and query:
 ```graphql
 {
   status {
-    httpAddr otlpGrpcAddr otlpHttpAddr proxyUrl proxyProtocol dbSizeBytes
+    httpAddr otlpGrpcAddr otlpHttpAddr proxyUrl proxyProtocol
     config { storagePath retention maxSize traceCount metricCount logCount }
+    storage {
+      fileSizeBytes maxSizeBytes walSizeBytes memoryUsageBytes tempStorageBytes
+      databaseSizeBytes totalBlocks usedBlocks freeBlocks
+      tables { name rows }
+      oldestTimestamp newestTimestamp
+      retentionMs sweepIntervalMs nextSweepAt
+      lastSweep { startedAt durationMs deletedRows maxSizeIterations error }
+    }
   }
 }
 ```
+
+The header's **Server info** button shows these details in a read-only dialog,
+refreshed every five seconds while open.
+
+`storage` sizes are bytes and durations are milliseconds. `tables` reports row
+counts for resources, metric series, spans, metric points, and logs; these differ
+from the logical signal counts in `config`. The oldest/newest timestamps are
+`null` when no signal data is retained. `lastSweep` is `null` until a sweep has
+completed in the current process. Its `deletedRows` counts deleted spans, metric
+points, and logs; `error` is empty on success. `nextSweepAt` is the expected
+scheduled time, not a completion deadline.
+
+`databaseSizeBytes` and block counts describe DuckDB allocation; free blocks can
+be reused without shrinking the file. `fileSizeBytes` excludes the separately
+reported WAL. The existing `status.dbSizeBytes` also reports the database file size.
 
 The Web UI and GraphQL endpoint have no authentication and bind to
 `127.0.0.1` by default. A loopback listener rejects non-local `Host` headers

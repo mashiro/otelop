@@ -14,13 +14,17 @@ function fixed(n: number): string {
   return n.toFixed(2);
 }
 
-function formatBytes(v: number): string {
+// formatBytes uses SI (decimal, base-1000) units, not binary (base-1024)
+// KiB/MiB/GiB — matching how the backend's own config displays sizes (e.g.
+// --max-size "4GB" is decimal already), so a configured ceiling and its
+// live usage never appear to disagree just from a unit-base mismatch.
+export function formatBytes(v: number): string {
   const sign = v < 0 ? "-" : "";
   let n = Math.abs(v);
-  const units = ["B", "KiB", "MiB", "GiB", "TiB", "PiB"];
+  const units = ["B", "KB", "MB", "GB", "TB", "PB"];
   let i = 0;
-  while (n >= 1024 && i < units.length - 1) {
-    n /= 1024;
+  while (n >= 1000 && i < units.length - 1) {
+    n /= 1000;
     i++;
   }
   return `${sign}${fixed(n)} ${units[i]}`;

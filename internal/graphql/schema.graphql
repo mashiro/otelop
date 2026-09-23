@@ -164,6 +164,61 @@ type Status {
   config: Config!
   "Current database file size in bytes (0 for an in-memory database)."
   dbSizeBytes: Float!
+  "DuckDB storage state and retention sweep history."
+  storage: StorageStatus!
+}
+
+type StorageStatus {
+  "Current database file size in bytes (0 for an in-memory database)."
+  fileSizeBytes: Float!
+  "Write-ahead log file size in bytes (0 for an in-memory database, or once checkpointed away)."
+  walSizeBytes: Float!
+  "DuckDB's allocated database size (block_size * total_blocks), independent of the on-disk file size."
+  databaseSizeBytes: Float!
+  "Total DuckDB storage blocks allocated."
+  totalBlocks: Float!
+  "DuckDB storage blocks currently in use."
+  usedBlocks: Float!
+  "DuckDB storage blocks free for reuse (already allocated, not returned to the OS)."
+  freeBlocks: Float!
+  "DuckDB buffer manager memory usage in bytes."
+  memoryUsageBytes: Float!
+  "DuckDB temporary storage (spill-to-disk) usage in bytes."
+  tempStorageBytes: Float!
+  "Configured on-disk size ceiling in bytes (0 if none configured)."
+  maxSizeBytes: Float!
+  "Configured retention window in milliseconds."
+  retentionMs: Float!
+  "Per-table logical row counts, in a stable order."
+  tables: [TableRowCount!]!
+  "Earliest timestamp across all retained fact rows, or null when nothing is retained."
+  oldestTimestamp: Time
+  "Latest timestamp across all retained fact rows, or null when nothing is retained."
+  newestTimestamp: Time
+  "How often the background retention/max_size sweep runs, in milliseconds."
+  sweepIntervalMs: Float!
+  "When the next scheduled sweep is expected to run."
+  nextSweepAt: Time
+  "The most recently completed sweep's result, or null if none has run yet."
+  lastSweep: SweepResult
+}
+
+type TableRowCount {
+  name: String!
+  rows: Float!
+}
+
+type SweepResult {
+  "When this sweep started."
+  startedAt: Time!
+  "How long this sweep took, in milliseconds."
+  durationMs: Float!
+  "Total fact rows (spans + metric_points + logs) deleted by this sweep."
+  deletedRows: Float!
+  "Number of max-size day-trim iterations this sweep performed."
+  maxSizeIterations: Int!
+  "The sweep's error message, or empty on success."
+  error: String!
 }
 
 type TraceConnection {

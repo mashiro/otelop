@@ -156,6 +156,108 @@ func (s *StatusResolver) DBSizeBytes(ctx context.Context) (float64, error) {
 	return float64(stats.FileSizeBytes), nil
 }
 
+func (s *StatusResolver) Storage(ctx context.Context) (*StorageStatusResolver, error) {
+	stats, err := s.parent.storage.Stats(ctx)
+	if err != nil {
+		return nil, err
+	}
+	lastSweep, hasLastSweep := s.parent.storage.LastSweep()
+	nextSweepAt, hasNextSweepAt := s.parent.storage.NextSweepAt()
+	return &StorageStatusResolver{
+		stats:          stats,
+		maxSize:        s.parent.storage.MaxSize(),
+		retention:      s.parent.storage.Retention(),
+		sweepInterval:  s.parent.storage.SweepInterval(),
+		lastSweep:      lastSweep,
+		hasLastSweep:   hasLastSweep,
+		nextSweepAt:    nextSweepAt,
+		hasNextSweepAt: hasNextSweepAt,
+	}, nil
+}
+
+type StorageStatusResolver struct {
+	stats          storage.Stats
+	maxSize        int64
+	retention      time.Duration
+	sweepInterval  time.Duration
+	lastSweep      storage.SweepResult
+	hasLastSweep   bool
+	nextSweepAt    time.Time
+	hasNextSweepAt bool
+}
+
+func (r *StorageStatusResolver) FileSizeBytes() float64 { return float64(r.stats.FileSizeBytes) }
+func (r *StorageStatusResolver) WalSizeBytes() float64  { return float64(r.stats.WALSizeBytes) }
+func (r *StorageStatusResolver) DatabaseSizeBytes() float64 {
+	return float64(r.stats.DatabaseSizeBytes)
+}
+func (r *StorageStatusResolver) TotalBlocks() float64      { return float64(r.stats.TotalBlocks) }
+func (r *StorageStatusResolver) UsedBlocks() float64       { return float64(r.stats.UsedBlocks) }
+func (r *StorageStatusResolver) FreeBlocks() float64       { return float64(r.stats.FreeBlocks) }
+func (r *StorageStatusResolver) MemoryUsageBytes() float64 { return float64(r.stats.MemoryUsageBytes) }
+func (r *StorageStatusResolver) TempStorageBytes() float64 { return float64(r.stats.TempStorageBytes) }
+func (r *StorageStatusResolver) MaxSizeBytes() float64     { return float64(r.maxSize) }
+func (r *StorageStatusResolver) RetentionMs() float64      { return float64(r.retention.Milliseconds()) }
+func (r *StorageStatusResolver) SweepIntervalMs() float64 {
+	return float64(r.sweepInterval.Milliseconds())
+}
+
+func (r *StorageStatusResolver) Tables() []*TableRowCountResolver {
+	tables := make([]*TableRowCountResolver, len(r.stats.Tables))
+	for i, t := range r.stats.Tables {
+		tables[i] = &TableRowCountResolver{name: t.Name, rows: t.Rows}
+	}
+	return tables
+}
+
+func (r *StorageStatusResolver) OldestTimestamp() *gql.Time {
+	if !r.stats.HasData {
+		return nil
+	}
+	return &gql.Time{Time: r.stats.OldestTimestamp}
+}
+
+func (r *StorageStatusResolver) NewestTimestamp() *gql.Time {
+	if !r.stats.HasData {
+		return nil
+	}
+	return &gql.Time{Time: r.stats.NewestTimestamp}
+}
+
+func (r *StorageStatusResolver) NextSweepAt() *gql.Time {
+	if !r.hasNextSweepAt {
+		return nil
+	}
+	return &gql.Time{Time: r.nextSweepAt}
+}
+
+func (r *StorageStatusResolver) LastSweep() *SweepResultResolver {
+	if !r.hasLastSweep {
+		return nil
+	}
+	return &SweepResultResolver{result: r.lastSweep}
+}
+
+type TableRowCountResolver struct {
+	name string
+	rows int64
+}
+
+func (t *TableRowCountResolver) Name() string  { return t.name }
+func (t *TableRowCountResolver) Rows() float64 { return float64(t.rows) }
+
+type SweepResultResolver struct {
+	result storage.SweepResult
+}
+
+func (s *SweepResultResolver) StartedAt() gql.Time { return gql.Time{Time: s.result.StartedAt} }
+func (s *SweepResultResolver) DurationMs() float64 {
+	return float64(s.result.Duration.Milliseconds())
+}
+func (s *SweepResultResolver) DeletedRows() float64     { return float64(s.result.DeletedRows) }
+func (s *SweepResultResolver) MaxSizeIterations() int32 { return int32(s.result.MaxSizeIterations) }
+func (s *SweepResultResolver) Error() string            { return s.result.Error }
+
 func (r *Resolver) MatchingTraceIds(ctx context.Context, args struct {
 	TraceIds []string
 	From     *gql.Time

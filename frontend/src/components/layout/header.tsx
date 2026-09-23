@@ -4,6 +4,7 @@ import { useAtomValue, useSetAtom } from "jotai";
 import { Sun, Moon, Monitor } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Logo } from "@/components/common/logo";
+import { ServerInfoDialog } from "@/components/layout/server-info-dialog";
 import { wsStatusAtom, traceCountAtom, metricCountAtom, logCountAtom } from "@/stores/telemetry";
 import { themeAtom, type Theme } from "@/stores/theme";
 import { SIGNALS, type SignalConfig } from "@/lib/signals";
@@ -38,30 +39,34 @@ export function Header() {
   const status = statusConfig[wsStatus] ?? statusConfig.disconnected;
 
   return (
-    <header className="relative z-10 flex items-center justify-between border-b border-border/50 px-5 py-3">
-      <div className="flex items-center gap-5">
+    <header className="relative z-10 flex items-center justify-between gap-3 border-b border-border/50 px-3 py-3 sm:px-5">
+      <div className="flex min-w-0 items-center gap-3 sm:gap-5">
         <Link
           to="/"
           search={{}}
           className="flex items-center gap-2 rounded-md focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring"
         >
           <Logo className="h-7 w-7" />
-          <h1 className="text-base font-semibold tracking-tight">otelop</h1>
+          <h1 className="sr-only text-base font-semibold tracking-tight sm:not-sr-only">otelop</h1>
         </Link>
 
-        <div className="flex items-center gap-3">
+        {/* Counters give way first so the header controls stay reachable on narrow screens. */}
+        <div className="flex min-w-0 items-center gap-2 overflow-hidden sm:gap-3">
           <CounterBadge signal={SIGNALS.traces} count={traceCount} />
           <CounterBadge signal={SIGNALS.metrics} count={metricCount} />
           <CounterBadge signal={SIGNALS.logs} count={logCount} />
         </div>
       </div>
 
-      <div className="flex items-center gap-4">
+      <div className="flex shrink-0 items-center gap-2 sm:gap-4">
         <div className="flex items-center gap-2">
           <div className={cn("h-2 w-2 rounded-full", status.color, status.glow)} />
-          <span className="text-xs font-medium text-muted-foreground">{status.label}</span>
+          <span className="sr-only text-xs font-medium text-muted-foreground sm:not-sr-only">
+            {status.label}
+          </span>
         </div>
 
+        <ServerInfoDialog />
         <ThemeToggle theme={theme} setTheme={setTheme} />
       </div>
     </header>
@@ -71,7 +76,7 @@ export function Header() {
 function CounterBadge({ signal, count }: { signal: SignalConfig; count: number }) {
   const { bgLight, text } = signal.classes;
   return (
-    <div className={cn("flex items-center gap-1.5 rounded-md px-2 py-0.5", bgLight)}>
+    <div className={cn("flex shrink-0 items-center gap-1.5 rounded-md px-2 py-0.5", bgLight)}>
       <span className={cn("text-3xs font-bold uppercase tracking-wider", text)}>
         {signal.shortLabel}
       </span>

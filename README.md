@@ -230,8 +230,9 @@ PID, log, and metadata files live in `$XDG_STATE_HOME/otelop/` (defaults to
 `~/.local/state/otelop/`). The DuckDB database defaults to
 `$XDG_DATA_HOME/otelop/otelop.duckdb` (or
 `~/.local/share/otelop/otelop.duckdb`). Use `otelop info` to see the resolved
-configuration and paths. Query GraphQL `status` for the running instance's
-effective storage settings, file size, and logical signal counts.
+configuration and paths. Open **Server info** in the Web UI header or query
+GraphQL `status` for the running instance's storage usage, signal counts, and
+latest retention sweep result. Run `otelop docs show configuration` for a query example.
 
 ## Bundled documentation
 
