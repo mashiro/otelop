@@ -11,7 +11,7 @@ import { SpanWaterfall } from "./span-waterfall";
 import { KVSection } from "@/components/common/kv-section";
 import { DetailPanel } from "@/components/common/detail-panel";
 import { DetailSidebar } from "@/components/common/detail-sidebar";
-import { Pill } from "@/components/common/pill";
+import { Badge } from "@/components/ui/badge";
 import { Field, Section } from "@/components/common/detail-field";
 import type { SpanData, TraceData } from "@/types/telemetry";
 import { TraceOverview } from "./trace-overview";
@@ -45,9 +45,13 @@ function TraceDetailView({ trace, onClose }: { trace: TraceData; onClose: () => 
           </span>
           <span className="font-mono text-xs text-muted-foreground">{shortId(trace.traceId)}</span>
           {trace.spans.some((span) => span.statusCode === "Error") && (
-            <Pill tone="destructive">Error</Pill>
+            <Badge variant="soft" size="sm" tone="destructive">
+              Error
+            </Badge>
           )}
-          <Pill tone="trace">{trace.spanCount} spans</Pill>
+          <Badge variant="soft" size="sm" tone="trace">
+            {trace.spanCount} spans
+          </Badge>
           <span className="text-xs text-muted-foreground">
             {new Set(trace.spans.map((span) => span.serviceName)).size} services
           </span>

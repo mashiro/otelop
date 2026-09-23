@@ -2,11 +2,16 @@ import { attrKey } from "@/lib/metric-stats";
 import { isDistributionMetric, resolveMetricUnit } from "@/lib/metric-catalog";
 import { formatMetricValue } from "@/lib/format-metric";
 import { formatTimestamp } from "@/lib/format";
-import { cn } from "@/lib/utils";
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+} from "@/components/ui/table";
+import { Card } from "@/components/ui/card";
 import type { DataPoint, MetricData } from "@/types/telemetry";
-
-const headCls = "px-3 py-2 text-2xs font-semibold uppercase tracking-wider text-muted-foreground";
-const numCellCls = "px-3 py-1.5 text-right font-mono text-foreground/70";
 
 function formatDistributionCell(v: number | null | undefined, unit: string): string {
   return v != null ? formatMetricValue(v, unit) : "-";
@@ -34,62 +39,75 @@ export function DataPointsTable({
       <h4 className="mb-2 text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
         Data Points ({dataPoints.length})
       </h4>
-      <div className="max-h-90 overflow-auto rounded-md border border-border/30 bg-muted/50">
-        <table className="w-full text-xs">
-          <thead>
-            <tr className="border-b border-border/30">
-              <th className={cn(headCls, "text-left")}>Timestamp</th>
-              {hasAttributes && <th className={cn(headCls, "text-left")}>Attributes</th>}
-              <th className={cn(headCls, "text-right")}>{isDistribution ? "Mean" : "Value"}</th>
+      <Card variant="inset" size="flush" className="max-h-90 overflow-auto">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Timestamp</TableHead>
+              {hasAttributes && <TableHead>Attributes</TableHead>}
+              <TableHead align="right">{isDistribution ? "Mean" : "Value"}</TableHead>
               {isDistribution && (
                 <>
-                  <th className={cn(headCls, "text-right")}>Count</th>
-                  <th className={cn(headCls, "text-right")}>Sum</th>
-                  <th className={cn(headCls, "text-right")}>Min</th>
-                  <th className={cn(headCls, "text-right")}>Max</th>
+                  <TableHead align="right">Count</TableHead>
+                  <TableHead align="right">Sum</TableHead>
+                  <TableHead align="right">Min</TableHead>
+                  <TableHead align="right">Max</TableHead>
                 </>
               )}
-            </tr>
-          </thead>
-          <tbody>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
             {[...dataPoints].reverse().map((dp) => {
               const isSelected = selectedId === dp.id;
               return (
-                <tr
+                <TableRow
                   key={dp.id}
-                  className={cn(
-                    "cursor-pointer border-b border-border/20 last:border-0 transition-colors hover:bg-metric/5",
-                    isSelected && "bg-metric/10",
-                  )}
+                  tone="metric"
+                  interactive
+                  selected={isSelected}
+                  aria-selected={isSelected}
+                  tabIndex={0}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      onSelect(isSelected ? null : dp.id);
+                    }
+                  }}
                   onClick={() => onSelect(isSelected ? null : dp.id)}
                 >
-                  <td className="px-3 py-1.5 font-mono text-muted-foreground">
+                  <TableCell variant="mono" emphasis="muted">
                     {formatTimestamp(dp.timestamp)}
-                  </td>
+                  </TableCell>
                   {hasAttributes && (
-                    <td className="max-w-62.5 truncate px-3 py-1.5 font-mono text-foreground/60">
+                    <TableCell variant="mono" emphasis="secondary" truncate className="max-w-62.5">
                       {attrKey(dp.attributes) || "-"}
-                    </td>
+                    </TableCell>
                   )}
-                  <td className="px-3 py-1.5 text-right font-mono text-metric">
+                  <TableCell variant="mono" align="right" tone="metric">
                     {formatMetricValue(dp.value, unit)}
-                  </td>
+                  </TableCell>
                   {isDistribution && (
                     <>
-                      <td className={numCellCls}>
+                      <TableCell variant="mono" align="right" emphasis="secondary">
                         {dp.count != null ? dp.count.toLocaleString() : "-"}
-                      </td>
-                      <td className={numCellCls}>{formatDistributionCell(dp.sum, unit)}</td>
-                      <td className={numCellCls}>{formatDistributionCell(dp.min, unit)}</td>
-                      <td className={numCellCls}>{formatDistributionCell(dp.max, unit)}</td>
+                      </TableCell>
+                      <TableCell variant="mono" align="right" emphasis="secondary">
+                        {formatDistributionCell(dp.sum, unit)}
+                      </TableCell>
+                      <TableCell variant="mono" align="right" emphasis="secondary">
+                        {formatDistributionCell(dp.min, unit)}
+                      </TableCell>
+                      <TableCell variant="mono" align="right" emphasis="secondary">
+                        {formatDistributionCell(dp.max, unit)}
+                      </TableCell>
                     </>
                   )}
-                </tr>
+                </TableRow>
               );
             })}
-          </tbody>
-        </table>
-      </div>
+          </TableBody>
+        </Table>
+      </Card>
     </div>
   );
 }

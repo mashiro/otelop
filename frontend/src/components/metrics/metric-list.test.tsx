@@ -28,15 +28,16 @@ vi.mock("@/components/ui/scroll-area", () => ({
   ),
 }));
 
-// A leaf every row renders (the type Pill) whose render count doubles as a
+// A leaf every row renders (the type badge) whose render count doubles as a
 // proxy for "how many rows actually re-rendered" — this guards the React
 // Compiler's row-level bail-out (MetricRow is a plain function; no
 // React.memo involved). The mock preserves children as plain text, so every
 // other test's text assertions on a metric's type column are unaffected.
-const { pillRenders } = vi.hoisted(() => ({ pillRenders: { current: 0 } }));
-vi.mock("@/components/common/pill", () => ({
-  Pill: ({ children }: { children: ReactNode }) => {
-    pillRenders.current++;
+const { badgeRenders } = vi.hoisted(() => ({ badgeRenders: { current: 0 } }));
+vi.mock("@/components/ui/badge", () => ({
+  BadgeDot: () => null,
+  Badge: ({ children }: { children: ReactNode }) => {
+    badgeRenders.current++;
     return <span>{children}</span>;
   },
 }));
@@ -60,7 +61,7 @@ beforeEach(async () => {
   store.set(renderWindowMaxAtom, TEST_RENDER_WINDOW_MAX);
   requestMock.mockReset();
   requestMock.mockResolvedValue({ metrics: { items: [] } });
-  pillRenders.current = 0;
+  badgeRenders.current = 0;
 });
 afterEach(cleanup);
 
@@ -231,14 +232,14 @@ describe("MetricList row rendering", () => {
     store.set(metricsAtom, makeMetrics(5));
 
     render(<MetricList />);
-    const rendersAfterMount = pillRenders.current;
+    const rendersAfterMount = badgeRenders.current;
     expect(rendersAfterMount).toBe(5);
 
     act(() => {
       store.set(metricsAtom, (prev) => [...prev]);
     });
 
-    expect(pillRenders.current).toBe(rendersAfterMount);
+    expect(badgeRenders.current).toBe(rendersAfterMount);
   });
 
   it("re-renders the affected row when a single metric is updated in place", async () => {

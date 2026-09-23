@@ -64,7 +64,7 @@ const tableRowVariants = cva("border-b transition-colors", {
       log: "border-border/30 hover:bg-log/5",
     },
     interactive: {
-      true: "cursor-pointer",
+      true: "cursor-pointer focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring",
       false: "",
     },
     stagger: {
@@ -110,6 +110,7 @@ const tableHeadVariants = cva(
   "h-10 px-3 first:pl-4 last:pr-4 text-left align-middle font-medium whitespace-nowrap text-foreground [&:has([role=checkbox])]:pr-0",
   {
     variants: {
+      align: { left: "", right: "text-right" },
       tone: {
         none: "",
         trace: "text-trace/70",
@@ -125,11 +126,16 @@ const tableHeadVariants = cva(
 
 function TableHead({
   className,
+  align = "left",
   tone = "none",
   ...props
 }: React.ComponentProps<"th"> & VariantProps<typeof tableHeadVariants>) {
   return (
-    <th data-slot="table-head" className={cn(tableHeadVariants({ tone }), className)} {...props} />
+    <th
+      data-slot="table-head"
+      className={cn(tableHeadVariants({ tone, align }), className)}
+      {...props}
+    />
   );
 }
 

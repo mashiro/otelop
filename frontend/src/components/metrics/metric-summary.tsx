@@ -1,3 +1,12 @@
+import { Card, CardHeader, CardContent } from "@/components/ui/card";
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+} from "@/components/ui/table";
 import {
   attrKey,
   computeStatTiles,
@@ -159,23 +168,23 @@ function HistogramSummary({
       <div className="mb-2 text-3xs font-semibold uppercase tracking-wider text-muted-foreground">
         Distribution · {rangeLabel(window)}
       </div>
-      <div className="overflow-x-auto rounded-lg border border-border/30 bg-muted/50">
-        <table className="w-full min-w-220 text-left text-xs">
-          <thead className="border-b border-border/30 text-3xs uppercase tracking-wider text-muted-foreground">
-            <tr>
-              <th className="px-3 py-2 font-semibold">Breakdown</th>
-              <th className="px-3 py-2 text-right font-semibold">Observations</th>
+      <Card variant="inset" size="flush" className="overflow-x-auto">
+        <Table className="min-w-220">
+          <TableHeader>
+            <TableRow>
+              <TableHead>Breakdown</TableHead>
+              <TableHead align="right">Observations</TableHead>
               {columns.map(([label]) => (
-                <th key={label} className="px-3 py-2 text-right font-semibold">
+                <TableHead key={label} align="right">
                   {label}
-                </th>
+                </TableHead>
               ))}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border/20">
+            </TableRow>
+          </TableHeader>
+          <TableBody>
             {rows.map(({ item, label }, index) => (
-              <tr key={JSON.stringify(groupBy ? item.groupValues : item.attributes)}>
-                <td className="max-w-64 px-3 py-2.5">
+              <TableRow key={JSON.stringify(groupBy ? item.groupValues : item.attributes)}>
+                <TableCell className="max-w-64">
                   <div className="flex items-center gap-1.5">
                     <span
                       className="size-2 shrink-0 rounded-full"
@@ -185,23 +194,23 @@ function HistogramSummary({
                       {label}
                     </span>
                   </div>
-                </td>
-                <td className="px-3 py-2.5 text-right tabular-nums">
+                </TableCell>
+                <TableCell variant="mono" align="right">
                   {item.count.toLocaleString()}
-                </td>
+                </TableCell>
                 {columns.map(([column, value]) => {
                   const number = value(item);
                   return (
-                    <td key={column} className="px-3 py-2.5 text-right tabular-nums">
+                    <TableCell key={column} variant="mono" align="right">
                       {number != null ? formatMetricValue(number, unit) : "-"}
-                    </td>
+                    </TableCell>
                   );
                 })}
-              </tr>
+              </TableRow>
             ))}
-          </tbody>
-        </table>
-      </div>
+          </TableBody>
+        </Table>
+      </Card>
     </div>
   );
 }
@@ -226,17 +235,23 @@ function Tile({
   const count = isDistribution && tile.count != null ? tile.count.toLocaleString() : null;
 
   return (
-    <div className="rounded-lg border border-border/30 bg-muted/50 p-3">
+    <Card variant="inset" size="sm">
       {showLabel && (
-        <div className="mb-1 flex items-center gap-1.5">
-          <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: color }} />
-          <span className="truncate font-mono text-xs text-foreground/60" title={tile.label}>
-            {tile.label}
-          </span>
-        </div>
+        <CardHeader>
+          <div className="flex items-center gap-1.5">
+            <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: color }} />
+            <span className="truncate font-mono text-xs text-foreground/60" title={tile.label}>
+              {tile.label}
+            </span>
+          </div>
+        </CardHeader>
       )}
-      <div className="text-2xl font-semibold text-foreground">{main}</div>
-      {count !== null && <div className="mt-0.5 text-xs text-muted-foreground">count {count}</div>}
-    </div>
+      <CardContent>
+        <div className="text-2xl font-semibold text-foreground">{main}</div>
+        {count !== null && (
+          <div className="mt-0.5 text-xs text-muted-foreground">count {count}</div>
+        )}
+      </CardContent>
+    </Card>
   );
 }

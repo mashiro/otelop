@@ -33,14 +33,15 @@ const { requestMock } = vi.hoisted(() => ({
 }));
 vi.mock("@/lib/graphql", () => ({ gqlClient: { request: requestMock } }));
 
-// A leaf every row renders (the status Pill) whose render count doubles as a
+// A leaf every row renders (the status badge) whose render count doubles as a
 // proxy for "how many rows actually re-rendered" — this guards the React
 // Compiler's row-level bail-out (TraceRow is a plain function; no
 // React.memo involved).
-const { pillRenders } = vi.hoisted(() => ({ pillRenders: { current: 0 } }));
-vi.mock("@/components/common/pill", () => ({
-  Pill: ({ children }: { children: ReactNode }) => {
-    pillRenders.current++;
+const { badgeRenders } = vi.hoisted(() => ({ badgeRenders: { current: 0 } }));
+vi.mock("@/components/ui/badge", () => ({
+  BadgeDot: () => null,
+  Badge: ({ children }: { children: ReactNode }) => {
+    badgeRenders.current++;
     return <span>{children}</span>;
   },
 }));
@@ -52,7 +53,7 @@ beforeEach(async () => {
   store.set(renderWindowMaxAtom, TEST_RENDER_WINDOW_MAX);
   requestMock.mockReset();
   requestMock.mockResolvedValue({ traces: { items: [], hasNextPage: false, endCursor: null } });
-  pillRenders.current = 0;
+  badgeRenders.current = 0;
 });
 afterEach(cleanup);
 
@@ -140,14 +141,14 @@ describe("TraceList row rendering", () => {
     store.set(tracesAtom, makeTraces(5));
 
     render(<TraceList />);
-    const rendersAfterMount = pillRenders.current;
+    const rendersAfterMount = badgeRenders.current;
     expect(rendersAfterMount).toBe(5);
 
     act(() => {
       store.set(tracesAtom, (prev) => [...prev]);
     });
 
-    expect(pillRenders.current).toBe(rendersAfterMount);
+    expect(badgeRenders.current).toBe(rendersAfterMount);
   });
 
   it("re-renders the affected row when a single trace is updated in place", async () => {

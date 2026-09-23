@@ -54,6 +54,36 @@ describe("DataPointsTable", () => {
     expect(onSelect).toHaveBeenCalledWith(null);
   });
 
+  it.each(["Enter", " "])("toggles row selection with %s", (key) => {
+    const metric = makeMetric({
+      dataPoints: [makeDataPoint({ id: "dp-a", attributes: { k: "v" } })],
+    });
+    const onSelect = vi.fn();
+    const { rerender } = render(
+      <DataPointsTable
+        metric={metric}
+        dataPoints={metric.dataPoints}
+        selectedId={null}
+        onSelect={onSelect}
+      />,
+    );
+    const row = attrRow('k="v"');
+    expect(row.tabIndex).toBe(0);
+    fireEvent.keyDown(row, { key });
+    expect(onSelect).toHaveBeenLastCalledWith("dp-a");
+    rerender(
+      <DataPointsTable
+        metric={metric}
+        dataPoints={metric.dataPoints}
+        selectedId="dp-a"
+        onSelect={onSelect}
+      />,
+    );
+    expect(row.getAttribute("aria-selected")).toBe("true");
+    fireEvent.keyDown(row, { key });
+    expect(onSelect).toHaveBeenLastCalledWith(null);
+  });
+
   it("highlights the selected row", () => {
     const metric = makeMetric({
       dataPoints: [
