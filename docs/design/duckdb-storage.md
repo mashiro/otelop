@@ -329,7 +329,11 @@ and cumulative non-monotonic Sum points do not expose a cumulative field.
 - `clearSignals` deletes from all tables and checkpoints. The database lives at
   `$XDG_DATA_HOME/otelop/otelop.duckdb` (falling back to
   `~/.local/share/otelop/`); deleting the file remains a valid reset.
-- GraphQL `status` reports file size and logical signal counts. CLI
+- GraphQL `status.storage` reports DuckDB allocation, file/WAL/memory sizes,
+  table row counts, retained timestamps, and the latest sweep result. Sweep
+  results are kept in memory and reset on restart; deleted row counts include
+  retention and size-limit deletion of fact rows. `status.config` reports logical
+  signal counts, and `status.dbSizeBytes` reports the database file size. CLI
   `otelop info` reports the resolved storage path (from CLI flags, env vars,
   the config file, and defaults) without inspecting the running database.
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vite-plus/test";
-import { formatMetricValue } from "./format-metric";
+import { formatMetricValue, formatBytes } from "./format-metric";
 
 describe("formatMetricValue", () => {
   describe("bytes (By)", () => {
@@ -8,18 +8,18 @@ describe("formatMetricValue", () => {
       expect(formatMetricValue(512, "By")).toBe("512 B");
     });
 
-    it("scales to KiB/MiB/GiB with 1024 base", () => {
-      expect(formatMetricValue(2048, "By")).toBe("2.00 KiB");
-      expect(formatMetricValue(1024 * 1024, "By")).toBe("1.00 MiB");
-      expect(formatMetricValue(1024 * 1024 * 1024, "By")).toBe("1.00 GiB");
+    it("scales to KB/MB/GB with SI (1000) base", () => {
+      expect(formatMetricValue(2000, "By")).toBe("2.00 KB");
+      expect(formatMetricValue(1_000_000, "By")).toBe("1.00 MB");
+      expect(formatMetricValue(1_000_000_000, "By")).toBe("1.00 GB");
     });
 
     it("keeps sign for negative values", () => {
-      expect(formatMetricValue(-2048, "By")).toBe("-2.00 KiB");
+      expect(formatMetricValue(-2000, "By")).toBe("-2.00 KB");
     });
 
     it("handles By/s", () => {
-      expect(formatMetricValue(2048, "By/s")).toBe("2.00 KiB/s");
+      expect(formatMetricValue(2000, "By/s")).toBe("2.00 KB/s");
     });
   });
 
@@ -90,5 +90,25 @@ describe("formatMetricValue", () => {
       expect(formatMetricValue(Number.NaN, "s")).toBe("NaN");
       expect(formatMetricValue(Number.POSITIVE_INFINITY, "By")).toBe("Infinity");
     });
+  });
+});
+
+describe("formatBytes", () => {
+  it("uses SI (base 1000) units: B, KB, MB, GB, TB, PB", () => {
+    expect(formatBytes(0)).toBe("0.00 B");
+    expect(formatBytes(512)).toBe("512 B");
+    expect(formatBytes(2_000)).toBe("2.00 KB");
+    expect(formatBytes(1_000_000)).toBe("1.00 MB");
+    expect(formatBytes(1_000_000_000)).toBe("1.00 GB");
+    expect(formatBytes(1_000_000_000_000)).toBe("1.00 TB");
+    expect(formatBytes(1_000_000_000_000_000)).toBe("1.00 PB");
+  });
+
+  it("matches the configured max_size display (4GB)", () => {
+    expect(formatBytes(4_000_000_000)).toBe("4.00 GB");
+  });
+
+  it("keeps sign for negative values", () => {
+    expect(formatBytes(-2_000)).toBe("-2.00 KB");
   });
 });

@@ -222,6 +222,90 @@ func TestStatusQuery(t *testing.T) {
 	}
 }
 
+func TestStatusQuery_Storage(t *testing.T) {
+	s := seedStorage(t)
+	data := exec(t, s, `{
+		status {
+			storage {
+				fileSizeBytes
+				databaseSizeBytes
+				totalBlocks
+				maxSizeBytes
+				retentionMs
+				sweepIntervalMs
+				nextSweepAt
+				oldestTimestamp
+				newestTimestamp
+				lastSweep { startedAt durationMs deletedRows maxSizeIterations error }
+				tables { name rows }
+			}
+		}
+	}`, nil)
+	st := data["status"].(map[string]any)
+	storageStatus := st["storage"].(map[string]any)
+
+	if _, ok := storageStatus["fileSizeBytes"].(float64); !ok {
+		t.Errorf("fileSizeBytes = %v, want a number", storageStatus["fileSizeBytes"])
+	}
+	if _, ok := storageStatus["databaseSizeBytes"].(float64); !ok {
+		t.Errorf("databaseSizeBytes = %v, want a number", storageStatus["databaseSizeBytes"])
+	}
+	if storageStatus["maxSizeBytes"].(float64) <= 0 {
+		t.Errorf("maxSizeBytes = %v, want > 0 (default ceiling)", storageStatus["maxSizeBytes"])
+	}
+	if storageStatus["retentionMs"].(float64) <= 0 {
+		t.Errorf("retentionMs = %v, want > 0 (default retention)", storageStatus["retentionMs"])
+	}
+	if storageStatus["sweepIntervalMs"].(float64) != float64(time.Hour.Milliseconds()) {
+		t.Errorf("sweepIntervalMs = %v, want %v", storageStatus["sweepIntervalMs"], time.Hour.Milliseconds())
+	}
+	if storageStatus["nextSweepAt"] == nil {
+		t.Errorf("nextSweepAt = nil, want a scheduled time")
+	}
+	if storageStatus["lastSweep"] != nil {
+		t.Errorf("lastSweep = %v, want nil before any sweep runs", storageStatus["lastSweep"])
+	}
+	if storageStatus["oldestTimestamp"] == nil {
+		t.Errorf("oldestTimestamp = nil, want set (data was ingested)")
+	}
+	if storageStatus["newestTimestamp"] == nil {
+		t.Errorf("newestTimestamp = nil, want set (data was ingested)")
+	}
+
+	tables, ok := storageStatus["tables"].([]any)
+	if !ok || len(tables) == 0 {
+		t.Fatalf("tables = %v, want a non-empty list", storageStatus["tables"])
+	}
+	names := map[string]bool{}
+	for _, tr := range tables {
+		row := tr.(map[string]any)
+		names[row["name"].(string)] = true
+	}
+	for _, want := range []string{"resources", "metric_series", "spans", "metric_points", "logs"} {
+		if !names[want] {
+			t.Errorf("tables missing %q, got %v", want, names)
+		}
+	}
+}
+
+func TestStatusQuery_Storage_LastSweep(t *testing.T) {
+	s := seedStorage(t)
+	if err := s.Sweep(context.Background()); err != nil {
+		t.Fatalf("Sweep: %v", err)
+	}
+
+	data := exec(t, s, `{ status { storage { lastSweep { deletedRows maxSizeIterations error } } } }`, nil)
+	st := data["status"].(map[string]any)
+	storageStatus := st["storage"].(map[string]any)
+	lastSweep, ok := storageStatus["lastSweep"].(map[string]any)
+	if !ok {
+		t.Fatalf("lastSweep = %v, want a SweepResult after Sweep ran", storageStatus["lastSweep"])
+	}
+	if lastSweep["error"] != "" {
+		t.Errorf("lastSweep.error = %v, want empty", lastSweep["error"])
+	}
+}
+
 func TestConfig(t *testing.T) {
 	s := seedStorage(t)
 	data := exec(t, s, `{ config { storagePath retention maxSize renderWindowMax traceCount logCount } }`, nil)

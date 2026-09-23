@@ -207,6 +207,14 @@ type Storage struct {
 
 	sweepTicker *time.Ticker
 	sweepStop   chan struct{}
+	// sweepTickerStartedAt is when sweepTicker was created, used to compute
+	// NextSweepAt (the ticker fires every sweepInterval from this instant).
+	sweepTickerStartedAt time.Time
+
+	// lastSweep publishes the most recent performSweep result so LastSweep
+	// can be read from any goroutine — performSweep itself always runs on
+	// the writer goroutine (see run()'s msgSweep case).
+	lastSweep atomic.Pointer[SweepResult]
 
 	// commitCh hands CommitEvents from the writer goroutine to runCommits,
 	// the dedicated goroutine that actually invokes opts.OnCommit — see
@@ -293,6 +301,7 @@ func Open(ctx context.Context, opts Options) (*Storage, error) {
 	s.wg.Add(1)
 	go s.run()
 
+	s.sweepTickerStartedAt = time.Now()
 	s.sweepTicker = time.NewTicker(sweepInterval)
 	s.wg.Add(1)
 	go s.sweepLoop()
@@ -1135,12 +1144,25 @@ func (s *Storage) upsertSeries(ctx context.Context, rows []MetricSeriesRow) (err
 // only) trim the oldest data repeatedly until under MaxSize.
 func (s *Storage) performSweep(ctx context.Context) (err error) {
 	ctx, span := startStorageSpan(ctx, "storage.performSweep")
-	defer func() { endStorageSpan(span, err) }()
+	started := time.Now()
+	result := SweepResult{StartedAt: started}
+	// Publish result unconditionally (success or failure) so LastSweep
+	// always reflects the most recent attempt, including its error.
+	defer func() {
+		result.Duration = time.Since(started)
+		if err != nil {
+			result.Error = err.Error()
+		}
+		s.lastSweep.Store(&result)
+		endStorageSpan(span, err)
+	}()
 	cutoff := time.Now().Add(-s.opts.Retention)
 
-	if err := s.deleteFactsBefore(ctx, cutoff); err != nil {
+	deleted, err := s.deleteFactsBefore(ctx, cutoff)
+	if err != nil {
 		return err
 	}
+	result.DeletedRows += deleted
 	if err := s.pruneDimensions(ctx); err != nil {
 		return err
 	}
@@ -1151,14 +1173,21 @@ func (s *Storage) performSweep(ctx context.Context) (err error) {
 	if s.opts.Path == "" {
 		return nil // in-memory database: no file to size-cap
 	}
-	return s.enforceMaxSize(ctx)
+	maxSizeDeleted, iterations, err := s.enforceMaxSize(ctx)
+	result.DeletedRows += maxSizeDeleted
+	result.MaxSizeIterations = iterations
+	return err
 }
 
-func (s *Storage) deleteFactsBefore(ctx context.Context, cutoff time.Time) (err error) {
+// deleteFactsBefore deletes every fact row (spans, metric_points +
+// exemplars, logs) with a timestamp before cutoff, plus expired dropped-trace
+// tombstones, and returns the total number of fact rows deleted (spans +
+// metric_points + logs) for the caller to accumulate into a SweepResult.
+func (s *Storage) deleteFactsBefore(ctx context.Context, cutoff time.Time) (deleted int64, err error) {
 	ctx, span := startStorageSpan(ctx, "storage.deleteFactsBefore")
 	defer func() { endStorageSpan(span, err) }()
 	if _, err := s.writer.ExecContext(ctx, `BEGIN TRANSACTION`); err != nil {
-		return fmt.Errorf("storage: begin fact deletion: %w", err)
+		return 0, fmt.Errorf("storage: begin fact deletion: %w", err)
 	}
 	committed := false
 	defer func() {
@@ -1170,34 +1199,41 @@ func (s *Storage) deleteFactsBefore(ctx context.Context, cutoff time.Time) (err 
 		CREATE OR REPLACE TEMP TABLE affected_traces AS
 		SELECT DISTINCT trace_id FROM spans WHERE start_ts < ?
 	`, cutoff); err != nil {
-		return fmt.Errorf("storage: collect traces affected by sweep: %w", err)
+		return 0, fmt.Errorf("storage: collect traces affected by sweep: %w", err)
 	}
-	if _, err := s.writer.ExecContext(ctx, `DELETE FROM spans WHERE start_ts < ?`, cutoff); err != nil {
-		return fmt.Errorf("storage: sweep spans: %w", err)
+	spansRes, err := s.writer.ExecContext(ctx, `DELETE FROM spans WHERE start_ts < ?`, cutoff)
+	if err != nil {
+		return 0, fmt.Errorf("storage: sweep spans: %w", err)
 	}
 	if err := s.rebuildAffectedTraceSummaries(ctx); err != nil {
-		return err
+		return 0, err
 	}
 	if _, err := s.writer.ExecContext(ctx, `
 		DELETE FROM metric_exemplars
 		WHERE point_id IN (SELECT id FROM metric_points WHERE ts < ?)
 	`, cutoff); err != nil {
-		return fmt.Errorf("storage: sweep metric_exemplars: %w", err)
+		return 0, fmt.Errorf("storage: sweep metric_exemplars: %w", err)
 	}
-	if _, err := s.writer.ExecContext(ctx, `DELETE FROM metric_points WHERE ts < ?`, cutoff); err != nil {
-		return fmt.Errorf("storage: sweep metric_points: %w", err)
+	metricPointsRes, err := s.writer.ExecContext(ctx, `DELETE FROM metric_points WHERE ts < ?`, cutoff)
+	if err != nil {
+		return 0, fmt.Errorf("storage: sweep metric_points: %w", err)
 	}
-	if _, err := s.writer.ExecContext(ctx, `DELETE FROM logs WHERE ts < ?`, cutoff); err != nil {
-		return fmt.Errorf("storage: sweep logs: %w", err)
+	logsRes, err := s.writer.ExecContext(ctx, `DELETE FROM logs WHERE ts < ?`, cutoff)
+	if err != nil {
+		return 0, fmt.Errorf("storage: sweep logs: %w", err)
 	}
 	if _, err := s.writer.ExecContext(ctx, `DELETE FROM dropped_traces WHERE last_seen < ?`, cutoff); err != nil {
-		return fmt.Errorf("storage: sweep dropped traces: %w", err)
+		return 0, fmt.Errorf("storage: sweep dropped traces: %w", err)
 	}
 	if _, err := s.writer.ExecContext(ctx, `COMMIT`); err != nil {
-		return fmt.Errorf("storage: commit fact deletion: %w", err)
+		return 0, fmt.Errorf("storage: commit fact deletion: %w", err)
 	}
 	committed = true
-	return nil
+
+	spansDeleted, _ := spansRes.RowsAffected()
+	metricPointsDeleted, _ := metricPointsRes.RowsAffected()
+	logsDeleted, _ := logsRes.RowsAffected()
+	return spansDeleted + metricPointsDeleted + logsDeleted, nil
 }
 
 // pruneDimensions deletes resources/metric_series rows no longer referenced
@@ -1254,41 +1290,47 @@ func (s *Storage) pruneDimensions(ctx context.Context) (err error) {
 // future writes rather than returned to the OS. So this loop may run to
 // maxSizeSweepIterations without ever observing size drop under MaxSize;
 // that's an expected, logged outcome (see the warning below), not a bug.
-func (s *Storage) enforceMaxSize(ctx context.Context) (err error) {
+// enforceMaxSize returns the total fact rows it deleted and the number of
+// day-trim iterations it performed, alongside any error — accumulated by
+// performSweep into the published SweepResult.
+func (s *Storage) enforceMaxSize(ctx context.Context) (deletedRows int64, iterations int, err error) {
 	ctx, span := startStorageSpan(ctx, "storage.enforceMaxSize")
 	defer func() { endStorageSpan(span, err) }()
 	for i := 0; i < maxSizeSweepIterations; i++ {
 		size, err := s.sizeFn()
 		if err != nil {
-			return fmt.Errorf("storage: stat database file: %w", err)
+			return deletedRows, iterations, fmt.Errorf("storage: stat database file: %w", err)
 		}
 		if size <= s.opts.MaxSize {
-			return nil
+			return deletedRows, iterations, nil
 		}
 
 		oldest, ok, err := s.oldestFactTimestamp(ctx)
 		if err != nil {
-			return err
+			return deletedRows, iterations, err
 		}
 		if !ok {
-			return nil // no fact rows left; nothing more to trim
+			return deletedRows, iterations, nil // no fact rows left; nothing more to trim
 		}
 
 		dayCutoff := oldest.Add(24 * time.Hour)
-		if err := s.deleteFactsBefore(ctx, dayCutoff); err != nil {
-			return err
+		deleted, err := s.deleteFactsBefore(ctx, dayCutoff)
+		if err != nil {
+			return deletedRows, iterations, err
 		}
+		deletedRows += deleted
+		iterations++
 		if err := s.pruneDimensions(ctx); err != nil {
-			return err
+			return deletedRows, iterations, err
 		}
 		if _, err := s.writer.ExecContext(ctx, `CHECKPOINT`); err != nil {
-			return fmt.Errorf("storage: checkpoint: %w", err)
+			return deletedRows, iterations, fmt.Errorf("storage: checkpoint: %w", err)
 		}
 	}
 
 	slog.Warn("storage: max_size sweep hit its iteration limit without reaching the ceiling",
 		"max_size", s.opts.MaxSize, "path", s.opts.Path)
-	return nil
+	return deletedRows, iterations, nil
 }
 
 // performClear deletes every row from every table and checkpoints, then
@@ -1318,23 +1360,45 @@ func (s *Storage) fileSize() (int64, error) {
 }
 
 // oldestFactTimestamp returns the earliest timestamp across all fact
-// tables, or ok=false if every fact table is empty.
+// tables, or ok=false if every fact table is empty. Runs on the writer
+// connection (s.writer) since enforceMaxSize's trim loop, its only caller,
+// itself runs on the writer goroutine and must see its own in-flight
+// deletes. The public read-path equivalent is Stats, which queries the
+// same shape over the read pool (s.DB()) via oldestNewestFactTimestamp.
 func (s *Storage) oldestFactTimestamp(ctx context.Context) (time.Time, bool, error) {
-	row := s.writer.QueryRowContext(ctx, `
-		SELECT min(t) FROM (
-			SELECT min(start_ts) AS t FROM spans
-			UNION ALL SELECT min(ts) FROM metric_points
-			UNION ALL SELECT min(ts) FROM logs
-		)
-	`)
-	var t sql.NullTime
-	if err := row.Scan(&t); err != nil {
+	oldest, _, ok, err := oldestNewestFactTimestamp(ctx, s.writer)
+	if err != nil {
 		return time.Time{}, false, fmt.Errorf("storage: oldest fact timestamp: %w", err)
 	}
-	if !t.Valid {
-		return time.Time{}, false, nil
+	return oldest, ok, nil
+}
+
+// querier is the common subset of *sql.DB and *sql.Conn that
+// oldestNewestFactTimestamp needs, so it can run over either the writer
+// connection (oldestFactTimestamp, mid-sweep) or the read pool (Stats).
+type querier interface {
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+// oldestNewestFactTimestamp returns the earliest and latest timestamp across
+// all fact tables (spans, metric_points, logs), or ok=false if every fact
+// table is empty.
+func oldestNewestFactTimestamp(ctx context.Context, q querier) (oldest, newest time.Time, ok bool, err error) {
+	row := q.QueryRowContext(ctx, `
+		SELECT min(lo), max(hi) FROM (
+			SELECT min(start_ts) AS lo, max(start_ts) AS hi FROM spans
+			UNION ALL SELECT min(ts), max(ts) FROM metric_points
+			UNION ALL SELECT min(ts), max(ts) FROM logs
+		)
+	`)
+	var minT, maxT sql.NullTime
+	if err := row.Scan(&minT, &maxT); err != nil {
+		return time.Time{}, time.Time{}, false, err
 	}
-	return t.Time, true, nil
+	if !minT.Valid {
+		return time.Time{}, time.Time{}, false, nil
+	}
+	return minT.Time, maxT.Time, true, nil
 }
 
 // spanEventsArg returns nil (a true SQL NULL through the Appender) for an

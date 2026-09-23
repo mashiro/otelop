@@ -31,6 +31,10 @@ for that state change.
   `status`; `otelop info` shows the resolved configuration (CLI flags, env
   vars, config file, defaults), not the running process's live state.
   Cleanup can remove older data.
+- Check **Server info** or GraphQL `status.storage.lastSweep` for the latest
+  cleanup's deleted row count and error. `oldestTimestamp` and `newestTimestamp`
+  under `status.storage` show the retained data range. See
+  `otelop docs show configuration` for a query example.
 - Narrow the UI time window and clear any search filters.
 
 ## More detail
