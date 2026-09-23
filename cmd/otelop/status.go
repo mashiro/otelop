@@ -157,7 +157,7 @@ func printFull(w io.Writer, meta *daemon.Metadata, s *statusPayload) {
 		{"Web UI", "http://" + webUIDisplay(s.HTTPAddr)},
 		{"OTLP gRPC", s.OTLPGrpcAddr},
 		{"OTLP HTTP", s.OTLPHTTPAddr},
-		{"Proxy", formatProxyStatus(s.ProxyURL, s.ProxyProtocol)},
+		{"Proxy", formatProxy(s.ProxyURL, s.ProxyProtocol, "disabled")},
 		{"Log", logFile},
 	})
 }
@@ -171,7 +171,7 @@ func printMetaOnly(w io.Writer, meta *daemon.Metadata) {
 		{"Web UI", "http://" + webUIDisplay(meta.HTTPAddr)},
 		{"OTLP gRPC", meta.OTLPGRPCAddr},
 		{"OTLP HTTP", meta.OTLPHTTPAddr},
-		{"Proxy", formatProxyStatus(meta.ProxyURL, meta.ProxyProtocol)},
+		{"Proxy", formatProxy(meta.ProxyURL, meta.ProxyProtocol, "disabled")},
 		{"Log", logFile},
 	})
 }

@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/mashiro/otelop/internal/netutil"
 )
@@ -32,4 +33,14 @@ func webUIDisplay(addr string) string {
 		return addr
 	}
 	return display
+}
+
+// formatProxy renders the upstream proxy for banner display. The fallback
+// text differs by caller: `start`/`status` use "disabled" (an operational
+// state), `info` uses "(none)" (a config value that's simply unset).
+func formatProxy(proxyURL, proxyProtocol, fallback string) string {
+	if proxyURL == "" || proxyProtocol == "" {
+		return fallback
+	}
+	return fmt.Sprintf("%s %s", strings.ToUpper(proxyProtocol), proxyURL)
 }

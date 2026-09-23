@@ -2,61 +2,61 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"os"
 	"strconv"
-	"strings"
 
 	"github.com/urfave/cli/v3"
 
 	"github.com/mashiro/otelop/internal/config"
+	otelruntime "github.com/mashiro/otelop/internal/runtime"
 )
 
-func infoCommand() *cli.Command {
+func infoCommand(version string) *cli.Command {
+	cfg, cfgPath, cfgErr := config.Load()
+
 	return &cli.Command{
 		Name:   "info",
-		Usage:  "Show configuration",
-		Action: runInfo,
+		Usage:  "Show resolved configuration",
+		Before: configLoadErrorBefore(cfgErr),
+		// Shares start's flag set so a flag/env var override shown here is
+		// guaranteed to match what `otelop start` would actually resolve.
+		Flags: configFlags(cfg),
+		Action: func(_ context.Context, cmd *cli.Command) error {
+			opts := runtimeOptionsFromCmd(cmd, version)
+			return printInfoResolved(cmd.Writer, cfgPath, opts)
+		},
+		Description: configDescription(cfgPath),
 	}
 }
 
-func runInfo(_ context.Context, cmd *cli.Command) error {
-	return printInfoResolved(cmd.Writer)
-}
-
-// printInfoResolved renders the configuration resolved from the TOML file and
-// built-in defaults. It deliberately does not inspect a running instance or
-// the database; runtime information belongs to `otelop status`.
-func printInfoResolved(w io.Writer) error {
-	cfg, cfgPath, err := config.Load()
-	if err != nil {
-		return err
-	}
+// printInfoResolved renders the configuration resolved from CLI flags,
+// environment variables, the TOML file, and built-in defaults — the same
+// precedence `otelop start` applies. It deliberately does not inspect a
+// running instance or the database; runtime information belongs to `otelop
+// status`.
+func printInfoResolved(w io.Writer, cfgPath string, opts otelruntime.Options) error {
 	cfgDisplay := cfgPath
 	if !fileExists(cfgPath) {
 		cfgDisplay = cfgPath + " (not found)"
 	}
 
-	storagePath := cfg.Storage.Path
-	if storagePath == "" {
-		storagePath, err = config.DefaultStoragePath()
-		if err != nil {
-			return err
-		}
+	storagePath, err := otelruntime.ResolveStoragePath(opts.StoragePath)
+	if err != nil {
+		return err
 	}
 
 	writeBanner(w, " info — configuration", bannerRows{
 		{"Config file", cfgDisplay},
-		{"Web UI", "http://" + webUIDisplay(cfg.HTTPAddr)},
-		{"OTLP gRPC", cfg.OTLPGRPCAddr},
-		{"OTLP HTTP", cfg.OTLPHTTPAddr},
-		{"Proxy", formatProxyOrNone(cfg.Proxy.URL, cfg.Proxy.Protocol)},
-		{"Log level", cfg.LogLevel},
-		{"Debug", strconv.FormatBool(cfg.Debug)},
+		{"Web UI", "http://" + webUIDisplay(opts.HTTPAddr)},
+		{"OTLP gRPC", opts.OTLPGRPCAddr},
+		{"OTLP HTTP", opts.OTLPHTTPAddr},
+		{"Proxy", formatProxy(opts.ProxyURL, opts.ProxyProtocol, "(none)")},
+		{"Log level", opts.LogLevel},
+		{"Debug", strconv.FormatBool(opts.Debug)},
 		{"Storage path", storagePath},
-		{"Retention", cfg.Storage.Retention},
-		{"Max size", cfg.Storage.MaxSize},
+		{"Retention", opts.Retention},
+		{"Max size", opts.MaxSize},
 	})
 	return nil
 }
@@ -67,14 +67,4 @@ func printInfoResolved(w io.Writer) error {
 func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
-}
-
-// formatProxyOrNone mirrors formatProxyStatus's shape but with the "(none)"
-// fallback `otelop info`'s design calls for, distinct from status's
-// "disabled" wording.
-func formatProxyOrNone(proxyURL, proxyProtocol string) string {
-	if proxyURL == "" || proxyProtocol == "" {
-		return "(none)"
-	}
-	return fmt.Sprintf("%s %s", strings.ToUpper(proxyProtocol), proxyURL)
 }
