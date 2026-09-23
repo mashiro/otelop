@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -781,9 +782,9 @@ func TestStorage_Open_DefaultsRetentionAndMaxSize(t *testing.T) {
 	}
 }
 
-// TestStorage_Open_AppliesConfiguredMemoryLimit asserts the memory_limit
-// DSN parameter (see storageDSN) actually reaches DuckDB, not just
-// s.opts.MemoryLimit's bookkeeping copy.
+// TestStorage_Open_AppliesConfiguredMemoryLimit asserts the configured
+// memory_limit actually reaches DuckDB, not just s.opts.MemoryLimit's
+// bookkeeping copy.
 func TestStorage_Open_AppliesConfiguredMemoryLimit(t *testing.T) {
 	s := openTestStorage(t, Options{MemoryLimit: 256 << 20})
 
@@ -811,6 +812,24 @@ func TestStorage_Open_DefaultMemoryLimitAppliesToDuckDB(t *testing.T) {
 	}
 	if got != "512.0 MiB" {
 		t.Errorf("current_setting(memory_limit) = %q, want %q", got, "512.0 MiB")
+	}
+}
+
+// TestStorage_Open_MemoryLimitSurvivesURLSpecialPath covers a "#" in the
+// storage path, which duckdb-go's DSN parsing reads as a URL fragment.
+func TestStorage_Open_MemoryLimitSurvivesURLSpecialPath(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "otelop#data")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	s := openTestStorage(t, Options{Path: filepath.Join(dir, "otelop.duckdb"), MemoryLimit: 256 << 20})
+
+	var got string
+	if err := s.DB().QueryRowContext(context.Background(), "SELECT current_setting('memory_limit')").Scan(&got); err != nil {
+		t.Fatalf("query current_setting(memory_limit): %v", err)
+	}
+	if got != "256.0 MiB" {
+		t.Errorf("current_setting(memory_limit) = %q, want %q", got, "256.0 MiB")
 	}
 }
 

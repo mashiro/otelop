@@ -86,10 +86,9 @@ type Options struct {
 	// MaxSize is the on-disk ceiling in bytes for a file-backed database.
 	// Ignored for in-memory databases. Defaults to 4 GiB.
 	MaxSize int64
-	// MemoryLimit caps DuckDB's buffer pool/query memory in bytes, applied
-	// to the database via DSN (see storageDSN). Without it DuckDB defaults
-	// to 80% of physical RAM and never evicts under that ceiling. Defaults
-	// to 512 MiB.
+	// MemoryLimit caps DuckDB's buffer pool/query memory in bytes. Without
+	// it DuckDB defaults to 80% of physical RAM and never evicts under that
+	// ceiling. Defaults to 512 MiB.
 	MemoryLimit int64
 	// OnCommit, if set, is invoked once per flushed batch after its fact rows
 	// are durably written — see docs/design/duckdb-storage.md's ingest step 4
@@ -247,20 +246,6 @@ type Storage struct {
 	telemetry      atomic.Pointer[storageTelemetry]
 }
 
-// storageDSN builds the DSN passed to duckdb.NewConnector: path (or ""
-// for an in-memory database) plus a memory_limit query parameter.
-// duckdb-go parses DSN query parameters into DuckDB's database-creation
-// config (see prepareConfig in github.com/duckdb/duckdb-go/v2), so this
-// applies memory_limit while the database is created — before migrate runs
-// or any connection is handed out — rather than after the fact via a
-// per-connection connInitFn. memory_limit is a database-global DuckDB
-// setting (confirmed via duckdb_settings()'s GLOBAL scope), so setting it
-// once here is both sufficient and simpler than re-issuing a redundant SET
-// on every pooled connection Connect creates.
-func storageDSN(path string, memoryLimitBytes int64) string {
-	return fmt.Sprintf("%s?memory_limit=%dB", path, memoryLimitBytes)
-}
-
 // Open creates or opens a DuckDB database at opts.Path (or an in-memory
 // database if empty), applies schema migrations, and starts the writer and
 // sweep goroutines.
@@ -278,11 +263,20 @@ func Open(ctx context.Context, opts Options) (*Storage, error) {
 		opts.MemoryLimit = defaultMemoryLimit
 	}
 
-	connector, err := duckdb.NewConnector(storageDSN(opts.Path, opts.MemoryLimit), nil)
+	connector, err := duckdb.NewConnector(opts.Path, nil)
 	if err != nil {
 		return nil, fmt.Errorf("storage: open connector: %w", err)
 	}
 	db := sql.OpenDB(connector)
+
+	// Set via SQL rather than a DSN parameter: duckdb-go url.Parses the DSN,
+	// so a "#" in the storage path would turn "?memory_limit=" into a URL
+	// fragment and silently drop the limit. memory_limit is database-global,
+	// so one SET before migrate covers every pooled connection.
+	if _, err := db.ExecContext(ctx, fmt.Sprintf("SET memory_limit = '%dB'", opts.MemoryLimit)); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("storage: set memory_limit: %w", err)
+	}
 
 	if err := migrate(ctx, db); err != nil {
 		_ = db.Close()
