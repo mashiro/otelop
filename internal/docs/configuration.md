@@ -36,10 +36,11 @@ type = "bearer"
 token = "replace-me"
 ```
 
-`otelop info` displays values from the TOML file with built-in defaults. It
-does not apply environment or CLI overrides and does not inspect the running
-process or database. To read the live effective storage settings, size, and
-signal counts, use the endpoint reported by `otelop status` and query:
+`otelop info` shows the configuration resolved from CLI flags, `OTELOP_*`
+environment variables, the config file, and built-in defaults — the same
+precedence as `otelop start`. It does not inspect the running process or
+database. To read the live effective storage settings, size, and signal
+counts, use the endpoint reported by `otelop status` and query:
 
 ```graphql
 {

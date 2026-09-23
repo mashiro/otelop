@@ -28,7 +28,8 @@ for that state change.
   HTTP/protobuf defaults to 4318.
 - Inspect application exporter errors and `otelop logs`.
 - Check the running instance's retention and size limits through GraphQL
-  `status`; `otelop info` only shows the config file and built-in defaults.
+  `status`; `otelop info` shows the resolved configuration (CLI flags, env
+  vars, config file, defaults), not the running process's live state.
   Cleanup can remove older data.
 - Narrow the UI time window and clear any search filters.
 

@@ -330,8 +330,8 @@ and cumulative non-monotonic Sum points do not expose a cumulative field.
   `$XDG_DATA_HOME/otelop/otelop.duckdb` (falling back to
   `~/.local/share/otelop/`); deleting the file remains a valid reset.
 - GraphQL `status` reports file size and logical signal counts. CLI
-  `otelop info` reports config-file values, built-in defaults, and the resolved
-  storage path without inspecting the running database.
+  `otelop info` reports the resolved storage path (from CLI flags, env vars,
+  the config file, and defaults) without inspecting the running database.
 
 Sizing: DuckDB compresses spans to roughly 100–300 B/row. A very busy week
 (~10 M spans) lands around 1–3 GB, comfortably inside the default ceiling.
