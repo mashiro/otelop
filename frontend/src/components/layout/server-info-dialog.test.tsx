@@ -65,10 +65,10 @@ describe("ServerInfoDialog", () => {
 
     const tabs = await within(dialog).findAllByRole("tab");
     expect(tabs.map((tab) => tab.textContent)).toEqual(["Overview", "Storage", "Runtime"]);
-    const { hostname, origin } = window.location;
-    expect(rowValue(dialog, "OTLP gRPC")).toBe(`http://${hostname}:4317`);
-    expect(rowValue(dialog, "OTLP HTTP")).toBe(`http://${hostname}:4318`);
-    expect(rowValue(dialog, "Web UI")).toBe(origin);
+    const { hostname, host } = window.location;
+    expect(rowValue(dialog, "OTLP gRPC")).toBe(`${hostname}:4317`);
+    expect(rowValue(dialog, "OTLP HTTP")).toBe(`${hostname}:4318`);
+    expect(rowValue(dialog, "Web UI")).toBe(host);
     expect(within(dialog).getByRole("progressbar", { name: "Disk usage" })).toBeTruthy();
     expect(within(dialog).getByRole("progressbar", { name: "Memory usage" })).toBeTruthy();
     expect(rowValue(dialog, "Disk")).toBe("1.05 MB of 4.29 GB");
@@ -78,14 +78,14 @@ describe("ServerInfoDialog", () => {
     expect(within(dialog).queryByText("Traces")).toBeNull();
   });
 
-  it("copies a reachable endpoint URL rather than the wildcard bind address", async () => {
+  it("copies the endpoint as the browser host plus the bind port", async () => {
     requestMock.mockResolvedValue(makeServerInfoResponse());
     const dialog = await openDialog();
 
     await act(async () => {
       fireEvent.click(await within(dialog).findByRole("button", { name: "Copy OTLP gRPC" }));
     });
-    expect(writeText).toHaveBeenCalledWith(`http://${window.location.hostname}:4317`);
+    expect(writeText).toHaveBeenCalledWith(`${window.location.hostname}:4317`);
   });
 
   it("surfaces a failed sweep on Overview", async () => {
@@ -196,7 +196,7 @@ describe("ServerInfoDialog", () => {
     requestMock.mockResolvedValue(makeServerInfoResponse());
     const dialog = await openDialog();
 
-    const webUi = await within(dialog).findByText(window.location.origin);
+    const webUi = await within(dialog).findByText(window.location.host);
     expect(webUi.className).toContain("truncate");
   });
 

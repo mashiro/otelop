@@ -1,6 +1,6 @@
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { CopyButton } from "@/components/common/copy-button";
-import { reachableEndpoint } from "@/lib/endpoint";
+import { endpointFor } from "@/lib/endpoint";
 import { copyTextToClipboard } from "@/lib/export";
 import { formatRelativeTime } from "@/lib/format";
 import type { ServerInfoQuery } from "@/gql/graphql";
@@ -12,13 +12,13 @@ type Status = ServerInfoQuery["status"];
 export function OverviewPanel({ status }: { status: Status }) {
   const { storage, config } = status;
   const sweepError = storage.lastSweep?.error;
-  const { hostname, origin } = window.location;
+  const { hostname, host } = window.location;
   const endpoints = [
-    { label: "OTLP gRPC", url: reachableEndpoint(status.otlpGrpcAddr, hostname) },
-    { label: "OTLP HTTP", url: reachableEndpoint(status.otlpHttpAddr, hostname) },
-    // The page's own origin is by definition reachable; httpAddr may be a
-    // wildcard bind or, in dev, sit behind the Vite proxy on another port.
-    { label: "Web UI", url: origin },
+    { label: "OTLP gRPC", url: endpointFor(status.otlpGrpcAddr, hostname) },
+    { label: "OTLP HTTP", url: endpointFor(status.otlpHttpAddr, hostname) },
+    // The page's own host:port, not httpAddr's port: in dev the page is
+    // served by Vite on another port, and a reverse proxy may remap it.
+    { label: "Web UI", url: host },
   ];
 
   return (
