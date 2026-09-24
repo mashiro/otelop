@@ -15,15 +15,20 @@ GraphQL API. Use this workflow:
 
 ## Connect to the API
 
-Read the Web UI address from `otelop status`; do not assume the default port.
-The default GraphQL endpoint is `http://localhost:4319/graphql`.
+The GraphQL endpoint is the otelop base URL followed by `/graphql`:
 
-`otelop status` only reports instances started on this machine. For an otelop
-instance hosted elsewhere, use the URL it is served from (ask the user if it is
-unknown) and append `/graphql`.
+- For an instance on this machine, read the Web UI address from
+  `otelop status`; do not assume the default `http://localhost:4319`.
+- `otelop status` only reports instances started on this machine. For an
+  instance hosted elsewhere, use the URL it is served from, and ask the user if
+  it is unknown.
+
+Set `base` to that URL. The `${base%/}` expansion drops a trailing slash so the
+request path stays `/graphql`:
 
 ```sh
-curl -sS -X POST http://localhost:4319/graphql \
+base=http://localhost:4319  # replace with the address for your instance
+curl -sS -X POST "${base%/}/graphql" \
   -H 'Content-Type: application/json' \
   -d '{"query":"{ status { version uptimeMs dbSizeBytes } }"}'
 ```

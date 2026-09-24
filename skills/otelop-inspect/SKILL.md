@@ -18,7 +18,8 @@ Prefer read-only public surfaces: `otelop status`, the GraphQL API, and the
 browser UI. For an instance on this machine, use the address reported by
 `otelop status`; do not assume the default port. `otelop status` only sees
 instances started on this machine, so for a hosted instance ask the user for
-its URL and send GraphQL requests to `<url>/graphql`.
+its URL. Send GraphQL requests to that URL with `/graphql` appended, after
+removing any trailing slash.
 
 Do not start, restart, or stop otelop without the user's permission. Never call
 the irreversible `clearSignals` mutation unless the user explicitly requests
