@@ -24,17 +24,28 @@ export function CopyButton<T>({ value, write, tooltip, label, children }: CopyBu
   const message = status === "copied" ? "Copied" : status === "failed" ? "Copy failed" : null;
 
   return (
-    <HelpTooltip content={message ?? tooltip}>
-      {label !== undefined ? (
-        <Button variant="ghost-muted" size="icon-xs" aria-label={label} onClick={() => copy(value)}>
-          {icon}
-        </Button>
-      ) : (
-        <Button variant="ghost-muted" size="sm" onClick={() => copy(value)}>
-          {icon}
-          {message ?? children}
-        </Button>
-      )}
-    </HelpTooltip>
+    <>
+      <HelpTooltip content={message ?? tooltip}>
+        {label !== undefined ? (
+          <Button
+            variant="ghost-muted"
+            size="icon-xs"
+            aria-label={label}
+            onClick={() => copy(value)}
+          >
+            {icon}
+          </Button>
+        ) : (
+          <Button variant="ghost-muted" size="sm" onClick={() => copy(value)}>
+            {icon}
+            {message ?? children}
+          </Button>
+        )}
+      </HelpTooltip>
+      {/* The result otherwise only shows in a hover tooltip and the icon. */}
+      <span role="status" className="sr-only">
+        {message}
+      </span>
+    </>
   );
 }

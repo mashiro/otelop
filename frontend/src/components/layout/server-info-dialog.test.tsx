@@ -214,11 +214,12 @@ describe("ServerInfoDialog", () => {
     expect(rowValue(dialog, "Log level")).toBe("warn");
   });
 
-  it("shows an error message when the fetch fails", async () => {
+  it("shows an error message when the fetch fails, without the tabbed layout's fixed height", async () => {
     requestMock.mockRejectedValue(new Error("network error"));
     const dialog = await openDialog();
 
     await within(dialog).findByText("Failed to load server info.");
+    expect(dialog.className).not.toContain("h-128");
   });
 
   it("truncates addresses instead of wrapping", async () => {
@@ -259,9 +260,9 @@ describe("ServerInfoDialog", () => {
       requestMock.mockResolvedValue(makeServerInfoResponse());
       const dialog = await openDialog();
 
-      await within(dialog).findByRole("tablist");
-      const tabs = dialog.querySelector('[data-slot="tabs"]');
-      expect(tabs?.getAttribute("data-orientation")).toBe("horizontal");
+      const tablist = await within(dialog).findByRole("tablist");
+      // Horizontal is ARIA's default, so Base UI leaves the attribute off.
+      expect(tablist.getAttribute("aria-orientation")).not.toBe("vertical");
     } finally {
       happyDOM.setViewport({ width: innerWidth, height: innerHeight });
     }
@@ -271,8 +272,7 @@ describe("ServerInfoDialog", () => {
     requestMock.mockResolvedValue(makeServerInfoResponse());
     const dialog = await openDialog();
 
-    await within(dialog).findByRole("tablist");
-    const tabs = dialog.querySelector('[data-slot="tabs"]');
-    expect(tabs?.getAttribute("data-orientation")).toBe("vertical");
+    const tablist = await within(dialog).findByRole("tablist");
+    expect(tablist.getAttribute("aria-orientation")).toBe("vertical");
   });
 });

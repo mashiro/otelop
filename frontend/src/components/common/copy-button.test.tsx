@@ -12,6 +12,7 @@ describe("CopyButton", () => {
     });
     expect(write).toHaveBeenCalledWith("localhost:4317");
     expect(screen.getByRole("button", { name: "Copy OTLP" }).innerHTML).toContain("lucide-check");
+    expect(screen.getByRole("status").textContent).toBe("Copied");
   });
 
   it("shows a failed copy instead of doing nothing", async () => {
@@ -25,6 +26,7 @@ describe("CopyButton", () => {
       fireEvent.click(screen.getByRole("button", { name: "JSON" }));
     });
     expect(screen.getByRole("button", { name: "Copy failed" })).toBeTruthy();
+    expect(screen.getByRole("status").textContent).toBe("Copy failed");
   });
 
   it("does not update after unmounting while the write is pending", async () => {

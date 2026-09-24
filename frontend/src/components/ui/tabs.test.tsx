@@ -107,3 +107,19 @@ describe("TabsTrigger", () => {
     expect(cls).not.toContain("data-active:bg-background");
   });
 });
+
+describe("Tabs orientation", () => {
+  it("passes a vertical orientation through to the tablist and its tabs", () => {
+    render(
+      <Tabs defaultValue="a" orientation="vertical">
+        <TabsList>
+          <TabsTrigger value="a">A</TabsTrigger>
+        </TabsList>
+      </Tabs>,
+    );
+    expect(screen.getByRole("tablist").getAttribute("aria-orientation")).toBe("vertical");
+    expect(screen.getByRole("tab", { name: "A" }).getAttribute("data-orientation")).toBe(
+      "vertical",
+    );
+  });
+});

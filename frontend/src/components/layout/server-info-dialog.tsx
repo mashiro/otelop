@@ -17,6 +17,7 @@ import { HelpTooltip } from "@/components/common/help-tooltip";
 import { useServerInfo } from "@/hooks/use-server-info";
 import { useBreakpoint } from "@/hooks/use-breakpoint";
 import { formatDateTime, formatElapsedMs } from "@/lib/format";
+import { cn } from "@/lib/utils";
 import { OverviewPanel } from "./server-info-overview";
 import { StoragePanel } from "./server-info-storage";
 import { RuntimePanel } from "./server-info-runtime";
@@ -38,8 +39,9 @@ export function ServerInfoDialog() {
         </DialogTrigger>
       </HelpTooltip>
       {/* A fixed height keeps the centered dialog from resizing, and the
-          tab list from moving, when switching between tabs. */}
-      <DialogContent className="flex h-128 max-h-11/12 flex-col sm:max-w-2xl">
+          tab list from moving, when switching between tabs; loading and
+          error states have no tabs and size to their content. */}
+      <DialogContent className={cn("flex max-h-11/12 flex-col sm:max-w-2xl", data && "h-128")}>
         <DialogHeader className="shrink-0">
           <DialogTitle>
             <span className="flex items-center gap-2">
