@@ -360,10 +360,9 @@ The Go driver is `github.com/duckdb/duckdb-go` (v2.5+, maintained by the
 DuckDB team; `marcboeker/go-duckdb` is archived). It requires CGO with
 prebuilt per-target static libraries.
 
-- Releases move from a single `CGO_ENABLED=0` cross-compiling runner to a
-  native build matrix in `.github/workflows/release.yml`: `ubuntu-latest`
-  builds linux/amd64, `ubuntu-24.04-arm` (a free-tier hosted Arm runner)
-  builds linux/arm64, and `macos-latest` builds both darwin/arm64 (native)
+- Releases use a native build matrix in `.github/workflows/release.yml`:
+  Debian 13 containers on `ubuntu-26.04` and `ubuntu-26.04-arm` build
+  linux/amd64 and linux/arm64, and `macos-26` builds both darwin/arm64 (native)
   and darwin/amd64 (Xcode's clang cross-compiles x86_64 from an arm64 host
   within the same OS/SDK via `CGO_CFLAGS`/`CGO_LDFLAGS="-arch x86_64"` —
   verified locally). No target is built under qemu or a cross-gcc.
@@ -383,8 +382,10 @@ prebuilt per-target static libraries.
   only for local use (`mise run release-snapshot`, via
   `goreleaser build --single-target` since a single host only has a native
   toolchain for its own goos/goarch) and for `goreleaser check` in CI.
-- The Dockerfile uses `ubuntu:24.04` to match the Linux release builders'
-  glibc baseline, with `libstdc++6` installed for DuckDB's C++ runtime.
+- The Dockerfile uses `gcr.io/distroless/cc-debian13:nonroot` with glibc
+  and `libstdc++6` for DuckDB. Release and local image builds use Debian 13
+  toolchains. The runtime has no shell or package manager and runs as UID
+  65532, with writable storage at `/data`.
 - Binary size grows by tens of MB (embedded DuckDB). Accepted for a local
   tool.
 

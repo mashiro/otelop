@@ -1,15 +1,13 @@
 # DuckDB requires CGO with glibc and libstdc++.
-FROM ubuntu:24.04@sha256:008173c23f95b170204355c12626cb5a965d779a7e1283b09e9cffbb1bf33ca3
+FROM gcr.io/distroless/cc-debian13:nonroot@sha256:54df941ed0d06a1bd95ef5e0ce391fd8d9f94b64782dc9a60062727849ee3f97 AS base
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates libstdc++6 \
-    && rm -rf /var/lib/apt/lists/* \
-    && groupadd --gid 65532 nonroot \
-    && useradd --uid 65532 --gid nonroot --create-home --shell /usr/sbin/nologin nonroot \
-    && install -d -o nonroot -g nonroot /data
+FROM base
+
+# Copy the empty home directory to create writable storage without a shell.
+COPY --from=base --chown=65532:65532 /home/nonroot /data
 
 ARG TARGETPLATFORM
-COPY $TARGETPLATFORM/otelop /usr/local/bin/otelop
+COPY --chmod=755 $TARGETPLATFORM/otelop /usr/local/bin/otelop
 
 ENV HOME=/home/nonroot \
     OTELOP_STORAGE_PATH=/data/otelop.duckdb \

@@ -18,7 +18,7 @@ before:
 # matching native toolchain) and `mise run release-check` (`goreleaser
 # check`, validating this file). Nothing in CI runs goreleaser at all.
 # The real multi-platform release is .github/workflows/release.yml: a
-# go-build matrix across ubuntu-latest/ubuntu-24.04-arm/macos-latest,
+# native go-build matrix using Debian 13 containers and macOS runners,
 # assembled by scripts/package-release.sh and published with `gh release
 # upload` + `docker buildx`, bypassing goreleaser entirely.
 builds:

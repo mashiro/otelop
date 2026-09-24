@@ -19,7 +19,7 @@ docker run --rm --platform "$platform" \
   -v "$(pwd)":/src -w /src \
   -v "$ctx/$platform":/out \
   -e CGO_ENABLED=1 -e GOCACHE=/tmp/gocache \
-  golang:1.26-bookworm \
+  golang:1.27.1-trixie@sha256:433790e515d27dc6003e847e644cc0af956985cf315c1c58a3b73ee2dd305183 \
   go build -tags embed -ldflags "-s -w -X main.version=local-$(git rev-parse --short HEAD)" \
     -o /out/otelop ./cmd/otelop
 
