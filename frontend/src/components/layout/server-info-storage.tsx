@@ -1,7 +1,8 @@
 import type { ReactNode } from "react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Item, ItemActions, ItemContent } from "@/components/ui/item";
-import { CopyTextButton } from "@/components/common/copy-text-button";
+import { CopyButton } from "@/components/common/copy-button";
+import { copyTextToClipboard } from "@/lib/export";
 import { HelpTooltip } from "@/components/common/help-tooltip";
 import { formatBytes } from "@/lib/format-metric";
 import { formatDateTime, formatElapsedMs, formatRelativeTime } from "@/lib/format";
@@ -53,7 +54,12 @@ export function StoragePanel({ status }: { status: Status }) {
           </ItemContent>
           {path && (
             <ItemActions>
-              <CopyTextButton text={path} label="Copy database path" />
+              <CopyButton
+                value={path}
+                write={copyTextToClipboard}
+                tooltip="Copy"
+                label="Copy database path"
+              />
             </ItemActions>
           )}
         </Item>
@@ -114,6 +120,7 @@ export function StoragePanel({ status }: { status: Status }) {
         />
         <ServerInfoRow
           label="Last sweep"
+          wrap
           value={
             sweep
               ? `${formatRelativeTime(sweep.startedAt)}, deleted ${sweep.deletedRows.toLocaleString("en-US")} rows in ${formatElapsedMs(sweep.durationMs)}`

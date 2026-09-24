@@ -1,5 +1,7 @@
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { CopyTextButton } from "@/components/common/copy-text-button";
+import { CopyButton } from "@/components/common/copy-button";
+import { reachableEndpoint } from "@/lib/endpoint";
+import { copyTextToClipboard } from "@/lib/export";
 import { formatRelativeTime } from "@/lib/format";
 import type { ServerInfoQuery } from "@/gql/graphql";
 import { ServerInfoRow } from "./server-info-row";
@@ -10,10 +12,13 @@ type Status = ServerInfoQuery["status"];
 export function OverviewPanel({ status }: { status: Status }) {
   const { storage, config } = status;
   const sweepError = storage.lastSweep?.error;
+  const { hostname, origin } = window.location;
   const endpoints = [
-    { label: "OTLP gRPC", addr: status.otlpGrpcAddr },
-    { label: "OTLP HTTP", addr: status.otlpHttpAddr },
-    { label: "Web UI", addr: status.httpAddr },
+    { label: "OTLP gRPC", url: reachableEndpoint(status.otlpGrpcAddr, hostname) },
+    { label: "OTLP HTTP", url: reachableEndpoint(status.otlpHttpAddr, hostname) },
+    // The page's own origin is by definition reachable; httpAddr may be a
+    // wildcard bind or, in dev, sit behind the Vite proxy on another port.
+    { label: "Web UI", url: origin },
   ];
 
   return (
@@ -25,13 +30,20 @@ export function OverviewPanel({ status }: { status: Status }) {
         </Alert>
       )}
       <ServerInfoSection title="Endpoints">
-        {endpoints.map(({ label, addr }) => (
+        {endpoints.map(({ label, url }) => (
           <ServerInfoRow
             key={label}
             label={label}
             mono
-            value={addr}
-            action={<CopyTextButton text={addr} label={`Copy ${label}`} />}
+            value={url}
+            action={
+              <CopyButton
+                value={url}
+                write={copyTextToClipboard}
+                tooltip="Copy"
+                label={`Copy ${label}`}
+              />
+            }
           />
         ))}
       </ServerInfoSection>

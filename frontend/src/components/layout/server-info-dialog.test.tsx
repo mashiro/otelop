@@ -65,9 +65,10 @@ describe("ServerInfoDialog", () => {
 
     const tabs = await within(dialog).findAllByRole("tab");
     expect(tabs.map((tab) => tab.textContent)).toEqual(["Overview", "Storage", "Runtime"]);
-    expect(rowValue(dialog, "OTLP gRPC")).toBe("0.0.0.0:4317");
-    expect(rowValue(dialog, "OTLP HTTP")).toBe("0.0.0.0:4318");
-    expect(rowValue(dialog, "Web UI")).toBe(":4319");
+    const { hostname, origin } = window.location;
+    expect(rowValue(dialog, "OTLP gRPC")).toBe(`http://${hostname}:4317`);
+    expect(rowValue(dialog, "OTLP HTTP")).toBe(`http://${hostname}:4318`);
+    expect(rowValue(dialog, "Web UI")).toBe(origin);
     expect(within(dialog).getByRole("progressbar", { name: "Disk usage" })).toBeTruthy();
     expect(within(dialog).getByRole("progressbar", { name: "Memory usage" })).toBeTruthy();
     expect(rowValue(dialog, "Disk")).toBe("1.05 MB of 4.29 GB");
@@ -77,14 +78,14 @@ describe("ServerInfoDialog", () => {
     expect(within(dialog).queryByText("Traces")).toBeNull();
   });
 
-  it("copies an endpoint address", async () => {
+  it("copies a reachable endpoint URL rather than the wildcard bind address", async () => {
     requestMock.mockResolvedValue(makeServerInfoResponse());
     const dialog = await openDialog();
 
     await act(async () => {
       fireEvent.click(await within(dialog).findByRole("button", { name: "Copy OTLP gRPC" }));
     });
-    expect(writeText).toHaveBeenCalledWith("0.0.0.0:4317");
+    expect(writeText).toHaveBeenCalledWith(`http://${window.location.hostname}:4317`);
   });
 
   it("surfaces a failed sweep on Overview", async () => {
@@ -164,6 +165,9 @@ describe("ServerInfoDialog", () => {
     await selectTab(dialog, "Storage");
 
     expect(rowValue(dialog, "Last sweep")).toBe("12m ago, deleted 1,234 rows in 850ms");
+    const summary = within(dialog).getByText("12m ago, deleted 1,234 rows in 850ms");
+    expect(summary.className).toContain("break-words");
+    expect(summary.className).not.toContain("truncate");
     expect(rowValue(dialog, "Max-size iterations")).toBe("2");
   });
 
@@ -192,8 +196,8 @@ describe("ServerInfoDialog", () => {
     requestMock.mockResolvedValue(makeServerInfoResponse());
     const dialog = await openDialog();
 
-    const httpAddr = await within(dialog).findByText(":4319");
-    expect(httpAddr.className).toContain("truncate");
+    const webUi = await within(dialog).findByText(window.location.origin);
+    expect(webUi.className).toContain("truncate");
   });
 
   it("formats production-scale values and keeps the full error message available", async () => {
@@ -216,22 +220,29 @@ describe("ServerInfoDialog", () => {
   });
 
   it("stacks the tab list above the content on narrow screens", async () => {
-    const matchMedia = vi.spyOn(window, "matchMedia");
-    matchMedia.mockImplementation(
-      (query: string) =>
-        ({
-          matches: false,
-          media: query,
-          addEventListener: vi.fn(),
-          removeEventListener: vi.fn(),
-        }) as unknown as MediaQueryList,
-    );
+    const { happyDOM } = window as unknown as {
+      happyDOM: { setViewport(viewport: { width: number; height: number }): void };
+    };
+    const { innerWidth, innerHeight } = window;
+    happyDOM.setViewport({ width: 400, height: 800 });
+    try {
+      requestMock.mockResolvedValue(makeServerInfoResponse());
+      const dialog = await openDialog();
+
+      await within(dialog).findByRole("tablist");
+      const tabs = dialog.querySelector('[data-slot="tabs"]');
+      expect(tabs?.getAttribute("data-orientation")).toBe("horizontal");
+    } finally {
+      happyDOM.setViewport({ width: innerWidth, height: innerHeight });
+    }
+  });
+
+  it("puts the tab list beside the content on wider screens", async () => {
     requestMock.mockResolvedValue(makeServerInfoResponse());
     const dialog = await openDialog();
 
     await within(dialog).findByRole("tablist");
     const tabs = dialog.querySelector('[data-slot="tabs"]');
-    expect(tabs?.getAttribute("data-orientation")).toBe("horizontal");
-    matchMedia.mockRestore();
+    expect(tabs?.getAttribute("data-orientation")).toBe("vertical");
   });
 });

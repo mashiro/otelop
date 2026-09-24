@@ -9,12 +9,16 @@ export function ServerInfoRow({
   value,
   mono,
   numeric,
+  wrap,
   action,
 }: {
   label: ReactNode;
   value: ReactNode;
   mono?: boolean;
   numeric?: boolean;
+  // For prose-like values (e.g. a sweep summary) that must stay fully
+  // readable; the title tooltip that backs truncation never shows on touch.
+  wrap?: boolean;
   action?: ReactNode;
 }) {
   return (
@@ -28,7 +32,8 @@ export function ServerInfoRow({
         <span
           title={typeof value === "string" ? value : undefined}
           className={cn(
-            "min-w-0 truncate text-right text-foreground",
+            "min-w-0 text-right text-foreground",
+            wrap ? "break-words" : "truncate",
             (mono || numeric) && "font-mono",
             numeric && "tabular-nums",
           )}

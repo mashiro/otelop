@@ -1,31 +1,20 @@
-import { useState, useCallback, useRef, useEffect } from "react";
-import { copyJsonToClipboard, copyTextToClipboard } from "@/lib/export";
+import { useState, useRef, useEffect } from "react";
 
-function useCopyFeedback<T>(write: (value: T) => Promise<boolean>) {
+// write reports whether the clipboard accepted the value, so the "copied"
+// feedback only shows for a copy that actually happened.
+export function useCopy<T>(write: (value: T) => Promise<boolean>) {
   const [copied, setCopied] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   useEffect(() => () => clearTimeout(timerRef.current), []);
 
-  const copy = useCallback(
-    async (value: T) => {
-      const ok = await write(value);
-      if (ok) {
-        setCopied(true);
-        clearTimeout(timerRef.current);
-        timerRef.current = setTimeout(() => setCopied(false), 2000);
-      }
-    },
-    [write],
-  );
+  const copy = async (value: T) => {
+    if (await write(value)) {
+      setCopied(true);
+      clearTimeout(timerRef.current);
+      timerRef.current = setTimeout(() => setCopied(false), 2000);
+    }
+  };
 
   return { copied, copy };
-}
-
-export function useCopyJson() {
-  return useCopyFeedback(copyJsonToClipboard);
-}
-
-export function useCopyText() {
-  return useCopyFeedback(copyTextToClipboard);
 }
