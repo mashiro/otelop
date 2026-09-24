@@ -81,9 +81,9 @@ func TestInfoCommand_ValidatesRenderWindowMax(t *testing.T) {
 	dir := t.TempDir()
 	isolateInfoEnv(t, filepath.Join(dir, "missing.toml"))
 
-	_, _, err := runTestApp("info", "--render-window-max", "0")
+	_, _, err := runTestApp("info", "--ui-render-window-max", "0")
 	if err == nil {
-		t.Fatal("run info --render-window-max 0: want error, got nil")
+		t.Fatal("run info --ui-render-window-max 0: want error, got nil")
 	}
 	if !strings.Contains(err.Error(), "render-window-max") {
 		t.Errorf("error %q should mention render-window-max", err.Error())
@@ -155,13 +155,13 @@ memory_limit = "128MB"
 	t.Setenv("OTELOP_OTLP_GRPC", "0.0.0.0:16001")
 	t.Setenv("OTELOP_DEBUG", "true")
 	t.Setenv("OTELOP_STORAGE_PATH", envStoragePath)
-	t.Setenv("OTELOP_RETENTION", "48h")
-	t.Setenv("OTELOP_MAX_SIZE", "2GB")
-	t.Setenv("OTELOP_MEMORY_LIMIT", "384MB")
+	t.Setenv("OTELOP_STORAGE_RETENTION", "48h")
+	t.Setenv("OTELOP_STORAGE_MAX_SIZE", "2GB")
+	t.Setenv("OTELOP_STORAGE_MEMORY_LIMIT", "384MB")
 	t.Setenv("OTELOP_LOG_LEVEL", "error")
 	t.Setenv("OTELOP_PROXY_URL", "https://env-upstream.example.com:4318")
 	t.Setenv("OTELOP_PROXY_PROTOCOL", "http")
-	t.Setenv("OTELOP_RENDER_WINDOW_MAX", "750")
+	t.Setenv("OTELOP_UI_RENDER_WINDOW_MAX", "750")
 
 	stdout, _, err := runTestApp("info")
 	if err != nil {

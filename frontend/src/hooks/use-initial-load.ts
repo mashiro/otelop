@@ -34,8 +34,8 @@ import type { MetricData } from "@/types/telemetry";
 // totalLogCountAtom) — the server-side row/group totals, since the
 // traces/logs tabs' own paginated fetch only ever loads a page at a time.
 //
-// config { renderWindowMax } is the backend's --render-window-max/
-// OTELOP_RENDER_WINDOW_MAX/config.toml [ui] setting (internal/config/config.go),
+// config { renderWindowMax } is the backend's --ui-render-window-max/
+// OTELOP_UI_RENDER_WINDOW_MAX/config.toml [ui] setting (internal/config/config.go),
 // seeded into stores/telemetry.ts's renderWindowMaxAtom below so the
 // traces/metrics/logs tables' mounted-row cap (hooks/use-render-window.ts) is
 // operator-configurable instead of a frontend-only constant.

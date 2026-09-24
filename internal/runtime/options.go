@@ -42,7 +42,7 @@ type Options struct {
 // Validate checks whether opts can be used to start an otelop runtime.
 func Validate(opts Options) error {
 	if opts.RenderWindowMax < 1 {
-		return fmt.Errorf("render-window-max must be >= 1, got %d", opts.RenderWindowMax)
+		return fmt.Errorf("ui-render-window-max must be >= 1, got %d", opts.RenderWindowMax)
 	}
 	return validateProxyOptions(opts)
 }
@@ -139,10 +139,10 @@ func validateProxyAuth(auth ProxyAuthOptions) error {
 		}
 	case "headers":
 		if len(auth.Headers) == 0 {
-			return errors.New("proxy-auth-type headers requires at least one --proxy-header")
+			return errors.New("proxy-auth-type headers requires at least one --proxy-auth-headers")
 		}
 		if auth.Token != "" || auth.Username != "" || auth.Password != "" {
-			return errors.New("proxy-auth-type headers only supports --proxy-header")
+			return errors.New("proxy-auth-type headers only supports --proxy-auth-headers")
 		}
 	default:
 		return fmt.Errorf("invalid proxy-auth-type %q: want bearer, basic, or headers", auth.Type)

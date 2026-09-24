@@ -351,7 +351,7 @@ retention = "7d"
 max_size  = "4GB"
 ```
 
-CLI: `--storage-path`, `--retention`, `--max-size`, with the usual
+CLI: `--storage-path`, `--storage-retention`, `--storage-max-size`, with the usual
 flag > env > TOML > default precedence.
 
 ## Build and release impact

@@ -9,6 +9,11 @@ Every configuration option can be set in three places. Precedence is:
 2. An `OTELOP_*` environment variable.
 3. `$XDG_CONFIG_HOME/otelop/config.toml` (normally `~/.config/otelop/config.toml`).
 
+Config key paths map to CLI flags by replacing dots and underscores with hyphens
+(for example, `storage.max_size` becomes `--storage-max-size`). Environment
+variables use uppercase underscores and the `OTELOP_` prefix
+(`OTELOP_STORAGE_MAX_SIZE`).
+
 The process-control flag `--foreground` is CLI-only. Set `OTELOP_CONFIG_FILE`
 to use another config file.
 
@@ -101,8 +106,8 @@ Authorization = "Bearer replace-me"
 X-Api-Key = "replace-me"
 ```
 
-The CLI equivalent is a repeatable `--proxy-header key=value`; use
-`OTELOP_PROXY_HEADERS` for the environment source. Do not put credentials in
+The CLI equivalent is a repeatable `--proxy-auth-headers key=value`; use
+`OTELOP_PROXY_AUTH_HEADERS` for the environment source. Do not put credentials in
 `proxy.url`. Treat configuration files and environment values containing
 credentials as secrets and do not print them in agent responses.
 
