@@ -81,7 +81,7 @@ describe("TabsTrigger", () => {
       </Tabs>,
     );
     const cls = classes(screen.getByRole("tab"));
-    expect(cls).toContain("text-xs");
+    expect(cls).toContain("text-sm");
     expect(cls).toContain("data-active:bg-metric/15");
     expect(cls).toContain("data-active:text-metric");
     expect(cls).not.toContain("data-active:bg-background");
