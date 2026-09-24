@@ -15,8 +15,10 @@ description: Investigate OpenTelemetry signals (traces, metrics, logs) retained 
    fields and time range needed for the investigation.
 
 Prefer read-only public surfaces: `otelop status`, the GraphQL API, and the
-browser UI. Use the address reported by `otelop status`; do not assume the
-default port.
+browser UI. For an instance on this machine, use the address reported by
+`otelop status`; do not assume the default port. `otelop status` only sees
+instances started on this machine, so for a hosted instance ask the user for
+its URL and send GraphQL requests to `<url>/graphql`.
 
 Do not start, restart, or stop otelop without the user's permission. Never call
 the irreversible `clearSignals` mutation unless the user explicitly requests
