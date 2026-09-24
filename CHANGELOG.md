@@ -1,5 +1,27 @@
 # Changelog
 
+## [2.1.0](https://github.com/mashiro/otelop/compare/v2.0.0...v2.1.0) (2026-09-24)
+
+
+### Features
+
+* **frontend:** add server info dialog with storage and sweep status ([#349](https://github.com/mashiro/otelop/issues/349)) ([6ba365a](https://github.com/mashiro/otelop/commit/6ba365ae988c27b31ded57de5190a10239f4cbe8))
+
+
+### Bug Fixes
+
+* **cli:** resolve environment variables in info ([#347](https://github.com/mashiro/otelop/issues/347)) ([0298dbf](https://github.com/mashiro/otelop/commit/0298dbf304c6aef6eb319ecd23a7f331dd961c94))
+* **deps:** update all non-major dependencies ([#339](https://github.com/mashiro/otelop/issues/339)) ([c39bd2f](https://github.com/mashiro/otelop/commit/c39bd2fd09d27c09e8cd71b920ea74b8751bf340))
+* **deps:** update all non-major dependencies ([#348](https://github.com/mashiro/otelop/issues/348)) ([65b4105](https://github.com/mashiro/otelop/commit/65b4105dcda972274df3d9e398d5e6ff4d6c9160))
+* **frontend:** keep stored theme applied after reload ([#355](https://github.com/mashiro/otelop/issues/355)) ([bcb1465](https://github.com/mashiro/otelop/commit/bcb14658206a143ffaeac5b89e3701cafee6fd98))
+* **frontend:** match log severity text case-insensitively ([#346](https://github.com/mashiro/otelop/issues/346)) ([0a8d0d0](https://github.com/mashiro/otelop/commit/0a8d0d083281a09efcd91c35d91dc19581ec1741))
+* **frontend:** restore readable typography with Nova styles ([#356](https://github.com/mashiro/otelop/issues/356)) ([3b3324e](https://github.com/mashiro/otelop/commit/3b3324e45d4a4489841b6e6d9921821e0bb56049))
+
+
+### Performance Improvements
+
+* **storage:** cap DuckDB memory with configurable memory_limit ([#352](https://github.com/mashiro/otelop/issues/352)) ([a179506](https://github.com/mashiro/otelop/commit/a179506d57f7df042c2450c021009c21029abb9e))
+
 ## [2.0.0](https://github.com/mashiro/otelop/compare/v1.2.3...v2.0.0) (2026-09-19)
 
 
