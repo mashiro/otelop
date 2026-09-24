@@ -19,7 +19,7 @@ function Table({
       <table
         data-slot="table"
         className={cn(
-          "w-full caption-bottom text-xs [--cell-padding-x:--spacing(2)]",
+          "w-full caption-bottom text-sm [--cell-padding-x:--spacing(2)]",
           spacing === "comfortable" && "[--cell-padding-x:--spacing(4)]",
           className,
         )}
@@ -227,7 +227,7 @@ function TableCaption({ className, ...props }: React.ComponentProps<"caption">) 
   return (
     <caption
       data-slot="table-caption"
-      className={cn("mt-4 text-xs text-muted-foreground", className)}
+      className={cn("mt-4 text-sm text-muted-foreground", className)}
       {...props}
     />
   );

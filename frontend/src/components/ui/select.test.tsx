@@ -23,7 +23,7 @@ describe("SelectTrigger", () => {
     const trigger = renderTrigger({});
 
     expect(trigger.className).toContain("focus-visible:border-ring");
-    expect(trigger.className).toContain("focus-visible:ring-ring/30");
+    expect(trigger.className).toContain("focus-visible:ring-ring/50");
     expect(trigger.className).not.toContain("bg-muted/50");
   });
 
@@ -39,13 +39,13 @@ describe("SelectTrigger", () => {
       expect(trigger.className).toContain(border);
       expect(trigger.className).toContain(ring);
       expect(trigger.className).not.toContain("focus-visible:border-ring");
-      expect(trigger.className).not.toContain("focus-visible:ring-ring/30");
+      expect(trigger.className).not.toContain("focus-visible:ring-ring/50");
     },
   );
 
   it.each([
-    ["default", "data-[size=default]:h-7"],
-    ["sm", "data-[size=sm]:h-6"],
+    ["default", "data-[size=default]:h-8"],
+    ["sm", "data-[size=sm]:h-7"],
   ] as const)("sets data-size=%s and keeps the matching height class", (size, expectedClass) => {
     const trigger = renderTrigger({ size });
 
