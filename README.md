@@ -4,7 +4,7 @@
 
 # otelop
 
-A zero-setup OpenTelemetry viewer for traces, metrics, and logs.
+An OpenTelemetry viewer for traces, metrics, and logs.
 Single binary, persistent storage, browser UI.
 
 [![Release](https://img.shields.io/github/v/release/mashiro/otelop?color=14b8a6)](https://github.com/mashiro/otelop/releases)
