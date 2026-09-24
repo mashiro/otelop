@@ -45,7 +45,7 @@ export const bufferCapsAtom = atom<BufferCaps>(DEFAULT_CONFIG);
 // this module loads, before hooks/use-initial-load.ts's Config fetch can
 // reach the server, so the atom can't start unset. Once that fetch resolves,
 // it overwrites this with the operator-configured value (backend
-// --render-window-max/OTELOP_RENDER_WINDOW_MAX/config.toml [ui], whose own
+// --ui-render-window-max/OTELOP_UI_RENDER_WINDOW_MAX/config.toml [ui], whose own
 // default is internal/config/config.go's DefaultRenderWindowMax) — that is
 // the actual source of truth.
 export const renderWindowMaxAtom = atom<number>(500);

@@ -207,24 +207,24 @@ otelop docs show <name> # print one document as Markdown
 `start` flags:
 
 ```
-  --foreground, -f   run in the foreground instead of detaching
-  --http             Web UI listen address           (default 127.0.0.1:4319)
-  --otlp-grpc        OTLP gRPC receiver endpoint     (default 0.0.0.0:4317)
-  --otlp-http        OTLP HTTP receiver endpoint     (default 0.0.0.0:4318)
-  --proxy-url        upstream OTLP endpoint for forwarding
-  --proxy-protocol   upstream OTLP protocol          (grpc|http)
-  --proxy-auth-type  upstream OTLP auth type         (bearer|basic|headers)
-  --proxy-auth-token upstream bearer token
-  --proxy-auth-username upstream basic auth username
-  --proxy-auth-password upstream basic auth password
-  --proxy-header     upstream header                 (repeatable key=value)
-  --storage-path     DuckDB database path             (default: XDG data directory)
-  --retention        telemetry retention period       (default 7d)
-  --max-size         database size ceiling            (default 4GB)
-  --memory-limit     DuckDB memory ceiling             (default 512MB)
-  --render-window-max max rows the traces/metrics/logs tables render at once (default 500)
-  --log-level        debug|info|warn|error           (default warn)
-  --debug            export otelop's own telemetry to itself
+  --foreground, -f         run in the foreground instead of detaching
+  --http                   Web UI listen address           (default 127.0.0.1:4319)
+  --otlp-grpc              OTLP gRPC receiver endpoint     (default 0.0.0.0:4317)
+  --otlp-http              OTLP HTTP receiver endpoint     (default 0.0.0.0:4318)
+  --proxy-url              upstream OTLP endpoint for forwarding
+  --proxy-protocol         upstream OTLP protocol          (grpc|http)
+  --proxy-auth-type        upstream OTLP auth type         (bearer|basic|headers)
+  --proxy-auth-token       upstream bearer token
+  --proxy-auth-username    upstream basic auth username
+  --proxy-auth-password    upstream basic auth password
+  --proxy-auth-headers     upstream header                 (repeatable key=value)
+  --storage-path           DuckDB database path             (default: XDG data directory)
+  --storage-retention      telemetry retention period       (default 7d)
+  --storage-max-size       database size ceiling            (default 4GB)
+  --storage-memory-limit   DuckDB memory ceiling             (default 512MB)
+  --ui-render-window-max   max rows the traces/metrics/logs tables render at once (default 500)
+  --log-level              debug|info|warn|error           (default warn)
+  --debug                  export otelop's own telemetry to itself
 ```
 
 PID, log, and metadata files live in `$XDG_STATE_HOME/otelop/` (defaults to
@@ -282,27 +282,28 @@ type = "bearer"
 token = "replace-me"
 ```
 
-Each key maps to an environment variable:
+Config key paths map to CLI flags by replacing dots and underscores with hyphens.
+Environment variables use the same path in uppercase with underscores and an `OTELOP_` prefix:
 
-| Config key | Environment variable |
-|---|---|
-| `http` | `OTELOP_HTTP` |
-| `otlp_grpc` | `OTELOP_OTLP_GRPC` |
-| `otlp_http` | `OTELOP_OTLP_HTTP` |
-| `log_level` | `OTELOP_LOG_LEVEL` |
-| `debug` | `OTELOP_DEBUG` |
-| `storage.path` | `OTELOP_STORAGE_PATH` |
-| `storage.retention` | `OTELOP_RETENTION` |
-| `storage.max_size` | `OTELOP_MAX_SIZE` |
-| `storage.memory_limit` | `OTELOP_MEMORY_LIMIT` |
-| `ui.render_window_max` | `OTELOP_RENDER_WINDOW_MAX` |
-| `proxy.url` | `OTELOP_PROXY_URL` |
-| `proxy.protocol` | `OTELOP_PROXY_PROTOCOL` |
-| `proxy.auth.type` | `OTELOP_PROXY_AUTH_TYPE` |
-| `proxy.auth.token` | `OTELOP_PROXY_AUTH_TOKEN` |
-| `proxy.auth.username` | `OTELOP_PROXY_AUTH_USERNAME` |
-| `proxy.auth.password` | `OTELOP_PROXY_AUTH_PASSWORD` |
-| `proxy.auth.headers` | `OTELOP_PROXY_HEADERS` |
+| Config key | CLI flag | Environment variable |
+|---|---|---|
+| `http` | `--http` | `OTELOP_HTTP` |
+| `otlp_grpc` | `--otlp-grpc` | `OTELOP_OTLP_GRPC` |
+| `otlp_http` | `--otlp-http` | `OTELOP_OTLP_HTTP` |
+| `log_level` | `--log-level` | `OTELOP_LOG_LEVEL` |
+| `debug` | `--debug` | `OTELOP_DEBUG` |
+| `storage.path` | `--storage-path` | `OTELOP_STORAGE_PATH` |
+| `storage.retention` | `--storage-retention` | `OTELOP_STORAGE_RETENTION` |
+| `storage.max_size` | `--storage-max-size` | `OTELOP_STORAGE_MAX_SIZE` |
+| `storage.memory_limit` | `--storage-memory-limit` | `OTELOP_STORAGE_MEMORY_LIMIT` |
+| `ui.render_window_max` | `--ui-render-window-max` | `OTELOP_UI_RENDER_WINDOW_MAX` |
+| `proxy.url` | `--proxy-url` | `OTELOP_PROXY_URL` |
+| `proxy.protocol` | `--proxy-protocol` | `OTELOP_PROXY_PROTOCOL` |
+| `proxy.auth.type` | `--proxy-auth-type` | `OTELOP_PROXY_AUTH_TYPE` |
+| `proxy.auth.token` | `--proxy-auth-token` | `OTELOP_PROXY_AUTH_TOKEN` |
+| `proxy.auth.username` | `--proxy-auth-username` | `OTELOP_PROXY_AUTH_USERNAME` |
+| `proxy.auth.password` | `--proxy-auth-password` | `OTELOP_PROXY_AUTH_PASSWORD` |
+| `proxy.auth.headers` | `--proxy-auth-headers` | `OTELOP_PROXY_AUTH_HEADERS` |
 
 When proxying is enabled, `otelop` still stores incoming telemetry locally for the UI and also forwards the same traces, metrics, and logs to the configured upstream OTLP endpoint.
 
@@ -316,7 +317,7 @@ data you are inspecting.
 
 - `bearer`: sends `Authorization: Bearer <token>`
 - `basic`: sends `Authorization: Basic <base64(username:password)>`
-- `headers`: sends the exact headers configured under `[proxy.auth.headers]` or `--proxy-header`
+- `headers`: sends the exact headers configured under `[proxy.auth.headers]` or `--proxy-auth-headers`
 
 Do not embed credentials in `proxy.url`; `otelop` rejects URLs with userinfo such as `https://user:pass@example.com`.
 

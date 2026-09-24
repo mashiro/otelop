@@ -16,7 +16,7 @@ function fixed(n: number): string {
 
 // formatBytes uses SI (decimal, base-1000) units, not binary (base-1024)
 // KiB/MiB/GiB — matching how the backend's own config displays sizes (e.g.
-// --max-size "4GB" is decimal already), so a configured ceiling and its
+// --storage-max-size "4GB" is decimal already), so a configured ceiling and its
 // live usage never appear to disagree just from a unit-base mismatch.
 export function formatBytes(v: number): string {
   const sign = v < 0 ? "-" : "";
