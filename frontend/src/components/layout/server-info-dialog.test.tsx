@@ -68,7 +68,7 @@ describe("ServerInfoDialog", () => {
     const disk = within(dialog).getByRole("progressbar", { name: "Disk" });
     const memory = within(dialog).getByRole("progressbar", { name: "Memory" });
     expect(disk.getAttribute("aria-valuetext")).toBe("1.05 MB of 4.29 GB, 0%");
-    expect(memory.getAttribute("aria-valuetext")).toBe("8.39 MB of 537 MB, 2%");
+    expect(memory.getAttribute("aria-valuetext")).toBe("8.39 MB of 537 MB, 1%");
     expect(disk.textContent).toContain("1.05 MB of 4.29 GB0%");
     expect(within(dialog).getByText(/Keeps 7d of data, next sweep at \d{4}-/)).toBeTruthy();
     expect(within(dialog).queryByText("Tables")).toBeNull();
@@ -96,6 +96,18 @@ describe("ServerInfoDialog", () => {
     const disk = await within(dialog).findByRole("progressbar", { name: "Disk" });
     expect(disk.getAttribute("aria-valuetext")).toBe("6.00 GB of 4.00 GB, 150%");
     expect(disk.textContent).toContain("150%");
+  });
+
+  it("rounds usage down so a nearly full resource never reads as full", async () => {
+    requestMock.mockResolvedValue(
+      makeServerInfoResponse({
+        storage: { fileSizeBytes: 3_990_000_000, maxSizeBytes: 4_000_000_000 },
+      }),
+    );
+    const dialog = await openDialog();
+
+    const disk = await within(dialog).findByRole("progressbar", { name: "Disk" });
+    expect(disk.getAttribute("aria-valuetext")).toBe("3.99 GB of 4.00 GB, 99%");
   });
 
   it("shows a dash without a copy button when a bind address has no port", async () => {
@@ -140,6 +152,7 @@ describe("ServerInfoDialog", () => {
     expect(rowValue(dialog, "Traces")).toBe("10");
     expect(rowValue(dialog, "Logs")).toBe("40");
     expect(rowValue(dialog, "Retention")).toBe("7d");
+    expect(rowValue(dialog, "Next sweep")).toMatch(/^2024-01-02 /);
     expect(rowValue(dialog, "Last sweep")).toBe("Not run yet");
     expect(within(dialog).queryByText("Max-size iterations")).toBeNull();
     expect(rowValue(dialog, "spans")).toBe("120 rows");
@@ -151,8 +164,6 @@ describe("ServerInfoDialog", () => {
         status: {
           config: {
             storagePath: "/var/folders/otelop.duckdb",
-            retention: "7d",
-            maxSize: "4GB",
             traceCount: 10,
             metricCount: 2,
             logCount: 40,

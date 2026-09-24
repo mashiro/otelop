@@ -2,7 +2,6 @@ import type { ReactNode } from "react";
 import { Item, ItemActions, ItemContent } from "@/components/ui/item";
 import { CopyButton } from "@/components/common/copy-button";
 import { copyTextToClipboard } from "@/lib/export";
-import { HelpTooltip } from "@/components/common/help-tooltip";
 import { formatBytes } from "@/lib/format-metric";
 import { formatDateTime, formatElapsedMs, formatRelativeTime } from "@/lib/format";
 import { SIGNAL_LIST, type SignalKey } from "@/lib/signals";
@@ -105,17 +104,8 @@ export function StoragePanel({ status }: { status: Status }) {
         />
         <ServerInfoRow
           label="Next sweep"
-          value={
-            storage.nextSweepAt ? (
-              <HelpTooltip content={formatDateTime(storage.nextSweepAt)}>
-                <span className="cursor-default tabular-nums">
-                  {formatRelativeTime(storage.nextSweepAt)}
-                </span>
-              </HelpTooltip>
-            ) : (
-              "—"
-            )
-          }
+          mono
+          value={storage.nextSweepAt ? formatDateTime(storage.nextSweepAt) : "—"}
         />
         <ServerInfoRow
           label="Last sweep"

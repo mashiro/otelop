@@ -140,8 +140,6 @@ export function makeServerInfoResponse(
   const storage = {
     fileSizeBytes: 1_048_576,
     walSizeBytes: 4_096,
-    databaseSizeBytes: 2_097_152,
-    totalBlocks: 128,
     usedBlocks: 64,
     freeBlocks: 64,
     memoryUsageBytes: 8_388_608,
@@ -176,8 +174,6 @@ export function makeServerInfoResponse(
       logLevel: "warn",
       config: {
         storagePath: "/tmp/otelop.duckdb",
-        retention: "7d",
-        maxSize: "4GB",
         traceCount: 10,
         metricCount: 2,
         logCount: 40,
@@ -197,8 +193,6 @@ export function makeLargeServerInfoResponse(): ServerInfoQuery {
     status: {
       config: {
         storagePath: longPath,
-        retention: "30d",
-        maxSize: "4GB",
         traceCount: 168_248,
         metricCount: 178,
         logCount: 3_028_393,

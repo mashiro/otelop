@@ -30,7 +30,7 @@ export function UsageMeter({ label, used, limit }: { label: string; used: number
   const amount = `${formatBytes(used)} of ${formatBytes(limit)}`;
   // Only the bar is capped: a store past its max_size is a normal state
   // (a sweep may not shrink the file), and the figure must show by how much.
-  const percent = `${Math.round((used / limit) * 100)}%`;
+  const percent = `${Math.floor((used / limit) * 100)}%`;
   return (
     <Item size="xs" role="listitem">
       <Progress
