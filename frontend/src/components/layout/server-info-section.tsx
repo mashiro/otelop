@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { Section } from "@/components/common/detail-field";
-import { Item, ItemActions, ItemContent, ItemDescription } from "@/components/ui/item";
-import { Progress } from "@/components/ui/progress";
+import { Item } from "@/components/ui/item";
+import { Progress, ProgressLabel, ProgressValue } from "@/components/ui/progress";
 import { formatBytes } from "@/lib/format-metric";
 
 export function ServerInfoSection({
@@ -25,25 +25,25 @@ export function ServerInfoSection({
   );
 }
 
-// Fixed label and figure columns keep every meter's bar the same length, so
-// bars stacked in one section compare at a glance.
 export function UsageMeter({ label, used, limit }: { label: string; used: number; limit: number }) {
-  const pct = (used / limit) * 100;
+  const amount = `${formatBytes(used)} of ${formatBytes(limit)}`;
   return (
-    <Item size="xs" role="listitem" className="flex-nowrap">
-      <ItemContent className="w-16 flex-none">
-        <ItemDescription>{label}</ItemDescription>
-      </ItemContent>
+    <Item size="xs" role="listitem">
       <Progress
-        aria-label={`${label} usage`}
-        value={Math.min(100, pct)}
-        className="min-w-0 flex-1"
-      />
-      <ItemActions className="w-36 justify-end">
-        <span className="tabular-nums text-foreground">
-          {formatBytes(used)} <span className="text-muted-foreground">of {formatBytes(limit)}</span>
-        </span>
-      </ItemActions>
+        value={Math.min(100, (used / limit) * 100)}
+        getAriaValueText={(percent) => `${amount}, ${percent}`}
+        className="w-full"
+      >
+        <ProgressLabel>{label}</ProgressLabel>
+        <ProgressValue>
+          {(percent) => (
+            <span className="flex gap-2">
+              {amount}
+              <span className="text-foreground">{percent}</span>
+            </span>
+          )}
+        </ProgressValue>
+      </Progress>
     </Item>
   );
 }

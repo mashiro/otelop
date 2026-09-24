@@ -2,7 +2,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { CopyButton } from "@/components/common/copy-button";
 import { endpointFor } from "@/lib/endpoint";
 import { copyTextToClipboard } from "@/lib/export";
-import { formatRelativeTime } from "@/lib/format";
+import { formatDateTime } from "@/lib/format";
 import type { ServerInfoQuery } from "@/gql/graphql";
 import { ServerInfoRow } from "./server-info-row";
 import { ServerInfoSection, UsageMeter } from "./server-info-section";
@@ -16,8 +16,6 @@ export function OverviewPanel({ status }: { status: Status }) {
   const endpoints = [
     { label: "OTLP gRPC", url: endpointFor(status.otlpGrpcAddr, hostname) },
     { label: "OTLP HTTP", url: endpointFor(status.otlpHttpAddr, hostname) },
-    // The page's own host:port, not httpAddr's port: in dev the page is
-    // served by Vite on another port, and a reverse proxy may remap it.
     { label: "Web UI", url: host },
   ];
 
@@ -52,7 +50,7 @@ export function OverviewPanel({ status }: { status: Status }) {
         footer={
           <>
             Keeps {config.retention} of data
-            {storage.nextSweepAt && `, next sweep ${formatRelativeTime(storage.nextSweepAt)}`}.
+            {storage.nextSweepAt && `, next sweep at ${formatDateTime(storage.nextSweepAt)}`}.
           </>
         }
       >

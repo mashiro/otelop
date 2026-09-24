@@ -69,11 +69,12 @@ describe("ServerInfoDialog", () => {
     expect(rowValue(dialog, "OTLP gRPC")).toBe(`${hostname}:4317`);
     expect(rowValue(dialog, "OTLP HTTP")).toBe(`${hostname}:4318`);
     expect(rowValue(dialog, "Web UI")).toBe(host);
-    expect(within(dialog).getByRole("progressbar", { name: "Disk usage" })).toBeTruthy();
-    expect(within(dialog).getByRole("progressbar", { name: "Memory usage" })).toBeTruthy();
-    expect(rowValue(dialog, "Disk")).toBe("1.05 MB of 4.29 GB");
-    expect(rowValue(dialog, "Memory")).toBe("8.39 MB of 537 MB");
-    expect(within(dialog).getByText(/Keeps 7d of data/)).toBeTruthy();
+    const disk = within(dialog).getByRole("progressbar", { name: "Disk" });
+    const memory = within(dialog).getByRole("progressbar", { name: "Memory" });
+    expect(disk.getAttribute("aria-valuetext")).toBe("1.05 MB of 4.29 GB, 0%");
+    expect(memory.getAttribute("aria-valuetext")).toBe("8.39 MB of 537 MB, 2%");
+    expect(disk.textContent).toContain("1.05 MB of 4.29 GB0%");
+    expect(within(dialog).getByText(/Keeps 7d of data, next sweep at \d{4}-/)).toBeTruthy();
     expect(within(dialog).queryByText("Tables")).toBeNull();
     expect(within(dialog).queryByText("Traces")).toBeNull();
   });
@@ -208,7 +209,8 @@ describe("ServerInfoDialog", () => {
       "storage: checkpoint: disk full: no space left on device while writing write-ahead log segment 00000482";
     const errorValue = await within(dialog).findByText(errorText);
     expect(errorValue.className).not.toContain("truncate");
-    expect(rowValue(dialog, "Disk")).toBe("1.32 GB of 4.00 GB");
+    const disk = within(dialog).getByRole("progressbar", { name: "Disk" });
+    expect(disk.getAttribute("aria-valuetext")).toBe("1.32 GB of 4.00 GB, 33%");
 
     await selectTab(dialog, "Storage");
     expect(rowValue(dialog, "Traces")).toBe("168,248");

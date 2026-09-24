@@ -4,21 +4,14 @@ import { HelpTooltip } from "@/components/common/help-tooltip";
 import { Button } from "@/components/ui/button";
 import { useCopy } from "@/hooks/use-copy";
 
-// With children the button shows its label beside the icon (and swaps it for
-// "Copied"); without, it is icon-only and needs an aria-label.
-export function CopyButton<T>({
-  value,
-  write,
-  tooltip,
-  label,
-  children,
-}: {
+// An icon-only button has no visible text, so it must carry a label.
+type CopyButtonProps<T> = {
   value: T;
   write: (value: T) => Promise<boolean>;
   tooltip: string;
-  label?: string;
-  children?: ReactNode;
-}) {
+} & ({ children: ReactNode; label?: never } | { label: string; children?: never });
+
+export function CopyButton<T>({ value, write, tooltip, label, children }: CopyButtonProps<T>) {
   const { copied, copy } = useCopy(write);
   const icon = copied ? <Check className="text-success" /> : <Copy />;
 

@@ -25,11 +25,13 @@ export async function copyTextToClipboard(text: string): Promise<boolean> {
 }
 
 export async function copyJsonToClipboard(data: unknown): Promise<boolean> {
+  let json: string;
   try {
-    return await copyTextToClipboard(stringifyJson(data));
+    json = stringifyJson(data);
   } catch {
     return false;
   }
+  return copyTextToClipboard(json);
 }
 
 export function downloadJson(data: unknown, filename: string): void {

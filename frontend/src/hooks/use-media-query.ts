@@ -1,25 +1,32 @@
 import { useSyncExternalStore } from "react";
 
-// One MediaQueryList per query, shared by every subscriber, so rendering and
-// useSyncExternalStore's snapshot checks don't re-parse the query each time.
-const lists = new Map<string, MediaQueryList>();
+interface MediaQuery {
+  list: MediaQueryList;
+  subscribe: (onChange: () => void) => () => void;
+}
 
-function mediaQueryList(query: string): MediaQueryList {
-  let list = lists.get(query);
-  if (!list) {
-    list = window.matchMedia(query);
-    lists.set(query, list);
+// One list and one subscribe function per query, shared by every caller, so
+// useSyncExternalStore sees a stable subscribe and never re-registers the
+// change listener on re-render.
+const queries = new Map<string, MediaQuery>();
+
+function mediaQuery(query: string): MediaQuery {
+  let entry = queries.get(query);
+  if (!entry) {
+    const list = window.matchMedia(query);
+    entry = {
+      list,
+      subscribe: (onChange) => {
+        list.addEventListener("change", onChange);
+        return () => list.removeEventListener("change", onChange);
+      },
+    };
+    queries.set(query, entry);
   }
-  return list;
+  return entry;
 }
 
 export function useMediaQuery(query: string): boolean {
-  const list = mediaQueryList(query);
-  return useSyncExternalStore(
-    (onChange) => {
-      list.addEventListener("change", onChange);
-      return () => list.removeEventListener("change", onChange);
-    },
-    () => list.matches,
-  );
+  const { list, subscribe } = mediaQuery(query);
+  return useSyncExternalStore(subscribe, () => list.matches);
 }
