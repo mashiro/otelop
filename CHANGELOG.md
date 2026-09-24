@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.2.0](https://github.com/mashiro/otelop/compare/v2.1.0...v2.2.0) (2026-09-24)
+
+
+### Features
+
+* **cli:** align option names with config key paths ([#359](https://github.com/mashiro/otelop/issues/359)) ([72cc365](https://github.com/mashiro/otelop/commit/72cc3657a61eb706d1850fbb40a8061bd31cb873))
+
+
+### Bug Fixes
+
+* **deps:** update all non-major dependencies ([#353](https://github.com/mashiro/otelop/issues/353)) ([857b54c](https://github.com/mashiro/otelop/commit/857b54c70e5a428cdae9201373e0e8450a372529))
+
 ## [2.1.0](https://github.com/mashiro/otelop/compare/v2.0.0...v2.1.0) (2026-09-24)
 
 
