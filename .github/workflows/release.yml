@@ -172,7 +172,7 @@ jobs:
             --platform linux/amd64,linux/arm64 \
             "${tags[@]}" \
             --label org.opencontainers.image.source=https://github.com/mashiro/otelop \
-            --label "org.opencontainers.image.description=Local OpenTelemetry viewer for traces, metrics, and logs" \
+            --label "org.opencontainers.image.description=OpenTelemetry viewer for traces, metrics, and logs" \
             --label org.opencontainers.image.licenses=MIT \
             --label "org.opencontainers.image.version=${version}" \
             --label "org.opencontainers.image.revision=${GITHUB_SHA}" \

@@ -1,6 +1,6 @@
 ---
 name: otelop-inspect
-description: Investigate OpenTelemetry signals (traces, metrics, logs) retained by a locally running otelop instance via its GraphQL API. Use this when the user is debugging an app that sends telemetry to otelop and you need to inspect spans, correlate logs with traces, or read metric values.
+description: Investigate OpenTelemetry signals (traces, metrics, logs) retained by a running otelop instance via its GraphQL API. Use this when the user is debugging an app that sends telemetry to otelop and you need to inspect spans, correlate logs with traces, or read metric values.
 ---
 
 # Investigate telemetry with otelop

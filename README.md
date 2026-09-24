@@ -4,8 +4,8 @@
 
 # otelop
 
-A local OpenTelemetry viewer for traces, metrics, and logs.
-Single binary, persistent local storage, browser UI.
+An OpenTelemetry viewer for traces, metrics, and logs.
+Single binary, persistent storage, browser UI.
 
 [![Release](https://img.shields.io/github/v/release/mashiro/otelop?color=14b8a6)](https://github.com/mashiro/otelop/releases)
 [![Go](https://img.shields.io/badge/go-1.27-00ADD8?logo=go&logoColor=white)](go.mod)
@@ -18,7 +18,7 @@ Single binary, persistent local storage, browser UI.
 
 ## What it is
 
-`otelop` runs a local OTLP receiver and shows whatever it gets in a browser. No Docker, external database, or Jaeger/Prometheus/Loki stack to wire up. Start the binary, point your app at it, open the page.
+`otelop` runs an OTLP receiver and shows whatever it gets in a browser. No Docker, external database, or Jaeger/Prometheus/Loki stack to wire up. Start the binary, point your app at it, open the page.
 
 It's meant for the loop where you're writing instrumentation and just want to see what came through.
 

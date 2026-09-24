@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-A local-development tool for persistently storing and visualizing OpenTelemetry signals (Traces / Metrics / Logs) in the browser in real time.
+A tool for persistently storing and visualizing OpenTelemetry signals (Traces / Metrics / Logs) in the browser in real time.
 
 ## Development Commands
 
