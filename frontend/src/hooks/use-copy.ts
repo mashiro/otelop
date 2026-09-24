@@ -1,20 +1,32 @@
 import { useState, useRef, useEffect } from "react";
 
-// write reports whether the clipboard accepted the value, so the "copied"
-// feedback only shows for a copy that actually happened.
-export function useCopy<T>(write: (value: T) => Promise<boolean>) {
-  const [copied, setCopied] = useState(false);
-  const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+export type CopyStatus = "idle" | "copied" | "failed";
 
-  useEffect(() => () => clearTimeout(timerRef.current), []);
+// write reports whether the clipboard accepted the value, so a failed copy
+// (e.g. no clipboard API on a non-secure http origin) is shown as such
+// instead of silently doing nothing.
+export function useCopy<T>(write: (value: T) => Promise<boolean>) {
+  const [status, setStatus] = useState<CopyStatus>("idle");
+  const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const mountedRef = useRef(false);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      clearTimeout(timerRef.current);
+    };
+  }, []);
 
   const copy = async (value: T) => {
-    if (await write(value)) {
-      setCopied(true);
-      clearTimeout(timerRef.current);
-      timerRef.current = setTimeout(() => setCopied(false), 2000);
-    }
+    const ok = await write(value);
+    // The write can outlive the component (e.g. the dialog closes while a
+    // clipboard permission prompt is open); cleanup has already run then.
+    if (!mountedRef.current) return;
+    setStatus(ok ? "copied" : "failed");
+    clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => setStatus("idle"), 2000);
   };
 
-  return { copied, copy };
+  return { status, copy };
 }

@@ -1,11 +1,10 @@
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { CopyButton } from "@/components/common/copy-button";
 import { endpointFor } from "@/lib/endpoint";
 import { copyTextToClipboard } from "@/lib/export";
 import { formatDateTime } from "@/lib/format";
 import type { ServerInfoQuery } from "@/gql/graphql";
 import { ServerInfoRow } from "./server-info-row";
-import { ServerInfoSection, UsageMeter } from "./server-info-section";
+import { ServerInfoSection, SweepErrorAlert, UsageMeter } from "./server-info-section";
 
 type Status = ServerInfoQuery["status"];
 
@@ -21,26 +20,23 @@ export function OverviewPanel({ status }: { status: Status }) {
 
   return (
     <div className="flex flex-col gap-4">
-      {sweepError && (
-        <Alert variant="destructive">
-          <AlertTitle>Last sweep failed</AlertTitle>
-          <AlertDescription>{sweepError}</AlertDescription>
-        </Alert>
-      )}
+      {sweepError && <SweepErrorAlert error={sweepError} />}
       <ServerInfoSection title="Endpoints">
         {endpoints.map(({ label, url }) => (
           <ServerInfoRow
             key={label}
             label={label}
             mono
-            value={url}
+            value={url ?? "—"}
             action={
-              <CopyButton
-                value={url}
-                write={copyTextToClipboard}
-                tooltip="Copy"
-                label={`Copy ${label}`}
-              />
+              url && (
+                <CopyButton
+                  value={url}
+                  write={copyTextToClipboard}
+                  tooltip="Copy"
+                  label={`Copy ${label}`}
+                />
+              )
             }
           />
         ))}

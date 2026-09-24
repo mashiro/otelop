@@ -167,7 +167,6 @@ export function makeServerInfoResponse(
       version: "v1.2.3",
       startedAt: "2024-01-01T00:00:00Z",
       uptimeMs: 3_600_000,
-      httpAddr: ":4319",
       otlpGrpcAddr: "0.0.0.0:4317",
       otlpHttpAddr: "0.0.0.0:4318",
       proxyUrl: "",

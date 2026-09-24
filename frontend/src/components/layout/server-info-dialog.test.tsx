@@ -10,6 +10,8 @@ const writeText = vi.fn();
 
 afterEach(cleanup);
 beforeEach(() => {
+  // index.css (which emits this via @theme static) isn't loaded in tests.
+  document.documentElement.style.setProperty("--breakpoint-sm", "40rem");
   requestMock.mockReset();
   writeText.mockReset().mockResolvedValue(undefined);
   Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
@@ -89,6 +91,28 @@ describe("ServerInfoDialog", () => {
     expect(writeText).toHaveBeenCalledWith(`${window.location.hostname}:4317`);
   });
 
+  it("shows usage past its limit instead of capping it at 100%", async () => {
+    requestMock.mockResolvedValue(
+      makeServerInfoResponse({
+        storage: { fileSizeBytes: 6_000_000_000, maxSizeBytes: 4_000_000_000 },
+      }),
+    );
+    const dialog = await openDialog();
+
+    const disk = await within(dialog).findByRole("progressbar", { name: "Disk" });
+    expect(disk.getAttribute("aria-valuetext")).toBe("6.00 GB of 4.00 GB, 150%");
+    expect(disk.textContent).toContain("150%");
+  });
+
+  it("shows a dash without a copy button when a bind address has no port", async () => {
+    requestMock.mockResolvedValue(makeServerInfoResponse({ status: { otlpGrpcAddr: "" } }));
+    const dialog = await openDialog();
+
+    await within(dialog).findByText("OTLP gRPC");
+    expect(rowValue(dialog, "OTLP gRPC")).toBe("—");
+    expect(within(dialog).queryByRole("button", { name: "Copy OTLP gRPC" })).toBeNull();
+  });
+
   it("surfaces a failed sweep on Overview", async () => {
     requestMock.mockResolvedValue(
       makeServerInfoResponse({
@@ -106,6 +130,10 @@ describe("ServerInfoDialog", () => {
     const error = await within(dialog).findByText("storage: checkpoint: disk full");
     expect(error.closest('[data-slot="alert"]')?.className).toContain("text-destructive");
     expect(within(dialog).getByText("Last sweep failed")).toBeTruthy();
+
+    await selectTab(dialog, "Storage");
+    expect(within(dialog).getByText("Last sweep failed")).toBeTruthy();
+    expect(within(dialog).getByText("storage: checkpoint: disk full")).toBeTruthy();
   });
 
   it("shows file details, retained data, sweep, and tables on the Storage tab", async () => {

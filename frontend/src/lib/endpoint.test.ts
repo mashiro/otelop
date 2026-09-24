@@ -12,4 +12,8 @@ describe("endpointFor", () => {
   it("keeps a bracketed IPv6 browser host as-is", () => {
     expect(endpointFor("0.0.0.0:4318", "[fe80::1]")).toBe("[fe80::1]:4318");
   });
+
+  it.each(["", "localhost", "otelop.lan:"])("returns null when %j has no port", (bind) => {
+    expect(endpointFor(bind, "otelop.lan")).toBeNull();
+  });
 });

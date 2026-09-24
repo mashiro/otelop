@@ -6,6 +6,12 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* Emitted as a real custom property so JS can read the same breakpoint the
+   sm: variant uses (hooks/use-breakpoint.ts) instead of duplicating it. */
+@theme static {
+  --breakpoint-sm: 40rem;
+}
+
 @theme inline {
   --font-heading: var(--font-sans);
   --font-sans: "Outfit Variable", sans-serif;

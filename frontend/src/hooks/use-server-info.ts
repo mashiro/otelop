@@ -9,7 +9,6 @@ const ServerInfoQuery = graphql(`
       version
       startedAt
       uptimeMs
-      httpAddr
       otlpGrpcAddr
       otlpHttpAddr
       proxyUrl

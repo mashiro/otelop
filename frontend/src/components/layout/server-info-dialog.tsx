@@ -15,7 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { HelpTooltip } from "@/components/common/help-tooltip";
 import { useServerInfo } from "@/hooks/use-server-info";
-import { useMediaQuery } from "@/hooks/use-media-query";
+import { useBreakpoint } from "@/hooks/use-breakpoint";
 import { formatDateTime, formatElapsedMs } from "@/lib/format";
 import { OverviewPanel } from "./server-info-overview";
 import { StoragePanel } from "./server-info-storage";
@@ -26,7 +26,7 @@ export function ServerInfoDialog() {
   const { data, isPending, isError } = useServerInfo(open);
   // A side nav would leave too little width for values on phones, so the tab
   // list only goes vertical from the sm breakpoint up.
-  const wide = useMediaQuery("(min-width: 40rem)");
+  const wide = useBreakpoint("sm");
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>

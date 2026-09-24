@@ -1,5 +1,4 @@
 import type { ReactNode } from "react";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Item, ItemActions, ItemContent } from "@/components/ui/item";
 import { CopyButton } from "@/components/common/copy-button";
 import { copyTextToClipboard } from "@/lib/export";
@@ -10,7 +9,7 @@ import { SIGNAL_LIST, type SignalKey } from "@/lib/signals";
 import { cn } from "@/lib/utils";
 import type { ServerInfoQuery } from "@/gql/graphql";
 import { ServerInfoRow } from "./server-info-row";
-import { ServerInfoSection } from "./server-info-section";
+import { ServerInfoSection, SweepErrorAlert } from "./server-info-section";
 
 type Status = ServerInfoQuery["status"];
 
@@ -131,11 +130,7 @@ export function StoragePanel({ status }: { status: Status }) {
           <ServerInfoRow label="Max-size iterations" numeric value={sweep.maxSizeIterations} />
         )}
       </ServerInfoSection>
-      {sweep?.error && (
-        <Alert variant="destructive">
-          <AlertDescription>{sweep.error}</AlertDescription>
-        </Alert>
-      )}
+      {sweep?.error && <SweepErrorAlert error={sweep.error} />}
       <ServerInfoSection title="Tables">
         {storage.tables.map((table) => (
           <ServerInfoRow
