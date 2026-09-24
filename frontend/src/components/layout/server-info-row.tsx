@@ -30,7 +30,7 @@ export function ServerInfoRow({
       </ItemContent>
       <ItemActions className="ml-auto min-w-0">
         <span
-          title={typeof value === "string" ? value : undefined}
+          title={!wrap && typeof value === "string" ? value : undefined}
           className={cn(
             "min-w-0 text-right text-foreground",
             wrap ? "break-words" : "truncate",

@@ -1,7 +1,14 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vite-plus/test";
 import { act, render, screen, fireEvent, cleanup, within } from "@testing-library/react";
 import { ServerInfoDialog } from "./server-info-dialog";
-import { makeServerInfoResponse, makeLargeServerInfoResponse } from "@/test/factories";
+import { queryClient } from "@/lib/query-client";
+import {
+  makeServerInfoResponse,
+  makeLargeServerInfoResponse,
+  rowValue,
+  selectTab,
+  setViewport,
+} from "@/test/factories";
 
 const { requestMock } = vi.hoisted(() => ({ requestMock: vi.fn() }));
 vi.mock("@/lib/graphql", () => ({ gqlClient: { request: requestMock } }));
@@ -23,19 +30,6 @@ async function openDialog() {
     fireEvent.click(screen.getByRole("button", { name: "Server info" }));
   });
   return screen.findByRole("dialog");
-}
-
-async function selectTab(dialog: HTMLElement, name: string) {
-  const tab = await within(dialog).findByRole("tab", { name });
-  await act(async () => {
-    fireEvent.click(tab);
-  });
-}
-
-// The value side (ItemActions) of the row a label sits in.
-function rowValue(dialog: HTMLElement, label: string) {
-  const row = within(dialog).getByText(label).closest('[data-slot="item"]');
-  return row?.querySelector('[data-slot="item-actions"]')?.textContent;
 }
 
 describe("ServerInfoDialog", () => {
@@ -197,6 +191,7 @@ describe("ServerInfoDialog", () => {
     const summary = within(dialog).getByText("12m ago, deleted 1,234 rows in 850ms");
     expect(summary.className).toContain("break-words");
     expect(summary.className).not.toContain("truncate");
+    expect(summary.getAttribute("title")).toBeNull();
     expect(rowValue(dialog, "Max-size iterations")).toBe("2");
   });
 
@@ -212,6 +207,35 @@ describe("ServerInfoDialog", () => {
     expect(rowValue(dialog, "Proxy")).toBe("https://collector.example.com:4318 (http)");
     expect(rowValue(dialog, "Debug")).toBe("off");
     expect(rowValue(dialog, "Log level")).toBe("warn");
+  });
+
+  it("keeps showing the last data without an error when a background refetch fails", async () => {
+    requestMock.mockResolvedValueOnce(makeServerInfoResponse());
+    const dialog = await openDialog();
+    await within(dialog).findByText("OTLP gRPC");
+
+    requestMock.mockRejectedValue(new Error("network error"));
+    await act(async () => {
+      await queryClient.refetchQueries({ queryKey: ["server-info"] });
+    });
+
+    expect(queryClient.getQueryState(["server-info"])?.status).toBe("error");
+    // react-query batches observer notifications onto a timer.
+    await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
+
+    expect(within(dialog).getByText("OTLP gRPC")).toBeTruthy();
+    expect(within(dialog).queryByText("Failed to load server info.")).toBeNull();
+  });
+
+  it("reports the retention storage applies, not the raw configured string", async () => {
+    requestMock.mockResolvedValue(
+      makeServerInfoResponse({ storage: { retentionMs: 259_200_000 } }),
+    );
+    const dialog = await openDialog();
+
+    expect(await within(dialog).findByText(/Keeps 3d of data/)).toBeTruthy();
+    await selectTab(dialog, "Storage");
+    expect(rowValue(dialog, "Retention")).toBe("3d");
   });
 
   it("shows an error message when the fetch fails, without the tabbed layout's fixed height", async () => {
@@ -251,11 +275,8 @@ describe("ServerInfoDialog", () => {
   });
 
   it("stacks the tab list above the content on narrow screens", async () => {
-    const { happyDOM } = window as unknown as {
-      happyDOM: { setViewport(viewport: { width: number; height: number }): void };
-    };
     const { innerWidth, innerHeight } = window;
-    happyDOM.setViewport({ width: 400, height: 800 });
+    setViewport(400, 800);
     try {
       requestMock.mockResolvedValue(makeServerInfoResponse());
       const dialog = await openDialog();
@@ -264,7 +285,7 @@ describe("ServerInfoDialog", () => {
       // Horizontal is ARIA's default, so Base UI leaves the attribute off.
       expect(tablist.getAttribute("aria-orientation")).not.toBe("vertical");
     } finally {
-      happyDOM.setViewport({ width: innerWidth, height: innerHeight });
+      setViewport(innerWidth, innerHeight);
     }
   });
 

@@ -97,7 +97,7 @@ export function StoragePanel({ status }: { status: Status }) {
         />
       </ServerInfoSection>
       <ServerInfoSection title="Sweep">
-        <ServerInfoRow label="Retention" mono value={config.retention} />
+        <ServerInfoRow label="Retention" mono value={formatElapsedMs(storage.retentionMs)} />
         <ServerInfoRow
           label="Interval"
           mono

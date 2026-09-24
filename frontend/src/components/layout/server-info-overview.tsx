@@ -1,7 +1,7 @@
 import { CopyButton } from "@/components/common/copy-button";
 import { endpointFor } from "@/lib/endpoint";
 import { copyTextToClipboard } from "@/lib/export";
-import { formatDateTime } from "@/lib/format";
+import { formatDateTime, formatElapsedMs } from "@/lib/format";
 import type { ServerInfoQuery } from "@/gql/graphql";
 import { ServerInfoRow } from "./server-info-row";
 import { ServerInfoSection, SweepErrorAlert, UsageMeter } from "./server-info-section";
@@ -9,7 +9,7 @@ import { ServerInfoSection, SweepErrorAlert, UsageMeter } from "./server-info-se
 type Status = ServerInfoQuery["status"];
 
 export function OverviewPanel({ status }: { status: Status }) {
-  const { storage, config } = status;
+  const { storage } = status;
   const sweepError = storage.lastSweep?.error;
   const { hostname, host } = window.location;
   const endpoints = [
@@ -45,7 +45,7 @@ export function OverviewPanel({ status }: { status: Status }) {
         title="Resources"
         footer={
           <>
-            Keeps {config.retention} of data
+            Keeps {formatElapsedMs(storage.retentionMs)} of data
             {storage.nextSweepAt && `, next sweep at ${formatDateTime(storage.nextSweepAt)}`}.
           </>
         }

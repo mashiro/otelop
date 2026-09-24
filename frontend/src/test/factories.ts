@@ -1,6 +1,7 @@
 import type { SpanData, TraceData, LogData, MetricData, DataPoint } from "@/types/telemetry";
 import type { AggregatePointData, AggregateSeriesData } from "@/hooks/use-metric-aggregate-series";
 import type { ServerInfoQuery } from "@/gql/graphql";
+import { act, fireEvent, within } from "@testing-library/react";
 import {
   normalizeSpan,
   normalizeTrace,
@@ -229,4 +230,28 @@ export function makeLargeServerInfoResponse(): ServerInfoQuery {
         "storage: checkpoint: disk full: no space left on device while writing write-ahead log segment 00000482",
     },
   });
+}
+
+// happy-dom's own viewport control, for media-query-dependent layout. It
+// only dispatches MediaQueryList "change" when a query starts matching.
+export function setViewport(width: number, height = 768): void {
+  (
+    window as unknown as {
+      happyDOM: { setViewport(viewport: { width: number; height: number }): void };
+    }
+  ).happyDOM.setViewport({ width, height });
+}
+
+export async function selectTab(container: HTMLElement, name: string): Promise<void> {
+  const tab = await within(container).findByRole("tab", { name });
+  await act(async () => {
+    fireEvent.click(tab);
+  });
+}
+
+// Reads a server info row's value side (its ItemActions), which also holds
+// the copy button, by the row's visible label.
+export function rowValue(container: HTMLElement, label: string): string | null | undefined {
+  const row = within(container).getByText(label).closest('[data-slot="item"]');
+  return row?.querySelector('[data-slot="item-actions"]')?.textContent;
 }

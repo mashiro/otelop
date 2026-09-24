@@ -63,7 +63,9 @@ export function ServerInfoDialog() {
             <Skeleton className="h-24 w-full" />
           </div>
         )}
-        {isError && (
+        {/* A failed background refetch keeps the last data; only a dialog
+            that never loaded anything shows the error. */}
+        {isError && !data && (
           <Alert variant="destructive">
             <AlertDescription>Failed to load server info.</AlertDescription>
           </Alert>
