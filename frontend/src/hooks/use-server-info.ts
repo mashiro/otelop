@@ -9,7 +9,6 @@ const ServerInfoQuery = graphql(`
       version
       startedAt
       uptimeMs
-      httpAddr
       otlpGrpcAddr
       otlpHttpAddr
       proxyUrl
@@ -18,8 +17,6 @@ const ServerInfoQuery = graphql(`
       logLevel
       config {
         storagePath
-        retention
-        maxSize
         traceCount
         metricCount
         logCount
@@ -27,8 +24,6 @@ const ServerInfoQuery = graphql(`
       storage {
         fileSizeBytes
         walSizeBytes
-        databaseSizeBytes
-        totalBlocks
         usedBlocks
         freeBlocks
         memoryUsageBytes

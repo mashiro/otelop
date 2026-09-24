@@ -1,14 +1,27 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vite-plus/test";
 import { act, render, screen, fireEvent, cleanup, within } from "@testing-library/react";
 import { ServerInfoDialog } from "./server-info-dialog";
-import { makeServerInfoResponse, makeLargeServerInfoResponse } from "@/test/factories";
+import { queryClient } from "@/lib/query-client";
+import {
+  makeServerInfoResponse,
+  makeLargeServerInfoResponse,
+  rowValue,
+  selectTab,
+  setViewport,
+} from "@/test/factories";
 
 const { requestMock } = vi.hoisted(() => ({ requestMock: vi.fn() }));
 vi.mock("@/lib/graphql", () => ({ gqlClient: { request: requestMock } }));
 
+const writeText = vi.fn();
+
 afterEach(cleanup);
 beforeEach(() => {
+  // index.css (which emits this via @theme static) isn't loaded in tests.
+  document.documentElement.style.setProperty("--breakpoint-sm", "40rem");
   requestMock.mockReset();
+  writeText.mockReset().mockResolvedValue(undefined);
+  Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
 });
 
 async function openDialog() {
@@ -42,85 +55,115 @@ describe("ServerInfoDialog", () => {
     expect(within(dialog).getByText(/started 2026-09-23/)).toBeTruthy();
   });
 
-  it("renders the Storage, Signals, Retention, Tables, and Endpoints cards", async () => {
+  it("opens on Overview with endpoints, resource usage, and a retention summary only", async () => {
     requestMock.mockResolvedValue(makeServerInfoResponse());
     const dialog = await openDialog();
 
-    await within(dialog).findByText("Storage");
-    expect(within(dialog).getByText("Signals")).toBeTruthy();
-    expect(within(dialog).getAllByText("Retention").length).toBeGreaterThanOrEqual(2);
-    expect(within(dialog).getByText("Tables")).toBeTruthy();
-    expect(within(dialog).getByText("Endpoints")).toBeTruthy();
-    expect(within(dialog).getByText("Traces")).toBeTruthy();
-    expect(within(dialog).getByText("Metrics")).toBeTruthy();
-    expect(within(dialog).getByText("Logs")).toBeTruthy();
-    expect(within(dialog).getByText(":4319")).toBeTruthy();
+    const tabs = await within(dialog).findAllByRole("tab");
+    expect(tabs.map((tab) => tab.textContent)).toEqual(["Overview", "Storage", "Runtime"]);
+    const { hostname, host } = window.location;
+    expect(rowValue(dialog, "OTLP gRPC")).toBe(`${hostname}:4317`);
+    expect(rowValue(dialog, "OTLP HTTP")).toBe(`${hostname}:4318`);
+    expect(rowValue(dialog, "Web UI")).toBe(host);
+    const disk = within(dialog).getByRole("progressbar", { name: "Disk" });
+    const memory = within(dialog).getByRole("progressbar", { name: "Memory" });
+    expect(disk.getAttribute("aria-valuetext")).toBe("1.05 MB of 4.29 GB, 0%");
+    expect(memory.getAttribute("aria-valuetext")).toBe("8.39 MB of 537 MB, 1%");
+    expect(disk.textContent).toContain("1.05 MB of 4.29 GB0%");
+    expect(within(dialog).getByText(/Keeps 7d of data, next sweep at \d{4}-/)).toBeTruthy();
+    expect(within(dialog).queryByText("Tables")).toBeNull();
+    expect(within(dialog).queryByText("Traces")).toBeNull();
   });
 
-  it("shows DuckDB memory usage against its limit", async () => {
+  it("copies the endpoint as the browser host plus the bind port", async () => {
     requestMock.mockResolvedValue(makeServerInfoResponse());
     const dialog = await openDialog();
 
-    const memory = await within(dialog).findByText("Memory");
-    expect(memory.parentElement?.textContent).toBe("Memory8.39 MB / 537 MB");
+    await act(async () => {
+      fireEvent.click(await within(dialog).findByRole("button", { name: "Copy OTLP gRPC" }));
+    });
+    expect(writeText).toHaveBeenCalledWith(`${window.location.hostname}:4317`);
   });
 
-  it("formats large row counts with thousands separators", async () => {
+  it("shows usage past its limit instead of capping it at 100%", async () => {
     requestMock.mockResolvedValue(
-      makeServerInfoResponse({ storage: { tables: [{ name: "spans", rows: 1_234_567 }] } }),
+      makeServerInfoResponse({
+        storage: { fileSizeBytes: 6_000_000_000, maxSizeBytes: 4_000_000_000 },
+      }),
     );
     const dialog = await openDialog();
 
-    await within(dialog).findByText("1,234,567");
+    const disk = await within(dialog).findByRole("progressbar", { name: "Disk" });
+    expect(disk.getAttribute("aria-valuetext")).toBe("6.00 GB of 4.00 GB, 150%");
+    expect(disk.textContent).toContain("150%");
   });
 
-  it('shows "Not run yet" and hides Max-size iterations when lastSweep is null', async () => {
-    requestMock.mockResolvedValue(makeServerInfoResponse({ lastSweep: null }));
+  it("rounds usage down so a nearly full resource never reads as full", async () => {
+    requestMock.mockResolvedValue(
+      makeServerInfoResponse({
+        storage: { fileSizeBytes: 3_990_000_000, maxSizeBytes: 4_000_000_000 },
+      }),
+    );
     const dialog = await openDialog();
 
-    await within(dialog).findByText("Not run yet");
-    expect(within(dialog).queryByText("Max-size iterations")).toBeNull();
+    const disk = await within(dialog).findByRole("progressbar", { name: "Disk" });
+    expect(disk.getAttribute("aria-valuetext")).toBe("3.99 GB of 4.00 GB, 99%");
   });
 
-  it("renders the last sweep summary and a destructive, wrapping error alert when present", async () => {
+  it("shows a dash without a copy button when a bind address has no port", async () => {
+    requestMock.mockResolvedValue(makeServerInfoResponse({ status: { otlpGrpcAddr: "" } }));
+    const dialog = await openDialog();
+
+    await within(dialog).findByText("OTLP gRPC");
+    expect(rowValue(dialog, "OTLP gRPC")).toBe("—");
+    expect(within(dialog).queryByRole("button", { name: "Copy OTLP gRPC" })).toBeNull();
+  });
+
+  it("surfaces a failed sweep on Overview", async () => {
     requestMock.mockResolvedValue(
       makeServerInfoResponse({
         lastSweep: {
           startedAt: new Date(Date.now() - 12 * 60_000).toISOString(),
           durationMs: 850,
-          deletedRows: 1234,
-          maxSizeIterations: 2,
+          deletedRows: 0,
+          maxSizeIterations: 0,
           error: "storage: checkpoint: disk full",
         },
       }),
     );
     const dialog = await openDialog();
 
-    await within(dialog).findByText(/12m ago/);
-    expect(within(dialog).getByText(/deleted 1,234 rows in 850ms/)).toBeTruthy();
-    expect(within(dialog).getByText("Max-size iterations")).toBeTruthy();
+    const error = await within(dialog).findByText("storage: checkpoint: disk full");
+    expect(error.closest('[data-slot="alert"]')?.className).toContain("text-destructive");
+    expect(within(dialog).getByText("Last sweep failed")).toBeTruthy();
 
-    const error = within(dialog).getByText("storage: checkpoint: disk full");
-    expect(error.getAttribute("data-slot")).toBe("alert-description");
-    const alert = error.closest('[data-slot="alert"]');
-    expect(alert?.className).toContain("text-destructive");
+    await selectTab(dialog, "Storage");
+    expect(within(dialog).getByText("Last sweep failed")).toBeTruthy();
+    expect(within(dialog).getByText("storage: checkpoint: disk full")).toBeTruthy();
   });
 
-  it("shows an error message when the fetch fails", async () => {
-    requestMock.mockRejectedValue(new Error("network error"));
+  it("shows file details, retained data, sweep, and tables on the Storage tab", async () => {
+    requestMock.mockResolvedValue(makeServerInfoResponse());
     const dialog = await openDialog();
+    await selectTab(dialog, "Storage");
 
-    await within(dialog).findByText("Failed to load server info.");
+    expect(rowValue(dialog, "WAL")).toBe("4.10 KB");
+    expect(rowValue(dialog, "Blocks")).toBe("64 used, 64 free");
+    expect(rowValue(dialog, "Traces")).toBe("10");
+    expect(rowValue(dialog, "Logs")).toBe("40");
+    expect(rowValue(dialog, "Retention")).toBe("7d");
+    expect(rowValue(dialog, "Next sweep")).toMatch(/^2024-01-02 /);
+    expect(rowValue(dialog, "Last sweep")).toBe("Not run yet");
+    expect(within(dialog).queryByText("Max-size iterations")).toBeNull();
+    expect(rowValue(dialog, "spans")).toBe("120 rows");
   });
 
-  it("wraps the storage path with a <wbr> after every slash, never mid-segment", async () => {
+  it("copies the database path and wraps it only at slashes", async () => {
     requestMock.mockResolvedValue(
       makeServerInfoResponse({
         status: {
           config: {
             storagePath: "/var/folders/otelop.duckdb",
-            retention: "7d",
-            maxSize: "4GB",
             traceCount: 10,
             metricCount: 2,
             logCount: 40,
@@ -129,38 +172,139 @@ describe("ServerInfoDialog", () => {
       }),
     );
     const dialog = await openDialog();
+    await selectTab(dialog, "Storage");
 
-    const pathEl = await within(dialog).findByTitle("/var/folders/otelop.duckdb");
+    const pathEl = within(dialog).getByTitle("/var/folders/otelop.duckdb");
     expect(pathEl.textContent).toBe("/var/folders/otelop.duckdb");
     expect(pathEl.querySelectorAll("wbr").length).toBe(3);
+    await act(async () => {
+      fireEvent.click(within(dialog).getByRole("button", { name: "Copy database path" }));
+    });
+    expect(writeText).toHaveBeenCalledWith("/var/folders/otelop.duckdb");
   });
 
-  it("truncates other values (e.g. addresses) instead of wrapping", async () => {
+  it("renders the last sweep summary and max-size iterations when present", async () => {
+    requestMock.mockResolvedValue(
+      makeServerInfoResponse({
+        lastSweep: {
+          startedAt: new Date(Date.now() - 12 * 60_000).toISOString(),
+          durationMs: 850,
+          deletedRows: 1234,
+          maxSizeIterations: 2,
+          error: "",
+        },
+      }),
+    );
+    const dialog = await openDialog();
+    await selectTab(dialog, "Storage");
+
+    expect(rowValue(dialog, "Last sweep")).toBe("12m ago, deleted 1,234 rows in 850ms");
+    const summary = within(dialog).getByText("12m ago, deleted 1,234 rows in 850ms");
+    expect(summary.className).toContain("break-words");
+    expect(summary.className).not.toContain("truncate");
+    expect(summary.getAttribute("title")).toBeNull();
+    expect(rowValue(dialog, "Max-size iterations")).toBe("2");
+  });
+
+  it("shows proxy, debug, and log level on the Runtime tab", async () => {
+    requestMock.mockResolvedValue(
+      makeServerInfoResponse({
+        status: { proxyUrl: "https://collector.example.com:4318", proxyProtocol: "http" },
+      }),
+    );
+    const dialog = await openDialog();
+    await selectTab(dialog, "Runtime");
+
+    expect(rowValue(dialog, "Proxy")).toBe("https://collector.example.com:4318 (http)");
+    expect(rowValue(dialog, "Debug")).toBe("off");
+    expect(rowValue(dialog, "Log level")).toBe("warn");
+  });
+
+  it("keeps showing the last data without an error when a background refetch fails", async () => {
+    requestMock.mockResolvedValueOnce(makeServerInfoResponse());
+    const dialog = await openDialog();
+    await within(dialog).findByText("OTLP gRPC");
+
+    requestMock.mockRejectedValue(new Error("network error"));
+    await act(async () => {
+      await queryClient.refetchQueries({ queryKey: ["server-info"] });
+    });
+
+    expect(queryClient.getQueryState(["server-info"])?.status).toBe("error");
+    // react-query batches observer notifications onto a timer.
+    await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
+
+    expect(within(dialog).getByText("OTLP gRPC")).toBeTruthy();
+    expect(within(dialog).queryByText("Failed to load server info.")).toBeNull();
+  });
+
+  it("reports the retention storage applies, not the raw configured string", async () => {
+    requestMock.mockResolvedValue(
+      makeServerInfoResponse({ storage: { retentionMs: 259_200_000 } }),
+    );
+    const dialog = await openDialog();
+
+    expect(await within(dialog).findByText(/Keeps 3d of data/)).toBeTruthy();
+    await selectTab(dialog, "Storage");
+    expect(rowValue(dialog, "Retention")).toBe("3d");
+  });
+
+  it("shows an error message when the fetch fails, without the tabbed layout's fixed height", async () => {
+    requestMock.mockRejectedValue(new Error("network error"));
+    const dialog = await openDialog();
+
+    await within(dialog).findByText("Failed to load server info.");
+    expect(dialog.className).not.toContain("h-128");
+  });
+
+  it("truncates addresses instead of wrapping", async () => {
     requestMock.mockResolvedValue(makeServerInfoResponse());
     const dialog = await openDialog();
 
-    const httpAddr = within(dialog).getByText(":4319");
-    expect(httpAddr.className).toContain("truncate");
+    const webUi = await within(dialog).findByText(window.location.host);
+    expect(webUi.className).toContain("truncate");
   });
 
   it("formats production-scale values and keeps the full error message available", async () => {
     requestMock.mockResolvedValue(makeLargeServerInfoResponse());
     const dialog = await openDialog();
 
-    await within(dialog).findByText("168,248");
-    expect(within(dialog).getByText("178")).toBeTruthy();
-    expect(within(dialog).getAllByText("3,028,393").length).toBe(3);
-    expect(within(dialog).getByText("1.32 GB")).toBeTruthy();
-    expect(within(dialog).getByText("33%")).toBeTruthy();
-
     const errorText =
       "storage: checkpoint: disk full: no space left on device while writing write-ahead log segment 00000482";
-    const errorValue = within(dialog).getByText(errorText);
+    const errorValue = await within(dialog).findByText(errorText);
     expect(errorValue.className).not.toContain("truncate");
+    const disk = within(dialog).getByRole("progressbar", { name: "Disk" });
+    expect(disk.getAttribute("aria-valuetext")).toBe("1.32 GB of 4.00 GB, 33%");
 
+    await selectTab(dialog, "Storage");
+    expect(rowValue(dialog, "Traces")).toBe("168,248");
+    expect(rowValue(dialog, "Logs")).toBe("3,028,393");
+    expect(rowValue(dialog, "metric_points")).toBe("12,884,901 rows");
     const longPath =
       "/var/folders/dx/nrqfyl811vv5504krhcv4r_r0000gn/T/some-really-long-directory-name-that-keeps-going/otelop-production-instance/otelop.duckdb";
-    const pathEl = within(dialog).getByTitle(longPath);
-    expect(pathEl.querySelectorAll("wbr").length).toBeGreaterThan(0);
+    expect(within(dialog).getByTitle(longPath).querySelectorAll("wbr").length).toBeGreaterThan(0);
+  });
+
+  it("stacks the tab list above the content on narrow screens", async () => {
+    const { innerWidth, innerHeight } = window;
+    setViewport(400, 800);
+    try {
+      requestMock.mockResolvedValue(makeServerInfoResponse());
+      const dialog = await openDialog();
+
+      const tablist = await within(dialog).findByRole("tablist");
+      // Horizontal is ARIA's default, so Base UI leaves the attribute off.
+      expect(tablist.getAttribute("aria-orientation")).not.toBe("vertical");
+    } finally {
+      setViewport(innerWidth, innerHeight);
+    }
+  });
+
+  it("puts the tab list beside the content on wider screens", async () => {
+    requestMock.mockResolvedValue(makeServerInfoResponse());
+    const dialog = await openDialog();
+
+    const tablist = await within(dialog).findByRole("tablist");
+    expect(tablist.getAttribute("aria-orientation")).toBe("vertical");
   });
 });

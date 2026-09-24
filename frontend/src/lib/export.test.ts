@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vite-plus/test";
-import { copyJsonToClipboard, downloadJson } from "./export";
+import { copyJsonToClipboard, copyTextToClipboard, downloadJson } from "./export";
 
 describe("copyJsonToClipboard", () => {
   const writeText = vi.fn();
@@ -55,5 +55,24 @@ describe("downloadJson", () => {
       URL.createObjectURL = originalCreateObjectURL;
       URL.revokeObjectURL = originalRevokeObjectURL;
     }
+  });
+});
+
+describe("copyTextToClipboard", () => {
+  const writeText = vi.fn();
+
+  beforeEach(() => {
+    writeText.mockReset().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+  });
+
+  it("copies the text verbatim", async () => {
+    expect(await copyTextToClipboard("127.0.0.1:4317")).toBe(true);
+    expect(writeText).toHaveBeenCalledWith("127.0.0.1:4317");
+  });
+
+  it("returns false when clipboard API fails", async () => {
+    writeText.mockRejectedValue(new Error("denied"));
+    expect(await copyTextToClipboard("x")).toBe(false);
   });
 });

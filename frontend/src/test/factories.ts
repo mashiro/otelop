@@ -1,6 +1,7 @@
 import type { SpanData, TraceData, LogData, MetricData, DataPoint } from "@/types/telemetry";
 import type { AggregatePointData, AggregateSeriesData } from "@/hooks/use-metric-aggregate-series";
 import type { ServerInfoQuery } from "@/gql/graphql";
+import { act, fireEvent, within } from "@testing-library/react";
 import {
   normalizeSpan,
   normalizeTrace,
@@ -139,8 +140,6 @@ export function makeServerInfoResponse(
   const storage = {
     fileSizeBytes: 1_048_576,
     walSizeBytes: 4_096,
-    databaseSizeBytes: 2_097_152,
-    totalBlocks: 128,
     usedBlocks: 64,
     freeBlocks: 64,
     memoryUsageBytes: 8_388_608,
@@ -167,7 +166,6 @@ export function makeServerInfoResponse(
       version: "v1.2.3",
       startedAt: "2024-01-01T00:00:00Z",
       uptimeMs: 3_600_000,
-      httpAddr: ":4319",
       otlpGrpcAddr: "0.0.0.0:4317",
       otlpHttpAddr: "0.0.0.0:4318",
       proxyUrl: "",
@@ -176,8 +174,6 @@ export function makeServerInfoResponse(
       logLevel: "warn",
       config: {
         storagePath: "/tmp/otelop.duckdb",
-        retention: "7d",
-        maxSize: "4GB",
         traceCount: 10,
         metricCount: 2,
         logCount: 40,
@@ -197,8 +193,6 @@ export function makeLargeServerInfoResponse(): ServerInfoQuery {
     status: {
       config: {
         storagePath: longPath,
-        retention: "30d",
-        maxSize: "4GB",
         traceCount: 168_248,
         metricCount: 178,
         logCount: 3_028_393,
@@ -230,4 +224,28 @@ export function makeLargeServerInfoResponse(): ServerInfoQuery {
         "storage: checkpoint: disk full: no space left on device while writing write-ahead log segment 00000482",
     },
   });
+}
+
+// happy-dom's own viewport control, for media-query-dependent layout. It
+// only dispatches MediaQueryList "change" when a query starts matching.
+export function setViewport(width: number, height = 768): void {
+  (
+    window as unknown as {
+      happyDOM: { setViewport(viewport: { width: number; height: number }): void };
+    }
+  ).happyDOM.setViewport({ width, height });
+}
+
+export async function selectTab(container: HTMLElement, name: string): Promise<void> {
+  const tab = await within(container).findByRole("tab", { name });
+  await act(async () => {
+    fireEvent.click(tab);
+  });
+}
+
+// Reads a server info row's value side (its ItemActions), which also holds
+// the copy button, by the row's visible label.
+export function rowValue(container: HTMLElement, label: string): string | null | undefined {
+  const row = within(container).getByText(label).closest('[data-slot="item"]');
+  return row?.querySelector('[data-slot="item-actions"]')?.textContent;
 }
