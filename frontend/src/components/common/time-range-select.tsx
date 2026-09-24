@@ -44,7 +44,7 @@ export function TimeRangeSelect({ range, onRangeChange, tone, size = "sm" }: Tim
         <Clock3 className="size-3.5 text-muted-foreground" />
         <SelectValue />
       </SelectTrigger>
-      <SelectContent alignItemWithTrigger={false} className="min-w-24">
+      <SelectContent alignItemWithTrigger={false}>
         <SelectGroup>
           {range === null && (
             <>
