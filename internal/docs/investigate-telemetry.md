@@ -6,7 +6,8 @@ description: Investigate traces, metrics, and logs stored by otelop through its 
 otelop exposes retained traces, metrics, and logs through an introspectable
 GraphQL API. Use this workflow:
 
-1. Discover the running instance with `otelop status`.
+1. Discover the running instance with `otelop status`, or use the URL of a
+   hosted instance.
 2. Choose a narrow time window and, when useful, a text search.
 3. Use a list query to find relevant signals.
 4. Fetch detail only for the selected trace or metric.
@@ -14,11 +15,20 @@ GraphQL API. Use this workflow:
 
 ## Connect to the API
 
-Read the Web UI address from `otelop status`; do not assume the default port.
-The default GraphQL endpoint is `http://localhost:4319/graphql`.
+The GraphQL endpoint is the otelop base URL followed by `/graphql`:
+
+- For an instance on this machine, read the Web UI address from
+  `otelop status`; do not assume the default `http://localhost:4319`.
+- `otelop status` only reports instances started on this machine. For an
+  instance hosted elsewhere, use the URL it is served from, and ask the user if
+  it is unknown.
+
+Set `base` to that URL. The `${base%/}` expansion drops a trailing slash so the
+request path stays `/graphql`:
 
 ```sh
-curl -sS -X POST http://localhost:4319/graphql \
+base=http://localhost:4319  # replace with the address for your instance
+curl -sS -X POST "${base%/}/graphql" \
   -H 'Content-Type: application/json' \
   -d '{"query":"{ status { version uptimeMs dbSizeBytes } }"}'
 ```

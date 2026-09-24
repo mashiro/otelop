@@ -41,7 +41,8 @@ token = "replace-me"
 environment variables, the config file, and built-in defaults — the same
 precedence as `otelop start`. It does not inspect the running process or
 database. To read the live effective storage settings, size, and signal
-counts, use the endpoint reported by `otelop status` and query:
+counts, use the endpoint reported by `otelop status` (or the URL of a hosted
+instance) and query:
 
 ```graphql
 {

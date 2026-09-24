@@ -1,6 +1,6 @@
 ---
 name: otelop-inspect
-description: Investigate OpenTelemetry signals (traces, metrics, logs) retained by a locally running otelop instance via its GraphQL API. Use this when the user is debugging an app that sends telemetry to otelop and you need to inspect spans, correlate logs with traces, or read metric values.
+description: Investigate OpenTelemetry signals (traces, metrics, logs) retained by a running otelop instance via its GraphQL API. Use this when the user is debugging an app that sends telemetry to otelop and you need to inspect spans, correlate logs with traces, or read metric values.
 ---
 
 # Investigate telemetry with otelop
@@ -15,8 +15,11 @@ description: Investigate OpenTelemetry signals (traces, metrics, logs) retained 
    fields and time range needed for the investigation.
 
 Prefer read-only public surfaces: `otelop status`, the GraphQL API, and the
-browser UI. Use the address reported by `otelop status`; do not assume the
-default port.
+browser UI. For an instance on this machine, use the address reported by
+`otelop status`; do not assume the default port. `otelop status` only sees
+instances started on this machine, so for a hosted instance ask the user for
+its URL. Send GraphQL requests to that URL with `/graphql` appended, after
+removing any trailing slash.
 
 Do not start, restart, or stop otelop without the user's permission. Never call
 the irreversible `clearSignals` mutation unless the user explicitly requests

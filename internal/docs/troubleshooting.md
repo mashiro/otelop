@@ -17,6 +17,8 @@ for that state change.
 ## The UI or GraphQL API is unreachable
 
 - Read the actual Web UI address from `otelop status`; do not assume port 4319.
+  `otelop status` only sees instances on this machine; for a hosted instance,
+  confirm its URL with the user.
 - A stale metadata message means the recorded process is no longer running.
   `otelop stop` removes stale metadata, but changes state and needs permission.
 - The default HTTP listener is loopback-only. Remote clients need an explicit

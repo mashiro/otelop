@@ -1,5 +1,5 @@
 ---
-description: Install and start otelop, send OTLP telemetry to it, and find the local browser UI. Use when setting up otelop for the first time or checking its default endpoints.
+description: Install and start otelop, send OTLP telemetry to it, and find the browser UI. Use when setting up otelop for the first time or checking its default endpoints.
 ---
 # Getting started
 
