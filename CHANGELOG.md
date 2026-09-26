@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.2.1](https://github.com/mashiro/otelop/compare/v2.2.0...v2.2.1) (2026-09-26)
+
+
+### Bug Fixes
+
+* **deps:** update all non-major dependencies ([#362](https://github.com/mashiro/otelop/issues/362)) ([3839a0c](https://github.com/mashiro/otelop/commit/3839a0c0c44cd34b0032023c090dabe2e8405c00))
+* **deps:** update dependency @tanstack/react-router to v1.170.39 ([#364](https://github.com/mashiro/otelop/issues/364)) ([4cfe275](https://github.com/mashiro/otelop/commit/4cfe275c538191f9272ce3e35603a5003b0b7474))
+
 ## [2.2.0](https://github.com/mashiro/otelop/compare/v2.1.0...v2.2.0) (2026-09-24)
 
 
