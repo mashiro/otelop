@@ -28,7 +28,7 @@
     "@visx/text": "4.0.0",
     "@visx/tooltip": "4.0.0",
     "class-variance-authority": "0.7.1",
-    "cn": "0.3.2",
+    "cn": "0.4.0",
     "graphql-request": "7.4.0",
     "jotai": "3.0.0",
     "lucide-react": "1.47.0",
@@ -42,7 +42,7 @@
     "@graphql-codegen/client-preset": "6.2.0",
     "@graphql-typed-document-node/core": "3.2.0",
     "@rolldown/plugin-babel": "0.2.4",
-    "@shadcn/lint": "0.1.5",
+    "@shadcn/lint": "0.2.0",
     "@tailwindcss/vite": "4.3.3",
     "@testing-library/dom": "10.4.2",
     "@testing-library/react": "16.3.3",
@@ -60,5 +60,5 @@
     "vite": "catalog:",
     "vite-plus": "catalog:"
   },
-  "packageManager": "pnpm@12.5.1"
+  "packageManager": "pnpm@12.6.0"
 }
