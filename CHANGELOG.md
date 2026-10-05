@@ -1,5 +1,24 @@
 # Changelog
 
+## [2.2.1](https://github.com/mashiro/otelop/compare/v2.2.0...v2.2.1) (2026-10-05)
+
+
+### Bug Fixes
+
+* **deps:** update all non-major dependencies ([#362](https://github.com/mashiro/otelop/issues/362)) ([3839a0c](https://github.com/mashiro/otelop/commit/3839a0c0c44cd34b0032023c090dabe2e8405c00))
+* **deps:** update all non-major dependencies ([#365](https://github.com/mashiro/otelop/issues/365)) ([ba66072](https://github.com/mashiro/otelop/commit/ba66072cebabf65defd678c2d91b693d71ca8e15))
+* **deps:** update all non-major dependencies ([#367](https://github.com/mashiro/otelop/issues/367)) ([0da37e0](https://github.com/mashiro/otelop/commit/0da37e0ccf5e7a6eac3b74889c124b92613246c9))
+* **deps:** update all non-major dependencies ([#368](https://github.com/mashiro/otelop/issues/368)) ([afaf929](https://github.com/mashiro/otelop/commit/afaf92981c6a9f5ac0554ef2183e63977af0999e))
+* **deps:** update all non-major dependencies ([#376](https://github.com/mashiro/otelop/issues/376)) ([ed90924](https://github.com/mashiro/otelop/commit/ed909244b48bb8b84e78b48a2b75a93e3be8b2bc))
+* **deps:** update all non-major dependencies ([#378](https://github.com/mashiro/otelop/issues/378)) ([50daef1](https://github.com/mashiro/otelop/commit/50daef1a54a2b22e5d64e07fe17b0fc7dd2b70d3))
+* **deps:** update dependency @tanstack/react-router to v1.170.39 ([#364](https://github.com/mashiro/otelop/issues/364)) ([4cfe275](https://github.com/mashiro/otelop/commit/4cfe275c538191f9272ce3e35603a5003b0b7474))
+* **deps:** update dependency jotai to v3.0.1 ([#373](https://github.com/mashiro/otelop/issues/373)) ([c6c574e](https://github.com/mashiro/otelop/commit/c6c574e7607ad1b940ccf3be41cfdb205ecfad9d))
+* **deps:** update dependency lucide-react to v1.49.0 ([#374](https://github.com/mashiro/otelop/issues/374)) ([34b433f](https://github.com/mashiro/otelop/commit/34b433fd4af0665291b800ef2b1d845e739b9407))
+* **deps:** update dependency shadcn to v4.21.1 ([#377](https://github.com/mashiro/otelop/issues/377)) ([23e00fc](https://github.com/mashiro/otelop/commit/23e00fc7eac8f811e17547b3b4cb500945cba85b))
+* **deps:** update module github.com/duckdb/duckdb-go/v2 to v2.10506.0 ([#375](https://github.com/mashiro/otelop/issues/375)) ([cbdb55a](https://github.com/mashiro/otelop/commit/cbdb55ae268b28aa505e105ffd8015e417188f3a))
+* **deps:** update opentelemetry-collector ([#371](https://github.com/mashiro/otelop/issues/371)) ([b3c458c](https://github.com/mashiro/otelop/commit/b3c458c74cc58fcfd6bf39dce9efa2e5b970d11e))
+* **store:** deduplicate metric series keys during sweep ([#382](https://github.com/mashiro/otelop/issues/382)) ([8aeeb6d](https://github.com/mashiro/otelop/commit/8aeeb6d2fe20c388cd83ee938a6eda6f657f97ca))
+
 ## [2.2.0](https://github.com/mashiro/otelop/compare/v2.1.0...v2.2.0) (2026-09-24)
 
 
