@@ -1266,9 +1266,11 @@ func (s *Storage) deleteFactsBefore(ctx context.Context, cutoff time.Time) (dele
 func (s *Storage) pruneDimensions(ctx context.Context) (err error) {
 	ctx, span := startStorageSpan(ctx, "storage.pruneDimensions")
 	defer func() { endStorageSpan(span, err) }()
+	// Only existence matters: deduplicate repeated points before building
+	// the join's hash table so sweep memory scales with distinct series.
 	_, err = s.writer.ExecContext(ctx, `
 		DELETE FROM metric_series
-		WHERE series_key NOT IN (SELECT series_key FROM metric_points)
+		WHERE series_key NOT IN (SELECT DISTINCT series_key FROM metric_points)
 	`)
 	if err != nil {
 		return fmt.Errorf("storage: prune metric_series: %w", err)
