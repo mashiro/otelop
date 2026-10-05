@@ -9,7 +9,7 @@ require (
 	github.com/duckdb/duckdb-go/v2 v2.10506.0
 	github.com/google/uuid v1.6.0
 	github.com/graph-gophers/graphql-go v1.10.3
-	github.com/urfave/cli/v3 v3.13.0
+	github.com/urfave/cli/v3 v3.14.0
 	go.opentelemetry.io/collector/component v1.68.0
 	go.opentelemetry.io/collector/confmap v1.68.0
 	go.opentelemetry.io/collector/connector v0.162.0
