@@ -62,7 +62,7 @@ mise run build    # Build
 
 - Don't commit until the user gives permission
 - Always run `mise run check` and `mise run test` after making changes
-- Use agent-browser to verify both light and dark mode
+- Use agent-browser to verify both light and dark mode only when a change affects UI appearance or user interactions. Backend-only changes (such as storage SQL fixes) do not require browser verification unless they also change UI behavior.
 - When changing the UI design, capture screenshots of the updated UI in both light and dark mode and attach them to the pull request.
 - Store screenshots intended for pull requests outside the repository (for example, in `/tmp`). Do not save or commit them under `docs/` or any other repository directory.
 - Use `gh` rather than browser automation to create or update pull requests and attach screenshots. Both `gh pr edit` and `gh pr comment` support `--attach`. Specify the actual paths of the screenshots generated for the current change, repeating `--attach` for multiple images. Check the command's `--help` before assuming image uploads are unsupported. Removing such images from the repository must not remove the screenshots from the PR.
