@@ -15,6 +15,7 @@ import { resolveMetricUnit } from "@/lib/metric-catalog";
 import { MetricAddFilter, MetricFilterBar } from "./metric-filter-bar";
 import { MetricDetail } from "./metric-detail";
 import { EmptyState } from "@/components/common/empty-state";
+import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { SIGNALS } from "@/lib/signals";
 import { useMetricListSearch } from "@/hooks/use-metric-list-search";
@@ -29,7 +30,7 @@ function metricRowId(metric: MetricData): string {
 export function MetricList() {
   const allMetrics = useAtomValue(metricsAtom);
   const { state, search, setText } = useSignalQuery("metrics");
-  useMetricListSearch(search);
+  const searchRequest = useMetricListSearch(search);
   const filtered = useAtomValue(useMemo(() => createFilteredMetricsAtom(search), [search]));
   const metrics = useMemo(
     () => [...filtered].sort((a, b) => a.name.localeCompare(b.name)),
@@ -82,8 +83,22 @@ export function MetricList() {
         </div>
       }
     >
+      {searchRequest.isSearching ? (
+        <p role="status" className="p-4 text-sm text-muted-foreground">
+          Searching metrics…
+        </p>
+      ) : searchRequest.isError ? (
+        <div role="alert" className="flex items-center gap-3 p-4 text-sm">
+          <p className="text-destructive">Could not search metrics. Please try again.</p>
+          <Button variant="outline" size="sm" onClick={searchRequest.retry}>
+            Retry
+          </Button>
+        </div>
+      ) : null}
       {metrics.length === 0 ? (
-        <EmptyMatches label="metrics" />
+        !searchRequest.isSearching && !searchRequest.isError ? (
+          <EmptyMatches label="metrics" />
+        ) : null
       ) : (
         <ScrollableTable
           before={

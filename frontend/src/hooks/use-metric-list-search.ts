@@ -34,10 +34,10 @@ const MetricsListQuery = graphql(`
 // metricsAtom went empty). Instead it only records which (serviceName, name)
 // matching summaries separately; stores/filters.ts combines them with the
 // untouched live buffer.
-export function useMetricListSearch(search: string): void {
+export function useMetricListSearch(search: string) {
   const setSearchResult = useSetAtom(metricSearchResultAtom);
 
-  const { data } = useQuery(
+  const { data, isFetching, isError, refetch } = useQuery(
     {
       queryKey: ["metric-search", search],
       queryFn: () => gqlClient.request(MetricsListQuery, { search }),
@@ -52,4 +52,9 @@ export function useMetricListSearch(search: string): void {
     );
     setSearchResult({ search, items });
   }, [data, search, setSearchResult]);
+  return {
+    isSearching: Boolean(search) && isFetching,
+    isError: Boolean(search) && isError,
+    retry: () => void refetch(),
+  };
 }
