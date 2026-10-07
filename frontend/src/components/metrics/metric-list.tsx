@@ -1,4 +1,4 @@
-import { useMetricQuery, useMetricSelection } from "@/hooks/use-signal-route";
+import { useSignalQuery, useMetricSelection } from "@/hooks/use-signal-route";
 import { useMemo } from "react";
 import { useAtomValue } from "jotai";
 import { metricsAtom, renderWindowMaxAtom } from "@/stores/telemetry";
@@ -12,6 +12,7 @@ import { BackToLatestRow } from "@/components/common/back-to-latest-row";
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatRelativeTime } from "@/lib/format";
 import { resolveMetricUnit } from "@/lib/metric-catalog";
+import { MetricAddFilter, MetricFilterBar } from "./metric-filter-bar";
 import { MetricDetail } from "./metric-detail";
 import { EmptyState } from "@/components/common/empty-state";
 import { Badge } from "@/components/ui/badge";
@@ -27,7 +28,7 @@ function metricRowId(metric: MetricData): string {
 
 export function MetricList() {
   const allMetrics = useAtomValue(metricsAtom);
-  const { search, setSearch } = useMetricQuery();
+  const { state, search, setText } = useSignalQuery("metrics");
   useMetricListSearch(search);
   const filtered = useAtomValue(useMemo(() => createFilteredMetricsAtom(search), [search]));
   const metrics = useMemo(
@@ -62,14 +63,23 @@ export function MetricList() {
   // zero-hit case below (EmptyMatches) — see stores/filters.ts's
   // filteredMetricsAtom and hooks/use-metric-list-search.ts for the bug this
   // guards against.
-  if (allMetrics.length === 0 && !search) {
+  if (allMetrics.length === 0 && !search && state.filters.length === 0) {
     return <EmptyState signal={SIGNALS.metrics} />;
   }
 
   return (
     <ListPanel
+      toolbarSecondary={state.filters.length > 0 ? <MetricFilterBar /> : null}
       toolbar={
-        <SearchFilter value={search} onSubmit={setSearch} placeholder="Search metric names…" />
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          <SearchFilter
+            value={state.text}
+            onSubmit={setText}
+            placeholder="Search metric names…"
+            className="min-w-0 max-w-none @min-[48rem]/list:max-w-80"
+          />
+          <MetricAddFilter />
+        </div>
       }
     >
       {metrics.length === 0 ? (

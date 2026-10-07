@@ -123,17 +123,13 @@ func FilterDerivedPoints(points []DerivedPoint) []DerivedPoint {
 // that is still being observed now (last_seen ≈ now) from every past
 // window — exactly the history-browsing case this query layer exists for.
 //
-// Parameter order: to binds first (first_seen < to), from second
-// (last_seen >= from) — the reverse of the other list queries.
+// After search parameters, to binds before from (the reverse of other lists).
 const metricsPageQuery = `
 WITH filtered AS (
-	SELECT s.*, r.attributes::VARCHAR AS resource_json
+	SELECT s.*, r.attributes::VARCHAR AS resource_json, (%s) AS matches
 	FROM metric_series s
 	JOIN resources r ON r.resource_hash = s.resource_hash
 	WHERE s.first_seen < ? AND s.last_seen >= ?
-	AND (
-		s.metric_name ILIKE ? ESCAPE '\'
-	)
 )
 SELECT
 	service_name,
@@ -146,7 +142,7 @@ SELECT
 	arg_max(resource_json, last_seen) AS resource_json
 FROM filtered
 GROUP BY service_name, metric_name
-HAVING (CAST(? AS BOOLEAN) OR max(last_seen) < ?
+HAVING bool_or(matches) AND (CAST(? AS BOOLEAN) OR max(last_seen) < ?
 	OR (max(last_seen) = ? AND service_name < ?)
 	OR (max(last_seen) = ? AND service_name = ? AND metric_name < ?))
 ORDER BY last_seen DESC, service_name DESC, metric_name DESC
@@ -161,20 +157,24 @@ func (s *Storage) MetricsPage(ctx context.Context, from, to time.Time, after *Me
 }
 
 // MetricsPageSearch is MetricsPage with a case-insensitive substring search
-// over metric names.
+// over metric names and structured conditions on individual series.
 func (s *Storage) MetricsPageSearch(ctx context.Context, from, to time.Time, after *MetricCursor, limit int, search string) (items []MetricSummary, hasNextPage bool, err error) {
 	ctx, span := startStorageSpan(ctx, "storage.MetricsPage", attribute.Int("db.limit", limit))
 	defer func() { endStorageSpan(span, err) }()
 	started := time.Now()
 	defer func() { s.recordQuery(ctx, "query_metrics", started, err) }()
-	pattern := likePattern(search)
+	predicate, searchArgs := metricSearchSQL(search)
 	queryLimit := pageLimit(limit)
 	if limit > 0 {
 		queryLimit++
 	}
 	firstPage, cursorSeen, cursorService, cursorName := metricCursorArgs(after)
-	rows, err := s.DB().QueryContext(ctx, metricsPageQuery, to, from, pattern,
-		firstPage, cursorSeen, cursorSeen, cursorService, cursorSeen, cursorService, cursorName, queryLimit)
+	toArg := duckdb.Typed(to, duckdb.TYPE_TIMESTAMP_NS)
+	fromArg := duckdb.Typed(from, duckdb.TYPE_TIMESTAMP_NS)
+	cursorArg := duckdb.Typed(cursorSeen, duckdb.TYPE_TIMESTAMP_NS)
+	args := append(searchArgs, toArg, fromArg)
+	args = append(args, firstPage, cursorArg, cursorArg, cursorService, cursorArg, cursorService, cursorName, queryLimit)
+	rows, err := s.DB().QueryContext(ctx, fmt.Sprintf(metricsPageQuery, predicate), args...)
 	if err != nil {
 		return nil, false, fmt.Errorf("storage: query metrics page: %w", err)
 	}

@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vite-plus/test";
-import { renderHook, waitFor } from "@testing-library/react";
+import { renderHook, waitFor, act } from "@testing-library/react";
 import { createStore, Provider } from "jotai";
 import type { ReactNode } from "react";
 import { useMetricListSearch } from "./use-metric-list-search";
-import { metricSearchResultAtom, metricsAtom } from "@/stores/telemetry";
+import { metricSearchResultAtom, metricsAtom, addMetricsAtom } from "@/stores/telemetry";
 import { makeMetric } from "@/test/factories";
 import type { MetricsListQuery, MetricsListQueryVariables } from "@/gql/graphql";
 
@@ -91,4 +91,13 @@ describe("useMetricListSearch", () => {
     await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(2));
     expect(requestMock.mock.calls[1]?.[1]?.search).toBe("ab");
   });
+});
+
+it("does not repeat structured searches when live metrics arrive", async () => {
+  requestMock.mockResolvedValue({ metrics: { items: [queryMetric()] } });
+  const { store } = renderWithStore("service_name:frontend");
+  await waitFor(() => expect(store.get(metricSearchResultAtom).items).toHaveLength(1));
+  act(() => store.set(addMetricsAtom, [makeMetric({ name: "new.metric" })]));
+  await new Promise((resolve) => setTimeout(resolve, 600));
+  expect(requestMock).toHaveBeenCalledTimes(1);
 });

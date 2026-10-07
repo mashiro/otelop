@@ -1,3 +1,4 @@
+import { parseMetricSearch } from "@/lib/metric-search";
 import { createTraceSearchMatcher } from "@/lib/trace-search";
 import { createLogSearchMatcher } from "@/lib/log-search";
 import { atom } from "jotai";
@@ -124,6 +125,10 @@ export function createFilteredMetricsAtom(search: string) {
       // longer contains this retained metric.
       return bufferedByKey.get(key) ?? metric;
     });
+
+    // Summaries omit series attributes and retain only one resource. Only the
+    // server can establish whether all structured conditions match one series.
+    if (parseMetricSearch(search).terms.length > 0) return matches;
 
     for (const metric of buffered) {
       const key = metricKeyToString(metric);

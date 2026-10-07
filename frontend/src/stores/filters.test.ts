@@ -552,3 +552,13 @@ describe("filteredMetricsAtom", () => {
     expect(store.get(filteredMetricsAtom)).toBe(metrics);
   });
 });
+
+it("does not infer a series match from incomplete metric summaries", () => {
+  const store = createStore();
+  const metric = makeMetric({ name: "service_name:api", serviceName: "api" });
+  store.set(metricsAtom, [metric]);
+  expect(store.get(createFilteredMetricsAtom("service_name:api"))).toEqual([]);
+  store.set(metricSearchResultAtom, { search: "service_name:api", items: [metric] });
+  expect(store.get(createFilteredMetricsAtom("service_name:api"))).toEqual([metric]);
+  expect(store.get(createFilteredMetricsAtom("service_name:other"))).toEqual([]);
+});
