@@ -7,7 +7,15 @@ function render(ui: ReactElement) {
 import { describe, it, expect, afterEach, beforeEach, vi } from "vite-plus/test";
 import type { ReactNode } from "react";
 import { getDefaultStore } from "jotai";
-import { render as renderUI, screen, cleanup, within, waitFor, act } from "@testing-library/react";
+import {
+  render as renderUI,
+  screen,
+  cleanup,
+  within,
+  waitFor,
+  act,
+  fireEvent,
+} from "@testing-library/react";
 import { MetricList } from "./metric-list";
 import {
   metricSearchResultAtom,
@@ -401,4 +409,85 @@ describe("MetricList render window (bounded sliding)", () => {
     expect(screen.getByText("c-metric")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /back to top/ })).toBeNull();
   });
+});
+
+it("keeps fixed metric conditions while searching, disabling, and restoring the URL", async () => {
+  const store = getDefaultStore();
+  store.set(metricsAtom, [makeMetric()]);
+  routing = await createTestRouter("/metrics?filter=service_name%3A%22frontend%22");
+  render(<MetricList />);
+  expect(screen.getByRole("button", { name: "Edit filter service_name" })).toBeTruthy();
+  const input = screen.getByPlaceholderText("Search metric names…");
+  fireEvent.change(input, { target: { value: "http name:http.*" } });
+  await act(async () => {
+    fireEvent.keyDown(input, { key: "Enter" });
+  });
+  expect(routing.router.state.location.search.q).toBe("http");
+  expect(routing.router.state.location.search.filter).toEqual([
+    'service_name:"frontend"',
+    "name:http.*",
+  ]);
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Disable filter service_name" }));
+  });
+  expect(routing.router.state.location.search.disabled_filter).toEqual(['service_name:"frontend"']);
+  expect(screen.getByRole("button", { name: "Enable filter service_name" })).toBeTruthy();
+});
+
+it("keeps disabled filters accessible when there are no metrics", async () => {
+  routing = await createTestRouter("/metrics?disabled_filter=name%3Ahttp.*");
+  render(<MetricList />);
+  expect(screen.getByRole("button", { name: "Enable filter name" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Add filter" })).toBeTruthy();
+});
+
+it("distinguishes a pending or failed structured search from empty results and retries manually", async () => {
+  await routing.router.navigate({ to: ".", search: { filter: ["service_name:api"] } });
+  let rejectSearch!: (reason: Error) => void;
+  requestMock.mockImplementationOnce(
+    () =>
+      new Promise((_, reject) => {
+        rejectSearch = reject;
+      }),
+  );
+  render(<MetricList />);
+  expect(screen.getByRole("status").textContent).toContain("Searching metrics");
+  expect(screen.queryByText("No matching metrics")).toBeNull();
+  await act(async () => rejectSearch(new Error("offline")));
+  await waitFor(() =>
+    expect(screen.getByRole("alert").textContent).toContain("Could not search metrics"),
+  );
+  expect(screen.queryByText("No matching metrics")).toBeNull();
+  let resolveSearch!: (value: MetricsListQuery) => void;
+  requestMock.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        resolveSearch = resolve;
+      }),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+  await waitFor(() => expect(screen.getByRole("status")).toBeTruthy());
+  await act(async () =>
+    resolveSearch({
+      metrics: { items: [queryMetric({ serviceName: "api", name: "recovered.metric" })] },
+    }),
+  );
+  await waitFor(() => expect(screen.getByText("recovered.metric")).toBeTruthy());
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(screen.queryByRole("status")).toBeNull();
+  expect(requestMock).toHaveBeenCalledTimes(2);
+});
+
+it("clears the failure state when the search is removed", async () => {
+  getDefaultStore().set(metricsAtom, [makeMetric()]);
+  await routing.router.navigate({ to: ".", search: { filter: ["service_name:api"] } });
+  requestMock.mockRejectedValue(new Error("offline"));
+  render(<MetricList />);
+  await waitFor(() => expect(screen.getByRole("alert")).toBeTruthy());
+  await act(async () => {
+    await routing.router.navigate({ to: ".", search: {} });
+  });
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(screen.queryByRole("status")).toBeNull();
+  expect(screen.getByText("http.requests")).toBeTruthy();
 });

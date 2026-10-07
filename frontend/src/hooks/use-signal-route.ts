@@ -11,6 +11,7 @@ import {
 } from "@/lib/log-query-state";
 import { parseLogSearch, serializeLogTerm, type LogSearchTerm } from "@/lib/log-search";
 import { parseTraceSearch, traceFields } from "@/lib/trace-search";
+import { metricFields, parseMetricSearch } from "@/lib/metric-search";
 import { draftTerm } from "@/lib/log-filter";
 import type { EventTimeWindow } from "@/lib/event-time-window";
 import type { LogData, MetricData, TraceData } from "@/types/telemetry";
@@ -26,16 +27,19 @@ export function useTimeWindow() {
   ] as const;
 }
 
-export function useSignalQuery(signal: "logs" | "traces") {
+export function useSignalQuery(signal: "logs" | "traces" | "metrics") {
   const search = useSearch({ strict: false });
   const navigate = useNavigate();
-  const parse = signal === "traces" ? parseTraceSearch : parseLogSearch;
-  const read = (value: typeof search) =>
-    readFilterQuery(value, signal === "traces" ? traceFields : undefined);
-  const state = useMemo(
-    () => readFilterQuery(search, signal === "traces" ? traceFields : undefined),
-    [search, signal],
-  );
+  const parse =
+    signal === "traces"
+      ? parseTraceSearch
+      : signal === "metrics"
+        ? parseMetricSearch
+        : parseLogSearch;
+  const fields =
+    signal === "traces" ? traceFields : signal === "metrics" ? metricFields : undefined;
+  const read = (value: typeof search) => readFilterQuery(value, fields);
+  const state = useMemo(() => readFilterQuery(search, fields), [search, signal]);
   const setState = (update: SetStateAction<LogQueryState>) =>
     navigate({
       to: ".",
@@ -116,17 +120,6 @@ export function useMetricSelection() {
             search: true,
           })
         : navigate({ to: "/metrics", search: true }),
-  };
-}
-export function useMetricQuery() {
-  const search = useSearch({ strict: false, select: (search) => search.q ?? "" });
-  const navigate = useNavigate();
-  return {
-    search,
-    setSearch: (q: string) => {
-      void navigate({ to: ".", search: (previous) => ({ ...previous, q: q || undefined }) });
-      return q;
-    },
   };
 }
 export function useLogSelection() {

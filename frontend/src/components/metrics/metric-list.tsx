@@ -1,4 +1,4 @@
-import { useMetricQuery, useMetricSelection } from "@/hooks/use-signal-route";
+import { useSignalQuery, useMetricSelection } from "@/hooks/use-signal-route";
 import { useMemo } from "react";
 import { useAtomValue } from "jotai";
 import { metricsAtom, renderWindowMaxAtom } from "@/stores/telemetry";
@@ -12,8 +12,10 @@ import { BackToLatestRow } from "@/components/common/back-to-latest-row";
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatRelativeTime } from "@/lib/format";
 import { resolveMetricUnit } from "@/lib/metric-catalog";
+import { MetricAddFilter, MetricFilterBar } from "./metric-filter-bar";
 import { MetricDetail } from "./metric-detail";
 import { EmptyState } from "@/components/common/empty-state";
+import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { SIGNALS } from "@/lib/signals";
 import { useMetricListSearch } from "@/hooks/use-metric-list-search";
@@ -27,8 +29,8 @@ function metricRowId(metric: MetricData): string {
 
 export function MetricList() {
   const allMetrics = useAtomValue(metricsAtom);
-  const { search, setSearch } = useMetricQuery();
-  useMetricListSearch(search);
+  const { state, search, setText } = useSignalQuery("metrics");
+  const searchRequest = useMetricListSearch(search);
   const filtered = useAtomValue(useMemo(() => createFilteredMetricsAtom(search), [search]));
   const metrics = useMemo(
     () => [...filtered].sort((a, b) => a.name.localeCompare(b.name)),
@@ -62,18 +64,41 @@ export function MetricList() {
   // zero-hit case below (EmptyMatches) — see stores/filters.ts's
   // filteredMetricsAtom and hooks/use-metric-list-search.ts for the bug this
   // guards against.
-  if (allMetrics.length === 0 && !search) {
+  if (allMetrics.length === 0 && !search && state.filters.length === 0) {
     return <EmptyState signal={SIGNALS.metrics} />;
   }
 
   return (
     <ListPanel
+      toolbarSecondary={state.filters.length > 0 ? <MetricFilterBar /> : null}
       toolbar={
-        <SearchFilter value={search} onSubmit={setSearch} placeholder="Search metric names…" />
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          <SearchFilter
+            value={state.text}
+            onSubmit={setText}
+            placeholder="Search metric names…"
+            className="min-w-0 max-w-none @min-[48rem]/list:max-w-80"
+          />
+          <MetricAddFilter />
+        </div>
       }
     >
+      {searchRequest.isSearching ? (
+        <p role="status" className="p-4 text-sm text-muted-foreground">
+          Searching metrics…
+        </p>
+      ) : searchRequest.isError ? (
+        <div role="alert" className="flex items-center gap-3 p-4 text-sm">
+          <p className="text-destructive">Could not search metrics. Please try again.</p>
+          <Button variant="outline" size="sm" onClick={searchRequest.retry}>
+            Retry
+          </Button>
+        </div>
+      ) : null}
       {metrics.length === 0 ? (
-        <EmptyMatches label="metrics" />
+        !searchRequest.isSearching && !searchRequest.isError ? (
+          <EmptyMatches label="metrics" />
+        ) : null
       ) : (
         <ScrollableTable
           before={

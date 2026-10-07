@@ -132,6 +132,19 @@ history:
 }
 ```
 
+Use **Add filter** in the Metrics tab to keep conditions while changing the
+free-text name search. Filters can be edited, disabled, enabled, or removed;
+the URL preserves both enabled and disabled conditions.
+
+Structured search supports `name`, `service_name`, `type`, `unit`,
+`description`, `attributes.<key>`, and `resource.<key>`. For example,
+`http service_name:api attributes.http.method:GET` combines a name substring
+with exact service and series-attribute conditions. Quoted values are literal;
+unquoted `*` is a wildcard, a leading `-` negates a condition, and numeric
+attributes support comparisons such as `attributes.http.status_code:>=500`.
+All conditions must match the same series. Matching metrics retain all their
+series in the overview and detail; these filters do not narrow chart points.
+
 The fields have different time semantics:
 
 | Field | Meaning |

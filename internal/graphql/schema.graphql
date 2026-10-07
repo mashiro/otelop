@@ -10,7 +10,7 @@ type Query {
   """Distinct filter keys, or scalar values for key, in the selected time window.
   Input is a literal case-insensitive substring. Returns at most 1000 matching keys or
   at most 20 sorted values, independent of list pagination and active search conditions.
-  signal must be logs or traces. Omit key to request field names.
+  signal must be logs, traces, or metrics. Omit key to request field names.
   """
   filterSuggestions(signal: String!, key: String, input: String = "", from: Time, to: Time): [String!]!
 
@@ -50,8 +50,11 @@ type Query {
   List metric groups by their most recently received point, newest-first.
   A metric group is in range when any of its series overlaps [from, to);
   both bounds default to the full retention window. search, if given,
-  case-insensitively matches metric name (substring match; % and _ are treated literally, not as
-  wildcards). An empty/omitted search matches every metric group in range.
+  case-insensitively matches metric names by substring (% and _ are literal).
+  Structured terms support name, service_name, type, unit, description,
+  attributes.<key>, and resource.<key>, with the same operators as log search.
+  All conditions must match one series; returned groups still include all
+  in-range series. An empty/omitted search matches every metric group in range.
   """
   metrics(limit: Int = 50, after: String, from: Time, to: Time, search: String): MetricConnection!
 

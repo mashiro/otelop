@@ -25,6 +25,10 @@ func (s *Storage) FilterSuggestions(ctx context.Context, signal, key, input stri
 		fields = traceFieldColumns
 		alias = "s"
 		scope = `SELECT s.* FROM spans s JOIN trace_summaries t ON t.trace_id = s.trace_id WHERE t.start_ts >= ? AND t.start_ts < ?`
+	case "metrics":
+		fields = metricFieldColumns
+		alias = "s"
+		scope = `SELECT s.* FROM metric_series s WHERE s.last_seen >= ? AND s.first_seen < ?`
 	default:
 		return nil, fmt.Errorf("unsupported filter signal: %s", signal)
 	}

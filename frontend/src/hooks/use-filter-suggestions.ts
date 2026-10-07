@@ -11,13 +11,22 @@ const FilterSuggestionsQuery = graphql(`
 `);
 
 export function useFilterSuggestions(
-  signal: "logs" | "traces",
+  signal: "logs" | "traces" | "metrics",
   key: string | undefined,
   input: string,
   window: EventTimeWindow,
   enabled = true,
 ) {
-  const requestKey = JSON.stringify([signal, key, input, eventWindowKey(window), enabled]);
+  // The metric catalog spans all retained series, independently of chart time.
+  const suggestionWindow: EventTimeWindow =
+    signal === "metrics" ? { mode: "live", range: "all" } : window;
+  const requestKey = JSON.stringify([
+    signal,
+    key,
+    input,
+    eventWindowKey(suggestionWindow),
+    enabled,
+  ]);
   const { data, isPending, isError } = useQuery(
     {
       queryKey: ["filter-suggestions", requestKey],
@@ -36,7 +45,7 @@ export function useFilterSuggestions(
         });
         const data = await gqlClient.request({
           document: FilterSuggestionsQuery,
-          variables: { signal, key, input, ...eventWindowBounds(window) },
+          variables: { signal, key, input, ...eventWindowBounds(suggestionWindow) },
           signal: abortSignal,
         });
         return data.filterSuggestions;

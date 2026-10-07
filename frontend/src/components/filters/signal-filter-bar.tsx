@@ -37,7 +37,7 @@ import { type LogSearchTerm } from "@/lib/log-search";
 type SignalFilterProps = {
   fields: readonly string[];
   numericFields: readonly string[];
-  signal: "logs" | "traces";
+  signal: "logs" | "traces" | "metrics";
   label: string;
   description?: string;
 };
@@ -203,7 +203,7 @@ function FilterEditor({
   onCancel,
 }: {
   initial?: LogSearchTerm;
-  signal: "logs" | "traces";
+  signal: "logs" | "traces" | "metrics";
   fields: readonly string[];
   numericFields: readonly string[];
   onApply: (term: LogSearchTerm) => void;
@@ -302,7 +302,9 @@ function FilterEditor({
             ? "Loading suggestions…"
             : keySuggestions.items.length >= 1000
               ? "Showing 1,000 keys. Type to narrow suggestions."
-              : "Up to 1,000 keys and 20 values from the selected time window. Type to narrow suggestions."}
+              : signal === "metrics"
+                ? "Up to 1,000 keys and 20 values from retained metrics. Type to narrow suggestions."
+                : "Up to 1,000 keys and 20 values from the selected time window. Type to narrow suggestions."}
       </p>
       {submitted && error && (
         <p role="alert" className="text-xs text-destructive">
