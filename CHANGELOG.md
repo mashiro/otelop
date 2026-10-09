@@ -1,5 +1,22 @@
 # Changelog
 
+## [2.3.0](https://github.com/mashiro/otelop/compare/v2.2.1...v2.3.0) (2026-10-09)
+
+
+### Features
+
+* **frontend:** add persistent metric filters ([#388](https://github.com/mashiro/otelop/issues/388)) ([644f1ec](https://github.com/mashiro/otelop/commit/644f1ec400e5b946cd9153e7ecd3e3c0368a2cb3))
+
+
+### Bug Fixes
+
+* **deps:** update all non-major dependencies ([#381](https://github.com/mashiro/otelop/issues/381)) ([efb67ab](https://github.com/mashiro/otelop/commit/efb67ab63b904be55658e7e61948ed80f9ceaba9))
+* **deps:** update all non-major dependencies ([#391](https://github.com/mashiro/otelop/issues/391)) ([245ce42](https://github.com/mashiro/otelop/commit/245ce429905d2000d7f6796219414b608e8ebaf9))
+* **deps:** update all non-major dependencies ([#392](https://github.com/mashiro/otelop/issues/392)) ([9ade3d4](https://github.com/mashiro/otelop/commit/9ade3d4307bb713c58542e33176918def180ae9c))
+* **deps:** update dependency lucide-react to v1.51.0 ([#385](https://github.com/mashiro/otelop/issues/385)) ([66bb766](https://github.com/mashiro/otelop/commit/66bb7669f2aa7029b04a4b545143358ec4429b27))
+* **deps:** update dependency lucide-react to v1.52.0 ([#387](https://github.com/mashiro/otelop/issues/387)) ([b2dd150](https://github.com/mashiro/otelop/commit/b2dd15046fee5de51889116dca92379c950f0586))
+* **deps:** update opentelemetry-go ([#379](https://github.com/mashiro/otelop/issues/379)) ([516c6dc](https://github.com/mashiro/otelop/commit/516c6dcdbc954c366939827f2c8d286048410a61))
+
 ## [2.2.1](https://github.com/mashiro/otelop/compare/v2.2.0...v2.2.1) (2026-10-05)
 
 
