@@ -34,12 +34,12 @@
     "lucide-react": "1.52.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
-    "shadcn": "4.21.3",
+    "shadcn": "4.21.4",
     "temporal-polyfill": "1.0.5"
   },
   "devDependencies": {
-    "@graphql-codegen/cli": "7.4.4",
-    "@graphql-codegen/client-preset": "6.2.1",
+    "@graphql-codegen/cli": "7.4.5",
+    "@graphql-codegen/client-preset": "6.2.2",
     "@graphql-typed-document-node/core": "3.2.0",
     "@rolldown/plugin-babel": "0.2.4",
     "@shadcn/lint": "0.2.0",
