@@ -111,3 +111,35 @@ func TestSpanLinksRoundTrip(t *testing.T) {
 		t.Fatalf("orphan links: %d %v", count, err)
 	}
 }
+
+func TestSpanLinkSummarySkipsAttributes(t *testing.T) {
+	s := openTestStorage(t, Options{})
+	ctx := context.Background()
+	now := time.Now().UTC()
+	td := buildTracesMulti(spanSpec{traceID: [16]byte{1}, spanID: [8]byte{1}, name: "source", start: now, end: now.Add(time.Second)})
+	span := td.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0)
+	span.Links().AppendEmpty().Attributes().PutStr("payload", "detail only")
+	s.AddTraces(ctx, td)
+	s.Sync()
+	page, err := s.SpanLinkSummaries(ctx, span.TraceID().String(), span.SpanID().String(), false, "", 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Items) != 1 || page.Items[0].Attributes != nil {
+		t.Fatalf("summary decoded attributes: %+v", page)
+	}
+	detail, err := s.SpanLinkByID(ctx, span.TraceID().String(), span.SpanID().String(), 0)
+	if err != nil || detail.Attributes["payload"] != "detail only" {
+		t.Fatalf("detail lost attributes: %+v %v", detail, err)
+	}
+	// A non-object JSON payload proves the summary path does not decode attributes.
+	if _, err := s.DB().ExecContext(ctx, `UPDATE span_links SET attributes='[1]'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.SpanLinkSummaries(ctx, span.TraceID().String(), span.SpanID().String(), false, "", 20); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.SpanLinkByID(ctx, span.TraceID().String(), span.SpanID().String(), 0); err == nil {
+		t.Fatal("detail should decode attributes")
+	}
+}

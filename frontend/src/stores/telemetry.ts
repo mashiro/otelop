@@ -179,20 +179,16 @@ interface TraceSpansPayload {
   spans: SpanData[];
 }
 
-// Write-only: merge freshly GraphQL-fetched full span data into one trace
-// already in the buffer. List-loaded trace summaries start with spans: []
-// since fetching every buffered trace's spans up front would create an N+1.
-// Deliberately leaves spanCount/duration/rootSpan/serviceName untouched —
-// those already came from the TracesPage summary and are authoritative,
-// unlike spans.length which this fetch may only be partially racing a live
-// WS delivery for.
-export const mergeTraceSpansAtom = atom(null, (get, set, payload: TraceSpansPayload) => {
+// Detail queries return the complete retained span set. Replace it so retention
+// removes old spans even when new arrivals leave the summary count unchanged.
+// Summary fields have their own refresh lifecycle and are not derived here.
+export const replaceTraceSpansAtom = atom(null, (get, set, payload: TraceSpansPayload) => {
   const current = get(tracesAtom);
   const index = current.findIndex((trace) => trace.traceId === payload.traceId);
   if (index < 0) return;
   const trace = current[index];
-  const spans = mergeSpans(trace.spans, payload.spans);
-  if (spans.length === trace.spans.length) return;
+  const spans = replaceEqualDeep(trace.spans, payload.spans);
+  if (spans === trace.spans) return;
   const updated = [...current];
   updated[index] = { ...trace, spans };
   set(tracesAtom, updated);
@@ -237,8 +233,8 @@ function mergeTrace(existing: TraceData, incoming: TraceData): TraceData | null 
     spans,
     searchValues: mergeSearchValues(existing.searchValues, incoming.searchValues),
     // WebSocket payloads carry an authoritative persisted summary with an
-    // empty spans array. Preserve already-fetched detail while letting a
-    // growing summary trigger useTraceSpans to fetch the missing rows.
+    // empty spans array. Detail revalidation handles the corresponding
+    // notification independently of this summary merge.
     spanCount: Math.max(existing.spanCount, incoming.spanCount),
     linkCount: Math.max(existing.linkCount, incoming.linkCount),
     rootSpan: rootChanged ? incoming.rootSpan : existing.rootSpan,
@@ -535,12 +531,9 @@ export const replaceTracePageAtom = atom(null, (get, set, page: ReplacementPage<
   const items = page.items.map((incoming) => {
     const existing = current.get(incoming.traceId);
     if (!existing) return incoming;
-    // Summary refreshes must not discard lazy-loaded detail. A lower persisted
-    // count invalidates that detail; useTraceSpans then reloads what remains.
-    const spans =
-      incoming.spans.length === 0 && incoming.spanCount >= existing.spanCount
-        ? existing.spans
-        : incoming.spans;
+    // Keep the last detail snapshot while useTraceSpans independently revalidates
+    // the retained span set. Summary counts cannot establish detail freshness.
+    const spans = incoming.spans.length === 0 ? existing.spans : incoming.spans;
     return replaceEqualDeep(existing, { ...incoming, spans, searchValues: existing.searchValues });
   });
   set(loadedOlderTraceIdsAtom, new Set());

@@ -25,12 +25,19 @@ import { useState } from "react";
 export function TraceDetail() {
   const { trace, selectTrace: setSelected } = useTraceSelection();
 
-  // The trace list only loads summaries (see use-initial-load.ts); backfill
-  // this trace's full span data the moment its detail view is open.
-  useTraceSpans(trace);
-
   if (!trace) return null;
-  return <TraceDetailView key={trace.traceId} trace={trace} onClose={() => setSelected(null)} />;
+  return (
+    <>
+      <TraceSpansSync trace={trace} />
+      <TraceDetailView key={trace.traceId} trace={trace} onClose={() => setSelected(null)} />
+    </>
+  );
+}
+
+// Query loading transitions belong to synchronization, not the waterfall view.
+function TraceSpansSync({ trace }: { trace: TraceData }) {
+  useTraceSpans(trace);
+  return null;
 }
 
 function TraceDetailView({ trace, onClose }: { trace: TraceData; onClose: () => void }) {

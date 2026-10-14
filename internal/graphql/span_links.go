@@ -72,7 +72,13 @@ func (r *SpanResolver) linkPage(ctx context.Context, args linkArgs, incoming boo
 	if args.After != nil {
 		after = *args.After
 	}
-	page, err := r.storage.SpanLinks(ctx, s.TraceID, s.SpanID, incoming, after, first)
+	loadPage := r.storage.SpanLinkSummaries
+	// Keep list attribute selection available to API clients without loading it
+	// for compact UI queries. Selection paths include fragments and ignore aliases.
+	if gql.HasSelectedField(ctx, "items.attributes") {
+		loadPage = r.storage.SpanLinks
+	}
+	page, err := loadPage(ctx, s.TraceID, s.SpanID, incoming, after, first)
 	if err != nil {
 		return nil, err
 	}

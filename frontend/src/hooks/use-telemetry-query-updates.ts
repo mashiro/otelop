@@ -6,14 +6,17 @@ import type { WsMessage } from "@/types/telemetry";
 import type { WsStatus } from "@/stores/telemetry";
 
 // Database reconciliation also covers missed notifications and retention sweeps.
-export const spanLinkRefreshOptions = {
+export const telemetryRefreshOptions = {
   staleTime: 0,
   refetchInterval: 30_000,
   refetchOnWindowFocus: true,
   refetchOnReconnect: true,
 };
 
-export function useSpanLinkUpdates(queryKey: QueryKey, relevant: (message: WsMessage) => boolean) {
+export function useTelemetryQueryUpdates(
+  queryKey: QueryKey,
+  relevant: (message: WsMessage) => boolean,
+) {
   const key = JSON.stringify(queryKey);
   const isRelevant = useEffectEvent(relevant);
   useEffect(() => {

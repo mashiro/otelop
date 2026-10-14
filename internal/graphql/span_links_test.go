@@ -173,3 +173,28 @@ func TestSpanLinkLookup(t *testing.T) {
 	}
 
 }
+
+func TestSpanLinkAttributeProjection(t *testing.T) {
+	s := seedManyTraces(t, 1)
+	td := ptrace.NewTraces()
+	sp := td.ResourceSpans().AppendEmpty().ScopeSpans().AppendEmpty().Spans().AppendEmpty()
+	sp.SetTraceID(pcommon.TraceID{9})
+	sp.SetSpanID(pcommon.SpanID{9})
+	link := sp.Links().AppendEmpty()
+	link.SetTraceID(pcommon.TraceID{1})
+	link.SetSpanID(pcommon.SpanID{1, 0xA})
+	link.Attributes().PutStr("payload", "detail")
+	s.AddTraces(context.Background(), td)
+	s.Sync()
+	data := exec(t, s, `query {trace(traceId:"09000000000000000000000000000000"){span(spanId:"0900000000000000"){links{items{...Attrs}}}}} fragment Attrs on SpanLink { payload:attributes }`, nil)
+	items := data["trace"].(map[string]any)["span"].(map[string]any)["links"].(map[string]any)["items"].([]any)
+	if items[0].(map[string]any)["payload"].(map[string]any)["payload"] != "detail" {
+		t.Fatalf("lost selected attributes: %v", items)
+	}
+	if _, err := s.DB().Exec(`UPDATE span_links SET attributes='[1]'`); err != nil {
+		t.Fatal(err)
+	}
+	// Both list directions must skip decoding unselected attributes.
+	exec(t, s, `{trace(traceId:"09000000000000000000000000000000"){span(spanId:"0900000000000000"){links{items{ordinal targetStatus}}}}}`, nil)
+	exec(t, s, `{trace(traceId:"01000000000000000000000000000000"){span(spanId:"010a000000000000"){incomingLinks{items{ordinal source{name}}}}}}`, nil)
+}

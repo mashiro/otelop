@@ -1,6 +1,6 @@
 import { queryClient } from "@/lib/query-client";
 import { describe, it, expect, vi, beforeEach } from "vite-plus/test";
-import { renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { createStore, Provider } from "jotai";
 import type { ReactNode } from "react";
 import { useTraceSpans } from "./use-trace-spans";
@@ -45,23 +45,30 @@ describe("useTraceSpans", () => {
     expect(requestMock).not.toHaveBeenCalled();
   });
 
-  it("does not fetch when spans are already fully loaded (spans.length >= spanCount)", () => {
-    const trace = makeTrace({ traceId: "t1", spanCount: 1, spans: [makeSpan()] });
-    renderWithStore(trace);
-    expect(requestMock).not.toHaveBeenCalled();
+  it("revalidates loaded spans when retention and arrival leave the count unchanged", async () => {
+    const kept = makeSpan({ spanId: "b" });
+    const added = makeSpan({ spanId: "c", linkCount: 1 });
+    requestMock.mockResolvedValue({ trace: { spans: [toQuerySpan(kept), toQuerySpan(added)] } });
+    const trace = makeTrace({
+      traceId: "t1",
+      spanCount: 2,
+      spans: [makeSpan({ spanId: "a" }), kept],
+    });
+    const { store } = renderWithStore(trace);
+    await waitFor(() =>
+      expect(store.get(tracesAtom)[0].spans.map((s) => s.spanId)).toEqual(["b", "c"]),
+    );
+    expect(store.get(tracesAtom)[0].spans[1].linkCount).toBe(1);
   });
 
-  it("does not overwrite complete live spans with an older cached response", () => {
-    const oldSpan = makeSpan({ spanId: "s1", name: "old" });
-    queryClient.setQueryData(["trace-spans", "t1", 1], {
-      trace: { spans: [toQuerySpan(oldSpan)] },
-    });
-    const liveSpan = makeSpan({ spanId: "s1", name: "live" });
-    const { store } = renderWithStore(
-      makeTrace({ traceId: "t1", spanCount: 1, spans: [liveSpan] }),
-    );
-    expect(store.get(tracesAtom)[0].spans[0].name).toBe("live");
-    expect(requestMock).not.toHaveBeenCalled();
+  it("preserves unchanged span and trace references after revalidation", async () => {
+    const span = makeSpan({ spanId: "s1" });
+    requestMock.mockResolvedValue({ trace: { spans: [toQuerySpan(span)] } });
+    const trace = makeTrace({ traceId: "t1", spanCount: 1, spans: [span] });
+    const { store } = renderWithStore(trace);
+    await waitFor(() => expect(requestMock).toHaveBeenCalledOnce());
+    await waitFor(() => expect(queryClient.isFetching()).toBe(0));
+    expect(store.get(tracesAtom)[0]).toBe(trace);
   });
 
   it("does not refetch on rerender once a trace's spans have been requested", async () => {
@@ -107,4 +114,22 @@ describe("useTraceSpans", () => {
     await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(1));
     expect(store.get(tracesAtom)[0].spans).toEqual([]);
   });
+});
+
+it("reconciles later invalidation and full retention deletion with an unchanged summary", async () => {
+  const old = makeSpan({ spanId: "a" });
+  const next = makeSpan({ spanId: "b" });
+  requestMock.mockResolvedValue({ trace: { spans: [toQuerySpan(old)] } });
+  const { store } = renderWithStore(makeTrace({ traceId: "t1", spanCount: 1, spans: [old] }));
+  await waitFor(() => expect(queryClient.isFetching()).toBe(0));
+  requestMock.mockResolvedValue({ trace: { spans: [toQuerySpan(next)] } });
+  await act(async () => {
+    await queryClient.invalidateQueries({ queryKey: ["trace-spans", "t1"] });
+  });
+  await waitFor(() => expect(store.get(tracesAtom)[0].spans.map((s) => s.spanId)).toEqual(["b"]));
+  requestMock.mockResolvedValue({ trace: null });
+  await act(async () => {
+    await queryClient.invalidateQueries({ queryKey: ["trace-spans", "t1"] });
+  });
+  await waitFor(() => expect(store.get(tracesAtom)[0].spans).toEqual([]));
 });

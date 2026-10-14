@@ -45,5 +45,5 @@ it("reconciles refreshed summaries without discarding loaded spans or unchanged 
   expect(store.get(tracesAtom)[0].spans).toBe(trace.spans);
   expect(store.get(tracesAtom)[0].spanCount).toBe(2);
   refresh({ ...trace, spans: [], spanCount: 0 });
-  expect(store.get(tracesAtom)[0].spans).toEqual([]);
+  expect(store.get(tracesAtom)[0].spans).toBe(trace.spans);
 });

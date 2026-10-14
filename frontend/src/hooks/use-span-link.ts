@@ -4,7 +4,7 @@ import { gqlClient } from "@/lib/graphql";
 import { queryClient } from "@/lib/query-client";
 import type { SpanLinkIdentity } from "@/lib/span-link-selection";
 import type { TraceDeleteData } from "@/types/telemetry";
-import { useSpanLinkUpdates, spanLinkRefreshOptions } from "./use-span-link-updates";
+import { useTelemetryQueryUpdates, telemetryRefreshOptions } from "./use-telemetry-query-updates";
 
 const SpanLinkQuery = graphql(`
   query SpanLink($sourceTraceId: ID!, $sourceSpanId: ID!, $ordinal: Int!) {
@@ -48,11 +48,11 @@ export function useSpanLink(identity: SpanLinkIdentity) {
     {
       queryKey,
       queryFn: async () => (await gqlClient.request(SpanLinkQuery, identity)).spanLink,
-      ...spanLinkRefreshOptions,
+      ...telemetryRefreshOptions,
     },
     queryClient,
   );
-  useSpanLinkUpdates(queryKey, (message) => {
+  useTelemetryQueryUpdates(queryKey, (message) => {
     if (message.type !== "traces" && message.type !== "trace-deletes") return false;
     const { traceId } = message.data as TraceDeleteData;
     return traceId === identity.sourceTraceId || traceId === query.data?.traceId;

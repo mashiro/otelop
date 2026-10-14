@@ -24,7 +24,7 @@ import {
   newMetricCountAtom,
   newLogCountAtom,
   setTotalCountsAtom,
-  mergeTraceSpansAtom,
+  replaceTraceSpansAtom,
   appendTracesAtom,
   appendLogsAtom,
   setTracesAtom,
@@ -364,8 +364,8 @@ describe("addTraceAtom searchValues merge", () => {
   });
 });
 
-describe("mergeTraceSpansAtom", () => {
-  it("merges lazily-fetched spans into the matching trace, deduping by spanId", () => {
+describe("replaceTraceSpansAtom", () => {
+  it("replaces the matching trace with the complete fetched span set", () => {
     const store = createStore();
     const existingSpan = makeSpan({ spanId: "a" });
     store.set(tracesAtom, [
@@ -373,7 +373,7 @@ describe("mergeTraceSpansAtom", () => {
       makeTrace({ traceId: "t2", spanCount: 1, spans: [] }),
     ]);
 
-    store.set(mergeTraceSpansAtom, {
+    store.set(replaceTraceSpansAtom, {
       traceId: "t1",
       spans: [existingSpan, makeSpan({ spanId: "b" })],
     });
@@ -398,7 +398,7 @@ describe("mergeTraceSpansAtom", () => {
       }),
     ]);
 
-    store.set(mergeTraceSpansAtom, { traceId: "t1", spans: [makeSpan()] });
+    store.set(replaceTraceSpansAtom, { traceId: "t1", spans: [makeSpan()] });
 
     const trace = store.get(tracesAtom)[0];
     expect(trace.spanCount).toBe(3);
@@ -411,7 +411,7 @@ describe("mergeTraceSpansAtom", () => {
     const store = createStore();
     store.set(tracesAtom, [makeTrace({ traceId: "t1", spans: [] })]);
 
-    store.set(mergeTraceSpansAtom, { traceId: "unknown", spans: [makeSpan()] });
+    store.set(replaceTraceSpansAtom, { traceId: "unknown", spans: [makeSpan()] });
 
     expect(store.get(tracesAtom)).toHaveLength(1);
     expect(store.get(tracesAtom)[0].spans).toEqual([]);

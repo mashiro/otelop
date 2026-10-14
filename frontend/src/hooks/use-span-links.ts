@@ -2,7 +2,7 @@ import { useInfiniteQuery } from "@tanstack/react-query";
 import { graphql } from "@/gql";
 import { gqlClient } from "@/lib/graphql";
 import { queryClient } from "@/lib/query-client";
-import { useSpanLinkUpdates, spanLinkRefreshOptions } from "./use-span-link-updates";
+import { useTelemetryQueryUpdates, telemetryRefreshOptions } from "./use-telemetry-query-updates";
 import type { TraceDeliveryWire, TraceDeleteData, WsMessage } from "@/types/telemetry";
 
 const SpanLinksQuery = graphql(`
@@ -62,7 +62,7 @@ export function useSpanLinks(traceId: string, spanId: string, incoming: boolean)
         return { ...(incoming ? span.incomingLinks : span.links)!, available: true };
       },
       getNextPageParam: (page) => (page.hasNextPage ? page.endCursor : undefined),
-      ...spanLinkRefreshOptions,
+      ...telemetryRefreshOptions,
     },
     queryClient,
   );
@@ -70,7 +70,7 @@ export function useSpanLinks(traceId: string, spanId: string, incoming: boolean)
     query.data?.pages.flatMap((page) =>
       page.items.map((link) => (incoming ? link.sourceTraceId : link.traceId)),
     ) ?? [];
-  useSpanLinkUpdates(queryKey, (message: WsMessage) => {
+  useTelemetryQueryUpdates(queryKey, (message: WsMessage) => {
     if (message.type !== "traces" && message.type !== "trace-deletes") return false;
     const data = message.data as TraceDeliveryWire | TraceDeleteData;
     return (

@@ -80,7 +80,16 @@ func (s *Storage) appendSpanLinks(ctx context.Context, spans []SpanRow) error {
 
 // SpanLinks uses one bounded query for a page and all of its source/target summaries.
 // Cursors are scoped to the span and direction; sorting by identity preserves link order.
-func (s *Storage) SpanLinks(ctx context.Context, traceID, spanID string, incoming bool, after string, first int) (page SpanLinkPage, err error) {
+func (s *Storage) SpanLinks(ctx context.Context, traceID, spanID string, incoming bool, after string, first int) (SpanLinkPage, error) {
+	return s.spanLinks(ctx, traceID, spanID, incoming, after, first, true)
+}
+
+// SpanLinkSummaries omits attribute IO and decoding for compact relationship lists.
+func (s *Storage) SpanLinkSummaries(ctx context.Context, traceID, spanID string, incoming bool, after string, first int) (SpanLinkPage, error) {
+	return s.spanLinks(ctx, traceID, spanID, incoming, after, first, false)
+}
+
+func (s *Storage) spanLinks(ctx context.Context, traceID, spanID string, incoming bool, after string, first int, includeAttributes bool) (page SpanLinkPage, err error) {
 	ctx, span := startStorageSpan(ctx, "storage.SpanLinks")
 	defer func() { endStorageSpan(span, err) }()
 	page.Items = []SpanLinkDetail{}
@@ -104,7 +113,7 @@ func (s *Storage) SpanLinks(ctx context.Context, traceID, spanID string, incomin
 		}
 		predicate = "trace_id = ? AND span_id = ?"
 	}
-	page.Items, err = s.querySpanLinks(ctx, `SELECT * FROM span_links WHERE `+predicate+`
+	page.Items, err = s.querySpanLinks(ctx, includeAttributes, `SELECT * FROM span_links WHERE `+predicate+`
  AND (source_trace_id, source_span_id, ordinal) > (?, ?, ?)
  ORDER BY source_trace_id, source_span_id, ordinal LIMIT ?`,
 		traceID, spanID, cursor.SourceTraceID, cursor.SourceSpanID, cursor.Ordinal, first+1)
@@ -128,18 +137,22 @@ func (s *Storage) SpanLinkByID(ctx context.Context, traceID, spanID string, ordi
 	if ordinal < 0 {
 		return nil, fmt.Errorf("ordinal must be non-negative")
 	}
-	items, err := s.querySpanLinks(ctx, "SELECT * FROM span_links WHERE source_trace_id = ? AND source_span_id = ? AND ordinal = ?", traceID, spanID, ordinal)
+	items, err := s.querySpanLinks(ctx, true, "SELECT * FROM span_links WHERE source_trace_id = ? AND source_span_id = ? AND ordinal = ?", traceID, spanID, ordinal)
 	if err != nil || len(items) == 0 {
 		return nil, err
 	}
 	return &items[0], nil
 }
 
-func (s *Storage) querySpanLinks(ctx context.Context, selection string, args ...any) ([]SpanLinkDetail, error) {
+func (s *Storage) querySpanLinks(ctx context.Context, includeAttributes bool, selection string, args ...any) ([]SpanLinkDetail, error) {
 	items := []SpanLinkDetail{}
+	attributes := "NULL::VARCHAR"
+	if includeAttributes {
+		attributes = "p.attributes::VARCHAR"
+	}
 	rows, err := s.DB().QueryContext(ctx, "WITH page AS ("+selection+")"+`
  SELECT p.source_trace_id,p.source_span_id,p.ordinal,p.trace_id,p.span_id,
- p.trace_state,p.flags,p.attributes::VARCHAR,p.dropped_attributes_count,
+ p.trace_state,p.flags,`+attributes+`,p.dropped_attributes_count,
  source.name,source.service_name,target.name,target.service_name
  FROM page p
  LEFT JOIN LATERAL (
@@ -164,9 +177,11 @@ func (s *Storage) querySpanLinks(ctx context.Context, selection string, args ...
 		if err := rows.Scan(&link.SourceTraceID, &link.SourceSpanID, &link.Ordinal, &link.TraceID, &link.SpanID, &link.TraceState, &link.Flags, &attrs, &link.DroppedAttributesCount, &sourceName, &sourceService, &targetName, &targetService); err != nil {
 			return nil, err
 		}
-		link.Attributes, err = decodeAttrs(attrs)
-		if err != nil {
-			return nil, err
+		if includeAttributes {
+			link.Attributes, err = decodeAttrs(attrs)
+			if err != nil {
+				return nil, err
+			}
 		}
 		if sourceName.Valid {
 			link.Source = &LinkedSpan{TraceID: link.SourceTraceID, SpanID: link.SourceSpanID, Name: sourceName.String, ServiceName: sourceService.String}
