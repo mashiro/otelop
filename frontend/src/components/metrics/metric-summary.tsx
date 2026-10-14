@@ -193,9 +193,14 @@ function HistogramSummary({
                         className="size-2 shrink-0 rounded-full"
                         style={{ backgroundColor: SERIES_COLORS[colorIndexes[index]!] }}
                       />
-                      <span className="truncate font-mono text-foreground/70" title={label}>
-                        {label}
-                      </span>
+                      <HelpTooltip content={label}>
+                        <span
+                          tabIndex={0}
+                          className="min-w-0 truncate rounded-sm font-mono text-foreground/70 outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        >
+                          {label}
+                        </span>
+                      </HelpTooltip>
                     </div>
                   </TableCell>
                   <TableCell variant="mono" align="right">

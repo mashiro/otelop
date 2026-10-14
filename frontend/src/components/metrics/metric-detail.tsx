@@ -1,3 +1,5 @@
+import { useFilterByAction } from "@/hooks/use-filter-by-action";
+import { DetailHeaderText } from "@/components/common/detail-header-text";
 import { Item, ItemContent } from "@/components/ui/item";
 import { useState } from "react";
 import { useMetricSelection, useTimeWindow } from "@/hooks/use-signal-route";
@@ -40,14 +42,12 @@ export function MetricDetail() {
       onClose={onClose}
       header={
         <>
-          <span className="min-w-0 break-all font-semibold text-foreground">{metric.name}</span>
+          <DetailHeaderText primary>{metric.name}</DetailHeaderText>
           <Badge variant="soft" size="sm" tone="metric">
             {metric.type}
           </Badge>
           {displayUnit && <span className="text-xs text-muted-foreground">({displayUnit})</span>}
-          <span className="min-w-0 break-all text-xs text-muted-foreground">
-            {metric.serviceName}
-          </span>
+          <DetailHeaderText>{metric.serviceName}</DetailHeaderText>
         </>
       }
     >
@@ -74,6 +74,7 @@ function resolveEffectiveFacet(pickedId: string | null, facets: MetricFacet[]): 
 // testing (see metric-detail.test.tsx), the same way DataPointsTable/
 // DataPointDetail are, so tests can supply a metric directly.
 export function MetricDetailBody({ metric }: { metric: MetricData }) {
+  const { filterBy } = useFilterByAction("metrics");
   const [selectedDpId, setSelectedDpId] = useState<string | null>(null);
 
   // Time range is the scope for the whole detail view (tiles, chart, and
@@ -188,6 +189,7 @@ export function MetricDetailBody({ metric }: { metric: MetricData }) {
           actions={<CopyJsonButton data={selectedDp} />}
         >
           <DataPointDetail
+            onFilter={filterBy}
             dp={selectedDp}
             resource={metric.resource}
             unit={resolveMetricUnit(metric.name, metric.unit)}

@@ -9,11 +9,13 @@ export function DataPointDetail({
   resource,
   unit,
   isDistribution,
+  onFilter,
 }: {
   dp: DataPoint;
   resource: Record<string, unknown>;
   unit: string;
   isDistribution: boolean;
+  onFilter?: (key: string, value: unknown) => void;
 }) {
   return (
     <>
@@ -34,8 +36,16 @@ export function DataPointDetail({
         )}
       </DetailFields>
 
-      <KVSection title="Attributes" data={dp.attributes} />
-      <KVSection title="Resource" data={resource} />
+      <KVSection
+        title="Attributes"
+        data={dp.attributes}
+        onFilter={onFilter && ((key, value) => onFilter(`attributes.${key}`, value))}
+      />
+      <KVSection
+        title="Resource"
+        data={resource}
+        onFilter={onFilter && ((key, value) => onFilter(`resource.${key}`, value))}
+      />
     </>
   );
 }

@@ -1,3 +1,4 @@
+import { DetailHeaderText } from "@/components/common/detail-header-text";
 import { Alert, AlertTitle, AlertDescription, AlertAction } from "@/components/ui/alert";
 import { useSearch, useNavigate, useElementScrollRestoration } from "@tanstack/react-router";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -53,20 +54,10 @@ function TraceDetailView({ trace, onClose }: { trace: TraceData; onClose: () => 
       onClose={onClose}
       header={
         <>
-          <span className="max-w-full truncate font-semibold text-foreground">
-            {trace.rootSpan?.name ?? trace.spans[0]?.name}
-          </span>
-          {trace.serviceName && (
-            <HelpTooltip content={trace.serviceName}>
-              <span
-                tabIndex={0}
-                aria-label={`Root service: ${trace.serviceName}`}
-                className="max-w-48 truncate rounded-sm text-xs text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                {trace.serviceName}
-              </span>
-            </HelpTooltip>
-          )}
+          <DetailHeaderText primary>
+            {trace.rootSpan?.name ?? trace.spans[0]?.name ?? "-"}
+          </DetailHeaderText>
+          {trace.serviceName && <DetailHeaderText>{trace.serviceName}</DetailHeaderText>}
           <span className="font-mono text-xs text-muted-foreground">{shortId(trace.traceId)}</span>
           {trace.spans.some((span) => span.statusCode === "Error") && (
             <Badge variant="soft" size="sm" tone="destructive">
@@ -200,7 +191,7 @@ function SpanInspector({
               "aria-label": "Span information content",
             }}
           >
-            <div className="flex flex-col gap-4 px-4 py-3">
+            <div className="flex flex-col gap-4 p-4">
               {view === "details" ? (
                 <SpanDetail span={span} traceStart={traceStart} />
               ) : (

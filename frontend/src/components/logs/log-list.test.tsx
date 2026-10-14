@@ -10,7 +10,14 @@ import type { ReactNode } from "react";
 import { getDefaultStore } from "jotai";
 import { render as renderUI, screen, cleanup, act, within, waitFor } from "@testing-library/react";
 import { LogList } from "./log-list";
-import { logsAtom, renderWindowMaxAtom, addLogAtom, logListWindowAtom } from "@/stores/telemetry";
+import {
+  logsAtom,
+  totalLogCountAtom,
+  newLogCountAtom,
+  renderWindowMaxAtom,
+  addLogAtom,
+  logListWindowAtom,
+} from "@/stores/telemetry";
 import { makeLog, TEST_RENDER_WINDOW_MAX } from "@/test/factories";
 import { SIGNAL_PAGE_SIZE } from "@/hooks/use-signal-list-page";
 import type { LogsPageQuery, LogsPageQueryVariables } from "@/gql/graphql";
@@ -403,4 +410,13 @@ describe("LogList render window (bounded sliding)", () => {
     expect(screen.getByText("d")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /back to latest/ })).toBeNull();
   });
+});
+
+it("keeps search controls available when no logs exist and a filter is active", async () => {
+  getDefaultStore().set(totalLogCountAtom, 0);
+  getDefaultStore().set(newLogCountAtom, 0);
+  routing = await createTestRouter("/logs?filter=service_name%3A%22missing%22");
+  render(<LogList />);
+  expect(screen.getByRole("textbox", { name: "Search logs…" })).toBeDefined();
+  expect(screen.getByRole("button", { name: "Add filter" })).toBeDefined();
 });
