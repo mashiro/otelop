@@ -1,4 +1,6 @@
-import { Item, ItemHeader, ItemContent } from "@/components/ui/item";
+import { HelpTooltip } from "@/components/common/help-tooltip";
+import { Card, CardHeader, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
+import { Item, ItemContent } from "@/components/ui/item";
 import {
   Table,
   TableHeader,
@@ -237,23 +239,32 @@ function Tile({
   const count = isDistribution && tile.count != null ? tile.count.toLocaleString() : null;
 
   return (
-    <Item variant="muted" className="flex-col items-stretch">
+    <Card size="sm">
       {showLabel && (
-        <ItemHeader className="basis-auto">
-          <div className="flex items-center gap-1.5">
-            <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: color }} />
-            <span className="truncate font-mono text-xs text-foreground/60" title={tile.label}>
-              {tile.label}
-            </span>
-          </div>
-        </ItemHeader>
+        <CardHeader className="min-w-0">
+          <CardDescription className="min-w-0">
+            <div className="flex min-w-0 items-center gap-1.5">
+              <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: color }} />
+              <HelpTooltip content={tile.label}>
+                <span
+                  tabIndex={0}
+                  className="min-w-0 truncate rounded-sm font-mono text-xs text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  {tile.label}
+                </span>
+              </HelpTooltip>
+            </div>
+          </CardDescription>
+        </CardHeader>
       )}
-      <ItemContent>
+      <CardContent>
         <div className="text-2xl font-semibold text-foreground">{main}</div>
-        {count !== null && (
-          <div className="mt-0.5 text-xs text-muted-foreground">count {count}</div>
-        )}
-      </ItemContent>
-    </Item>
+      </CardContent>
+      {count !== null && (
+        <CardFooter>
+          <span className="text-xs text-muted-foreground">count {count}</span>
+        </CardFooter>
+      )}
+    </Card>
   );
 }

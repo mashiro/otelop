@@ -1,4 +1,4 @@
-import { Item, ItemContent } from "@/components/ui/item";
+import { Card, CardHeader, CardTitle, CardAction, CardContent } from "@/components/ui/card";
 import type { ReactNode } from "react";
 import type { Tone } from "@/lib/tones";
 import { cn } from "@/lib/utils";
@@ -32,12 +32,11 @@ export function Field({
   action?: ReactNode;
 }) {
   return (
-    <div className="group/filter-field flex gap-2 text-sm">
+    <div className="group/filter-field flex items-start gap-3 py-2.5 text-sm first:pt-0 last:pb-0">
       <dt className="w-20 shrink-0 text-muted-foreground">{label}</dt>
       <dd
         className={cn(
-          "break-all",
-          action && "min-w-0 flex-1",
+          "min-w-0 flex-1 break-all",
           mono && "font-mono text-xs leading-5",
           tone && toneClasses[tone],
           tone && "font-semibold",
@@ -60,16 +59,22 @@ export function Section({
   action?: ReactNode;
 }) {
   return (
-    <div className="group/filter-field">
-      <div className="mb-2 flex items-center justify-between">
-        <h4 className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
-          {title}
-        </h4>
-        {action}
-      </div>
-      <Item variant="muted">
-        <ItemContent className="min-w-0">{children}</ItemContent>
-      </Item>
-    </div>
+    <Card size="sm">
+      <CardHeader className="group/filter-field">
+        <CardTitle>{title}</CardTitle>
+        {action && <CardAction>{action}</CardAction>}
+      </CardHeader>
+      <CardContent className="min-w-0">
+        <div className="flex flex-col gap-3">{children}</div>
+      </CardContent>
+    </Card>
+  );
+}
+
+export function DetailFields({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <Section title={title}>
+      <dl className="divide-y divide-border">{children}</dl>
+    </Section>
   );
 }

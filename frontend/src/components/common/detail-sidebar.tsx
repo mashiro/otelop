@@ -70,7 +70,7 @@ export function DetailSidebar({
         </div>
         {scrollable ? (
           <ScrollArea className="min-h-0 flex-1">
-            <div className="animate-slide-up-fade space-y-5 p-4">{children}</div>
+            <div className="animate-slide-up-fade flex flex-col gap-4 p-4">{children}</div>
           </ScrollArea>
         ) : (
           children

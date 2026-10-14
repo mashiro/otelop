@@ -1,3 +1,4 @@
+import { SearchX } from "lucide-react";
 import type { SignalConfig } from "@/lib/signals";
 import { Card } from "@/components/ui/card";
 import {
@@ -29,7 +30,11 @@ export function EmptyMatches({ label }: { label: string }) {
   return (
     <Empty>
       <EmptyHeader>
-        <EmptyDescription>No matching {label}</EmptyDescription>
+        <EmptyMedia variant="icon" aria-hidden="true">
+          <SearchX />
+        </EmptyMedia>
+        <EmptyTitle>No matching {label}</EmptyTitle>
+        <EmptyDescription>Try adjusting your search or filters.</EmptyDescription>
       </EmptyHeader>
     </Empty>
   );

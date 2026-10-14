@@ -1,10 +1,11 @@
+import { Alert, AlertTitle, AlertDescription, AlertAction } from "@/components/ui/alert";
 import { useSearch, useNavigate, useElementScrollRestoration } from "@tanstack/react-router";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { HelpTooltip } from "@/components/common/help-tooltip";
 import { useTraceSelection, useRelatedSignals } from "@/hooks/use-signal-route";
 import { useFilterByAction } from "@/hooks/use-filter-by-action";
-import { FileText, Download } from "lucide-react";
+import { FileText, Download, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CopyJsonButton } from "@/components/common/copy-json-button";
 import { formatDuration, shortId, formatTimestamp } from "@/lib/format";
@@ -15,7 +16,7 @@ import { KVSection } from "@/components/common/kv-section";
 import { DetailPanel } from "@/components/common/detail-panel";
 import { DetailSidebar } from "@/components/common/detail-sidebar";
 import { Badge } from "@/components/ui/badge";
-import { Field, Section } from "@/components/common/detail-field";
+import { DetailFields, Field, Section } from "@/components/common/detail-field";
 import type { SpanData, TraceData } from "@/types/telemetry";
 import { SpanLinks } from "./span-links";
 import { TraceOverview } from "./trace-overview";
@@ -51,10 +52,21 @@ function TraceDetailView({ trace, onClose }: { trace: TraceData; onClose: () => 
     <DetailPanel
       onClose={onClose}
       header={
-        <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+        <>
           <span className="max-w-full truncate font-semibold text-foreground">
             {trace.rootSpan?.name ?? trace.spans[0]?.name}
           </span>
+          {trace.serviceName && (
+            <HelpTooltip content={trace.serviceName}>
+              <span
+                tabIndex={0}
+                aria-label={`Root service: ${trace.serviceName}`}
+                className="max-w-48 truncate rounded-sm text-xs text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                {trace.serviceName}
+              </span>
+            </HelpTooltip>
+          )}
           <span className="font-mono text-xs text-muted-foreground">{shortId(trace.traceId)}</span>
           {trace.spans.some((span) => span.statusCode === "Error") && (
             <Badge variant="soft" size="sm" tone="destructive">
@@ -68,7 +80,7 @@ function TraceDetailView({ trace, onClose }: { trace: TraceData; onClose: () => 
             {new Set(trace.spans.map((span) => span.serviceName)).size} services
           </span>
           <span className="font-mono text-xs text-trace">{formatDuration(trace.duration)}</span>
-        </div>
+        </>
       }
       actions={
         <>
@@ -188,7 +200,7 @@ function SpanInspector({
               "aria-label": "Span information content",
             }}
           >
-            <div className="space-y-5 px-4 py-3">
+            <div className="flex flex-col gap-4 px-4 py-3">
               {view === "details" ? (
                 <SpanDetail span={span} traceStart={traceStart} />
               ) : (
@@ -208,12 +220,17 @@ function SpanDetail({ span, traceStart }: { span: SpanData; traceStart: bigint }
   return (
     <>
       {span.statusMessage && (
-        <div className="group/filter-field flex items-start justify-between gap-2">
-          <p className="min-w-0 break-words text-xs text-destructive">{span.statusMessage}</p>
-          {action("status_message", span.statusMessage)}
-        </div>
+        <Alert
+          variant={span.statusCode === "Error" ? "destructive" : "default"}
+          className="group/filter-field"
+        >
+          <TriangleAlert />
+          <AlertTitle>Span status</AlertTitle>
+          <AlertDescription className="break-words">{span.statusMessage}</AlertDescription>
+          <AlertAction>{action("status_message", span.statusMessage)}</AlertAction>
+        </Alert>
       )}
-      <div className="space-y-2.5">
+      <DetailFields title="Overview">
         <Field
           action={action("service_name", span.serviceName)}
           label="Service"
@@ -232,11 +249,28 @@ function SpanDetail({ span, traceStart }: { span: SpanData; traceStart: bigint }
           value={span.parentSpanId || "(root)"}
           mono
         />
-        <Field action={action("kind", span.kind)} label="Kind" value={span.kind} />
+        <Field
+          action={action("kind", span.kind)}
+          label="Kind"
+          value={<Badge variant="outline">{span.kind}</Badge>}
+        />
         <Field
           action={action("status_code", span.statusCode)}
           label="Status"
-          value={span.statusCode === "Unset" ? "Not set" : span.statusCode}
+          value={
+            <Badge
+              variant="soft"
+              tone={
+                span.statusCode === "Error"
+                  ? "destructive"
+                  : span.statusCode === "Ok"
+                    ? "success"
+                    : "muted"
+              }
+            >
+              {span.statusCode === "Unset" ? "Not set" : span.statusCode}
+            </Badge>
+          }
         />
         <Field label="Start" value={formatDuration(Number(span.startEpochNs - traceStart))} mono />
         <Field label="End" value={formatDuration(Number(span.endEpochNs - traceStart))} mono />
@@ -247,7 +281,7 @@ function SpanDetail({ span, traceStart }: { span: SpanData; traceStart: bigint }
           mono
           tone="trace"
         />
-      </div>
+      </DetailFields>
       <KVSection
         title="Attributes"
         data={span.attributes}

@@ -2,7 +2,13 @@ import { useKeyboardShortcut } from "@/hooks/use-keyboard-shortcut";
 import { useRef, useState } from "react";
 import { Search, X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { Input } from "@/components/ui/input";
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupButton,
+  InputGroupInput,
+} from "@/components/ui/input-group";
+import { Kbd } from "@/components/ui/kbd";
 
 export function SearchFilter({
   value,
@@ -49,12 +55,12 @@ export function SearchFilter({
   const handleClear = () => {
     setInput("");
     onSubmit("");
+    inputRef.current?.focus();
   };
 
   return (
-    <div className={cn("relative min-w-40 max-w-80 flex-1", className)}>
-      <Search className="absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground" />
-      <Input
+    <InputGroup className={cn("min-w-40 max-w-80 flex-1", className)}>
+      <InputGroupInput
         ref={inputRef}
         aria-label={placeholder}
         aria-keyshortcuts="/"
@@ -63,17 +69,24 @@ export function SearchFilter({
         value={input}
         onChange={handleChange}
         onKeyDown={handleKeyDown}
-        className="pl-7 pr-7"
       />
-      {input && (
-        <button
-          type="button"
-          onClick={handleClear}
-          className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-        >
-          <X className="h-3 w-3" />
-        </button>
-      )}
-    </div>
+      <InputGroupAddon>
+        <Search aria-hidden="true" />
+      </InputGroupAddon>
+      <InputGroupAddon align="inline-end">
+        {input ? (
+          <InputGroupButton
+            size="icon-xs"
+            aria-label="Clear search"
+            title="Clear search"
+            onClick={handleClear}
+          >
+            <X />
+          </InputGroupButton>
+        ) : (
+          <Kbd aria-hidden="true">/</Kbd>
+        )}
+      </InputGroupAddon>
+    </InputGroup>
   );
 }

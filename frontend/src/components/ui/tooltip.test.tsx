@@ -12,7 +12,7 @@ describe("TooltipContent wrap", () => {
     );
     const content = await screen.findByText("Hint");
     expect(content.className).toContain("max-w-xs");
-    expect(content.className).not.toContain("break-words");
+    expect(content.className).not.toContain("wrap-anywhere");
   });
 
   it("wrap=true widens to a viewport-relative max-width and breaks long words", async () => {
@@ -24,7 +24,9 @@ describe("TooltipContent wrap", () => {
     );
     const content = await screen.findByText("Long content");
     expect(content.className).toContain("max-w-[min(20rem,calc(100vw-2rem))]");
-    expect(content.className).toContain("break-words");
+    expect(content.className).toContain("wrap-anywhere");
     expect(content.className).not.toContain("max-w-xs");
+    expect(content.className).toContain("whitespace-normal");
+    expect(content.className).not.toContain("inline-flex");
   });
 });
