@@ -1,4 +1,11 @@
-import { Card, CardHeader, CardTitle, CardAction, CardContent } from "@/components/ui/card";
+import {
+  Accordion,
+  AccordionItem,
+  AccordionTrigger,
+  AccordionContent,
+} from "@/components/ui/accordion";
+import { Badge } from "@/components/ui/badge";
+import { Card } from "@/components/ui/card";
 import type { ReactNode } from "react";
 import type { Tone } from "@/lib/tones";
 import { cn } from "@/lib/utils";
@@ -53,20 +60,33 @@ export function Section({
   title,
   children,
   action,
+  count,
 }: {
   title: string;
   children: ReactNode;
   action?: ReactNode;
+  count?: number;
 }) {
   return (
-    <Card size="sm">
-      <CardHeader className="group/filter-field">
-        <CardTitle>{title}</CardTitle>
-        {action && <CardAction>{action}</CardAction>}
-      </CardHeader>
-      <CardContent className="min-w-0">
-        <div className="flex flex-col gap-3">{children}</div>
-      </CardContent>
+    <Card size="flush">
+      <Accordion defaultValue={["content"]}>
+        <AccordionItem value="content">
+          <div className="group/filter-field flex items-center gap-2 px-3">
+            <div className="min-w-0 flex-1">
+              <AccordionTrigger className="items-center">
+                <span className="flex min-w-0 items-center gap-2">
+                  <span className="break-words">{title}</span>
+                  {count != null && <Badge variant="secondary">{count}</Badge>}
+                </span>
+              </AccordionTrigger>
+            </div>
+            {action && <div className="shrink-0">{action}</div>}
+          </div>
+          <AccordionContent>
+            <div className="flex min-w-0 flex-col gap-3 px-3">{children}</div>
+          </AccordionContent>
+        </AccordionItem>
+      </Accordion>
     </Card>
   );
 }
