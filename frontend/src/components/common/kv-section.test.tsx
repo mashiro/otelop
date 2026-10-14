@@ -35,3 +35,10 @@ describe("KVSection", () => {
     ).toBe("true");
   });
 });
+
+it("does not clip short multiline attributes without a disclosure", () => {
+  render(<KVSection title="Attributes" data={{ message: "first\nsecond\nthird" }} />);
+  const value = screen.getByText("first second third");
+  expect(value.classList.contains("line-clamp-2")).toBe(false);
+  expect(screen.queryByRole("button", { name: "Show more message" })).toBeNull();
+});

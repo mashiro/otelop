@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 export function KV({ k, v }: { k: string; v: string }) {
   const [expanded, setExpanded] = useState(false);
   const id = useId();
+  const collapsible = v.length > 100;
 
   return (
     <div className="flex min-w-0 flex-col gap-1.5 text-xs">
@@ -13,12 +14,12 @@ export function KV({ k, v }: { k: string; v: string }) {
         id={id}
         className={cn(
           "whitespace-pre-wrap break-all font-mono leading-relaxed text-foreground",
-          !expanded && "line-clamp-2",
+          collapsible && !expanded && "line-clamp-2",
         )}
       >
         {v}
       </div>
-      {v.length > 100 && (
+      {collapsible && (
         <Button
           type="button"
           variant="ghost-muted"
