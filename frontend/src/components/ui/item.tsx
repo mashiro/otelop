@@ -6,13 +6,19 @@ import { cn } from "@/lib/utils";
 
 import { Separator } from "@/components/ui/separator";
 
-function ItemGroup({ className, ...props }: React.ComponentProps<"div">) {
+function ItemGroup({
+  className,
+  variant = "default",
+  ...props
+}: React.ComponentProps<"div"> & { variant?: "default" | "divided" }) {
   return (
     <div
       role="list"
       data-slot="item-group"
       className={cn(
         "group/item-group flex w-full flex-col gap-4 has-data-[size=sm]:gap-2.5 has-data-[size=xs]:gap-2",
+        variant === "divided" &&
+          "gap-0 has-data-[size=sm]:gap-0 has-data-[size=xs]:gap-0 border-t border-border",
         className,
       )}
       {...props}
@@ -37,6 +43,7 @@ const itemVariants = cva(
     variants: {
       variant: {
         default: "border-transparent",
+        row: "rounded-none border-0 border-b border-border last:border-b-0",
         outline: "border-border",
         muted: "border-transparent bg-muted/50",
       },

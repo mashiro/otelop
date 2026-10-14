@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { CopyJsonButton } from "@/components/common/copy-json-button";
 import { formatTimestamp, isZeroId } from "@/lib/format";
 import { KVSection } from "@/components/common/kv-section";
-import { Field, Section } from "@/components/common/detail-field";
+import { DetailFields, Field, Section } from "@/components/common/detail-field";
 import { DetailSidebar } from "@/components/common/detail-sidebar";
 import { Badge, BadgeDot } from "@/components/ui/badge";
 import { severityTone } from "@/lib/tones";
@@ -30,7 +30,7 @@ export function LogDetail({
       onClose={onClose}
       actions={<CopyJsonButton data={log} />}
     >
-      <div className="space-y-2.5">
+      <DetailFields title="Overview">
         <Field
           label="Timestamp"
           value={formatTimestamp(log.timestamp)}
@@ -90,7 +90,7 @@ export function LogDetail({
             action={filterAction("span_id", log.spanId)}
           />
         )}
-      </div>
+      </DetailFields>
 
       <Section title="Body" action={filterAction("body", log.body)}>
         <div className="whitespace-pre-wrap break-all font-mono text-xs text-foreground/80">

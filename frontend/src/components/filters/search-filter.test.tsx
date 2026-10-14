@@ -19,9 +19,10 @@ describe("SearchFilter", () => {
   it("clears the draft and submits an empty value", () => {
     const submit = vi.fn((text: string) => text);
     render(<SearchFilter value="checkout" onSubmit={submit} placeholder="Search…" />);
-    fireEvent.click(screen.getByRole("button"));
+    fireEvent.click(screen.getByRole("button", { name: "Clear search" }));
     expect((screen.getByPlaceholderText("Search…") as HTMLInputElement).value).toBe("");
     expect(submit).toHaveBeenCalledWith("");
+    expect(document.activeElement).toBe(screen.getByPlaceholderText("Search…"));
   });
   it("reflects a changed URL value without committing an unfinished draft", () => {
     const submit = vi.fn((text: string) => text);

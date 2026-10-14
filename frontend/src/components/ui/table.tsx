@@ -121,6 +121,21 @@ function TableRow({
 }: React.ComponentProps<"tr"> & VariantProps<typeof tableRowVariants>) {
   return (
     <tr
+      tabIndex={interactive ? 0 : undefined}
+      aria-selected={interactive ? !!selected : undefined}
+      onKeyDown={
+        interactive
+          ? (event) => {
+              if (
+                event.target === event.currentTarget &&
+                (event.key === "Enter" || event.key === " ")
+              ) {
+                event.preventDefault();
+                event.currentTarget.click();
+              }
+            }
+          : undefined
+      }
       data-slot="table-row"
       className={cn(tableRowVariants({ tone, interactive, stagger, selected }), className)}
       {...props}

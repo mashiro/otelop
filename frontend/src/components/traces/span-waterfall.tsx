@@ -196,7 +196,6 @@ function WaterfallInner({
                       )}
                       <Tooltip>
                         <TooltipTrigger
-                          delay={0}
                           aria-label={`${span.name}, ${span.serviceName}, ${formatDuration(span.duration)}${isError ? ", Error" : ""}`}
                           aria-pressed={isSelected}
                           onClick={() => onSelectSpan(span)}
@@ -287,7 +286,6 @@ function WaterfallInner({
             {visibleSpans.map(({ span }) => (
               <Tooltip key={span.spanId}>
                 <TooltipTrigger
-                  delay={0}
                   aria-label={`${span.name} service ${span.serviceName}`}
                   onClick={() => onSelectSpan(span)}
                   onMouseEnter={() => setHoveredSpanId(span.spanId)}

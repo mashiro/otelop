@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vite-plus/test";
-import { render, screen } from "@testing-library/react";
+import { describe, it, expect, vi } from "vite-plus/test";
+import { render, screen, fireEvent } from "@testing-library/react";
 import { TableHeader, TableRow, TableHead, TableCell } from "./table";
 
 // Every case wraps rows in <table><tbody> to avoid React's DOM-nesting
@@ -316,4 +316,26 @@ describe("TableCell variant/emphasis/size/tone/align/truncate", () => {
     expect(cell.className).toContain("text-muted-foreground");
     expect(cell.className).toContain("max-w-xs");
   });
+});
+
+it("activates interactive rows with Enter and Space without intercepting child controls", () => {
+  const select = vi.fn();
+  render(
+    <table>
+      <tbody>
+        <TableRow interactive onClick={select}>
+          <td>
+            <button>Child</button>
+          </td>
+        </TableRow>
+      </tbody>
+    </table>,
+  );
+  const row = screen.getByRole("row");
+  expect(row.tabIndex).toBe(0);
+  fireEvent.keyDown(row, { key: "Enter" });
+  fireEvent.keyDown(row, { key: " " });
+  expect(select).toHaveBeenCalledTimes(2);
+  fireEvent.keyDown(screen.getByRole("button"), { key: "Enter" });
+  expect(select).toHaveBeenCalledTimes(2);
 });

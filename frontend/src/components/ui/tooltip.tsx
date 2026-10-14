@@ -21,9 +21,10 @@ const tooltipContentVariants = cva(
     variants: {
       // Short labels keep the fixed max-w-xs with normal word wrapping;
       // long, unbroken content (e.g. attribute values) needs a
-      // viewport-relative max-width and mid-word breaking instead.
+      // viewport-relative max-width and wrapping that also reduces min-content width.
+      // Block layout avoids an anonymous flex item overflowing the popup.
       wrap: {
-        true: "max-w-[min(20rem,calc(100vw-2rem))] break-words",
+        true: "block max-w-[min(20rem,calc(100vw-2rem))] whitespace-normal wrap-anywhere",
         false: "",
       },
     },

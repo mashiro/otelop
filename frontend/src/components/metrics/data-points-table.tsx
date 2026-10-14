@@ -65,14 +65,6 @@ export function DataPointsTable({
                     tone="metric"
                     interactive
                     selected={isSelected}
-                    aria-selected={isSelected}
-                    tabIndex={0}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter" || event.key === " ") {
-                        event.preventDefault();
-                        onSelect(isSelected ? null : dp.id);
-                      }
-                    }}
                     onClick={() => onSelect(isSelected ? null : dp.id)}
                   >
                     <TableCell variant="mono" emphasis="muted">

@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from "vite-plus/test";
-import { render, screen, cleanup } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
 import { MetricSummary } from "./metric-summary";
 import {
   makeDataPoint,
@@ -15,6 +15,27 @@ const liveWindow = (range: "5m" | "1h" | "all") => ({ mode: "live" as const, ran
 afterEach(cleanup);
 
 describe("MetricSummary", () => {
+  it("reveals the full series label on keyboard focus", async () => {
+    const label = "334b1a14-ba25-4e0d-8af3-73b867de3c51";
+    const metric = makeMetric({
+      type: "Gauge",
+      dataPoints: [makeDataPoint({ attributes: { model: label }, value: 5 })],
+    });
+    render(
+      <MetricSummary
+        metric={metric}
+        facet={MODEL_FACET}
+        window={liveWindow("all")}
+        rangeDataPoints={metric.dataPoints}
+        aggregatedSeries={null}
+      />,
+    );
+    const trigger = screen.getByText(label);
+    expect(trigger.tabIndex).toBe(0);
+    fireEvent.focus(trigger);
+    await waitFor(() => expect(screen.getAllByText(label)).toHaveLength(2));
+  });
+
   it("renders 'Increase · <range label>' for a monotonic sum", () => {
     const metric = makeMetric({
       type: "Sum",

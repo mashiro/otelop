@@ -119,7 +119,7 @@ describe("DataPointsTable", () => {
       />,
     );
 
-    expect(screen.queryByRole("heading", { level: 4, name: "Attributes" })).toBeNull();
+    expect(screen.queryByRole("heading", { level: 3, name: /^Attributes/ })).toBeNull();
   });
 });
 
@@ -150,7 +150,7 @@ describe("DataPointDetail", () => {
 
     render(<DataPointDetail dp={dp} resource={{}} unit="" isDistribution={false} />);
 
-    expect(screen.getByRole("heading", { level: 4, name: "Attributes" })).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 3, name: /^Attributes/ })).toBeTruthy();
     expect(screen.getByText("http.method")).toBeTruthy();
     expect(screen.getByText("GET")).toBeTruthy();
     expect(screen.getByText("http.route")).toBeTruthy();
@@ -169,7 +169,7 @@ describe("DataPointDetail", () => {
       />,
     );
 
-    expect(screen.queryByRole("heading", { level: 4, name: "Attributes" })).toBeNull();
+    expect(screen.queryByRole("heading", { level: 3, name: /^Attributes/ })).toBeNull();
   });
 
   it("hides the Resource section when the metric has no resource", () => {
@@ -177,7 +177,7 @@ describe("DataPointDetail", () => {
 
     render(<DataPointDetail dp={dp} resource={{}} unit="" isDistribution={false} />);
 
-    expect(screen.queryByRole("heading", { level: 4, name: "Resource" })).toBeNull();
+    expect(screen.queryByRole("heading", { level: 3, name: /^Resource/ })).toBeNull();
   });
 
   it("shows the Resource section with keys and values when resource is set", () => {
@@ -192,7 +192,7 @@ describe("DataPointDetail", () => {
       />,
     );
 
-    expect(screen.getByRole("heading", { level: 4, name: "Resource" })).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 3, name: /^Resource/ })).toBeTruthy();
     expect(screen.getByText("service.name")).toBeTruthy();
     expect(screen.getByText("checkout")).toBeTruthy();
     expect(screen.getByText("service.version")).toBeTruthy();
@@ -228,4 +228,21 @@ describe("DataPointDetail", () => {
     expect(screen.queryByText("Min")).toBeNull();
     expect(screen.queryByText("Max")).toBeNull();
   });
+});
+
+it("adds data point attributes and resource values as distinct filter keys", () => {
+  const onFilter = vi.fn();
+  render(
+    <DataPointDetail
+      dp={makeDataPoint({ attributes: { region: "east" } })}
+      resource={{ host: "node-1" }}
+      unit=""
+      isDistribution={false}
+      onFilter={onFilter}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Filter by attributes.region" }));
+  fireEvent.click(screen.getByRole("button", { name: "Filter by resource.host" }));
+  expect(onFilter).toHaveBeenNthCalledWith(1, "attributes.region", "east");
+  expect(onFilter).toHaveBeenNthCalledWith(2, "resource.host", "node-1");
 });

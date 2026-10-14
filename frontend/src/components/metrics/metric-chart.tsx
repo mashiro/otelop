@@ -1,3 +1,4 @@
+import { HelpTooltip } from "@/components/common/help-tooltip";
 import { useId, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -478,47 +479,47 @@ function ChartInner({
         <div className="flex h-13 shrink-0 flex-col px-2" aria-label="Chart series">
           <div className="flex h-7 shrink-0 items-center gap-3 overflow-x-auto">
             {series.map((s) => (
-              <Button
-                key={s.key}
-                variant="ghost"
-                size="xs"
-                aria-label={`Select ${s.label}`}
-                aria-describedby={legendHintId}
-                aria-pressed={selectedKeys === null || selectedKeys.has(s.key)}
-                title={s.label}
-                onClick={(event) => {
-                  hideTooltip();
-                  if (event.metaKey || event.ctrlKey) {
-                    setSelectedKeys((previous) => {
-                      const next = new Set(previous ?? series.map((item) => item.key));
-                      if (next.has(s.key)) next.delete(s.key);
-                      else next.add(s.key);
-                      return next;
-                    });
-                  } else {
-                    setSelectedKeys(new Set([s.key]));
-                  }
-                }}
-              >
-                <span
-                  className="inline-block size-2 shrink-0 rounded-full border"
-                  style={{
-                    borderColor: s.color,
-                    backgroundColor:
-                      selectedKeys !== null && !selectedKeys.has(s.key) ? undefined : s.color,
+              <HelpTooltip key={s.key} content={s.label}>
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  aria-label={`Select ${s.label}`}
+                  aria-describedby={legendHintId}
+                  aria-pressed={selectedKeys === null || selectedKeys.has(s.key)}
+                  onClick={(event) => {
+                    hideTooltip();
+                    if (event.metaKey || event.ctrlKey) {
+                      setSelectedKeys((previous) => {
+                        const next = new Set(previous ?? series.map((item) => item.key));
+                        if (next.has(s.key)) next.delete(s.key);
+                        else next.add(s.key);
+                        return next;
+                      });
+                    } else {
+                      setSelectedKeys(new Set([s.key]));
+                    }
                   }}
-                />
-                <span
-                  className={cn(
-                    "max-w-62.5 truncate font-mono",
-                    selectedKeys !== null &&
-                      !selectedKeys.has(s.key) &&
-                      "text-muted-foreground line-through",
-                  )}
                 >
-                  {s.label}
-                </span>
-              </Button>
+                  <span
+                    className="inline-block size-2 shrink-0 rounded-full border"
+                    style={{
+                      borderColor: s.color,
+                      backgroundColor:
+                        selectedKeys !== null && !selectedKeys.has(s.key) ? undefined : s.color,
+                    }}
+                  />
+                  <span
+                    className={cn(
+                      "max-w-62.5 truncate font-mono",
+                      selectedKeys !== null &&
+                        !selectedKeys.has(s.key) &&
+                        "text-muted-foreground line-through",
+                    )}
+                  >
+                    {s.label}
+                  </span>
+                </Button>
+              </HelpTooltip>
             ))}
           </div>
           <div className="flex h-6 shrink-0 items-center gap-2">

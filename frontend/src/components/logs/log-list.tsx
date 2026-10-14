@@ -55,7 +55,7 @@ export function LogList() {
     items: logs,
   });
 
-  if (logCount === 0 && allLogs.length === 0) {
+  if (logCount === 0 && allLogs.length === 0 && !search && state.filters.length === 0) {
     return <EmptyState signal={SIGNALS.logs} />;
   }
 

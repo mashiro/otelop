@@ -1,4 +1,4 @@
-import { Field } from "@/components/common/detail-field";
+import { DetailFields, Field } from "@/components/common/detail-field";
 import { KVSection } from "@/components/common/kv-section";
 import { formatMetricValue } from "@/lib/format-metric";
 import { formatTimestamp } from "@/lib/format";
@@ -9,15 +9,17 @@ export function DataPointDetail({
   resource,
   unit,
   isDistribution,
+  onFilter,
 }: {
   dp: DataPoint;
   resource: Record<string, unknown>;
   unit: string;
   isDistribution: boolean;
+  onFilter?: (key: string, value: unknown) => void;
 }) {
   return (
     <>
-      <div className="space-y-2.5">
+      <DetailFields title="Overview">
         <Field label="Timestamp" value={formatTimestamp(dp.timestamp)} mono />
         <Field label="Value" mono value={formatMetricValue(dp.value, unit)} tone="metric" />
         {isDistribution && dp.count != null && (
@@ -32,10 +34,18 @@ export function DataPointDetail({
         {isDistribution && dp.max != null && (
           <Field label="Max" value={formatMetricValue(dp.max, unit)} mono />
         )}
-      </div>
+      </DetailFields>
 
-      <KVSection title="Attributes" data={dp.attributes} />
-      <KVSection title="Resource" data={resource} />
+      <KVSection
+        title="Attributes"
+        data={dp.attributes}
+        onFilter={onFilter && ((key, value) => onFilter(`attributes.${key}`, value))}
+      />
+      <KVSection
+        title="Resource"
+        data={resource}
+        onFilter={onFilter && ((key, value) => onFilter(`resource.${key}`, value))}
+      />
     </>
   );
 }
