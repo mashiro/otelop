@@ -1,16 +1,19 @@
 import { describe, it, expect, vi } from "vite-plus/test";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { Section } from "./detail-field";
 
 describe("Section", () => {
-  it("makes overview collapsible by default", () => {
+  it("makes overview collapsible by default", async () => {
     render(<Section title="Overview">Service details</Section>);
     const trigger = screen.getByRole("button", { name: "Overview" });
     expect(trigger.getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByText("Service details")).toBeTruthy();
     fireEvent.click(trigger);
     expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    await waitFor(() => expect(screen.queryByText("Service details")).toBeNull());
     fireEvent.click(trigger);
     expect(trigger.getAttribute("aria-expanded")).toBe("true");
+    expect(await screen.findByText("Service details")).toBeTruthy();
   });
 
   it("keeps header actions separate from the disclosure", () => {
@@ -28,7 +31,7 @@ describe("Section", () => {
     expect(trigger.getAttribute("aria-expanded")).toBe("true");
   });
 
-  it("supports an initially expanded disclosure with a count", () => {
+  it("supports an initially expanded disclosure with a count", async () => {
     render(
       <Section title="Attributes" count={2}>
         Values
@@ -39,7 +42,9 @@ describe("Section", () => {
     expect(screen.getByText("Values")).toBeTruthy();
     fireEvent.click(trigger);
     expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    await waitFor(() => expect(screen.queryByText("Values")).toBeNull());
     fireEvent.click(trigger);
     expect(trigger.getAttribute("aria-expanded")).toBe("true");
+    expect(await screen.findByText("Values")).toBeTruthy();
   });
 });
