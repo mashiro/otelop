@@ -1,11 +1,4 @@
-import {
-  Accordion,
-  AccordionItem,
-  AccordionTrigger,
-  AccordionContent,
-} from "@/components/ui/accordion";
-import { Badge } from "@/components/ui/badge";
-import { Card } from "@/components/ui/card";
+import { Section } from "./detail-field";
 import { Item, ItemContent, ItemActions, ItemGroup } from "@/components/ui/item";
 import { KV } from "./kv";
 import { AddFilterButton } from "@/components/filters/add-filter-button";
@@ -21,44 +14,30 @@ export function KVSection({ title, data, onFilter }: Props) {
   if (entries.length === 0) return null;
 
   return (
-    <Card size="flush">
-      <Accordion defaultValue={["values"]}>
-        <AccordionItem value="values">
-          <div className="px-3">
-            <AccordionTrigger className="items-center">
-              <div className="flex items-center gap-2">
-                <span>{title}</span>
-                <Badge variant="secondary">{entries.length}</Badge>
-              </div>
-            </AccordionTrigger>
-          </div>
-          <AccordionContent>
-            <ItemGroup variant="divided">
-              {entries.map(([k, v]) => (
-                <Item
-                  key={k}
-                  role="listitem"
-                  size="sm"
-                  variant="row"
-                  className="group/filter-field items-start"
-                >
-                  <ItemContent className="min-w-0">
-                    <KV k={k} v={typeof v === "string" ? v : (JSON.stringify(v) ?? String(v))} />
-                  </ItemContent>
-                  {onFilter && (
-                    <ItemActions>
-                      <AddFilterButton
-                        label={`Filter ${v == null ? "where absent" : typeof v === "object" ? "where present" : "by"} ${title.toLowerCase()}.${k}`}
-                        onClick={() => onFilter(k, v)}
-                      />
-                    </ItemActions>
-                  )}
-                </Item>
-              ))}
-            </ItemGroup>
-          </AccordionContent>
-        </AccordionItem>
-      </Accordion>
-    </Card>
+    <Section title={title} count={entries.length}>
+      <ItemGroup variant="inset">
+        {entries.map(([k, v]) => (
+          <Item
+            key={k}
+            role="listitem"
+            size="inset"
+            variant="row"
+            className="group/filter-field items-start"
+          >
+            <ItemContent className="min-w-0">
+              <KV k={k} v={typeof v === "string" ? v : (JSON.stringify(v) ?? String(v))} />
+            </ItemContent>
+            {onFilter && (
+              <ItemActions>
+                <AddFilterButton
+                  label={`Filter ${v == null ? "where absent" : typeof v === "object" ? "where present" : "by"} ${title.toLowerCase()}.${k}`}
+                  onClick={() => onFilter(k, v)}
+                />
+              </ItemActions>
+            )}
+          </Item>
+        ))}
+      </ItemGroup>
+    </Section>
   );
 }

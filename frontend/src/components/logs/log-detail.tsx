@@ -92,11 +92,13 @@ export function LogDetail({
         )}
       </DetailFields>
 
-      <Section title="Body" action={filterAction("body", log.body)}>
-        <div className="whitespace-pre-wrap break-all font-mono text-xs text-foreground/80">
-          {log.body}
-        </div>
-      </Section>
+      {log.body.trim().length > 0 && (
+        <Section title="Body" action={filterAction("body", log.body)}>
+          <div className="whitespace-pre-wrap break-all font-mono text-xs text-foreground/80">
+            {log.body}
+          </div>
+        </Section>
+      )}
 
       <KVSection
         title="Attributes"
