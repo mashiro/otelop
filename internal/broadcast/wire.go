@@ -38,12 +38,20 @@ type TraceDeleteData struct {
 type OnAddFunc func(ctx context.Context, signalType SignalType, data any)
 
 // TraceData represents a group of spans sharing the same trace ID.
+type SpanAddress struct {
+	TraceID string `json:"traceId"`
+	SpanID  string `json:"spanId"`
+}
+
 type TraceData struct {
+	// LinkTargets identifies references added by this committed batch, not all historical links.
+	LinkTargets  []SpanAddress      `json:"linkTargets,omitempty"`
 	TraceID      string             `json:"traceId"`
 	RootSpan     *TraceRootSpanData `json:"rootSpan,omitempty"`
 	Spans        []*SpanData        `json:"spans"`
 	ServiceName  string             `json:"serviceName"`
 	SearchValues []string           `json:"searchValues"`
+	LinkCount    int                `json:"linkCount"`
 	SpanCount    int                `json:"spanCount"`
 	StartTime    time.Time          `json:"startTime"`
 	// Duration is the full trace range (max end - min start) across every span,

@@ -1,5 +1,7 @@
 scalar Time
 scalar JSON
+"Unsigned 32-bit integer, represented as a JSON number."
+scalar UInt32
 
 schema {
   query: Query
@@ -7,6 +9,9 @@ schema {
 }
 
 type Query {
+  "One recorded link, identified by its source span and zero-based ordinal. Null if no longer retained."
+  spanLink(sourceTraceId: ID!, sourceSpanId: ID!, ordinal: Int!): SpanLink
+
   """Distinct filter keys, or scalar values for key, in the selected time window.
   Input is a literal case-insensitive substring. Returns at most 1000 matching keys or
   at most 20 sorted values, independent of list pagination and active search conditions.
@@ -254,11 +259,15 @@ type LogConnection {
 }
 
 type Trace {
+ "Number of recorded outgoing links across retained spans, excluding dropped links."
+ linkCount: Int!
   traceId: ID!
   serviceName: String!
   rootSpan: Span
   "Every retained span belonging to this trace."
   spans: [Span!]!
+ "One retained span, independent of list filters and time range."
+ span(spanId: ID!): Span
   spanCount: Int!
   startTime: Time!
   "Total trace duration in milliseconds."
@@ -270,6 +279,20 @@ type Trace {
 }
 
 type Span {
+ "Received OTLP flags, including unknown bits. Null for spans stored before capture was supported."
+ flags: UInt32
+ "Low eight bits of flags; null when flags were not captured."
+ traceFlags: Int
+ "Received trace state. Empty means captured empty; null means not captured."
+ traceState: String
+ "Whether the parent context was remote. Null for roots or an unspecified remote bit."
+ parentIsRemote: Boolean
+ linkCount: Int!
+ droppedLinksCount: UInt32!
+ "Recorded references in original order. first must be 1–100."
+ links(first: Int = 20, after: String): SpanLinkConnection!
+ "References to this span, ordered by source identity and link ordinal."
+ incomingLinks(first: Int = 20, after: String): SpanLinkConnection!
   traceId: ID!
   spanId: ID!
   parentSpanId: String!
@@ -289,6 +312,36 @@ type Span {
   trace: Trace!
   "Parent span within the same trace, if any. Null for root spans."
   parent: Span
+}
+
+enum SpanLinkTargetStatus { AVAILABLE NOT_FOUND INVALID_CONTEXT }
+type LinkedSpan {
+ traceId: ID!
+ spanId: ID!
+ name: String!
+ serviceName: String!
+}
+type SpanLink {
+ ordinal: Int!
+ traceId: ID!
+ spanId: ID!
+ sourceTraceId: ID!
+ sourceSpanId: ID!
+ traceState: String
+ flags: UInt32
+ traceFlags: Int
+ "Null when the sender did not specify whether the linked context is remote."
+ isRemote: Boolean
+ attributes: JSON!
+ droppedAttributesCount: UInt32!
+ targetStatus: SpanLinkTargetStatus!
+ target: LinkedSpan
+ source: LinkedSpan
+}
+type SpanLinkConnection {
+ items: [SpanLink!]!
+ hasNextPage: Boolean!
+ endCursor: String
 }
 
 type SpanEvent {

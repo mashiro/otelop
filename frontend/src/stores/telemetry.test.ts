@@ -792,3 +792,12 @@ describe("addLogsAtom", () => {
     expect(single.get(logsAtom)).toEqual(batch.get(logsAtom));
   });
 });
+
+describe("trace link counts", () => {
+  it("updates the list count from a summary-only delivery", () => {
+    const store = createStore();
+    store.set(tracesAtom, [makeTrace({ linkCount: 0 })]);
+    store.set(addTraceAtom, makeTrace({ linkCount: 3, spans: [] }));
+    expect(store.get(tracesAtom)[0].linkCount).toBe(3);
+  });
+});

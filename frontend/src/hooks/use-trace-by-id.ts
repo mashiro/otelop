@@ -15,6 +15,7 @@ const TraceByIdQuery = graphql(`
     trace(traceId: $traceId) {
       traceId
       serviceName
+      linkCount
       spanCount
       startTime
       durationMs
@@ -38,6 +39,7 @@ function toTraceData(trace: NonNullable<TraceByIdQuery["trace"]>): TraceData {
     traceId: trace.traceId,
     serviceName: trace.serviceName,
     spanCount: trace.spanCount,
+    linkCount: trace.linkCount,
     startTime: trace.startTime,
     duration: trace.durationMs * MS_TO_NS,
     rootSpan: trace.rootSpan

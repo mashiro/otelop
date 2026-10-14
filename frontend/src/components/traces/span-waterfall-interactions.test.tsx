@@ -31,6 +31,21 @@ describe("SpanWaterfall interactions", () => {
     expect(select).toHaveBeenCalledWith(child);
   });
 
+  it("reveals a linked selection and still lets the user collapse it again", () => {
+    const select = vi.fn();
+    const { rerender } = render(
+      <SpanWaterfall trace={trace} selectedSpan={null} onSelectSpan={select} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Collapse checkout" }));
+    expect(screen.queryByRole("button", { name: "payment timeline" })).toBeNull();
+    rerender(<SpanWaterfall trace={trace} selectedSpan={child} onSelectSpan={select} />);
+    expect(screen.getByRole("button", { name: "payment timeline" })).toBeDefined();
+    const collapse = screen.getByRole("button", { name: "Collapse checkout" });
+    expect(collapse.getAttribute("aria-expanded")).toBe("true");
+    fireEvent.click(collapse);
+    expect(screen.queryByRole("button", { name: "payment timeline" })).toBeNull();
+  });
+
   it("resets collapsed branches when moving to another trace", () => {
     const { rerender } = render(
       <SpanWaterfall trace={trace} selectedSpan={null} onSelectSpan={vi.fn()} />,
@@ -104,8 +119,17 @@ describe("SpanWaterfall interactions", () => {
     expect(screen.queryByRole("button", { name: /^background job,/ })).toBeNull();
   });
 
+  it("does not add a selected non-match to search results", () => {
+    render(<SpanWaterfall trace={trace} selectedSpan={sibling} onSelectSpan={vi.fn()} />);
+    fireEvent.change(screen.getByRole("textbox", { name: "Find span" }), {
+      target: { value: "payment" },
+    });
+    expect(screen.queryByRole("button", { name: /^background job,/ })).toBeNull();
+    expect(screen.getByRole("button", { name: /^payment,/ })).toBeTruthy();
+  });
+
   it("filters errors with their parent context", () => {
-    render(<SpanWaterfall trace={trace} selectedSpan={null} onSelectSpan={vi.fn()} />);
+    render(<SpanWaterfall trace={trace} selectedSpan={sibling} onSelectSpan={vi.fn()} />);
     fireEvent.click(screen.getByRole("button", { name: "Errors only" }));
     expect(screen.getByRole("button", { name: /^payment,/ })).toBeTruthy();
     expect(screen.getByRole("button", { name: /^checkout,/ })).toBeTruthy();
@@ -129,5 +153,45 @@ describe("SpanWaterfall interactions", () => {
       />,
     );
     expect(screen.getByRole("button", { name: "early timeline" }).children.length).toBe(0);
+  });
+});
+
+describe("selection updates", () => {
+  it("does not scroll the selected row when unrelated spans arrive", () => {
+    const scroll = vi.fn();
+    const original = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollIntoView");
+    HTMLElement.prototype.scrollIntoView = scroll;
+    try {
+      const a = makeSpan({ spanId: "a" });
+      const b = makeSpan({ spanId: "b" });
+      const { rerender } = render(
+        <SpanWaterfall trace={makeTrace({ spans: [a] })} selectedSpan={a} onSelectSpan={vi.fn()} />,
+      );
+      scroll.mockClear();
+      rerender(
+        <SpanWaterfall
+          trace={makeTrace({ spans: [a, b] })}
+          selectedSpan={a}
+          onSelectSpan={vi.fn()}
+        />,
+      );
+      expect(scroll).not.toHaveBeenCalled();
+    } finally {
+      if (original) Object.defineProperty(HTMLElement.prototype, "scrollIntoView", original);
+      else Reflect.deleteProperty(HTMLElement.prototype, "scrollIntoView");
+    }
+  });
+  it("reveals a selected child again after navigating away and back", () => {
+    const parent = makeSpan({ spanId: "p", name: "parent" });
+    const child = makeSpan({ spanId: "c", parentSpanId: "p", name: "child" });
+    const other = makeSpan({ spanId: "o", name: "other" });
+    const trace = makeTrace({ spans: [parent, child, other] });
+    const { rerender } = render(
+      <SpanWaterfall trace={trace} selectedSpan={child} onSelectSpan={vi.fn()} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Collapse parent" }));
+    rerender(<SpanWaterfall trace={trace} selectedSpan={other} onSelectSpan={vi.fn()} />);
+    rerender(<SpanWaterfall trace={trace} selectedSpan={child} onSelectSpan={vi.fn()} />);
+    expect(screen.queryByRole("button", { name: "child timeline" })).not.toBeNull();
   });
 });

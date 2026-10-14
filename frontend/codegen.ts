@@ -23,6 +23,7 @@ const config: CodegenConfig = {
         // Pin custom scalars to real TS types so callers don't have to cast.
         scalars: {
           Time: "string",
+          UInt32: "number",
           JSON: "Record<string, unknown>",
         },
       },

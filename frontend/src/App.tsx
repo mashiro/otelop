@@ -1,3 +1,4 @@
+import { SpanLinkDialog } from "@/components/traces/span-link-dialog";
 import { Outlet, useNavigate, useRouter, useRouterState } from "@tanstack/react-router";
 import { useThemeSync } from "@/hooks/use-theme";
 import { useWebSocket } from "@/hooks/use-websocket";
@@ -13,7 +14,10 @@ function App() {
   const navigate = useNavigate();
   useThemeSync();
   useWebSocket((traceId) => {
-    if (router.matchRoute({ to: "/traces/$traceId", params: { traceId } })) {
+    if (
+      !router.state.location.search.link &&
+      router.matchRoute({ to: "/traces/$traceId", params: { traceId } })
+    ) {
       void navigate({ to: "/traces", search: true });
     }
   });
@@ -56,6 +60,7 @@ function App() {
           <Outlet />
         </TabsContent>
       </Tabs>
+      <SpanLinkDialog />
     </div>
   );
 }

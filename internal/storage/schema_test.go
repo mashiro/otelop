@@ -96,7 +96,7 @@ func TestMigrate_IdempotentOnReopen(t *testing.T) {
 	}
 }
 
-func TestMigrate_ExtendsExistingSchemaV1WithoutVersionBump(t *testing.T) {
+func TestSchemaV1Extensions_PreserveLegacyMetricData(t *testing.T) {
 	db := openTestDB(t)
 	ctx := context.Background()
 	_, err := db.ExecContext(ctx, `
@@ -116,8 +116,8 @@ func TestMigrate_ExtendsExistingSchemaV1WithoutVersionBump(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := migrate(ctx, db); err != nil {
-		t.Fatalf("migrate existing v1: %v", err)
+	if err := ensureSchemaV1Extensions(ctx, db); err != nil {
+		t.Fatalf("extend existing v1: %v", err)
 	}
 	var columns int
 	if err := db.QueryRowContext(ctx, `
@@ -178,5 +178,64 @@ func TestMigrate_TimestampNsColumnsAcceptSubMicrosecondPrecision(t *testing.T) {
 	}
 	if isNS != "TIMESTAMP_NS" {
 		t.Errorf("spans.start_ts data_type = %q, want TIMESTAMP_NS", isNS)
+	}
+}
+
+func TestMigrateV1PreservesSpansAndAddsLinks(t *testing.T) {
+	db := openTestDB(t)
+	ctx := context.Background()
+	if _, err := db.ExecContext(ctx, schemaV1); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO schema_meta VALUES (1); INSERT INTO spans VALUES ('trace','span','','old','',now(),now(),'','',NULL,NULL,0,now());`); err != nil {
+		t.Fatal(err)
+	}
+	if err := migrate(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	if err := migrate(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	var name string
+	var count, dropped int
+	if err := db.QueryRowContext(ctx, `SELECT name,link_count,dropped_links_count FROM spans`).Scan(&name, &count, &dropped); err != nil {
+		t.Fatal(err)
+	}
+	if name != "old" || count != 0 || dropped != 0 {
+		t.Fatalf("migration lost old span: %s %d %d", name, count, dropped)
+	}
+}
+
+func TestMigrateV2ContextRemainsUnknown(t *testing.T) {
+	db := openTestDB(t)
+	ctx := context.Background()
+	for _, step := range migrations[:2] {
+		if _, err := db.ExecContext(ctx, step.ddl); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO schema_meta VALUES (2);
+ INSERT INTO spans VALUES ('trace','span','','old','',now(),now(),'','',NULL,NULL,0,now(),1,0);
+ INSERT INTO span_links VALUES ('trace','span',0,'target','target','vendor=value',4294967295,NULL,0);`); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if err := migrate(ctx, db); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var flags *uint32
+	var state *string
+	if err := db.QueryRowContext(ctx, `SELECT flags,trace_state FROM spans`).Scan(&flags, &state); err != nil {
+		t.Fatal(err)
+	}
+	if flags != nil || state != nil {
+		t.Fatalf("invented historical context: %v %v", flags, state)
+	}
+	if err := db.QueryRowContext(ctx, `SELECT flags,trace_state FROM span_links`).Scan(&flags, &state); err != nil {
+		t.Fatal(err)
+	}
+	if flags == nil || *flags != 0xffffffff || state == nil || *state != "vendor=value" {
+		t.Fatalf("lost link context: %v %v", flags, state)
 	}
 }

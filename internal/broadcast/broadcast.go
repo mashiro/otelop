@@ -68,8 +68,27 @@ func broadcastTraces(ctx context.Context, batch storage.TraceBatch, onAdd OnAddF
 	span.SetAttributes(attribute.Int("storage.batch.rows", len(batch.Spans)), attribute.Int("storage.batch.trace_count", len(batch.Summaries)))
 	defer span.End()
 	searchValues := traceSearchValues(batch)
+	targets := make(map[string][]SpanAddress)
+	seen := make(map[string]map[SpanAddress]bool)
+	for _, source := range batch.Spans {
+		for _, link := range source.Links {
+			if !storage.ValidSpanContext(link.TraceID, link.SpanID) {
+				continue
+			}
+			target := SpanAddress{TraceID: link.TraceID, SpanID: link.SpanID}
+			if seen[source.TraceID] == nil {
+				seen[source.TraceID] = make(map[SpanAddress]bool)
+			}
+			if !seen[source.TraceID][target] {
+				seen[source.TraceID][target] = true
+				targets[source.TraceID] = append(targets[source.TraceID], target)
+			}
+		}
+	}
 	for i := range batch.Summaries {
-		onAdd(ctx, SignalTraces, traceSummaryToTraceData(&batch.Summaries[i], searchValues[batch.Summaries[i].TraceID]))
+		data := traceSummaryToTraceData(&batch.Summaries[i], searchValues[batch.Summaries[i].TraceID])
+		data.LinkTargets = targets[data.TraceID]
+		onAdd(ctx, SignalTraces, data)
 	}
 }
 
@@ -102,6 +121,7 @@ func traceSummaryToTraceData(s *storage.TraceSummary, searchValues []string) *Tr
 		ServiceName:  s.ServiceName,
 		SearchValues: searchValues,
 		SpanCount:    s.SpanCount,
+		LinkCount:    s.LinkCount,
 		StartTime:    s.StartTime,
 		Duration:     s.Duration,
 		HasError:     s.HasError,

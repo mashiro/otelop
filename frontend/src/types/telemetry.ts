@@ -12,6 +12,8 @@ export type SpanStatus = "Unset" | "Ok" | "Error";
 // lib/normalize.ts parses its ISO-8601 timestamp fields into the epoch-ns
 // fields the view model below adds.
 export interface SpanDataWire {
+  linkCount: number;
+  droppedLinksCount: number;
   traceId: string;
   spanId: string;
   parentSpanId: string;
@@ -57,6 +59,7 @@ export interface TraceRootSpan {
 }
 
 export interface TraceDataWire {
+  linkCount: number;
   traceId: string;
   rootSpan?: TraceRootSpan;
   // Empty until the trace detail view lazily fetches it (see
@@ -71,6 +74,11 @@ export interface TraceDataWire {
   spanCount: number;
   startTime: string;
   duration: number;
+}
+
+// Delivery hints describe only the committed batch, never retained trace state.
+export interface TraceDeliveryWire extends TraceDataWire {
+  linkTargets?: { traceId: string; spanId: string }[];
 }
 
 export interface TraceData extends Omit<TraceDataWire, "spans"> {
@@ -164,7 +172,7 @@ export interface WsMessage {
   type: "traces" | "trace-deletes" | "metrics" | "logs";
   // Wire shapes: hooks/use-websocket.ts is the single place that normalizes
   // these into view models before writing them into the store.
-  data: TraceDataWire | TraceDeleteData | MetricDataWire | LogDataWire;
+  data: TraceDeliveryWire | TraceDeleteData | MetricDataWire | LogDataWire;
 }
 
 export interface TraceDeleteData {

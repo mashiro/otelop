@@ -15,6 +15,8 @@ export const SpanFieldsFragmentDoc = graphql(`
   fragment SpanFields on Span {
     traceId
     spanId
+    linkCount
+    droppedLinksCount
     parentSpanId
     name
     kind

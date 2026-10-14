@@ -316,14 +316,14 @@ type TraceArgs struct {
 }
 
 func (r *Resolver) Trace(ctx context.Context, args TraceArgs) (*TraceResolver, error) {
-	d, ok, err := r.storage.TraceByID(ctx, string(args.TraceID))
+	summaries, err := r.storage.TraceSummariesByIDs(ctx, []string{string(args.TraceID)})
 	if err != nil {
 		return nil, err
 	}
-	if !ok {
+	if len(summaries) == 0 {
 		return nil, nil
 	}
-	return newTraceResolverFromDetail(r.storage, d), nil
+	return newTraceResolver(r.storage, summaries[0]), nil
 }
 
 type MetricsArgs struct {

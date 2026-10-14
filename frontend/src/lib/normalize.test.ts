@@ -40,6 +40,8 @@ function makeSpanWire(overrides: Partial<SpanDataWire> = {}): SpanDataWire {
     traceId: "t1",
     spanId: "s1",
     parentSpanId: "",
+    linkCount: 0,
+    droppedLinksCount: 0,
     name: "GET /api",
     kind: "Server",
     serviceName: "frontend",
@@ -75,6 +77,7 @@ function makeTraceWire(overrides: Partial<TraceDataWire> = {}): TraceDataWire {
     spans: [],
     serviceName: "frontend",
     spanCount: 1,
+    linkCount: 0,
     startTime: "2024-01-01T00:00:00.500000000Z",
     duration: 1_000_000,
     ...overrides,
@@ -153,4 +156,18 @@ describe("normalizeLog", () => {
 
     expect(log.epochNs).toBe(parseEpochNs("2024-01-01T00:00:00.333333333Z"));
   });
+});
+
+it("keeps delivery hints out of trace state and exports", () => {
+  const delivery = {
+    traceId: "t1",
+    linkCount: 1,
+    spans: [],
+    serviceName: "test",
+    spanCount: 1,
+    startTime: "2024-01-01T00:00:00Z",
+    duration: 1,
+    linkTargets: [{ traceId: "target", spanId: "span" }],
+  };
+  expect(normalizeTrace(delivery)).not.toHaveProperty("linkTargets");
 });

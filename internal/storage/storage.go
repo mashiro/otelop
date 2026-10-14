@@ -1218,6 +1218,9 @@ func (s *Storage) deleteFactsBefore(ctx context.Context, cutoff time.Time) (dele
 	`, cutoff); err != nil {
 		return 0, fmt.Errorf("storage: collect traces affected by sweep: %w", err)
 	}
+	if _, err := s.writer.ExecContext(ctx, `DELETE FROM span_links WHERE (source_trace_id, source_span_id) IN (SELECT trace_id, span_id FROM spans WHERE start_ts < ?)`, cutoff); err != nil {
+		return 0, fmt.Errorf("storage: sweep span links: %w", err)
+	}
 	spansRes, err := s.writer.ExecContext(ctx, `DELETE FROM spans WHERE start_ts < ?`, cutoff)
 	if err != nil {
 		return 0, fmt.Errorf("storage: sweep spans: %w", err)
@@ -1358,7 +1361,7 @@ func (s *Storage) enforceMaxSize(ctx context.Context) (deletedRows int64, iterat
 func (s *Storage) performClear(ctx context.Context) (err error) {
 	ctx, span := startStorageSpan(ctx, "storage.performClear")
 	defer func() { endStorageSpan(span, err) }()
-	for _, table := range []string{"spans", "trace_summaries", "metric_exemplars", "metric_points", "logs", "metric_series", "histogram_layouts", "resources", "dropped_traces"} {
+	for _, table := range []string{"span_links", "spans", "trace_summaries", "metric_exemplars", "metric_points", "logs", "metric_series", "histogram_layouts", "resources", "dropped_traces"} {
 		if _, err := s.writer.ExecContext(ctx, `DELETE FROM `+table); err != nil { //nolint:gosec // table is a fixed internal identifier, never user input
 			return fmt.Errorf("storage: clear %s: %w", table, err)
 		}

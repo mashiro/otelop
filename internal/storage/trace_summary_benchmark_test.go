@@ -62,7 +62,7 @@ func benchmarkStorageWithRows(b *testing.B, existingRows int) *Storage {
 		return s
 	}
 	_, err = s.writer.ExecContext(ctx, `
-		INSERT INTO spans
+		INSERT INTO spans (trace_id,span_id,parent_span_id,name,kind,start_ts,end_ts,status_code,status_message,attributes,events,resource_hash,ingested_at)
 		SELECT
 			printf('base-%027d', i // 10), printf('%016d', i % 10), '', 'base', '',
 			TIMESTAMP '2026-01-01' + i * INTERVAL 1 MICROSECOND,

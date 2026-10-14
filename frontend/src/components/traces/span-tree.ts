@@ -95,3 +95,14 @@ export function visibleSpans(
   }
   return result;
 }
+
+export function spanPath(spans: SpanData[], selectedSpanId?: string): Set<string> {
+  const ancestors = new Set<string>();
+  const byId = new Map(spans.map((span) => [span.spanId, span]));
+  let selected = selectedSpanId ? byId.get(selectedSpanId) : undefined;
+  while (selected && !ancestors.has(selected.spanId)) {
+    ancestors.add(selected.spanId);
+    selected = byId.get(selected.parentSpanId);
+  }
+  return ancestors;
+}

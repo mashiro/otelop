@@ -1,5 +1,6 @@
 import { metricKeyToString } from "@/lib/metric-key";
 import { atom } from "jotai";
+import { replaceEqualDeep } from "@tanstack/react-query";
 import type { PrimitiveAtom } from "jotai";
 import type {
   TraceData,
@@ -70,7 +71,7 @@ export const logListWindowAtom = atom<EventTimeWindow>(DEFAULT_EVENT_TIME_WINDOW
 export function mergeSpans(existing: SpanData[], incoming: SpanData[]): SpanData[] {
   const seen = new Set(existing.map((s) => s.spanId));
   const deduped = incoming.filter((s) => !seen.has(s.spanId));
-  return [...existing, ...deduped];
+  return deduped.length === 0 ? existing : [...existing, ...deduped];
 }
 
 // Each WS batch's searchValues (see internal/broadcast/broadcast.go's
@@ -218,6 +219,7 @@ function mergeTrace(existing: TraceData, incoming: TraceData): TraceData | null 
     spans.length === existing.spans.length &&
     !rootChanged &&
     incoming.spanCount <= existing.spanCount &&
+    incoming.linkCount <= existing.linkCount &&
     incoming.duration <= existing.duration &&
     incomingStart >= existingStart
   ) {
@@ -238,6 +240,7 @@ function mergeTrace(existing: TraceData, incoming: TraceData): TraceData | null 
     // empty spans array. Preserve already-fetched detail while letting a
     // growing summary trigger useTraceSpans to fetch the missing rows.
     spanCount: Math.max(existing.spanCount, incoming.spanCount),
+    linkCount: Math.max(existing.linkCount, incoming.linkCount),
     rootSpan: rootChanged ? incoming.rootSpan : existing.rootSpan,
     serviceName: rootChanged ? incoming.serviceName : existing.serviceName,
     startTime: startsEarlier ? incoming.startTime : existing.startTime,
@@ -527,9 +530,21 @@ export const setTracesAtom = atom(null, (_get, set, traces: TraceData[]) => {
   set(loadedOlderTraceIdsAtom, new Set());
   set(traceList.set, traces);
 });
-export const replaceTracePageAtom = atom(null, (_get, set, page: ReplacementPage<TraceData>) => {
+export const replaceTracePageAtom = atom(null, (get, set, page: ReplacementPage<TraceData>) => {
+  const current = new Map(get(tracesAtom).map((trace) => [trace.traceId, trace]));
+  const items = page.items.map((incoming) => {
+    const existing = current.get(incoming.traceId);
+    if (!existing) return incoming;
+    // Summary refreshes must not discard lazy-loaded detail. A lower persisted
+    // count invalidates that detail; useTraceSpans then reloads what remains.
+    const spans =
+      incoming.spans.length === 0 && incoming.spanCount >= existing.spanCount
+        ? existing.spans
+        : incoming.spans;
+    return replaceEqualDeep(existing, { ...incoming, spans, searchValues: existing.searchValues });
+  });
   set(loadedOlderTraceIdsAtom, new Set());
-  set(traceList.replacePage, page);
+  set(traceList.replacePage, { ...page, items });
 });
 export const appendTracesAtom = atom(null, (_get, set, traces: TraceData[]) => {
   set(

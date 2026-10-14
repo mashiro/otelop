@@ -2,6 +2,7 @@ import { parseMetricSearch } from "@/lib/metric-search";
 import { createTraceSearchMatcher } from "@/lib/trace-search";
 import { createLogSearchMatcher } from "@/lib/log-search";
 import { atom } from "jotai";
+import { selectAtom } from "jotai/utils";
 
 import { filterDataPointsInRange } from "@/lib/chart-time-range";
 import { parseEpochNs } from "@/lib/normalize";
@@ -71,7 +72,13 @@ export function createFilteredTracesAtom(search: string) {
     );
   });
 
-  return atom((get) => (search.trim() ? get(searchedTracesAtom) : get(rangeFilteredTracesAtom)));
+  const rowsAtom = search.trim() ? searchedTracesAtom : rangeFilteredTracesAtom;
+  return selectAtom(
+    rowsAtom,
+    (rows) => rows,
+    (previous, next) =>
+      previous.length === next.length && previous.every((row, index) => row === next[index]),
+  );
 }
 
 // See rangeFilteredTracesAtom above — same live-tail rolling-window rationale.

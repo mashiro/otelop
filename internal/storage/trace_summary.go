@@ -20,6 +20,7 @@ type traceSummaryState struct {
 	StartTime time.Time
 	EndTime   time.Time
 	SpanCount int
+	LinkCount int
 	HasError  bool
 	FirstSeen time.Time
 
@@ -75,6 +76,7 @@ func (state *traceSummaryState) mergeSpan(row SpanRow, ingestedAt time.Time) {
 		state.FirstSeen = ingestedAt
 	}
 	state.SpanCount++
+	state.LinkCount += len(row.Links)
 	state.HasError = state.HasError || row.StatusCode == "Error"
 
 	if row.ParentSpanID == "" && state.preferRoot(row) {
@@ -113,7 +115,7 @@ func (s *Storage) traceSummaryStatesByIDs(ctx context.Context, q queryContexter,
 			trace_id, start_ts, end_ts, span_count, has_error, first_seen,
 			root_span_id, root_name, root_kind, root_status_code, root_start_ts,
 			root_end_ts, COALESCE(root_resource_hash, 0),
-			earliest_span_id, earliest_resource_hash
+			earliest_span_id, earliest_resource_hash, link_count
 		FROM trace_summaries
 		WHERE trace_id IN (`+marks+`)
 	`, args...)
@@ -129,7 +131,7 @@ func (s *Storage) traceSummaryStatesByIDs(ctx context.Context, q queryContexter,
 			&state.TraceID, &state.StartTime, &state.EndTime, &state.SpanCount,
 			&state.HasError, &state.FirstSeen, &rootSpanID, &rootName, &rootKind,
 			&rootStatus, &rootStart, &rootEnd, &state.RootResourceHash,
-			&state.EarliestSpanID, &state.EarliestResourceHash,
+			&state.EarliestSpanID, &state.EarliestResourceHash, &state.LinkCount,
 		); err != nil {
 			return nil, fmt.Errorf("storage: scan trace summary state: %w", err)
 		}
@@ -175,7 +177,7 @@ func (s *Storage) upsertTraceSummaryStates(ctx context.Context, states map[strin
 	args := make([]any, 0, len(traceIDs)*15)
 	for i, traceID := range traceIDs {
 		state := states[traceID]
-		values[i] = `(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS UBIGINT), ?, CAST(? AS UBIGINT))`
+		values[i] = `(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS UBIGINT), ?, CAST(? AS UBIGINT), ?)`
 		var rootSpanID, rootName, rootKind, rootStatus any
 		var rootStart, rootEnd any
 		var rootResourceHash any
@@ -196,7 +198,7 @@ func (s *Storage) upsertTraceSummaryStates(ctx context.Context, states map[strin
 			state.HasError,
 			duckdb.Typed(state.FirstSeen, duckdb.TYPE_TIMESTAMP_NS),
 			rootSpanID, rootName, rootKind, rootStatus, rootStart, rootEnd, rootResourceHash,
-			state.EarliestSpanID, strconv.FormatUint(state.EarliestResourceHash, 10),
+			state.EarliestSpanID, strconv.FormatUint(state.EarliestResourceHash, 10), state.LinkCount,
 		)
 	}
 	_, err := s.writer.ExecContext(ctx, `
@@ -215,7 +217,8 @@ func (s *Storage) upsertTraceSummaryStates(ctx context.Context, states map[strin
 			root_end_ts = excluded.root_end_ts,
 			root_resource_hash = excluded.root_resource_hash,
 			earliest_span_id = excluded.earliest_span_id,
-			earliest_resource_hash = excluded.earliest_resource_hash
+			earliest_resource_hash = excluded.earliest_resource_hash,
+ link_count = excluded.link_count
 	`, args...)
 	if err != nil {
 		return fmt.Errorf("storage: upsert trace summaries: %w", err)
@@ -325,7 +328,7 @@ func (s *Storage) appendSpans(ctx context.Context, spans []SpanRow, ingestedAt t
 			if err := appender.AppendRow(
 				sp.TraceID, sp.SpanID, sp.ParentSpanID, sp.Name, sp.Kind,
 				sp.StartTS, sp.EndTS, sp.StatusCode, sp.StatusMessage,
-				sp.Attributes, spanEventsArg(sp.Events), sp.ResourceHash, ingestedAt,
+				sp.Attributes, spanEventsArg(sp.Events), sp.ResourceHash, ingestedAt, int32(len(sp.Links)), sp.DroppedLinksCount, sp.Flags, sp.TraceState,
 			); err != nil {
 				return err
 			}
@@ -345,7 +348,7 @@ const traceSummariesFromTableQuery = `
 SELECT
 	t.trace_id, t.start_ts, t.end_ts, t.span_count, t.has_error,
 	COALESCE(root_res.service_name, earliest_res.service_name) AS service_name,
-	t.root_name, t.root_kind, t.root_status_code, t.root_start_ts, t.root_end_ts
+	t.root_name, t.root_kind, t.root_status_code, t.root_start_ts, t.root_end_ts, t.link_count
 FROM trace_summaries t
 LEFT JOIN resources root_res ON root_res.resource_hash = t.root_resource_hash
 LEFT JOIN resources earliest_res ON earliest_res.resource_hash = t.earliest_resource_hash
@@ -363,7 +366,7 @@ agg AS (
 	SELECT
 		trace_id, min(start_ts) AS start_ts, max(end_ts) AS end_ts,
 		count(*) AS span_count, bool_or(status_code = 'Error') AS has_error,
-		min(ingested_at) AS first_seen
+		min(ingested_at) AS first_seen, sum(link_count) AS link_count
 	FROM deduped
 	GROUP BY trace_id
 ),
@@ -402,7 +405,7 @@ SELECT
 	a.trace_id, a.start_ts, a.end_ts, a.span_count, a.has_error, a.first_seen,
 	r.root_span_id, r.root_name, r.root_kind, r.root_status_code,
 	r.root_start_ts, r.root_end_ts, r.root_resource_hash,
-	e.earliest_span_id, e.earliest_resource_hash
+	e.earliest_span_id, e.earliest_resource_hash, a.link_count
 FROM agg a
 LEFT JOIN roots r USING (trace_id)
 JOIN earliest e USING (trace_id)
@@ -499,6 +502,10 @@ func (s *Storage) writeTraceRowsTransaction(ctx context.Context, rows []SpanRow,
 		return nil, nil, nil, err
 	}
 
+	if err := s.appendSpanLinks(ctx, inserted); err != nil {
+		return nil, nil, nil, err
+	}
+
 	traceIDs := distinctTraceIDsForRows(inserted)
 	states := make(map[string]*traceSummaryState, len(traceIDs))
 	for _, traceID := range traceIDs {
@@ -513,6 +520,9 @@ func (s *Storage) writeTraceRowsTransaction(ctx context.Context, rows []SpanRow,
 			continue
 		}
 		serviceName, metadataErr := s.traceServiceName(ctx, state)
+		if _, err := s.writer.ExecContext(ctx, `DELETE FROM span_links WHERE source_trace_id = ?`, traceID); err != nil {
+			return nil, nil, nil, err
+		}
 		if _, err := s.writer.ExecContext(ctx, `DELETE FROM spans WHERE trace_id = ?`, traceID); err != nil {
 			return nil, nil, nil, fmt.Errorf("storage: delete oversized trace: %w", err)
 		}
