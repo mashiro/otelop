@@ -11,6 +11,7 @@ import {
   visibleSpans as computeVisibleSpans,
 } from "./span-tree";
 import { Button } from "@/components/ui/button";
+import { SpanRowButton } from "@/components/ui/span-row-button";
 import { Toggle } from "@/components/ui/toggle";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { ScrollArea as ScrollAreaPrimitive } from "@base-ui/react/scroll-area";
@@ -200,13 +201,10 @@ function WaterfallInner({
                           aria-pressed={isSelected}
                           onClick={() => onSelectSpan(span)}
                           render={
-                            <button
-                              type="button"
-                              className={cn(
-                                "flex h-full w-full cursor-pointer items-center gap-1.5 transition-colors text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
-                                span.linkCount > 0 ? "pr-14" : "pr-2",
-                                hoveredSpanId === span.spanId && "bg-trace/5",
-                              )}
+                            <SpanRowButton
+                              variant="tree"
+                              hovered={hoveredSpanId === span.spanId}
+                              reserveLinks={span.linkCount > 0}
                               style={{
                                 paddingLeft: 36 + indent,
                                 background: isSelected
@@ -291,13 +289,10 @@ function WaterfallInner({
                   onMouseEnter={() => setHoveredSpanId(span.spanId)}
                   onMouseLeave={() => setHoveredSpanId(null)}
                   render={
-                    <button
-                      type="button"
-                      className={cn(
-                        "flex h-8 w-full items-center gap-2 px-3 text-left text-xs transition-colors",
-                        hoveredSpanId === span.spanId && "bg-trace/5",
-                        selectedSpan?.spanId === span.spanId && "bg-trace/10",
-                      )}
+                    <SpanRowButton
+                      variant="service"
+                      hovered={hoveredSpanId === span.spanId}
+                      selected={selectedSpan?.spanId === span.spanId}
                     />
                   }
                 >
