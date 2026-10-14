@@ -25,6 +25,7 @@ function queryTrace(traceId: string) {
     traceId: t.traceId,
     serviceName: t.serviceName,
     spanCount: t.spanCount,
+    linkCount: t.linkCount,
     startTime: t.startTime,
     durationMs: t.duration / 1_000_000,
     rootSpan: {

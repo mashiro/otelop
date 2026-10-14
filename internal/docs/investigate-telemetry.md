@@ -319,3 +319,140 @@ Do not start, restart, or stop otelop without the user's permission.
 
 The `clearSignals` mutation irreversibly deletes every retained signal. Never
 call it without an explicit user request.
+
+## Follow span links across traces
+
+A span's `links` are its recorded references; `incomingLinks` finds retained
+spans that reference it. For example, if a consumer records a link to the
+original command, follow **Links** from consumer to command, and
+**Referenced by** from command to consumer. Links do not change parentage.
+If the link is instead recorded on a delivery span, navigate to that delivery
+span first using the existing parent/child relationship.
+
+Use `traces { items { traceId linkCount } }` to find starting points.
+`Trace.linkCount` counts recorded outgoing links across retained spans,
+including invalid contexts and repeated targets, but excluding dropped links
+and incoming references. `Span.linkCount` has the same meaning for one span.
+
+The following query loads a bounded page in each direction for one span,
+independently of the trace list's time window and filters:
+
+```graphql
+query InvestigateSpanLinks($traceId: ID!, $spanId: ID!, $outgoingAfter: String, $incomingAfter: String) {
+  trace(traceId: $traceId) {
+    traceId
+    linkCount
+    span(spanId: $spanId) {
+      spanId
+      linkCount
+      droppedLinksCount
+      flags
+      traceFlags
+      traceState
+      parentIsRemote
+      links(first: 20, after: $outgoingAfter) {
+        items {
+          ordinal
+          traceId
+          spanId
+          attributes
+          traceState
+          flags
+          traceFlags
+          isRemote
+          droppedAttributesCount
+          targetStatus
+          target { traceId spanId name serviceName }
+        }
+        hasNextPage
+        endCursor
+      }
+      incomingLinks(first: 20, after: $incomingAfter) {
+        items {
+          ordinal
+          sourceTraceId
+          sourceSpanId
+          attributes
+          source { traceId spanId name serviceName }
+        }
+        hasNextPage
+        endCursor
+      }
+    }
+  }
+}
+```
+
+Link attributes belong to the recorded link, not to either endpoint span.
+In the UI, selecting a span name opens that span's Details tab. **Link info**
+opens the individual link's attributes and recorded context without changing
+the selected span. The detail URL survives reloads and browser back/forward.
+
+To inspect one link without paging through the list, use its source IDs and
+zero-based `ordinal` (the UI displays ordinals starting at 1):
+
+```graphql
+query InspectSpanLink($sourceTraceId: ID!, $sourceSpanId: ID!, $ordinal: Int!) {
+  spanLink(sourceTraceId: $sourceTraceId, sourceSpanId: $sourceSpanId, ordinal: $ordinal) {
+    sourceTraceId
+    sourceSpanId
+    ordinal
+    traceId
+    spanId
+    attributes
+    flags
+    traceState
+    droppedAttributesCount
+    targetStatus
+    target { name serviceName }
+  }
+}
+```
+
+A null `spanLink` means the recorded link is not retained. A non-null link with
+`target: null` still has readable attributes and IDs.
+
+Both connections default to 20 items and accept `first` from 1 through 100.
+Pass each connection's `endCursor` as its own `after` while `hasNextPage` is
+true. Cursors are scoped to a particular span and direction. Outgoing links
+preserve their recorded order; incoming links sort by source trace ID, source
+span ID, then link ordinal. These are live pages, not a snapshot: refresh from
+the first page to discover new incoming references that sort before your cursor.
+A page limit never truncates stored links. `droppedLinksCount` and
+`droppedAttributesCount` describe losses reported by the sender.
+
+`targetStatus` distinguishes three cases:
+
+- `AVAILABLE`: `target` contains the retained target span's summary.
+- `NOT_FOUND`: `target` is null. Keep the IDs and attributes as evidence; do not
+  infer whether sampling, retention, or delayed ingestion caused the absence.
+  Refresh later if the target may still arrive.
+- `INVALID_CONTEXT`: an empty, zero, or invalid ID makes navigation impossible.
+  The received link is retained for inspection; `target` is null.
+
+A missing trace or selected span itself returns null. Query failures are errors,
+not evidence that a target is missing. Only decoded OTLP data can be retained;
+malformed wire payloads can still be rejected by the OTLP receiver.
+
+Both `Span` and `SpanLink` expose `flags`, `traceFlags`, and `traceState`.
+`flags` preserves the complete unsigned 32-bit OTLP value (`UInt32`, a JSON
+number), including unknown bits. `traceFlags` is its low byte. Historical spans
+whose context was not captured return null for these fields. Received zero
+flags and empty trace state remain `0` and `""`; they are not missing values.
+
+`Span.parentIsRemote` describes the parent context, not the span itself.
+`SpanLink.isRemote` describes the linked context. Both return true or false only
+when the context-known bit (`0x100`) is set, using the remote bit (`0x200`);
+otherwise they return null. Root spans always have null `parentIsRemote`.
+Do not treat unknown as local, or sampling/remote flags as evidence that a
+target is retained in this environment. Use `targetStatus` for availability.
+
+Link context is the snapshot received from the sender. Resolving, updating,
+or deleting the target does not replace that metadata; reading `incomingLinks`
+does not reverse its meaning. Link attributes are distinct from attributes of
+either span. These context fields are available through the API without adding
+Local, Remote, or Sampled badges to the inspector.
+
+Links ingested before this feature were not stored and cannot be recovered by
+migration. Retention removes links with their source span; removing only their
+target leaves the recorded reference available for investigation.

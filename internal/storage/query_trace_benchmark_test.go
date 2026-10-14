@@ -25,7 +25,7 @@ func BenchmarkTraceSearch(b *testing.B) {
 			if _, err = s.writer.ExecContext(ctx, `INSERT INTO resources VALUES (1,'api','',0,'{"service.name":"api","deployment.environment.name":"production"}',''::BLOB)`); err != nil {
 				b.Fatal(err)
 			}
-			_, err = s.writer.ExecContext(ctx, `INSERT INTO spans SELECT printf('%032x',i//10),printf('%016x',i),CASE WHEN i%10=0 THEN '' ELSE printf('%016x',(i//10)*10) END,
+			_, err = s.writer.ExecContext(ctx, `INSERT INTO spans (trace_id,span_id,parent_span_id,name,kind,start_ts,end_ts,status_code,status_message,attributes,events,resource_hash,ingested_at) SELECT printf('%032x',i//10),printf('%016x',i),CASE WHEN i%10=0 THEN '' ELSE printf('%016x',(i//10)*10) END,
     CASE WHEN i%10=0 THEN 'request' ELSE 'db.query' END,'Server',make_timestamp_ns(?+i*?),make_timestamp_ns(?+i*?+1000000),
     CASE WHEN i%100=0 THEN 'Error' ELSE 'Ok' END,'',
     json_object('http.status_code',CASE WHEN i%100=0 THEN 500 ELSE 200 END,'http.method','GET','request.id',printf('req-%012d',i),'arguments',json_object('cmd','git diff --check'),

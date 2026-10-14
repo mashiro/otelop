@@ -1,3 +1,4 @@
+import { parseSpanLink } from "@/lib/span-link-selection";
 import { traceByIdOptions } from "@/hooks/use-trace-by-id";
 import { tracesAtom } from "@/stores/telemetry";
 import {
@@ -90,6 +91,15 @@ export function createAppRouter(history?: RouterHistory, store = getDefaultStore
     staticData: { signal: "traces" },
     getParentRoute: () => traceRoute,
     path: "spans/$spanId",
+    validateSearch: (
+      search: Record<string, unknown>,
+    ): { spanTab?: "links" | "referenced-by"; link?: string } => ({
+      link: parseSpanLink(search.link) ? String(search.link) : undefined,
+      spanTab:
+        search.spanTab === "links" || search.spanTab === "referenced-by"
+          ? search.spanTab
+          : undefined,
+    }),
     beforeLoad: ({ context, params, search, preload }) => {
       if (!preload)
         remember(context, "traces", { to: "/traces/$traceId/spans/$spanId", params, search });

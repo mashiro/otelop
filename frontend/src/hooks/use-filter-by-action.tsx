@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { useSignalQuery } from "@/hooks/use-signal-route";
+import { useSignalQueryActions } from "@/hooks/use-signal-route";
 import { draftTerm, valueToFilterDraft } from "@/lib/log-filter";
 import { traceFields } from "@/lib/trace-search";
 import { AddFilterButton } from "@/components/filters/add-filter-button";
@@ -10,7 +10,7 @@ import { AddFilterButton } from "@/components/filters/add-filter-button";
 // signals (traces validate against traceFields; logs use draftTerm's
 // default), so that's the only thing branched on here.
 export function useFilterByAction(signal: "logs" | "traces") {
-  const { addFilter } = useSignalQuery(signal);
+  const { addFilter } = useSignalQueryActions(signal);
   const fields = signal === "traces" ? traceFields : undefined;
 
   const filterBy = (key: string, value: unknown) => {

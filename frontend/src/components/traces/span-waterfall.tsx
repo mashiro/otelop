@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useParentSize } from "@visx/responsive";
-import { ChevronDown, ChevronRight, CircleAlert, Search } from "lucide-react";
+import { ChevronDown, ChevronRight, CircleAlert, Search, Link2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { traceServiceColors, traceTimeline, type TimelineRange } from "./trace-timeline";
 import {
   buildTree,
+  spanPath,
   matchingSpanIds,
   toNsOffset,
   visibleSpans as computeVisibleSpans,
@@ -23,6 +24,7 @@ const ERROR_COLOR = "var(--destructive)";
 interface Props {
   trace: TraceData;
   onSelectSpan: (span: SpanData) => void;
+  onOpenLinks?: (span: SpanData) => void;
   selectedSpan: SpanData | null;
   range?: TimelineRange;
 }
@@ -40,13 +42,28 @@ export function SpanWaterfall(props: Props) {
 function WaterfallInner({
   trace,
   onSelectSpan,
+  onOpenLinks,
   selectedSpan,
   width,
   range = [0, 100],
 }: Props & { width: number }) {
+  const selectedRowRef = useRef<HTMLButtonElement | null>(null);
+  useEffect(() => {
+    selectedRowRef.current?.scrollIntoView?.({ block: "nearest" });
+  }, [selectedSpan?.spanId]);
   const flatSpans = buildTree(trace.spans);
   const [hoveredSpanId, setHoveredSpanId] = useState<string | null>(null);
-  const [collapsedSet, setCollapsedSet] = useState<Set<string>>(new Set());
+  const selectedId = selectedSpan?.spanId;
+  const [collapse, setCollapse] = useState(() => ({ selectedId, collapsed: new Set<string>() }));
+  let collapsedSet = collapse.collapsed;
+  if (collapse.selectedId !== selectedId) {
+    collapsedSet = new Set(collapsedSet);
+    for (const id of spanPath(trace.spans, selectedId)) {
+      if (id !== selectedId) collapsedSet.delete(id);
+    }
+    setCollapse({ selectedId, collapsed: collapsedSet });
+  }
+  const setCollapsedSet = (collapsed: Set<string>) => setCollapse({ selectedId, collapsed });
   const [search, setSearch] = useState("");
   const [errorsOnly, setErrorsOnly] = useState(false);
   const matchingIds = matchingSpanIds(trace.spans, { query: search, errorsOnly });
@@ -87,13 +104,13 @@ function WaterfallInner({
           size="sm"
           variant="ghost"
           disabled={matchingIds !== null}
-          onClick={() =>
+          onClick={() => {
             setCollapsedSet(
               allCollapsed
                 ? new Set()
                 : new Set(flatSpans.filter((row) => row.hasChildren).map((row) => row.span.spanId)),
-            )
-          }
+            );
+          }}
         >
           {allCollapsed ? "Expand all" : "Collapse all"}
         </Button>
@@ -187,7 +204,8 @@ function WaterfallInner({
                             <button
                               type="button"
                               className={cn(
-                                "flex h-full w-full cursor-pointer items-center gap-1.5 transition-colors pr-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+                                "flex h-full w-full cursor-pointer items-center gap-1.5 transition-colors text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+                                span.linkCount > 0 ? "pr-14" : "pr-2",
                                 hoveredSpanId === span.spanId && "bg-trace/5",
                               )}
                               style={{
@@ -223,6 +241,18 @@ function WaterfallInner({
                           </span>
                         </TooltipContent>
                       </Tooltip>
+                      {span.linkCount > 0 && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="absolute right-1 top-0 h-8"
+                          aria-label={`Links for ${span.name} (${span.linkCount})`}
+                          onClick={() => (onOpenLinks ?? onSelectSpan)(span)}
+                        >
+                          <Link2 />
+                          {span.linkCount}
+                        </Button>
+                      )}
                       {hasChildren && (
                         <Button
                           variant="ghost-toggle"
@@ -232,14 +262,12 @@ function WaterfallInner({
                           aria-label={`${!matchingIds && collapsedSet.has(span.spanId) ? "Expand" : "Collapse"} ${span.name}`}
                           aria-expanded={matchingIds !== null || !collapsedSet.has(span.spanId)}
                           disabled={matchingIds !== null}
-                          onClick={() =>
-                            setCollapsedSet((prev) => {
-                              const next = new Set(prev);
-                              if (next.has(span.spanId)) next.delete(span.spanId);
-                              else next.add(span.spanId);
-                              return next;
-                            })
-                          }
+                          onClick={() => {
+                            const next = new Set(collapsedSet);
+                            if (next.has(span.spanId)) next.delete(span.spanId);
+                            else next.add(span.spanId);
+                            setCollapsedSet(next);
+                          }}
                         >
                           {!matchingIds && collapsedSet.has(span.spanId) ? (
                             <ChevronRight />
@@ -328,6 +356,7 @@ function WaterfallInner({
                 <button
                   key={span.spanId}
                   type="button"
+                  ref={isSelected ? selectedRowRef : undefined}
                   aria-label={`${span.name} timeline`}
                   onMouseEnter={() => setHoveredSpanId(span.spanId)}
                   onMouseLeave={() => setHoveredSpanId(null)}

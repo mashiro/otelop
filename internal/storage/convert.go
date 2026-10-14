@@ -29,20 +29,34 @@ type SpanEventRow struct {
 	Attributes map[string]any `json:"attributes,omitempty"`
 }
 
+// SpanLinkRow holds one ordered link recorded by a span.
+type SpanLinkRow struct {
+	TraceID                string
+	SpanID                 string
+	TraceState             string
+	Flags                  uint32
+	Attributes             map[string]any
+	DroppedAttributesCount uint32
+}
+
 // SpanRow is one row of the spans fact table.
 type SpanRow struct {
-	TraceID       string
-	SpanID        string
-	ParentSpanID  string
-	Name          string
-	Kind          string
-	StartTS       time.Time
-	EndTS         time.Time
-	StatusCode    string
-	StatusMessage string
-	Attributes    map[string]any
-	Events        []SpanEventRow
-	ResourceHash  uint64
+	Flags             uint32
+	TraceState        string
+	Links             []SpanLinkRow
+	DroppedLinksCount uint32
+	TraceID           string
+	SpanID            string
+	ParentSpanID      string
+	Name              string
+	Kind              string
+	StartTS           time.Time
+	EndTS             time.Time
+	StatusCode        string
+	StatusMessage     string
+	Attributes        map[string]any
+	Events            []SpanEventRow
+	ResourceHash      uint64
 }
 
 // TraceBatch carries converted trace rows through the write path. Storage
@@ -208,18 +222,22 @@ func ConvertTraces(td ptrace.Traces) TraceBatch {
 			for k := 0; k < spans.Len(); k++ {
 				span := spans.At(k)
 				batch.Spans = append(batch.Spans, SpanRow{
-					TraceID:       span.TraceID().String(),
-					SpanID:        span.SpanID().String(),
-					ParentSpanID:  span.ParentSpanID().String(),
-					Name:          span.Name(),
-					Kind:          span.Kind().String(),
-					StartTS:       span.StartTimestamp().AsTime(),
-					EndTS:         span.EndTimestamp().AsTime(),
-					StatusCode:    span.Status().Code().String(),
-					StatusMessage: span.Status().Message(),
-					Attributes:    attributesToMap(span.Attributes()),
-					Events:        convertSpanEvents(span.Events()),
-					ResourceHash:  resourceHash,
+					Flags:             span.Flags(),
+					TraceState:        span.TraceState().AsRaw(),
+					TraceID:           span.TraceID().String(),
+					SpanID:            span.SpanID().String(),
+					ParentSpanID:      span.ParentSpanID().String(),
+					Name:              span.Name(),
+					Kind:              span.Kind().String(),
+					StartTS:           span.StartTimestamp().AsTime(),
+					EndTS:             span.EndTimestamp().AsTime(),
+					StatusCode:        span.Status().Code().String(),
+					StatusMessage:     span.Status().Message(),
+					Attributes:        attributesToMap(span.Attributes()),
+					Events:            convertSpanEvents(span.Events()),
+					Links:             convertSpanLinks(span.Links()),
+					DroppedLinksCount: span.DroppedLinksCount(),
+					ResourceHash:      resourceHash,
 				})
 			}
 		}
@@ -624,4 +642,13 @@ func optionalTimestamp(ts pcommon.Timestamp) *time.Time {
 	}
 	t := ts.AsTime()
 	return &t
+}
+
+func convertSpanLinks(links ptrace.SpanLinkSlice) []SpanLinkRow {
+	result := make([]SpanLinkRow, links.Len())
+	for i := range result {
+		link := links.At(i)
+		result[i] = SpanLinkRow{TraceID: link.TraceID().String(), SpanID: link.SpanID().String(), TraceState: link.TraceState().AsRaw(), Flags: link.Flags(), Attributes: link.Attributes().AsRaw(), DroppedAttributesCount: link.DroppedAttributesCount()}
+	}
+	return result
 }

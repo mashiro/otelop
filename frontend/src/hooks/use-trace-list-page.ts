@@ -31,6 +31,7 @@ const TracesPageQuery = graphql(`
       items {
         traceId
         serviceName
+        linkCount
         spanCount
         startTime
         durationMs

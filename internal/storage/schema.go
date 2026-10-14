@@ -9,7 +9,7 @@ import (
 // currentSchemaVersion is the schema version this build knows how to reach.
 // migrate applies every step between the database's recorded version (0 for
 // a brand-new database) and this value.
-const currentSchemaVersion = 1
+const currentSchemaVersion = 3
 
 // schemaV1 is the exact DDL from docs/design/duckdb-storage.md. TIMESTAMP_NS
 // (not the default microsecond TIMESTAMP) everywhere OTel emits nanosecond
@@ -163,6 +163,23 @@ type migrationStep struct {
 
 var migrations = []migrationStep{
 	{version: 1, ddl: schemaV1},
+	{version: 2, ddl: `
+ ALTER TABLE spans ADD COLUMN link_count INTEGER DEFAULT 0;
+ ALTER TABLE spans ADD COLUMN dropped_links_count UINTEGER DEFAULT 0;
+ ALTER TABLE trace_summaries ADD COLUMN link_count BIGINT DEFAULT 0;
+ CREATE TABLE span_links (
+ source_trace_id VARCHAR NOT NULL, source_span_id VARCHAR NOT NULL,
+ ordinal INTEGER NOT NULL, trace_id VARCHAR NOT NULL, span_id VARCHAR NOT NULL,
+ trace_state VARCHAR NOT NULL, flags UINTEGER NOT NULL, attributes JSON,
+ dropped_attributes_count UINTEGER NOT NULL
+ );
+ CREATE INDEX idx_span_links_source ON span_links(source_trace_id, source_span_id);
+ CREATE INDEX idx_span_links_target ON span_links(trace_id, span_id);
+ `},
+	{version: 3, ddl: `
+ ALTER TABLE spans ADD COLUMN flags UINTEGER;
+ ALTER TABLE spans ADD COLUMN trace_state VARCHAR;
+ `},
 }
 
 // migrate brings db up to currentSchemaVersion. It is safe to call on every

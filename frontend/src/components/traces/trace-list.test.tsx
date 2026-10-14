@@ -86,6 +86,7 @@ function makeQueryTraces(count: number, idPrefix = "q-trace"): TracesPageQuery["
     traceId: `${idPrefix}-${i}`,
     serviceName: "checkout",
     spanCount: 1,
+    linkCount: 0,
     startTime: `2024-01-01T00:${String(i % 60).padStart(2, "0")}:00Z`,
     durationMs: 5,
     rootSpan: null,

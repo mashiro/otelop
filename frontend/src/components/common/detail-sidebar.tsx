@@ -19,6 +19,7 @@ const titleToneClasses: Record<SidebarTone, string> = {
 
 interface DetailSidebarProps {
   title: string;
+  scrollable?: boolean;
   tone: SidebarTone;
   // Rendered before the close button (e.g. a CopyJsonButton).
   actions?: ReactNode;
@@ -33,6 +34,7 @@ interface DetailSidebarProps {
 // drift between the three call sites, so unify them here.
 export function DetailSidebar({
   title,
+  scrollable = true,
   tone,
   actions,
   onClose,
@@ -48,9 +50,11 @@ export function DetailSidebar({
   return (
     <div className="h-[45%] min-h-0 shrink-0 border-t border-border xl:h-auto xl:w-105 xl:border-t-0 xl:border-l">
       <div className="flex h-full flex-col">
-        <div className="flex items-center justify-between border-b border-border px-4 py-2">
-          <h3 className={cn("text-sm font-semibold", titleToneClasses[tone])}>{title}</h3>
-          <div className="flex items-center gap-1">
+        <div className="group/filter-field flex items-center justify-between border-b border-border px-4 py-2">
+          <h3 className={cn("min-w-0 break-words text-sm font-semibold", titleToneClasses[tone])}>
+            {title}
+          </h3>
+          <div className="flex shrink-0 items-center gap-1">
             {actions}
             <Button
               variant="ghost-muted"
@@ -64,9 +68,13 @@ export function DetailSidebar({
             </Button>
           </div>
         </div>
-        <ScrollArea className="min-h-0 flex-1">
-          <div className="animate-slide-up-fade space-y-5 p-4">{children}</div>
-        </ScrollArea>
+        {scrollable ? (
+          <ScrollArea className="min-h-0 flex-1">
+            <div className="animate-slide-up-fade space-y-5 p-4">{children}</div>
+          </ScrollArea>
+        ) : (
+          children
+        )}
       </div>
     </div>
   );

@@ -1,5 +1,5 @@
 import { useNavigate, useParams, useRouter, useSearch } from "@tanstack/react-router";
-import { useAtomValue } from "jotai";
+import { atom, useAtomValue } from "jotai";
 import { useMemo, type SetStateAction } from "react";
 import { logsAtom, metricsAtom, tracesAtom } from "@/stores/telemetry";
 import { eventWindowFromSearch, eventWindowSearch } from "@/lib/route-search";
@@ -17,9 +17,12 @@ import type { EventTimeWindow } from "@/lib/event-time-window";
 import type { LogData, MetricData, TraceData } from "@/types/telemetry";
 
 export function useTimeWindow() {
-  const search = useSearch({ strict: false });
+  const window = useSearch({
+    strict: false,
+    select: eventWindowFromSearch,
+    structuralSharing: true,
+  });
   const navigate = useNavigate();
-  const window = useMemo(() => eventWindowFromSearch(search), [search]);
   return [
     window,
     (value: EventTimeWindow) =>
@@ -27,25 +30,47 @@ export function useTimeWindow() {
   ] as const;
 }
 
-export function useSignalQuery(signal: "logs" | "traces" | "metrics") {
-  const search = useSearch({ strict: false });
+type Signal = "logs" | "traces" | "metrics";
+
+function queryFields(signal: Signal) {
+  return signal === "traces" ? traceFields : signal === "metrics" ? metricFields : undefined;
+}
+
+export function useSignalQuery(signal: Signal) {
+  const fields = queryFields(signal);
+  const state = useSearch({
+    strict: false,
+    select: (search) => readFilterQuery(search, fields),
+    structuralSharing: true,
+  });
+  const actions = useSignalQueryActions(signal);
+  return {
+    state,
+    ...actions,
+    search: [state.text, ...state.filters.filter((filter) => filter.enabled).map(serializeLogTerm)]
+      .filter(Boolean)
+      .join(" "),
+  };
+}
+
+// Commands read the current URL when invoked; consumers need no search subscription.
+export function useSignalQueryActions(signal: Signal) {
   const navigate = useNavigate();
+  const fields = queryFields(signal);
   const parse =
     signal === "traces"
       ? parseTraceSearch
       : signal === "metrics"
         ? parseMetricSearch
         : parseLogSearch;
-  const fields =
-    signal === "traces" ? traceFields : signal === "metrics" ? metricFields : undefined;
-  const read = (value: typeof search) => readFilterQuery(value, fields);
-  const state = useMemo(() => readFilterQuery(search, fields), [search, signal]);
   const setState = (update: SetStateAction<LogQueryState>) =>
     navigate({
       to: ".",
       search: (previous) => ({
         ...previous,
-        ...filterQuerySearch(typeof update === "function" ? update(read(previous)) : update),
+        ...filterQuerySearch(
+          typeof update === "function" ? update(readFilterQuery(previous, fields)) : update,
+        ),
       }),
     });
   const addFilter = (term: LogSearchTerm) => setState((previous) => addQueryFilter(previous, term));
@@ -57,15 +82,7 @@ export function useSignalQuery(signal: "logs" | "traces" | "metrics") {
     }));
     return plain;
   };
-  return {
-    state,
-    setState,
-    addFilter,
-    setText,
-    search: [state.text, ...state.filters.filter((filter) => filter.enabled).map(serializeLogTerm)]
-      .filter(Boolean)
-      .join(" "),
-  };
+  return { setState, addFilter, setText };
 }
 
 function addQueryFilter(state: LogQueryState, term: LogSearchTerm): LogQueryState {
@@ -83,26 +100,45 @@ function addQueryFilter(state: LogQueryState, term: LogSearchTerm): LogQueryStat
 
 export function useTraceSelection() {
   const { traceId, spanId } = useParams({ strict: false });
-  const traces = useAtomValue(tracesAtom);
+  const selectedTraceAtom = useMemo(
+    () => atom((get) => get(tracesAtom).find((trace) => trace.traceId === traceId) ?? null),
+    [traceId],
+  );
+  const trace = useAtomValue(selectedTraceAtom);
   const navigate = useNavigate();
   return {
     traceId: traceId ?? null,
     spanId: spanId ?? null,
-    selectSpan: (spanId: string | null) => {
+    selectSpan: (spanId: string | null, spanTab?: "links" | "referenced-by") => {
       if (!traceId) return;
       return spanId
         ? navigate({
             to: "/traces/$traceId/spans/$spanId",
             params: { traceId, spanId },
-            search: true,
+            search: (previous) => ({
+              ...previous,
+              link: undefined,
+              ...(spanTab ? { spanTab } : {}),
+            }),
           })
-        : navigate({ to: "/traces/$traceId", params: { traceId }, search: true });
+        : navigate({
+            to: "/traces/$traceId",
+            params: { traceId },
+            search: (previous) => ({ ...previous, spanTab: undefined, link: undefined }),
+          });
     },
-    trace: traces.find((trace) => trace.traceId === traceId) ?? null,
+    trace,
     selectTrace: (trace: TraceData | null) =>
       trace
-        ? navigate({ to: "/traces/$traceId", params: { traceId: trace.traceId }, search: true })
-        : navigate({ to: "/traces", search: true }),
+        ? navigate({
+            to: "/traces/$traceId",
+            params: { traceId: trace.traceId },
+            search: (previous) => ({ ...previous, spanTab: undefined, link: undefined }),
+          })
+        : navigate({
+            to: "/traces",
+            search: (previous) => ({ ...previous, spanTab: undefined, link: undefined }),
+          }),
   };
 }
 export function useMetricSelection() {
@@ -139,8 +175,7 @@ export function useLogSelection() {
 export function useRelatedSignals() {
   const navigate = useNavigate();
   const router = useRouter();
-  const search = useSearch({ strict: false });
-  const windowSearch = eventWindowSearch(eventWindowFromSearch(search));
+  const windowSearch = () => eventWindowSearch(eventWindowFromSearch(router.state.location.search));
   return {
     navigateToTrace: (traceId: string) =>
       navigate({
@@ -148,7 +183,7 @@ export function useRelatedSignals() {
         params: { traceId },
         search: {
           ...router.options.context.tabHistory.destinations.traces?.search,
-          ...windowSearch,
+          ...windowSearch(),
         },
       }),
     navigateToLogs: (traceId: string) => {
@@ -159,7 +194,7 @@ export function useRelatedSignals() {
       );
       return navigate({
         to: "/logs",
-        search: { ...previous, ...filterQuerySearch(query), ...windowSearch },
+        search: { ...previous, ...filterQuerySearch(query), ...windowSearch() },
       });
     },
   };

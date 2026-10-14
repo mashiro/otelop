@@ -4,7 +4,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TraceAddFilter, TraceFilterBar } from "./trace-filter-bar";
 import { useSignalQuery, useTimeWindow, useTraceSelection } from "@/hooks/use-signal-route";
-import { useAtomValue } from "jotai";
+import { atom, useAtomValue, useStore } from "jotai";
 import { useMemo } from "react";
 import { traceCountAtom, tracesAtom, renderWindowMaxAtom } from "@/stores/telemetry";
 import { createFilteredTracesAtom } from "@/stores/filters";
@@ -32,16 +32,26 @@ import { SIGNALS } from "@/lib/signals";
 import { traceStatusTone } from "@/lib/tones";
 import type { TraceData } from "@/types/telemetry";
 
+const hasTracesAtom = atom((get) => get(traceCountAtom) > 0 || get(tracesAtom).length > 0);
+const hiddenPresenceAtom = atom(true);
+
 export function TraceList() {
-  const allTraces = useAtomValue(tracesAtom);
-  const traceCount = useAtomValue(traceCountAtom);
   const { state, search, setText } = useSignalQuery("traces");
-  const traces = useAtomValue(useMemo(() => createFilteredTracesAtom(search), [search]));
   const {
     traceId: selectedTraceId,
     trace: selectedTrace,
     selectTrace: setSelectedTrace,
   } = useTraceSelection();
+  const store = useStore();
+  const filteredRowsAtom = useMemo(() => createFilteredTracesAtom(search), [search]);
+  // Keep the browsing anchor and page session mounted, but stop subscribing
+  // to list arrivals while detail is visible. Returning resumes current rows.
+  const displayedRowsAtom = useMemo(
+    () => (selectedTraceId ? atom(store.get(filteredRowsAtom)) : filteredRowsAtom),
+    [selectedTraceId, filteredRowsAtom, store],
+  );
+  const traces = useAtomValue(displayedRowsAtom);
+  const hasTraces = useAtomValue(selectedTraceId ? hiddenPresenceAtom : hasTracesAtom);
   const [window] = useTimeWindow();
   const page = useTraceListPage(window, search);
   const traceById = useTraceById(selectedTraceId, selectedTrace);
@@ -73,7 +83,7 @@ export function TraceList() {
     );
   }
 
-  if (traceCount === 0 && allTraces.length === 0 && !search) {
+  if (!hasTraces && !search) {
     return <EmptyState signal={SIGNALS.traces} />;
   }
 

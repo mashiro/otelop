@@ -38,6 +38,7 @@ function retainedTrace(traceId = "outside-page"): NonNullable<TraceByIdQuery["tr
     traceId,
     serviceName: "api",
     spanCount: 1,
+    linkCount: 0,
     startTime: span.startTime,
     durationMs: 12,
     rootSpan: {

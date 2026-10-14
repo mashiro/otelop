@@ -4,9 +4,10 @@ import { useEffect } from "react";
 import { useSetAtom } from "jotai";
 import { graphql } from "@/gql";
 import { gqlClient } from "@/lib/graphql";
-import { mergeTraceSpansAtom } from "@/stores/telemetry";
+import { replaceTraceSpansAtom } from "@/stores/telemetry";
 import { toSpan } from "@/lib/span-mapping";
-import type { TraceData } from "@/types/telemetry";
+import { useTelemetryQueryUpdates, telemetryRefreshOptions } from "./use-telemetry-query-updates";
+import type { TraceData, TraceDeleteData } from "@/types/telemetry";
 
 const TraceSpansQuery = graphql(`
   query TraceSpans($traceId: ID!) {
@@ -19,19 +20,26 @@ const TraceSpansQuery = graphql(`
 `);
 
 export function useTraceSpans(trace: TraceData | null): void {
-  const mergeSpans = useSetAtom(mergeTraceSpansAtom);
+  const replaceSpans = useSetAtom(replaceTraceSpansAtom);
   const traceId = trace?.traceId;
-  const needsSpans = Boolean(trace && trace.spans.length < trace.spanCount);
+  const queryKey = ["trace-spans", traceId] as const;
   const { data, isFetching } = useQuery(
     {
-      queryKey: ["trace-spans", traceId, trace?.spanCount],
+      queryKey,
       queryFn: () => gqlClient.request(TraceSpansQuery, { traceId: traceId! }),
-      enabled: needsSpans,
+      enabled: Boolean(traceId),
+      ...telemetryRefreshOptions,
     },
     queryClient,
   );
+  useTelemetryQueryUpdates(
+    queryKey,
+    (message) =>
+      (message.type === "traces" || message.type === "trace-deletes") &&
+      (message.data as TraceDeleteData).traceId === traceId,
+  );
   useEffect(() => {
-    if (needsSpans && !isFetching && traceId && data?.trace)
-      mergeSpans({ traceId, spans: data.trace.spans.map(toSpan) });
-  }, [data, isFetching, needsSpans, traceId, mergeSpans]);
+    if (!isFetching && traceId && data)
+      replaceSpans({ traceId, spans: data.trace?.spans.map(toSpan) ?? [] });
+  }, [data, isFetching, traceId, replaceSpans]);
 }

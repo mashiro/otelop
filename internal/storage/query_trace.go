@@ -21,6 +21,7 @@ type queryContexter interface {
 // store package's TraceData.Merge. The write path maintains it incrementally;
 // spans remain the source of truth for repair and retention rebuilds.
 type TraceSummary struct {
+	LinkCount   int
 	TraceID     string
 	StartTime   time.Time
 	FirstSeen   time.Time
@@ -51,20 +52,24 @@ type TraceCursor struct {
 // SpanDetail is one span joined with its resource, as returned by
 // TraceByID/TracesPage detail queries.
 type SpanDetail struct {
-	TraceID       string
-	SpanID        string
-	ParentSpanID  string
-	Name          string
-	Kind          string
-	StartTS       time.Time
-	EndTS         time.Time
-	Duration      time.Duration
-	StatusCode    string
-	StatusMessage string
-	Attributes    map[string]any
-	Events        []SpanEventRow
-	ServiceName   string
-	Resource      map[string]any
+	Flags             *uint32
+	TraceState        *string
+	LinkCount         int
+	DroppedLinksCount uint32
+	TraceID           string
+	SpanID            string
+	ParentSpanID      string
+	Name              string
+	Kind              string
+	StartTS           time.Time
+	EndTS             time.Time
+	Duration          time.Duration
+	StatusCode        string
+	StatusMessage     string
+	Attributes        map[string]any
+	Events            []SpanEventRow
+	ServiceName       string
+	Resource          map[string]any
 }
 
 // TraceDetail is a trace summary plus every one of its (deduped) spans,
@@ -98,7 +103,7 @@ const tracesPageResultQuery = `
 SELECT
 	p.trace_id, p.start_ts, p.end_ts, p.span_count, p.has_error, p.first_seen,
 	COALESCE(root_res.service_name, earliest_res.service_name) AS service_name,
-	p.root_name, p.root_kind, p.root_status_code, p.root_start_ts, p.root_end_ts
+	p.root_name, p.root_kind, p.root_status_code, p.root_start_ts, p.root_end_ts, p.link_count
 FROM page_ids p
 LEFT JOIN resources root_res ON root_res.resource_hash = p.root_resource_hash
 LEFT JOIN resources earliest_res ON earliest_res.resource_hash = p.earliest_resource_hash
@@ -186,7 +191,7 @@ func (s *Storage) TracesPage(ctx context.Context, from, to time.Time, after *Tra
 		)
 		if err := rows.Scan(
 			&t.TraceID, &t.StartTime, &endTime, &t.SpanCount, &t.HasError, &t.FirstSeen,
-			&t.ServiceName, &rootName, &rootKind, &rootStatusCode, &rootStartTS, &rootEndTS,
+			&t.ServiceName, &rootName, &rootKind, &rootStatusCode, &rootStartTS, &rootEndTS, &t.LinkCount,
 		); err != nil {
 			return nil, false, fmt.Errorf("storage: scan trace summary: %w", err)
 		}
@@ -225,6 +230,7 @@ agg AS (
 		min(start_ts)                  AS start_time,
 		max(end_ts)                    AS end_time,
 		count(*)                       AS span_count,
+ sum(link_count) AS link_count,
 		bool_or(status_code = 'Error') AS has_error
 	FROM deduped
 	GROUP BY trace_id
@@ -264,7 +270,7 @@ earliest AS (
 SELECT
 	agg.trace_id, agg.start_time, agg.end_time, agg.span_count, agg.has_error,
 	COALESCE(root_res.service_name, earliest_res.service_name) AS service_name,
-	roots.root_name, roots.root_kind, roots.root_status_code, roots.root_start_ts, roots.root_end_ts
+	roots.root_name, roots.root_kind, roots.root_status_code, roots.root_start_ts, roots.root_end_ts, agg.link_count
 FROM agg
 LEFT JOIN roots USING (trace_id)
 LEFT JOIN earliest USING (trace_id)
@@ -285,7 +291,7 @@ deduped AS (
 const traceSummariesWithRowsQuery = `
 WITH incoming(
 	trace_id, span_id, parent_span_id, name, kind, start_ts, end_ts,
-	status_code, resource_hash, ingested_at
+	status_code, resource_hash, ingested_at, link_count
 ) AS (VALUES %s),
 requested AS (
 	SELECT DISTINCT trace_id FROM incoming
@@ -293,7 +299,7 @@ requested AS (
 combined AS (
 	SELECT
 		s.trace_id, s.span_id, s.parent_span_id, s.name, s.kind, s.start_ts,
-		s.end_ts, s.status_code, s.resource_hash, s.ingested_at
+		s.end_ts, s.status_code, s.resource_hash, s.ingested_at, s.link_count
 	FROM spans s
 	JOIN requested r USING (trace_id)
 	UNION ALL
@@ -357,13 +363,13 @@ func (s *Storage) traceSummariesWithRows(ctx context.Context, q queryContexter, 
 	values := make([]string, len(incoming))
 	args := make([]any, 0, len(incoming)*10)
 	for i, row := range incoming {
-		values[i] = "(?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS UBIGINT), ?)"
+		values[i] = "(?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS UBIGINT), ?, ?)"
 		args = append(args,
 			row.TraceID, row.SpanID, row.ParentSpanID, row.Name, row.Kind,
 			duckdb.Typed(row.StartTS, duckdb.TYPE_TIMESTAMP_NS),
 			duckdb.Typed(row.EndTS, duckdb.TYPE_TIMESTAMP_NS),
 			row.StatusCode, strconv.FormatUint(row.ResourceHash, 10),
-			duckdb.Typed(ingestedAt, duckdb.TYPE_TIMESTAMP_NS),
+			duckdb.Typed(ingestedAt, duckdb.TYPE_TIMESTAMP_NS), len(row.Links),
 		)
 	}
 	query := fmt.Sprintf(traceSummariesWithRowsQuery, strings.Join(values, ","))
@@ -387,7 +393,7 @@ func scanTraceSummaries(rows *sql.Rows, capacity int) ([]TraceSummary, error) {
 		)
 		if err := rows.Scan(
 			&t.TraceID, &t.StartTime, &endTime, &t.SpanCount, &t.HasError,
-			&t.ServiceName, &rootName, &rootKind, &rootStatusCode, &rootStartTS, &rootEndTS,
+			&t.ServiceName, &rootName, &rootKind, &rootStatusCode, &rootStartTS, &rootEndTS, &t.LinkCount,
 		); err != nil {
 			return nil, fmt.Errorf("storage: scan trace summary: %w", err)
 		}
@@ -407,16 +413,16 @@ func scanTraceSummaries(rows *sql.Rows, capacity int) ([]TraceSummary, error) {
 	return items, nil
 }
 
-const traceSpansQuery = `
+const spanDetailsQuery = `
 WITH deduped AS (
 	SELECT * FROM spans
-	WHERE trace_id = ?
+	WHERE %s
 	QUALIFY row_number() OVER (PARTITION BY trace_id, span_id ORDER BY ingested_at) = 1
 )
 SELECT
 	d.trace_id, d.span_id, d.parent_span_id, d.name, d.kind, d.start_ts, d.end_ts,
 	d.status_code, d.status_message, d.attributes::VARCHAR, d.events::VARCHAR,
-	r.service_name, r.attributes::VARCHAR
+	r.service_name, r.attributes::VARCHAR, d.link_count, d.dropped_links_count, d.flags, d.trace_state
 FROM deduped d
 JOIN resources r ON r.resource_hash = d.resource_hash
 ORDER BY d.start_ts
@@ -431,46 +437,15 @@ func (s *Storage) TraceByID(ctx context.Context, traceID string) (detail *TraceD
 	started := time.Now()
 	defer func() { s.recordQuery(ctx, "query_trace", started, err) }()
 	s.traceByIDCalls.Add(1)
-	rows, err := s.DB().QueryContext(ctx, traceSpansQuery, traceID)
+	rows, err := s.DB().QueryContext(ctx, fmt.Sprintf(spanDetailsQuery, "trace_id = ?"), traceID)
 	if err != nil {
 		return nil, false, fmt.Errorf("storage: query trace spans: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
 
-	spans := make([]SpanDetail, 0)
-	for rows.Next() {
-		var (
-			sp                  SpanDetail
-			attrsRaw, eventsRaw *string
-			resourceRaw         *string
-		)
-		if err := rows.Scan(
-			&sp.TraceID, &sp.SpanID, &sp.ParentSpanID, &sp.Name, &sp.Kind, &sp.StartTS, &sp.EndTS,
-			&sp.StatusCode, &sp.StatusMessage, &attrsRaw, &eventsRaw,
-			&sp.ServiceName, &resourceRaw,
-		); err != nil {
-			return nil, false, fmt.Errorf("storage: scan span detail: %w", err)
-		}
-		sp.Duration = sp.EndTS.Sub(sp.StartTS)
-		attrs, err := decodeAttrs(attrsRaw)
-		if err != nil {
-			return nil, false, err
-		}
-		sp.Attributes = attrs
-		resource, err := decodeAttrs(resourceRaw)
-		if err != nil {
-			return nil, false, err
-		}
-		sp.Resource = resource
-		events, err := decodeSpanEvents(eventsRaw)
-		if err != nil {
-			return nil, false, err
-		}
-		sp.Events = events
-		spans = append(spans, sp)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, false, fmt.Errorf("storage: iterate trace spans: %w", err)
+	spans, err := scanSpanDetails(rows)
+	if err != nil {
+		return nil, false, err
 	}
 	if len(spans) == 0 {
 		return nil, false, nil
@@ -481,6 +456,60 @@ func (s *Storage) TraceByID(ctx context.Context, traceID string) (detail *TraceD
 		Spans:        spans,
 	}
 	return detail, true, nil
+}
+
+// SpanByID reads only the requested span, including its resource.
+func (s *Storage) SpanByID(ctx context.Context, traceID, spanID string) (*SpanDetail, error) {
+	query := fmt.Sprintf(spanDetailsQuery, "trace_id = ? AND span_id = ?")
+	rows, err := s.DB().QueryContext(ctx, query, traceID, spanID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	spans, err := scanSpanDetails(rows)
+	if err != nil || len(spans) == 0 {
+		return nil, err
+	}
+	return &spans[0], nil
+}
+
+func scanSpanDetails(rows *sql.Rows) ([]SpanDetail, error) {
+	spans := make([]SpanDetail, 0)
+	for rows.Next() {
+		var (
+			sp                  SpanDetail
+			attrsRaw, eventsRaw *string
+			resourceRaw         *string
+		)
+		if err := rows.Scan(
+			&sp.TraceID, &sp.SpanID, &sp.ParentSpanID, &sp.Name, &sp.Kind, &sp.StartTS, &sp.EndTS,
+			&sp.StatusCode, &sp.StatusMessage, &attrsRaw, &eventsRaw,
+			&sp.ServiceName, &resourceRaw, &sp.LinkCount, &sp.DroppedLinksCount, &sp.Flags, &sp.TraceState,
+		); err != nil {
+			return nil, fmt.Errorf("storage: scan span detail: %w", err)
+		}
+		sp.Duration = sp.EndTS.Sub(sp.StartTS)
+		attrs, err := decodeAttrs(attrsRaw)
+		if err != nil {
+			return nil, err
+		}
+		sp.Attributes = attrs
+		resource, err := decodeAttrs(resourceRaw)
+		if err != nil {
+			return nil, err
+		}
+		sp.Resource = resource
+		events, err := decodeSpanEvents(eventsRaw)
+		if err != nil {
+			return nil, err
+		}
+		sp.Events = events
+		spans = append(spans, sp)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("storage: iterate trace spans: %w", err)
+	}
+	return spans, nil
 }
 
 // decodeSpanEvents decodes a spans.events JSON column (cast to VARCHAR),
@@ -515,6 +544,7 @@ func summarizeSpans(traceID string, spans []SpanDetail) TraceSummary {
 	var root *SpanDetail
 	for i := range spans {
 		sp := &spans[i]
+		t.LinkCount += sp.LinkCount
 		if sp.StartTS.Before(t.StartTime) {
 			t.StartTime = sp.StartTS
 		}

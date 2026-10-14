@@ -239,7 +239,7 @@ func TestBroadcast_Traces_WireShapeMatchesFrontendContract(t *testing.T) {
 	trace := rec.traces[0]
 
 	keys := keySet(t, trace)
-	requireExactKeys(t, keys, "traceId", "rootSpan", "spans", "serviceName", "searchValues", "spanCount", "startTime", "duration", "hasError")
+	requireExactKeys(t, keys, "traceId", "rootSpan", "spans", "serviceName", "searchValues", "linkCount", "spanCount", "startTime", "duration", "hasError")
 
 	if trace.TraceID != pcommon.TraceID([16]byte{1}).String() {
 		t.Errorf("traceId = %v", trace.TraceID)
@@ -525,5 +525,24 @@ func TestBroadcast_Logs_WireShapeMatchesFrontendContract(t *testing.T) {
 	}
 	if log.ID == "" {
 		t.Errorf("id must be non-empty")
+	}
+}
+
+func TestBroadcastLinkTargetsAreScopedToCommittedBatch(t *testing.T) {
+	target := storage.SpanLinkRow{TraceID: pcommon.TraceID{2}.String(), SpanID: pcommon.SpanID{3}.String()}
+	batch := storage.TraceBatch{
+		Spans:     []storage.SpanRow{{TraceID: "source", Links: []storage.SpanLinkRow{target, target, {}}}},
+		Summaries: []storage.TraceSummary{{TraceID: "source", LinkCount: 3}, {TraceID: "unrelated", LinkCount: 100}},
+	}
+	var messages []*TraceData
+	broadcastTraces(context.Background(), batch, func(_ context.Context, _ SignalType, data any) { messages = append(messages, data.(*TraceData)) })
+	if len(messages) != 2 || len(messages[0].LinkTargets) != 1 || messages[0].LinkTargets[0].SpanID != target.SpanID || len(messages[1].LinkTargets) != 0 {
+		t.Fatalf("unexpected targets: %+v %+v", messages[0], messages[1])
+	}
+	batch.Spans = nil
+	messages = nil
+	broadcastTraces(context.Background(), batch, func(_ context.Context, _ SignalType, data any) { messages = append(messages, data.(*TraceData)) })
+	if len(messages[0].LinkTargets) != 0 {
+		t.Fatal("historical links triggered a notification")
 	}
 }

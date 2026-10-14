@@ -1,3 +1,6 @@
+import { useSearch, useNavigate, useElementScrollRestoration } from "@tanstack/react-router";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { HelpTooltip } from "@/components/common/help-tooltip";
 import { useTraceSelection, useRelatedSignals } from "@/hooks/use-signal-route";
 import { useFilterByAction } from "@/hooks/use-filter-by-action";
@@ -14,6 +17,7 @@ import { DetailSidebar } from "@/components/common/detail-sidebar";
 import { Badge } from "@/components/ui/badge";
 import { Field, Section } from "@/components/common/detail-field";
 import type { SpanData, TraceData } from "@/types/telemetry";
+import { SpanLinks } from "./span-links";
 import { TraceOverview } from "./trace-overview";
 import { traceTimeline, type TimelineRange } from "./trace-timeline";
 import { useState } from "react";
@@ -21,18 +25,26 @@ import { useState } from "react";
 export function TraceDetail() {
   const { trace, selectTrace: setSelected } = useTraceSelection();
 
-  // The trace list only loads summaries (see use-initial-load.ts); backfill
-  // this trace's full span data the moment its detail view is open.
-  useTraceSpans(trace);
-
   if (!trace) return null;
-  return <TraceDetailView key={trace.traceId} trace={trace} onClose={() => setSelected(null)} />;
+  return (
+    <>
+      <TraceSpansSync trace={trace} />
+      <TraceDetailView key={trace.traceId} trace={trace} onClose={() => setSelected(null)} />
+    </>
+  );
+}
+
+// Query loading transitions belong to synchronization, not the waterfall view.
+function TraceSpansSync({ trace }: { trace: TraceData }) {
+  useTraceSpans(trace);
+  return null;
 }
 
 function TraceDetailView({ trace, onClose }: { trace: TraceData; onClose: () => void }) {
   const { navigateToLogs } = useRelatedSignals();
   const { spanId: selectedSpanId, selectSpan: setSelectedSpanId } = useTraceSelection();
   const selectedSpan = trace.spans.find((span) => span.spanId === selectedSpanId) ?? null;
+
   const [range, setRange] = useState<TimelineRange>([0, 100]);
 
   return (
@@ -91,14 +103,19 @@ function TraceDetailView({ trace, onClose }: { trace: TraceData; onClose: () => 
         <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
           <SpanWaterfall
             trace={trace}
-            onSelectSpan={(span) => setSelectedSpanId(span.spanId)}
+            onSelectSpan={(span) => {
+              void setSelectedSpanId(span.spanId);
+            }}
+            onOpenLinks={(span) => {
+              void setSelectedSpanId(span.spanId, "links");
+            }}
             selectedSpan={selectedSpan}
             range={range}
           />
         </div>
         {selectedSpan && (
-          <SpanDetail
-            key={selectedSpan.spanId}
+          <SpanInspector
+            key={`${selectedSpan.traceId}/${selectedSpan.spanId}`}
             span={selectedSpan}
             traceStart={traceTimeline(trace).start}
             onClose={() => setSelectedSpanId(null)}
@@ -109,7 +126,7 @@ function TraceDetailView({ trace, onClose }: { trace: TraceData; onClose: () => 
   );
 }
 
-function SpanDetail({
+function SpanInspector({
   span,
   traceStart,
   onClose,
@@ -118,28 +135,84 @@ function SpanDetail({
   traceStart: bigint;
   onClose: () => void;
 }) {
-  const { filterBy, filterAction: action } = useFilterByAction("traces");
-
+  const { filterAction } = useFilterByAction("traces");
+  const view = useSearch({
+    from: "/traces/$traceId/spans/$spanId",
+    select: (search) => search.spanTab ?? "details",
+  });
+  const navigate = useNavigate();
+  const scrollEntry = useElementScrollRestoration({ id: "span-information" });
   return (
     <DetailSidebar
-      title="Span Details"
+      title={span.name}
       tone="trace"
       onClose={onClose}
       closeLabel="Close span details"
-      actions={<CopyJsonButton data={span} />}
+      scrollable={false}
+      actions={
+        <>
+          {filterAction("name", span.name)}
+          <CopyJsonButton data={span} />
+        </>
+      }
     >
-      <div className="space-y-2">
-        <div className="group/filter-field flex items-start justify-between gap-2">
-          <h4 className="min-w-0 break-words text-sm font-semibold">{span.name}</h4>
-          {action("name", span.name)}
+      <Tabs
+        value={view}
+        onValueChange={(value) =>
+          void navigate({
+            to: ".",
+            search: (previous) => ({
+              ...previous,
+              link: undefined,
+              spanTab: value === "links" || value === "referenced-by" ? value : undefined,
+            }),
+          })
+        }
+        className="min-h-0 flex-1 gap-0"
+      >
+        <div className="shrink-0 border-b border-border px-4 pb-1">
+          <TabsList variant="line" aria-label="Span information">
+            <TabsTrigger value="details">Details</TabsTrigger>
+            <TabsTrigger value="links">Links ({span.linkCount})</TabsTrigger>
+            <TabsTrigger value="referenced-by">Referenced by</TabsTrigger>
+          </TabsList>
         </div>
-        {span.statusMessage && (
-          <div className="group/filter-field flex items-start justify-between gap-2">
-            <p className="min-w-0 break-words text-xs text-destructive">{span.statusMessage}</p>
-            {action("status_message", span.statusMessage)}
-          </div>
-        )}
-      </div>
+        <TabsContent key={view} value={view} className="flex min-h-0 flex-col">
+          <ScrollArea
+            className="min-h-0 flex-1"
+            viewportProps={{
+              ref: (node) => {
+                if (node && scrollEntry) node.scrollTop = scrollEntry.scrollY;
+              },
+              "data-scroll-restoration-id": "span-information",
+              "aria-label": "Span information content",
+            }}
+          >
+            <div className="space-y-5 px-4 py-3">
+              {view === "details" ? (
+                <SpanDetail span={span} traceStart={traceStart} />
+              ) : (
+                <SpanLinks span={span} incoming={view === "referenced-by"} />
+              )}
+            </div>
+          </ScrollArea>
+        </TabsContent>
+      </Tabs>
+    </DetailSidebar>
+  );
+}
+
+function SpanDetail({ span, traceStart }: { span: SpanData; traceStart: bigint }) {
+  const { filterBy, filterAction: action } = useFilterByAction("traces");
+
+  return (
+    <>
+      {span.statusMessage && (
+        <div className="group/filter-field flex items-start justify-between gap-2">
+          <p className="min-w-0 break-words text-xs text-destructive">{span.statusMessage}</p>
+          {action("status_message", span.statusMessage)}
+        </div>
+      )}
       <div className="space-y-2.5">
         <Field
           action={action("service_name", span.serviceName)}
@@ -198,6 +271,6 @@ function SpanDetail({
           </Section>
         ))}
       </Section>
-    </DetailSidebar>
+    </>
   );
 }

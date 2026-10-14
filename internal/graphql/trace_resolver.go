@@ -13,8 +13,7 @@ import (
 // TraceResolver carries a storage handle so lazily-resolved fields (spans,
 // rootSpan, logs) can reach back for correlated data without threading extra
 // state through. Constructed either from a list-page TraceSummary (spans not
-// yet loaded — TracesPage doesn't fetch them) or from an already-fetched
-// TraceDetail (the `trace(traceId)` query, or a SpanResolver's back-edge);
+// yet loaded) or from an already-fetched TraceDetail (a SpanResolver's back-edge);
 // loadDetail lazily fetches+memoizes the full detail exactly once so that
 // requesting both rootSpan and spans on the same trace issues one query, not
 // two — Go maps/slice field resolution can run concurrently, so the fetch is
@@ -59,6 +58,8 @@ func (r *TraceResolver) loadDetail(ctx context.Context) (*storage.TraceDetail, e
 	})
 	return r.detail, r.detailErr
 }
+
+func (r *TraceResolver) LinkCount() int32 { return int32(r.summary.LinkCount) }
 
 func (r *TraceResolver) TraceID() gql.ID     { return gql.ID(r.summary.TraceID) }
 func (r *TraceResolver) ServiceName() string { return r.summary.ServiceName }
@@ -110,16 +111,9 @@ func (r *TraceResolver) Logs(ctx context.Context) ([]*LogResolver, error) {
 // and span.parent resolve without re-querying storage.
 //
 // It has a second, "owner-backed" mode used only for a TraceResolver's
-// rootSpan: trace/s are nil and owner points back at the TraceResolver
-// instead. Name/Kind/StatusCode/DurationMs are then read straight from
-// owner's TraceSummary (the fields TracesPage's SQL already computed), and
-// ParentSpanID/TraceID/ServiceName are derivable without a fetch too (a root
-// span is parentless by definition, and TraceSummary.ServiceName is already
-// the root span's own service — see query_trace.go's summarizeSpans). Only
-// fields the summary genuinely doesn't carry (SpanID, StartTime, EndTime,
-// StatusMessage, Attributes, Resource, Events, Parent) fall back to
-// owner.loadDetail — the same TraceByID call Spans() would trigger anyway,
-// just deferred until a query actually asks for one of them.
+// rootSpan: trace/s are nil and owner supplies summary fields without a fetch.
+// Trace.span resolves one stored span with s + owner; the trace and parent
+// edges remain lazy. Trace.spans supplies s + trace for traversal in memory.
 type SpanResolver struct {
 	storage *storage.Storage
 	trace   *storage.TraceDetail
@@ -261,6 +255,9 @@ func (r *SpanResolver) Events(ctx context.Context) ([]*SpanEventResolver, error)
 // Trace is the edge back to the owning trace — always present because spans
 // are only ever returned via a Trace in the schema.
 func (r *SpanResolver) Trace() *TraceResolver {
+	if r.owner != nil {
+		return r.owner
+	}
 	if r.s != nil {
 		return newTraceResolverFromDetail(r.storage, r.trace)
 	}
@@ -268,19 +265,20 @@ func (r *SpanResolver) Trace() *TraceResolver {
 }
 
 // Parent is the edge to the parent span within the same trace. Returns nil
-// for root spans (ParentSpanID empty, which every owner-mode span is by
-// construction) or when the parent has not been buffered under the same
-// trace.
-func (r *SpanResolver) Parent() *SpanResolver {
+// for root spans or when the parent is not retained in the same trace.
+func (r *SpanResolver) Parent(ctx context.Context) (*SpanResolver, error) {
 	if r.s == nil || r.s.ParentSpanID == "" {
-		return nil
+		return nil, nil
+	}
+	if r.owner != nil {
+		return r.owner.Span(ctx, struct{ SpanID gql.ID }{gql.ID(r.s.ParentSpanID)})
 	}
 	for i := range r.trace.Spans {
 		if r.trace.Spans[i].SpanID == r.s.ParentSpanID {
-			return &SpanResolver{storage: r.storage, trace: r.trace, s: &r.trace.Spans[i]}
+			return &SpanResolver{storage: r.storage, trace: r.trace, s: &r.trace.Spans[i]}, nil
 		}
 	}
-	return nil
+	return nil, nil
 }
 
 type SpanEventResolver struct {
@@ -300,4 +298,12 @@ func attrsToJSON(m map[string]any) JSONMap {
 		return JSONMap{}
 	}
 	return JSONMap(m)
+}
+
+func (r *TraceResolver) Span(ctx context.Context, args struct{ SpanID gql.ID }) (*SpanResolver, error) {
+	sp, err := r.storage.SpanByID(ctx, r.id, string(args.SpanID))
+	if err != nil || sp == nil {
+		return nil, err
+	}
+	return &SpanResolver{storage: r.storage, owner: r, s: sp}, nil
 }

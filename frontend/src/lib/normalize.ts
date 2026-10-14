@@ -43,7 +43,14 @@ export function normalizeSpan(span: SpanDataWire): SpanData {
 // startEpochNs.
 export function normalizeTrace(trace: TraceDataWire): TraceData {
   return {
-    ...trace,
+    traceId: trace.traceId,
+    rootSpan: trace.rootSpan,
+    linkCount: trace.linkCount,
+    serviceName: trace.serviceName,
+    searchValues: trace.searchValues,
+    spanCount: trace.spanCount,
+    startTime: trace.startTime,
+    duration: trace.duration,
     spans: trace.spans.map(normalizeSpan),
     startEpochNs: parseEpochNs(trace.startTime),
   };
