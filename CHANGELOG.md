@@ -1,5 +1,24 @@
 # Changelog
 
+## [2.4.0](https://github.com/mashiro/otelop/compare/v2.3.0...v2.4.0) (2026-10-15)
+
+
+### Features
+
+* **frontend:** improve and unify telemetry detail UI ([#402](https://github.com/mashiro/otelop/issues/402)) ([4cf9104](https://github.com/mashiro/otelop/commit/4cf9104f3076a2b28b5a68cc59cd478045847ea0))
+* **traces:** support span links and reference navigation ([#401](https://github.com/mashiro/otelop/issues/401)) ([dabc2a7](https://github.com/mashiro/otelop/commit/dabc2a7625bb9e1afdc0662f4d15ebcd25694100))
+
+
+### Bug Fixes
+
+* **deps:** update all non-major dependencies ([#396](https://github.com/mashiro/otelop/issues/396)) ([ac4e7c7](https://github.com/mashiro/otelop/commit/ac4e7c7fc87189a2d9d738c1ad8c4f75ccac41fd))
+* **deps:** update all non-major dependencies ([#399](https://github.com/mashiro/otelop/issues/399)) ([e011e53](https://github.com/mashiro/otelop/commit/e011e53f191222918219357e56314a9b0a50136e))
+* **deps:** update all non-major dependencies ([#400](https://github.com/mashiro/otelop/issues/400)) ([79456ae](https://github.com/mashiro/otelop/commit/79456ae0e8df8e51b23c57026645accc1e14d975))
+* **deps:** update dependency @tanstack/react-query to v5.104.2 ([#405](https://github.com/mashiro/otelop/issues/405)) ([9df6c01](https://github.com/mashiro/otelop/commit/9df6c0129324a92ab5a6682e6c3e66762efd34c3))
+* **deps:** update dependency lucide-react to v1.53.0 ([#398](https://github.com/mashiro/otelop/issues/398)) ([37bb0d9](https://github.com/mashiro/otelop/commit/37bb0d95d878f0be63c4540a0fa16f8c2815dc3b))
+* **frontend:** comply with waterfall tooltip styling rules ([#403](https://github.com/mashiro/otelop/issues/403)) ([f9a6edb](https://github.com/mashiro/otelop/commit/f9a6edb048651473a9978fad1fea49f5a41eebd2))
+* **frontend:** unify detail sections with accordions ([#404](https://github.com/mashiro/otelop/issues/404)) ([a556466](https://github.com/mashiro/otelop/commit/a55646665e9802551f5c54638208330d8c151014))
+
 ## [2.3.0](https://github.com/mashiro/otelop/compare/v2.2.1...v2.3.0) (2026-10-09)
 
 
