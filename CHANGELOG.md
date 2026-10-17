@@ -1,5 +1,15 @@
 # Changelog
 
+## [2.4.1](https://github.com/mashiro/otelop/compare/v2.4.0...v2.4.1) (2026-10-17)
+
+
+### Bug Fixes
+
+* **deps:** update all non-major dependencies ([#410](https://github.com/mashiro/otelop/issues/410)) ([bfcdeca](https://github.com/mashiro/otelop/commit/bfcdeca8859b509eb31ae8ee0301bffd5bb3e7b7))
+* **deps:** update all non-major dependencies ([#411](https://github.com/mashiro/otelop/issues/411)) ([e2be575](https://github.com/mashiro/otelop/commit/e2be57551790e684286424e19923bef39a5250b2))
+* **deps:** update dependency @tanstack/react-router to v1.170.44 ([#408](https://github.com/mashiro/otelop/issues/408)) ([4adb7f4](https://github.com/mashiro/otelop/commit/4adb7f4de45539768b680ae803967373373d0c0a))
+* **deps:** update opentelemetry-collector ([#412](https://github.com/mashiro/otelop/issues/412)) ([680d4b4](https://github.com/mashiro/otelop/commit/680d4b418946c130fd2903ee0c004aadf391425d))
+
 ## [2.4.0](https://github.com/mashiro/otelop/compare/v2.3.0...v2.4.0) (2026-10-15)
 
 
