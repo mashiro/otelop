@@ -173,8 +173,8 @@ const (
 )
 
 // writerMsg is the single message type flowing through Storage.queue. Sync
-// and Sweep set done so the caller can block until the writer has processed
-// (or, for Sweep, actually run) the request; AddX messages leave done nil.
+// uses a barrier for completion; Sweep and Clear use done to return errors.
+// AddX messages need neither channel.
 type writerMsg struct {
 	ctx        context.Context
 	enqueuedAt time.Time
@@ -183,6 +183,7 @@ type writerMsg struct {
 	metrics    MetricBatch
 	logs       LogBatch
 	done       chan error
+	barrier    chan struct{}
 }
 
 // Storage is the DuckDB-backed telemetry store. A single writer goroutine
@@ -402,10 +403,10 @@ func (s *Storage) enqueue(msg writerMsg, what string) {
 	}
 }
 
-// enqueueBlocking submits a control message (Sync/Sweep) that must never be
-// silently dropped — unlike AddX batches, callers are explicitly waiting on
-// msg.done. It still respects the closed flag so a call racing Close is a
-// safe no-op rather than a send on a soon-to-be-closed channel.
+// enqueueBlocking submits a control message (Sync/Sweep/Clear) that must never
+// be silently dropped — unlike AddX batches, callers wait for completion.
+// It still respects the closed flag so a call racing Close is a safe no-op
+// rather than a send on a soon-to-be-closed channel.
 func (s *Storage) enqueueBlocking(msg writerMsg) bool {
 	if msg.ctx == nil {
 		msg.ctx = context.Background()
@@ -426,11 +427,11 @@ func (s *Storage) enqueueBlocking(msg writerMsg) bool {
 // this call. Intended for tests: AddTraces/AddMetrics/AddLogs return as soon
 // as the batch is queued, so assertions against the database need a barrier.
 func (s *Storage) Sync() {
-	done := make(chan error, 1)
-	if !s.enqueueBlocking(writerMsg{kind: msgSync, done: done}) {
+	barrier := make(chan struct{})
+	if !s.enqueueBlocking(writerMsg{kind: msgSync, barrier: barrier}) {
 		return
 	}
-	<-done
+	<-barrier
 }
 
 // Sweep runs one retention+max_size pass synchronously on the writer
@@ -538,7 +539,7 @@ func (s *Storage) run() {
 			// delivery (not just the write itself), since Sync is the
 			// barrier tests use to make async delivery deterministic.
 			s.awaitCommitDrain()
-			msg.done <- nil
+			close(msg.barrier)
 		case msgSweep:
 			msg.done <- s.performSweep(ctx)
 		case msgClear:
