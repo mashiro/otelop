@@ -3,13 +3,14 @@ description: Install and start otelop, send OTLP telemetry to it, and find the b
 ---
 # Getting started
 
-Install the latest release with Go or mise:
+Install the latest release with mise:
 
 ```sh
-go install github.com/mashiro/otelop/cmd/otelop@latest
-# or
 mise use -g github:mashiro/otelop
 ```
+
+Alternatively, prebuilt binaries for macOS and Linux are available from
+[GitHub Releases](https://github.com/mashiro/otelop/releases/latest).
 
 Start otelop as a background process:
 
