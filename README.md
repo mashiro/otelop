@@ -65,17 +65,19 @@ It's meant for the loop where you're writing instrumentation and just want to se
 
 ## Install
 
-With Go:
-
-```bash
-go install github.com/mashiro/otelop/cmd/otelop@latest
-```
-
 With mise:
 
 ```bash
 mise use -g github:mashiro/otelop
 ```
+
+From GitHub Releases:
+
+Download the archive for your OS and architecture from
+[the latest release](https://github.com/mashiro/otelop/releases/latest),
+extract it, and place the `otelop` binary in a directory on your `PATH`.
+Choose `darwin` for macOS or `linux` for Linux, and `arm64` for Apple Silicon
+or ARM64 systems, or `amd64` for Intel/AMD x86-64 systems.
 
 With Docker:
 
