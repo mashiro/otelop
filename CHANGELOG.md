@@ -1,5 +1,21 @@
 # Changelog
 
+## [2.4.1](https://github.com/mashiro/otelop/compare/v2.4.0...v2.4.1) (2026-10-23)
+
+
+### Bug Fixes
+
+* **deps:** update all non-major dependencies ([#410](https://github.com/mashiro/otelop/issues/410)) ([bfcdeca](https://github.com/mashiro/otelop/commit/bfcdeca8859b509eb31ae8ee0301bffd5bb3e7b7))
+* **deps:** update all non-major dependencies ([#411](https://github.com/mashiro/otelop/issues/411)) ([e2be575](https://github.com/mashiro/otelop/commit/e2be57551790e684286424e19923bef39a5250b2))
+* **deps:** update all non-major dependencies ([#413](https://github.com/mashiro/otelop/issues/413)) ([fb13bac](https://github.com/mashiro/otelop/commit/fb13bac1054f281c3d103799d4d02616fd71edb5))
+* **deps:** update all non-major dependencies ([#420](https://github.com/mashiro/otelop/issues/420)) ([a3cc07a](https://github.com/mashiro/otelop/commit/a3cc07ae564a6744895d6f3e5e80277f16e07bab))
+* **deps:** update all non-major dependencies ([#425](https://github.com/mashiro/otelop/issues/425)) ([969cbeb](https://github.com/mashiro/otelop/commit/969cbebbd6041ae199eb11721d45229fefbe4cff))
+* **deps:** update all non-major dependencies ([#426](https://github.com/mashiro/otelop/issues/426)) ([24e2912](https://github.com/mashiro/otelop/commit/24e2912f6c27d24a676dc09300fc0db2912db80c))
+* **deps:** update dependency @tanstack/react-query to v5.104.3 ([#415](https://github.com/mashiro/otelop/issues/415)) ([625997f](https://github.com/mashiro/otelop/commit/625997f47a0f3118751af31507f53d8dc82a77dc))
+* **deps:** update dependency @tanstack/react-router to v1.170.44 ([#408](https://github.com/mashiro/otelop/issues/408)) ([4adb7f4](https://github.com/mashiro/otelop/commit/4adb7f4de45539768b680ae803967373373d0c0a))
+* **deps:** update opentelemetry-collector ([#412](https://github.com/mashiro/otelop/issues/412)) ([680d4b4](https://github.com/mashiro/otelop/commit/680d4b418946c130fd2903ee0c004aadf391425d))
+* **store:** use a completion channel for sync barriers ([#424](https://github.com/mashiro/otelop/issues/424)) ([063ba37](https://github.com/mashiro/otelop/commit/063ba376f6cf468c341026239a8b3e21d0c78f42))
+
 ## [2.4.0](https://github.com/mashiro/otelop/compare/v2.3.0...v2.4.0) (2026-10-15)
 
 
