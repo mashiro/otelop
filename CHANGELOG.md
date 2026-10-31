@@ -1,5 +1,28 @@
 # Changelog
 
+## [2.4.1](https://github.com/mashiro/otelop/compare/v2.4.0...v2.4.1) (2026-10-31)
+
+
+### Bug Fixes
+
+* **deps:** update all non-major dependencies ([#410](https://github.com/mashiro/otelop/issues/410)) ([bfcdeca](https://github.com/mashiro/otelop/commit/bfcdeca8859b509eb31ae8ee0301bffd5bb3e7b7))
+* **deps:** update all non-major dependencies ([#411](https://github.com/mashiro/otelop/issues/411)) ([e2be575](https://github.com/mashiro/otelop/commit/e2be57551790e684286424e19923bef39a5250b2))
+* **deps:** update all non-major dependencies ([#413](https://github.com/mashiro/otelop/issues/413)) ([fb13bac](https://github.com/mashiro/otelop/commit/fb13bac1054f281c3d103799d4d02616fd71edb5))
+* **deps:** update all non-major dependencies ([#420](https://github.com/mashiro/otelop/issues/420)) ([a3cc07a](https://github.com/mashiro/otelop/commit/a3cc07ae564a6744895d6f3e5e80277f16e07bab))
+* **deps:** update all non-major dependencies ([#425](https://github.com/mashiro/otelop/issues/425)) ([969cbeb](https://github.com/mashiro/otelop/commit/969cbebbd6041ae199eb11721d45229fefbe4cff))
+* **deps:** update all non-major dependencies ([#426](https://github.com/mashiro/otelop/issues/426)) ([24e2912](https://github.com/mashiro/otelop/commit/24e2912f6c27d24a676dc09300fc0db2912db80c))
+* **deps:** update all non-major dependencies ([#428](https://github.com/mashiro/otelop/issues/428)) ([5422e07](https://github.com/mashiro/otelop/commit/5422e070a988c324f9749a7ff158982c65ce2c8a))
+* **deps:** update all non-major dependencies ([#431](https://github.com/mashiro/otelop/issues/431)) ([ffa2efa](https://github.com/mashiro/otelop/commit/ffa2efa0d3c585051102d3f25d967698f95092d7))
+* **deps:** update all non-major dependencies ([#439](https://github.com/mashiro/otelop/issues/439)) ([8db6f6c](https://github.com/mashiro/otelop/commit/8db6f6c6c88bd6e452819ac9bbcdb894cc8ad7dd))
+* **deps:** update dependency @tanstack/react-query to v5.104.3 ([#415](https://github.com/mashiro/otelop/issues/415)) ([625997f](https://github.com/mashiro/otelop/commit/625997f47a0f3118751af31507f53d8dc82a77dc))
+* **deps:** update dependency @tanstack/react-query to v5.105.0 ([#436](https://github.com/mashiro/otelop/issues/436)) ([cebad1c](https://github.com/mashiro/otelop/commit/cebad1cc22321de338afaa1d99d471dad23f4d4c))
+* **deps:** update dependency @tanstack/react-router to v1.170.44 ([#408](https://github.com/mashiro/otelop/issues/408)) ([4adb7f4](https://github.com/mashiro/otelop/commit/4adb7f4de45539768b680ae803967373373d0c0a))
+* **deps:** update dependency lucide-react to v1.63.0 ([#441](https://github.com/mashiro/otelop/issues/441)) ([3669b5a](https://github.com/mashiro/otelop/commit/3669b5a25a6b0d1323d3fb23143181756d648477))
+* **deps:** update module github.com/duckdb/duckdb-go/v2 to v2.20000.0 ([#430](https://github.com/mashiro/otelop/issues/430)) ([35b08ad](https://github.com/mashiro/otelop/commit/35b08ad1407ea0dce56e946dea229e2132612361))
+* **deps:** update opentelemetry-collector ([#412](https://github.com/mashiro/otelop/issues/412)) ([680d4b4](https://github.com/mashiro/otelop/commit/680d4b418946c130fd2903ee0c004aadf391425d))
+* **deps:** update opentelemetry-collector ([#437](https://github.com/mashiro/otelop/issues/437)) ([8a9765d](https://github.com/mashiro/otelop/commit/8a9765d08ae753d22abab27a4be82085882074ff))
+* **store:** use a completion channel for sync barriers ([#424](https://github.com/mashiro/otelop/issues/424)) ([063ba37](https://github.com/mashiro/otelop/commit/063ba376f6cf468c341026239a8b3e21d0c78f42))
+
 ## [2.4.0](https://github.com/mashiro/otelop/compare/v2.3.0...v2.4.0) (2026-10-15)
 
 
