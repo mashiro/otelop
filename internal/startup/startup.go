@@ -57,7 +57,11 @@ func (r Registration) checkLink() (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	if target != r.Path {
+	resolved := target
+	if !filepath.IsAbs(resolved) {
+		resolved = filepath.Join(filepath.Dir(r.linkPath()), resolved)
+	}
+	if filepath.Clean(resolved) != filepath.Clean(r.Path) {
 		return false, fmt.Errorf("startup link %s points to another unit: %s", r.linkPath(), target)
 	}
 	return true, nil

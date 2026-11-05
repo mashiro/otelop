@@ -132,3 +132,69 @@ func TestDoNotOverwriteForeignLink(t *testing.T) {
 		t.Fatal("expected conflicting link error")
 	}
 }
+
+func TestRelativeSystemdLinkLifecycle(t *testing.T) {
+	r, err := New("linux", t.TempDir(), t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	opts := Options{Executable: "/opt/otelop", WorkingDirectory: "/tmp"}
+	if err := r.Enable(opts); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(r.linkPath()); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join("..", filepath.Base(r.Path))
+	if err := os.Symlink(target, r.linkPath()); err != nil {
+		t.Fatal(err)
+	}
+	if enabled, err := r.Enabled(); err != nil || !enabled {
+		t.Fatalf("relative link status: %v, %v", enabled, err)
+	}
+	if err := r.Enable(opts); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := os.Readlink(r.linkPath()); err != nil || got != target {
+		t.Fatalf("existing link changed: %q, %v", got, err)
+	}
+	if err := r.Disable(); err != nil {
+		t.Fatal(err)
+	}
+	if enabled, err := r.Enabled(); err != nil || enabled {
+		t.Fatalf("disabled status: %v, %v", enabled, err)
+	}
+	if _, err := os.Lstat(r.linkPath()); !os.IsNotExist(err) {
+		t.Fatalf("link remains: %v", err)
+	}
+}
+
+func TestRejectForeignRelativeSystemdLink(t *testing.T) {
+	r, err := New("linux", t.TempDir(), t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	opts := Options{Executable: "/opt/otelop", WorkingDirectory: "/tmp"}
+	if err := r.Enable(opts); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(r.linkPath()); err != nil {
+		t.Fatal(err)
+	}
+	target := "../another.service"
+	if err := os.Symlink(target, r.linkPath()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Enabled(); err == nil {
+		t.Fatal("expected status to reject foreign relative link")
+	}
+	if err := r.Enable(opts); err == nil {
+		t.Fatal("expected enable to reject foreign relative link")
+	}
+	if err := r.Disable(); err == nil {
+		t.Fatal("expected disable to reject foreign relative link")
+	}
+	if got, err := os.Readlink(r.linkPath()); err != nil || got != target {
+		t.Fatalf("foreign link changed: %q, %v", got, err)
+	}
+}
