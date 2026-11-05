@@ -8,20 +8,25 @@ import (
 
 	"github.com/urfave/cli/v3"
 
+	"github.com/mashiro/otelop/internal/config"
 	"github.com/mashiro/otelop/internal/daemon"
 )
 
 const restartStopTimeout = 10 * time.Second
 
 func restartCommand(version string) *cli.Command {
-	cmd := startCommand(version)
-	cmd.Name = "restart"
-	cmd.Usage = "Stop the running otelop server and start it again"
-	cmd.Action = func(ctx context.Context, cmd *cli.Command) error {
-		return runRestart(ctx, cmd, version)
+	cfg, _, cfgErr := config.Load()
+
+	return &cli.Command{
+		Name:   "restart",
+		Usage:  "Stop the running otelop server and start it again",
+		Before: configLoadErrorBefore(cfgErr),
+		Flags:  serverFlags(cfg),
+		Action: func(ctx context.Context, cmd *cli.Command) error {
+			return runRestart(ctx, cmd, version)
+		},
+		Description: "Stops any running otelop daemon and re-runs `start` with the current flags, env vars, and config file values.",
 	}
-	cmd.Description = "Stops any running otelop daemon and re-runs `start` with the current flags, env vars, and config file values."
-	return cmd
 }
 
 func runRestart(ctx context.Context, cmd *cli.Command, version string) error {

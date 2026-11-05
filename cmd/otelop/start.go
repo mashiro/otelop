@@ -23,9 +23,7 @@ func startCommand(version string) *cli.Command {
 		Name:   "start",
 		Usage:  "Start the otelop server (backgrounded by default)",
 		Before: configLoadErrorBefore(cfgErr),
-		Flags: append([]cli.Flag{
-			&cli.BoolFlag{Name: "foreground", Aliases: []string{"f"}, Usage: "run in the foreground instead of detaching"},
-		}, configFlags(cfg)...),
+		Flags:  serverFlags(cfg),
 		Action: func(ctx context.Context, cmd *cli.Command) error {
 			return runStart(ctx, cmd, version)
 		},

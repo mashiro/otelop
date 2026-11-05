@@ -16,24 +16,32 @@ func docsCommand() *cli.Command {
 		Name:  "docs",
 		Usage: "Read documentation bundled with this version of otelop",
 		Commands: []*cli.Command{
-			{
-				Name:  "list",
-				Usage: "List available documentation",
-				Flags: []cli.Flag{
-					&cli.BoolFlag{
-						Name:  "json",
-						Usage: "print machine-readable JSON",
-					},
-				},
-				Action: runDocsList,
-			},
-			{
-				Name:      "show",
-				Usage:     "Print a document as Markdown",
-				Arguments: []cli.Argument{&cli.StringArg{Name: "name"}},
-				Action:    runDocsShow,
+			docsListCommand(),
+			docsShowCommand(),
+		},
+	}
+}
+
+func docsListCommand() *cli.Command {
+	return &cli.Command{
+		Name:  "list",
+		Usage: "List available documentation",
+		Flags: []cli.Flag{
+			&cli.BoolFlag{
+				Name:  "json",
+				Usage: "print machine-readable JSON",
 			},
 		},
+		Action: runDocsList,
+	}
+}
+
+func docsShowCommand() *cli.Command {
+	return &cli.Command{
+		Name:      "show",
+		Usage:     "Print a document as Markdown",
+		Arguments: []cli.Argument{&cli.StringArg{Name: "name"}},
+		Action:    runDocsShow,
 	}
 }
 

@@ -12,10 +12,14 @@ import (
 	otelruntime "github.com/mashiro/otelop/internal/runtime"
 )
 
-// configFlags is the flag set shared by `start` (plus --foreground), `info`,
-// and `restart` (which reuses `start`'s command wholesale), so those
-// commands can never disagree about how a config value resolves across CLI
-// flag > env var > config file > default.
+func serverFlags(cfg config.Config) []cli.Flag {
+	return append([]cli.Flag{
+		&cli.BoolFlag{Name: "foreground", Aliases: []string{"f"}, Usage: "run in the foreground instead of detaching"},
+	}, configFlags(cfg)...)
+}
+
+// configFlags keeps start, restart, and info consistent about how a config
+// value resolves across CLI flag > env var > config file > default.
 func configFlags(cfg config.Config) []cli.Flag {
 	return []cli.Flag{
 		&cli.StringFlag{Name: "http", Value: cfg.HTTPAddr, Usage: "Web UI + REST API listen address", Sources: cli.EnvVars("OTELOP_HTTP")},
