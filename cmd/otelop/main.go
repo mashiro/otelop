@@ -26,6 +26,7 @@ func newApp(version string) *cli.Command {
 			startCommand(version),
 			restartCommand(version),
 			stopCommand(),
+			startupCommand(),
 			statusCommand(),
 			infoCommand(version),
 			logsCommand(),
