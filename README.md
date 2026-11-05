@@ -195,6 +195,9 @@ network policy to control access on the network path.
 otelop start [flags]   # launch in the background (default), or foreground with -f
 otelop restart [flags] # restart with the current flags, environment, and config
 otelop stop            # stop the background server
+otelop startup enable  # automatically start at user login (macOS / Linux systemd)
+otelop startup disable # remove automatic startup for future logins
+otelop startup status  # show whether login startup is configured
 otelop status          # show whether it's running: PID, version, uptime, listen addresses
 otelop info            # show the resolved configuration (flags, env, config file, defaults)
 otelop logs [-f]       # print the daemon log, or follow it with -f
