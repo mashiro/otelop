@@ -1,12 +1,47 @@
 package main
 
 import (
+	"bytes"
+	"context"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/urfave/cli/v3"
 )
+
+func TestStartupSubcommands(t *testing.T) {
+	for _, tt := range []struct {
+		name  string
+		usage string
+		new   func() *cli.Command
+	}{
+		{"enable", "Enable startup at the next login", startupEnableCommand},
+		{"disable", "Disable startup at future logins", startupDisableCommand},
+		{"status", "Show whether login startup is configured", startupStatusCommand},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			// Help and argument validation must work before reading the environment.
+			t.Setenv("HOME", "")
+			var out bytes.Buffer
+			cmd := tt.new()
+			cmd.Writer = &out
+			if err := cmd.Run(context.Background(), []string{tt.name, "--help"}); err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(out.String(), tt.usage) {
+				t.Fatalf("help = %q, want %q", out.String(), tt.usage)
+			}
+			_, _, err := runTestApp("startup", tt.name, "unexpected")
+			want := "startup " + tt.name + " accepts no arguments"
+			if err == nil || err.Error() != want {
+				t.Fatalf("error = %v, want %q", err, want)
+			}
+		})
+	}
+}
 
 func TestStartupCommandLifecycle(t *testing.T) {
 	if runtime.GOOS != "darwin" {

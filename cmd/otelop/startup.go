@@ -15,65 +15,107 @@ import (
 )
 
 func startupCommand() *cli.Command {
-	cmd := &cli.Command{
+	return &cli.Command{
 		Name:        "startup",
 		Usage:       "Manage automatic startup at user login (macOS / Linux systemd)",
 		Description: "Configure the next login without starting or stopping otelop. Uses the existing TOML configuration; shell runtime environment variables are not copied. Uses a verified mise shim or stable symlink when available so upgrades keep working.",
+		Commands: []*cli.Command{
+			startupEnableCommand(),
+			startupDisableCommand(),
+			startupStatusCommand(),
+		},
 	}
-	for _, action := range []string{"enable", "disable", "status"} {
-		cmd.Commands = append(cmd.Commands, &cli.Command{
-			Name:  action,
-			Usage: map[string]string{"enable": "Enable startup at the next login", "disable": "Disable startup at future logins", "status": "Show whether login startup is configured"}[action],
-			Action: func(_ context.Context, cmd *cli.Command) error {
-				if cmd.Args().Len() != 0 {
-					return fmt.Errorf("startup %s accepts no arguments", action)
-				}
-				home, err := os.UserHomeDir()
-				if err != nil {
-					return err
-				}
-				r, err := startup.New(runtime.GOOS, home, os.Getenv("XDG_CONFIG_HOME"))
-				if err != nil {
-					return err
-				}
-				switch action {
-				case "enable":
-					if runtime.GOOS == "linux" {
-						if _, err := exec.LookPath("systemctl"); err != nil {
-							return fmt.Errorf("login startup requires systemd: %w", err)
-						}
-					}
-					opts, err := startupOptions()
-					if err != nil {
-						return err
-					}
-					if err := r.Enable(opts); err != nil {
-						return err
-					}
-					_, err = fmt.Fprintf(cmd.Writer, "Startup enabled for the next login: %s\nUse `otelop start` to start now.\n", r.Path)
-					return err
-				case "disable":
-					if err := r.Disable(); err != nil {
-						return err
-					}
-					_, err = fmt.Fprintln(cmd.Writer, "Startup disabled for future logins. Use `otelop stop` to stop a running server.")
-					return err
-				default:
-					enabled, err := r.Enabled()
-					if err != nil {
-						return err
-					}
-					state := "disabled"
-					if enabled {
-						state = "enabled"
-					}
-					_, err = fmt.Fprintf(cmd.Writer, "Startup %s: %s\n", state, r.Path)
-					return err
-				}
-			},
-		})
+}
+
+func startupEnableCommand() *cli.Command {
+	return &cli.Command{
+		Name:   "enable",
+		Usage:  "Enable startup at the next login",
+		Action: runStartupEnable,
 	}
-	return cmd
+}
+
+func runStartupEnable(_ context.Context, cmd *cli.Command) error {
+	if cmd.Args().Len() != 0 {
+		return fmt.Errorf("startup enable accepts no arguments")
+	}
+	r, err := startupRegistration()
+	if err != nil {
+		return err
+	}
+	if runtime.GOOS == "linux" {
+		if _, err := exec.LookPath("systemctl"); err != nil {
+			return fmt.Errorf("login startup requires systemd: %w", err)
+		}
+	}
+	opts, err := startupOptions()
+	if err != nil {
+		return err
+	}
+	if err := r.Enable(opts); err != nil {
+		return err
+	}
+	_, err = fmt.Fprintf(cmd.Writer, "Startup enabled for the next login: %s\nUse `otelop start` to start now.\n", r.Path)
+	return err
+}
+
+func startupDisableCommand() *cli.Command {
+	return &cli.Command{
+		Name:   "disable",
+		Usage:  "Disable startup at future logins",
+		Action: runStartupDisable,
+	}
+}
+
+func runStartupDisable(_ context.Context, cmd *cli.Command) error {
+	if cmd.Args().Len() != 0 {
+		return fmt.Errorf("startup disable accepts no arguments")
+	}
+	r, err := startupRegistration()
+	if err != nil {
+		return err
+	}
+	if err := r.Disable(); err != nil {
+		return err
+	}
+	_, err = fmt.Fprintln(cmd.Writer, "Startup disabled for future logins. Use `otelop stop` to stop a running server.")
+	return err
+}
+
+func startupStatusCommand() *cli.Command {
+	return &cli.Command{
+		Name:   "status",
+		Usage:  "Show whether login startup is configured",
+		Action: runStartupStatus,
+	}
+}
+
+func runStartupStatus(_ context.Context, cmd *cli.Command) error {
+	if cmd.Args().Len() != 0 {
+		return fmt.Errorf("startup status accepts no arguments")
+	}
+	r, err := startupRegistration()
+	if err != nil {
+		return err
+	}
+	enabled, err := r.Enabled()
+	if err != nil {
+		return err
+	}
+	state := "disabled"
+	if enabled {
+		state = "enabled"
+	}
+	_, err = fmt.Fprintf(cmd.Writer, "Startup %s: %s\n", state, r.Path)
+	return err
+}
+
+func startupRegistration() (startup.Registration, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return startup.Registration{}, err
+	}
+	return startup.New(runtime.GOOS, home, os.Getenv("XDG_CONFIG_HOME"))
 }
 
 func startupOptions() (startup.Options, error) {
