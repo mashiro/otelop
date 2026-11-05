@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vite-plus/test";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { Temporal } from "temporal-polyfill";
 import {
   bucketSecondsForEventWindow,
@@ -12,23 +12,21 @@ import {
 } from "./event-time-window";
 
 describe("event time window", () => {
+  afterEach(() => vi.restoreAllMocks());
+
   it("keeps the full live chart window ending at now regardless of data extent", () => {
-    const now = vi
-      .spyOn(Temporal.Now, "instant")
-      .mockReturnValue(Temporal.Instant.from("2026-07-12T02:00:00Z"));
-    try {
-      for (const points of [
-        [],
-        [{ time: new Date("2026-07-12T01:30:00Z") }],
-        [{ time: new Date("2026-07-11T00:00:00Z") }],
-      ]) {
-        expect(eventWindowDomain(points, { mode: "live", range: "1h" })).toEqual([
-          new Date("2026-07-12T01:00:00Z"),
-          new Date("2026-07-12T02:00:00Z"),
-        ]);
-      }
-    } finally {
-      now.mockRestore();
+    vi.spyOn(Temporal.Now, "instant").mockReturnValue(
+      Temporal.Instant.from("2026-07-12T02:00:00Z"),
+    );
+    for (const points of [
+      [],
+      [{ time: new Date("2026-07-12T01:30:00Z") }],
+      [{ time: new Date("2026-07-11T00:00:00Z") }],
+    ]) {
+      expect(eventWindowDomain(points, { mode: "live", range: "1h" })).toEqual([
+        new Date("2026-07-12T01:00:00Z"),
+        new Date("2026-07-12T02:00:00Z"),
+      ]);
     }
   });
 
@@ -54,15 +52,14 @@ describe("event time window", () => {
   });
 
   it("resolves a live range against the current instant", () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-07-12T00:00:00Z"));
+    vi.spyOn(Temporal.Now, "instant").mockReturnValue(
+      Temporal.Instant.from("2026-07-12T00:00:00Z"),
+    );
 
     expect(eventWindowBounds({ mode: "live", range: "1h" })).toEqual({
       from: "2026-07-11T23:00:00Z",
       to: "2026-07-12T00:00:00Z",
     });
-
-    vi.useRealTimers();
   });
 
   it("moves by exactly one window width and becomes fixed", () => {
@@ -91,6 +88,9 @@ describe("event time window", () => {
   });
 
   it("centers a fixed window on a selected log timestamp", () => {
+    vi.spyOn(Temporal.Now, "instant").mockReturnValue(
+      Temporal.Instant.from("2026-07-12T05:00:00Z"),
+    );
     const centered = eventWindowAround("2026-07-12T03:00:00Z", {
       mode: "live",
       range: "1h",
@@ -111,29 +111,27 @@ describe("event time window", () => {
   });
 
   it("does not move a live window into the future for a recent log", () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-07-12T03:10:00Z"));
+    vi.spyOn(Temporal.Now, "instant").mockReturnValue(
+      Temporal.Instant.from("2026-07-12T03:10:00Z"),
+    );
 
     expect(eventWindowAround("2026-07-12T03:00:00Z", { mode: "live", range: "1h" })).toEqual({
       mode: "fixed",
       from: "2026-07-12T02:10:00Z",
       to: "2026-07-12T03:10:00Z",
     });
-
-    vi.useRealTimers();
   });
 
   it("still centers an older log within a live window", () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-07-12T05:00:00Z"));
+    vi.spyOn(Temporal.Now, "instant").mockReturnValue(
+      Temporal.Instant.from("2026-07-12T05:00:00Z"),
+    );
 
     expect(eventWindowAround("2026-07-12T03:00:00Z", { mode: "live", range: "1h" })).toEqual({
       mode: "fixed",
       from: "2026-07-12T02:30:00Z",
       to: "2026-07-12T03:30:00Z",
     });
-
-    vi.useRealTimers();
   });
 
   it("uses fixed bounds for filtering and chart domains", () => {
