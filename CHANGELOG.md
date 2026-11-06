@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.5.2](https://github.com/mashiro/otelop/compare/v2.5.1...v2.5.2) (2026-11-06)
+
+
+### Bug Fixes
+
+* **cli:** start macOS login item through a launcher wrapper ([#456](https://github.com/mashiro/otelop/issues/456)) ([0409c8a](https://github.com/mashiro/otelop/commit/0409c8adefd1ebba038b887704d278a6a99df66e))
+* **deps:** update all non-major dependencies ([#450](https://github.com/mashiro/otelop/issues/450)) ([241b9b7](https://github.com/mashiro/otelop/commit/241b9b7c6ceb0a7df171e7fc2d404e37f708e608))
+
 ## [2.5.1](https://github.com/mashiro/otelop/compare/v2.5.0...v2.5.1) (2026-11-06)
 
 
