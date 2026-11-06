@@ -120,7 +120,7 @@ func startupRegistration() (startup.Registration, error) {
 	if err != nil {
 		return startup.Registration{}, err
 	}
-	return startup.New(runtime.GOOS, home, os.Getenv("XDG_CONFIG_HOME"))
+	return startup.New(runtime.GOOS, home, os.Getenv("XDG_CONFIG_HOME"), os.Getenv("XDG_DATA_HOME"))
 }
 
 func startupExecutable(explicit string) (string, error) {

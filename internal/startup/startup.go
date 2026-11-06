@@ -14,15 +14,27 @@ const label = "io.github.mashiro.otelop"
 type Registration struct {
 	Path     string
 	platform string
+	// Set only on macOS, where the launcher's file name is the login item name.
+	wrapper string
 }
 
-func New(platform, home, configHome string) (Registration, error) {
+func New(platform, home, configHome, dataHome string) (Registration, error) {
 	if !filepath.IsAbs(home) {
 		return Registration{}, errors.New("startup requires an absolute home directory")
 	}
 	switch platform {
 	case "darwin":
-		return Registration{Path: filepath.Join(home, "Library", "LaunchAgents", label+".plist"), platform: platform}, nil
+		if dataHome == "" {
+			dataHome = filepath.Join(home, ".local", "share")
+		}
+		if !filepath.IsAbs(dataHome) {
+			return Registration{}, errors.New("XDG_DATA_HOME must be absolute")
+		}
+		return Registration{
+			Path:     filepath.Join(home, "Library", "LaunchAgents", label+".plist"),
+			platform: platform,
+			wrapper:  filepath.Join(dataHome, "otelop", "startup", "otelop"),
+		}, nil
 	case "linux":
 		if configHome == "" {
 			configHome = filepath.Join(home, ".config")
@@ -91,27 +103,27 @@ func (r Registration) Enable(executable string) error {
 			return err
 		}
 	}
-	data, err := r.render(executable)
+	program := executable
+	if r.wrapper != "" {
+		// The wrapper would exec itself forever.
+		if filepath.Clean(executable) == r.wrapper {
+			return errors.New("startup executable must not be the launcher wrapper")
+		}
+		script, err := renderLauncherWrapper(executable)
+		if err != nil {
+			return err
+		}
+		// Written before the registration so a failure cannot leave it pointing at a missing file.
+		if err := writeFileAtomic(r.wrapper, script, 0o755); err != nil {
+			return err
+		}
+		program = r.wrapper
+	}
+	data, err := r.render(program)
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(r.Path), 0o700); err != nil {
-		return err
-	}
-	// Rename a complete file so a failed write cannot truncate an existing registration.
-	f, err := os.CreateTemp(filepath.Dir(r.Path), ".otelop-startup-*")
-	if err != nil {
-		return err
-	}
-	defer func() { _ = os.Remove(f.Name()) }()
-	if _, err := f.WriteString(data); err != nil {
-		_ = f.Close()
-		return err
-	}
-	if err := f.Close(); err != nil {
-		return err
-	}
-	if err := os.Rename(f.Name(), r.Path); err != nil {
+	if err := writeFileAtomic(r.Path, data, 0o600); err != nil {
 		return err
 	}
 	if r.platform == "linux" && !linked {
@@ -136,8 +148,43 @@ func (r Registration) Disable() error {
 		}
 	}
 	err := os.Remove(r.Path)
-	if errors.Is(err, os.ErrNotExist) {
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return r.removeWrapper()
+}
+
+func (r Registration) removeWrapper() error {
+	if r.wrapper == "" {
 		return nil
 	}
-	return err
+	if err := os.Remove(r.wrapper); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	// Fails harmlessly while the directory holds anything else.
+	_ = os.Remove(filepath.Dir(r.wrapper))
+	return nil
+}
+
+// writeFileAtomic renames a complete file so a failed write cannot truncate an existing one.
+func writeFileAtomic(path, content string, perm os.FileMode) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	f, err := os.CreateTemp(filepath.Dir(path), ".otelop-startup-*")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = os.Remove(f.Name()) }()
+	if _, err := f.WriteString(content); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	if err := os.Chmod(f.Name(), perm); err != nil {
+		return err
+	}
+	return os.Rename(f.Name(), path)
 }

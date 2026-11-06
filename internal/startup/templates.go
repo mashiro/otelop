@@ -28,6 +28,10 @@ const launchAgentSource = `<?xml version="1.0" encoding="UTF-8"?>
 </plist>
 `
 
+const launcherWrapperSource = `#!/bin/sh
+exec {{shellQuote .Executable}} "$@"
+`
+
 const systemdUnitSource = `[Unit]
 Description=Start otelop at user login
 
@@ -44,6 +48,9 @@ var (
 	launchAgentTemplate = template.Must(template.New("launch-agent").Funcs(template.FuncMap{
 		"xml": xmlText,
 	}).Parse(launchAgentSource))
+	launcherWrapperTemplate = template.Must(template.New("launcher-wrapper").Funcs(template.FuncMap{
+		"shellQuote": shellQuote,
+	}).Parse(launcherWrapperSource))
 	systemdUnitTemplate = template.Must(template.New("systemd-unit").Funcs(template.FuncMap{
 		"unitExecutable": unitExecutable,
 	}).Parse(systemdUnitSource))
@@ -58,6 +65,10 @@ func xmlText(s string) string {
 	var b bytes.Buffer
 	_ = xml.EscapeText(&b, []byte(s))
 	return b.String()
+}
+
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 func unitExecutable(s string) string {
@@ -77,6 +88,14 @@ func (r Registration) render(executable string) (string, error) {
 	var b strings.Builder
 	if err := tmpl.Execute(&b, data); err != nil {
 		return "", fmt.Errorf("render startup registration: %w", err)
+	}
+	return b.String(), nil
+}
+
+func renderLauncherWrapper(executable string) (string, error) {
+	var b strings.Builder
+	if err := launcherWrapperTemplate.Execute(&b, registrationTemplateData{Executable: executable}); err != nil {
+		return "", fmt.Errorf("render launcher wrapper: %w", err)
 	}
 	return b.String(), nil
 }
