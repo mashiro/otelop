@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.5.1](https://github.com/mashiro/otelop/compare/v2.5.0...v2.5.1) (2026-11-06)
+
+
+### Bug Fixes
+
+* **cli:** register login startup through a version manager shim ([#452](https://github.com/mashiro/otelop/issues/452)) ([a5e858d](https://github.com/mashiro/otelop/commit/a5e858dd2c770813c0be1f6320ae309c03bd090c))
+
 ## [2.5.0](https://github.com/mashiro/otelop/compare/v2.4.0...v2.5.0) (2026-11-05)
 
 
