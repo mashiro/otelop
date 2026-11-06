@@ -6,19 +6,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 )
 
 const label = "io.github.mashiro.otelop"
-
-// Options records the executable and path context used at the next login.
-// Runtime settings remain in the existing TOML file, not in this registration.
-type Options struct {
-	Executable       string
-	WorkingDirectory string
-	Environment      map[string]string
-}
 
 type Registration struct {
 	Path     string
@@ -84,15 +75,13 @@ func (r Registration) Enabled() (bool, error) {
 	return true, nil
 }
 
-func (r Registration) Enable(opts Options) error {
-	if !filepath.IsAbs(opts.Executable) || !filepath.IsAbs(opts.WorkingDirectory) {
-		return errors.New("startup executable and working directory must be absolute")
+func (r Registration) Enable(executable string) error {
+	if !filepath.IsAbs(executable) {
+		return errors.New("startup executable must be absolute")
 	}
 	// Reject control characters rather than emitting malformed launchd/systemd syntax.
-	for _, value := range append([]string{opts.Executable, opts.WorkingDirectory}, environmentPairs(opts.Environment)...) {
-		if strings.ContainsAny(value, "\x00\r\n") {
-			return errors.New("startup paths and environment must not contain NUL or newlines")
-		}
+	if strings.ContainsAny(executable, "\x00\r\n") {
+		return errors.New("startup executable must not contain NUL or newlines")
 	}
 	linked := false
 	if r.platform == "linux" {
@@ -102,7 +91,7 @@ func (r Registration) Enable(opts Options) error {
 			return err
 		}
 	}
-	data, err := r.render(opts)
+	data, err := r.render(executable)
 	if err != nil {
 		return err
 	}
@@ -151,13 +140,4 @@ func (r Registration) Disable() error {
 		return nil
 	}
 	return err
-}
-
-func environmentPairs(env map[string]string) []string {
-	pairs := make([]string, 0, len(env))
-	for k, v := range env {
-		pairs = append(pairs, k+"="+v)
-	}
-	sort.Strings(pairs)
-	return pairs
 }

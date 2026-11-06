@@ -20,17 +20,10 @@ const launchAgentSource = `<?xml version="1.0" encoding="UTF-8"?>
 			<string>{{xml .Executable}}</string>
 			<string>start</string>
 		</array>
-		<key>WorkingDirectory</key>
-		<string>{{xml .WorkingDirectory}}</string>
 		<key>RunAtLoad</key>
 		<true/>
 		<key>AbandonProcessGroup</key>
 		<true/>
-		<key>EnvironmentVariables</key>
-		<dict>
-{{range .Environment}}			<key>{{xml .Key}}</key>
-			<string>{{xml .Value}}</string>
-{{end}}		</dict>
 	</dict>
 </plist>
 `
@@ -41,10 +34,8 @@ Description=Start otelop at user login
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-WorkingDirectory={{unitPath .WorkingDirectory}}
 ExecStart={{unitExecutable .Executable}} start
-{{range .Environment}}Environment={{unitQuote .Pair}}
-{{end}}
+
 [Install]
 WantedBy=default.target
 `
@@ -54,23 +45,13 @@ var (
 		"xml": xmlText,
 	}).Parse(launchAgentSource))
 	systemdUnitTemplate = template.Must(template.New("systemd-unit").Funcs(template.FuncMap{
-		"unitPath":       unitPath,
 		"unitExecutable": unitExecutable,
-		"unitQuote":      unitQuote,
 	}).Parse(systemdUnitSource))
 )
 
-type templateEnvironment struct {
-	Key   string
-	Value string
-	Pair  string
-}
-
 type registrationTemplateData struct {
-	Label            string
-	Executable       string
-	WorkingDirectory string
-	Environment      []templateEnvironment
+	Label      string
+	Executable string
 }
 
 func xmlText(s string) string {
@@ -79,30 +60,16 @@ func xmlText(s string) string {
 	return b.String()
 }
 
-// WorkingDirectory is a literal path, not a quoted word list like ExecStart.
-// Only systemd specifiers need escaping; quotes and backslashes are literal.
-func unitPath(s string) string {
-	return strings.ReplaceAll(s, "%", "%%")
-}
-
-func unitQuote(s string) string {
-	return strconv.Quote(unitPath(s))
-}
-
 func unitExecutable(s string) string {
-	return unitQuote(strings.ReplaceAll(s, "$", "$$"))
+	return strconv.Quote(strings.NewReplacer("%", "%%", "$", "$$").Replace(s))
 }
 
-func (r Registration) render(opts Options) (string, error) {
+func (r Registration) render(executable string) (string, error) {
 	data := registrationTemplateData{
-		Label:            label,
-		Executable:       opts.Executable,
-		WorkingDirectory: opts.WorkingDirectory,
+		Label:      label,
+		Executable: executable,
 	}
-	for _, pair := range environmentPairs(opts.Environment) {
-		key, value, _ := strings.Cut(pair, "=")
-		data.Environment = append(data.Environment, templateEnvironment{Key: key, Value: value, Pair: pair})
-	}
+
 	tmpl := systemdUnitTemplate
 	if r.platform == "darwin" {
 		tmpl = launchAgentTemplate

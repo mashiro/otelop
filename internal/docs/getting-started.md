@@ -58,33 +58,18 @@ otelop startup enable
 otelop startup status
 ```
 
-This writes a macOS LaunchAgent or a systemd user unit and its
-`default.target.wants` link. It takes effect when the next login starts a new
-user session; it does not start a server immediately. On Linux, an existing
-user manager (including one kept alive by lingering or another login) must
-exit before the registration takes effect. Use `otelop start` to start now.
-No administrator privileges are needed.
+Automatic startup takes effect at the next login and requires no administrator
+privileges. Use `otelop start` to start the server now. On Linux, all existing
+user sessions must end first; a user manager kept running by lingering must
+also exit before automatic startup takes effect.
 
-The registration runs `otelop start` once, using the absolute executable path,
-working directory, configuration-file path, and XDG/state-directory overrides
-recorded by `enable`. Keep the working directory available.
-When a mise shim resolves to the current executable in the saved startup
-context, registration uses that shim. It selects the configured version on each
-login, so `mise upgrade` requires no re-registration, even if the old version is
-removed. The recorded working directory determines which mise configuration is
-used; project version pins still apply. Custom mise paths and environment/profile
-selectors are preserved, but temporary per-tool version overrides are not.
-Stable symlinks found on PATH are also preserved without resolving their targets.
-Otherwise, registration uses the current executable path; moving that executable
-requires running `enable` again.
+Configure runtime settings in the TOML configuration file available to your
+login session. Use absolute paths for custom storage locations. Settings from
+an interactive shell or a project directory may not be available at login.
 
-Put runtime settings in the existing TOML configuration file. Shell variables
-such as `OTELOP_HTTP` and proxy credentials are not copied into the registration;
-configuration-file changes are read at the next start. When using a mise shim,
-the shim also loads the mise configuration and its declared environment. Relative storage paths
-are resolved from the recorded working directory. The server is not supervised
-or automatically restarted after it exits. Continue to use `otelop status`,
-`otelop logs`, `otelop restart`, and `otelop stop` to manage it.
+Automatic startup runs `otelop start` once per login session; it does not restart
+the server if it exits. Use `otelop status`, `otelop logs`, `otelop restart`, and
+`otelop stop` to manage the server.
 
 Remove automatic startup with:
 
