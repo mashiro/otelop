@@ -18,9 +18,9 @@ func TestRegistrationLifecycle(t *testing.T) {
 			if enabled, err := r.Enabled(); err != nil || enabled {
 				t.Fatalf("initial status: %v, %v", enabled, err)
 			}
-			opts := Options{Executable: "/opt/My App/otelop", WorkingDirectory: home, Environment: map[string]string{"OTELOP_CONFIG_FILE": "/tmp/a&b.toml"}}
+			exe := "/opt/My App/otelop"
 			for range 2 {
-				if err := r.Enable(opts); err != nil {
+				if err := r.Enable(exe); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -32,7 +32,7 @@ func TestRegistrationLifecycle(t *testing.T) {
 				t.Fatal(err)
 			}
 			if platform == "darwin" {
-				for _, want := range []string{"<string>/opt/My App/otelop</string>", "a&amp;b.toml", "\t\t<key>AbandonProcessGroup</key>\n\t\t<true/>", "\t\t<key>RunAtLoad</key>\n\t\t<true/>"} {
+				for _, want := range []string{"<string>/opt/My App/otelop</string>", "\t\t<key>AbandonProcessGroup</key>\n\t\t<true/>", "\t\t<key>RunAtLoad</key>\n\t\t<true/>"} {
 					if !strings.Contains(string(data), want) {
 						t.Errorf("missing %s in %s", want, data)
 					}
@@ -60,50 +60,15 @@ func TestRegistrationLifecycle(t *testing.T) {
 
 func TestSystemdEscaping(t *testing.T) {
 	r, _ := New("linux", t.TempDir(), t.TempDir())
-	err := r.Enable(Options{Executable: `/opt/100%/$bin/otelop`, WorkingDirectory: "/tmp", Environment: map[string]string{"OTELOP_CONFIG_FILE": "/tmp/50%.toml"}})
+	err := r.Enable(`/opt/100%/$bin/otelop`)
 	if err != nil {
 		t.Fatal(err)
 	}
 	data, _ := os.ReadFile(r.Path)
-	for _, want := range []string{`ExecStart="/opt/100%%/$$bin/otelop" start`, `Environment="OTELOP_CONFIG_FILE=/tmp/50%%.toml"`} {
+	for _, want := range []string{`ExecStart="/opt/100%%/$$bin/otelop" start`} {
 		if !strings.Contains(string(data), want) {
 			t.Errorf("missing %s in %s", want, data)
 		}
-	}
-}
-
-func TestSystemdWorkingDirectory(t *testing.T) {
-	for _, tc := range []struct {
-		path string
-		want string
-	}{
-		{path: "/home/user", want: "/home/user"},
-		{path: "/home/My Project", want: "/home/My Project"},
-		{path: `/home/100%/$data/"project"`, want: `/home/100%%/$data/"project"`},
-		{path: `/home/back\slash/project`, want: `/home/back\slash/project`},
-	} {
-		t.Run(tc.path, func(t *testing.T) {
-			r, err := New("linux", t.TempDir(), t.TempDir())
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := r.Enable(Options{Executable: "/opt/otelop", WorkingDirectory: tc.path}); err != nil {
-				t.Fatal(err)
-			}
-			data, err := os.ReadFile(r.Path)
-			if err != nil {
-				t.Fatal(err)
-			}
-			for line := range strings.SplitSeq(string(data), "\n") {
-				if value, ok := strings.CutPrefix(line, "WorkingDirectory="); ok {
-					if value != tc.want {
-						t.Fatalf("WorkingDirectory = %q, want %q", value, tc.want)
-					}
-					return
-				}
-			}
-			t.Fatal("missing WorkingDirectory")
-		})
 	}
 }
 
@@ -112,7 +77,7 @@ func TestRejectUnsupportedAndRelativePaths(t *testing.T) {
 		t.Fatal("expected unsupported OS error")
 	}
 	r, _ := New("linux", t.TempDir(), t.TempDir())
-	if err := r.Enable(Options{Executable: "otelop", WorkingDirectory: "/tmp"}); err == nil {
+	if err := r.Enable("otelop"); err == nil {
 		t.Fatal("expected absolute executable error")
 	}
 }
@@ -125,7 +90,7 @@ func TestDoNotOverwriteForeignLink(t *testing.T) {
 	if err := os.Symlink("/some/other.service", r.linkPath()); err != nil {
 		t.Fatal(err)
 	}
-	if err := r.Enable(Options{Executable: "/opt/otelop", WorkingDirectory: "/tmp"}); err == nil {
+	if err := r.Enable("/opt/otelop"); err == nil {
 		t.Fatal("expected conflicting link error")
 	}
 	if err := r.Disable(); err == nil {
@@ -138,8 +103,8 @@ func TestRelativeSystemdLinkLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	opts := Options{Executable: "/opt/otelop", WorkingDirectory: "/tmp"}
-	if err := r.Enable(opts); err != nil {
+	exe := "/opt/otelop"
+	if err := r.Enable(exe); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Remove(r.linkPath()); err != nil {
@@ -152,7 +117,7 @@ func TestRelativeSystemdLinkLifecycle(t *testing.T) {
 	if enabled, err := r.Enabled(); err != nil || !enabled {
 		t.Fatalf("relative link status: %v, %v", enabled, err)
 	}
-	if err := r.Enable(opts); err != nil {
+	if err := r.Enable(exe); err != nil {
 		t.Fatal(err)
 	}
 	if got, err := os.Readlink(r.linkPath()); err != nil || got != target {
@@ -174,8 +139,8 @@ func TestRejectForeignRelativeSystemdLink(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	opts := Options{Executable: "/opt/otelop", WorkingDirectory: "/tmp"}
-	if err := r.Enable(opts); err != nil {
+	exe := "/opt/otelop"
+	if err := r.Enable(exe); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Remove(r.linkPath()); err != nil {
@@ -188,7 +153,7 @@ func TestRejectForeignRelativeSystemdLink(t *testing.T) {
 	if _, err := r.Enabled(); err == nil {
 		t.Fatal("expected status to reject foreign relative link")
 	}
-	if err := r.Enable(opts); err == nil {
+	if err := r.Enable(exe); err == nil {
 		t.Fatal("expected enable to reject foreign relative link")
 	}
 	if err := r.Disable(); err == nil {
@@ -196,5 +161,51 @@ func TestRejectForeignRelativeSystemdLink(t *testing.T) {
 	}
 	if got, err := os.Readlink(r.linkPath()); err != nil || got != target {
 		t.Fatalf("foreign link changed: %q, %v", got, err)
+	}
+}
+
+func TestRegistrationUsesLoginContext(t *testing.T) {
+	for _, platform := range []string{"darwin", "linux"} {
+		t.Run(platform, func(t *testing.T) {
+			r, err := New(platform, t.TempDir(), t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.MkdirAll(filepath.Dir(r.Path), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(r.Path, []byte("WorkingDirectory=/deleted/project\nEnvironment=HOME=/old/home\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := r.Enable("/opt/otelop"); err != nil {
+				t.Fatal(err)
+			}
+			data, err := os.ReadFile(r.Path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, forbidden := range []string{"WorkingDirectory", "Environment"} {
+				if strings.Contains(string(data), forbidden) {
+					t.Fatalf("registration overrides login context: %s", data)
+				}
+			}
+		})
+	}
+}
+
+func TestLaunchAgentEscapesXML(t *testing.T) {
+	r, err := New("darwin", t.TempDir(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Enable("/opt/a&b/otelop"); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(r.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "<string>/opt/a&amp;b/otelop</string>"; !strings.Contains(string(data), want) {
+		t.Fatalf("missing %s in %s", want, data)
 	}
 }
