@@ -11,7 +11,7 @@ func TestRegistrationLifecycle(t *testing.T) {
 	for _, platform := range []string{"darwin", "linux"} {
 		t.Run(platform, func(t *testing.T) {
 			home := t.TempDir()
-			r, err := New(platform, home, filepath.Join(home, "config"))
+			r, err := New(platform, home, filepath.Join(home, "config"), filepath.Join(home, "data"))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -32,7 +32,11 @@ func TestRegistrationLifecycle(t *testing.T) {
 				t.Fatal(err)
 			}
 			if platform == "darwin" {
-				for _, want := range []string{"<string>/opt/My App/otelop</string>", "\t\t<key>AbandonProcessGroup</key>\n\t\t<true/>", "\t\t<key>RunAtLoad</key>\n\t\t<true/>"} {
+				wrapper, err := os.ReadFile(filepath.Join(home, "data", "otelop", "startup", "otelop"))
+				if err != nil || !strings.Contains(string(wrapper), "exec '/opt/My App/otelop'") {
+					t.Fatalf("unexpected wrapper: %s, %v", wrapper, err)
+				}
+				for _, want := range []string{"<string>" + filepath.Join(home, "data", "otelop", "startup", "otelop") + "</string>", "\t\t<key>AbandonProcessGroup</key>\n\t\t<true/>", "\t\t<key>RunAtLoad</key>\n\t\t<true/>"} {
 					if !strings.Contains(string(data), want) {
 						t.Errorf("missing %s in %s", want, data)
 					}
@@ -59,7 +63,7 @@ func TestRegistrationLifecycle(t *testing.T) {
 }
 
 func TestSystemdEscaping(t *testing.T) {
-	r, _ := New("linux", t.TempDir(), t.TempDir())
+	r, _ := New("linux", t.TempDir(), t.TempDir(), "")
 	err := r.Enable(`/opt/100%/$bin/otelop`)
 	if err != nil {
 		t.Fatal(err)
@@ -73,17 +77,17 @@ func TestSystemdEscaping(t *testing.T) {
 }
 
 func TestRejectUnsupportedAndRelativePaths(t *testing.T) {
-	if _, err := New("windows", "/home/test", ""); err == nil {
+	if _, err := New("windows", "/home/test", "", ""); err == nil {
 		t.Fatal("expected unsupported OS error")
 	}
-	r, _ := New("linux", t.TempDir(), t.TempDir())
+	r, _ := New("linux", t.TempDir(), t.TempDir(), "")
 	if err := r.Enable("otelop"); err == nil {
 		t.Fatal("expected absolute executable error")
 	}
 }
 
 func TestDoNotOverwriteForeignLink(t *testing.T) {
-	r, _ := New("linux", t.TempDir(), t.TempDir())
+	r, _ := New("linux", t.TempDir(), t.TempDir(), "")
 	if err := os.MkdirAll(filepath.Dir(r.linkPath()), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +103,7 @@ func TestDoNotOverwriteForeignLink(t *testing.T) {
 }
 
 func TestRelativeSystemdLinkLifecycle(t *testing.T) {
-	r, err := New("linux", t.TempDir(), t.TempDir())
+	r, err := New("linux", t.TempDir(), t.TempDir(), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +139,7 @@ func TestRelativeSystemdLinkLifecycle(t *testing.T) {
 }
 
 func TestRejectForeignRelativeSystemdLink(t *testing.T) {
-	r, err := New("linux", t.TempDir(), t.TempDir())
+	r, err := New("linux", t.TempDir(), t.TempDir(), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,7 +171,7 @@ func TestRejectForeignRelativeSystemdLink(t *testing.T) {
 func TestRegistrationUsesLoginContext(t *testing.T) {
 	for _, platform := range []string{"darwin", "linux"} {
 		t.Run(platform, func(t *testing.T) {
-			r, err := New(platform, t.TempDir(), t.TempDir())
+			r, err := New(platform, t.TempDir(), t.TempDir(), "")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -194,18 +198,18 @@ func TestRegistrationUsesLoginContext(t *testing.T) {
 }
 
 func TestLaunchAgentEscapesXML(t *testing.T) {
-	r, err := New("darwin", t.TempDir(), "")
+	r, err := New("darwin", t.TempDir(), "", filepath.Join(t.TempDir(), "a&b"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := r.Enable("/opt/a&b/otelop"); err != nil {
+	if err := r.Enable("/opt/otelop"); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(r.Path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := "<string>/opt/a&amp;b/otelop</string>"; !strings.Contains(string(data), want) {
+	if want := "/a&amp;b/otelop/startup/otelop</string>"; !strings.Contains(string(data), want) {
 		t.Fatalf("missing %s in %s", want, data)
 	}
 }

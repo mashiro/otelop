@@ -53,6 +53,7 @@ func TestStartupCommandLifecycle(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "config"))
+	t.Setenv("XDG_DATA_HOME", filepath.Join(home, "data"))
 	t.Setenv("OTELOP_CONFIG_FILE", filepath.Join(home, "config.toml"))
 	for _, step := range []struct{ action, want string }{{"status", "disabled"}, {"enable", "enabled"}, {"status", "enabled"}, {"disable", "disabled"}, {"status", "disabled"}} {
 		stdout, _, err := runTestApp("startup", step.action)
@@ -108,6 +109,7 @@ func TestStartupEnableExecutable(t *testing.T) {
 			home := t.TempDir()
 			t.Setenv("HOME", home)
 			t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "config"))
+			t.Setenv("XDG_DATA_HOME", filepath.Join(home, "data"))
 			t.Setenv("OTELOP_CONFIG_FILE", filepath.Join(home, "config.toml"))
 			bin := t.TempDir()
 			if err := os.WriteFile(filepath.Join(bin, "systemctl"), []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
@@ -175,11 +177,20 @@ func TestStartupEnableExecutable(t *testing.T) {
 			if !strings.Contains(stdout, "Executable: "+want) {
 				t.Fatalf("stdout = %q, want executable %q", stdout, want)
 			}
-			if !strings.Contains(string(data), want) {
-				t.Fatalf("registration = %s, want path %q", data, want)
+			// The plist names the wrapper on macOS, so the executable only appears in the wrapper.
+			launcher := string(data)
+			if runtime.GOOS == "darwin" {
+				wrapper, err := os.ReadFile(filepath.Join(home, "data", "otelop", "startup", "otelop"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				launcher = string(wrapper)
 			}
-			if strings.Contains(string(data), shim) {
-				t.Fatalf("registration = %s, must not use shim %q", data, shim)
+			if !strings.Contains(launcher, want) {
+				t.Fatalf("launcher = %s, want path %q", launcher, want)
+			}
+			if strings.Contains(launcher, shim) {
+				t.Fatalf("launcher = %s, must not use shim %q", launcher, shim)
 			}
 		})
 	}
@@ -239,4 +250,46 @@ func startupTestInstall(t *testing.T) (versioned, shim string) {
 		}
 	}
 	return versioned, shim
+}
+
+func TestStartupEnableUsesWrapperOnDarwin(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("launcher wrapper is macOS only")
+	}
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_DATA_HOME", filepath.Join(home, "data"))
+	t.Setenv("OTELOP_CONFIG_FILE", filepath.Join(home, "config.toml"))
+	shimDir := filepath.Join(t.TempDir(), "shims")
+	if err := os.MkdirAll(shimDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	shim := filepath.Join(shimDir, "otelop")
+	if err := os.WriteFile(shim, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	wrapper := filepath.Join(home, "data", "otelop", "startup", "otelop")
+	for name, args := range map[string][]string{
+		"explicit": {"startup", "enable", "--executable", shim},
+		"path":     {"startup", "enable"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv("PATH", shimDir)
+			stdout, _, err := runTestApp(args...)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(stdout, "Executable: "+shim) {
+				t.Fatalf("stdout = %q, want shim reported", stdout)
+			}
+			r, err := startupRegistration()
+			if err != nil {
+				t.Fatal(err)
+			}
+			data, _ := os.ReadFile(r.Path)
+			if !strings.Contains(string(data), "<string>"+wrapper+"</string>") {
+				t.Fatalf("registration = %s, want wrapper %q", data, wrapper)
+			}
+		})
+	}
 }
