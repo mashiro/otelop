@@ -31,11 +31,11 @@
     "class-variance-authority": "0.7.1",
     "cn": "0.5.2",
     "jotai": "3.0.1",
-    "lucide-react": "1.67.0",
+    "lucide-react": "1.68.0",
     "react": "19.3.1",
     "react-dom": "19.3.1",
     "shadcn": "4.23.0",
-    "temporal-polyfill": "1.0.6"
+    "temporal-polyfill": "1.0.7"
   },
   "devDependencies": {
     "@graphql-codegen/cli": "7.4.6",
