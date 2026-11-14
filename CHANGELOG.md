@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.5.3](https://github.com/mashiro/otelop/compare/v2.5.2...v2.5.3) (2026-11-14)
+
+
+### Bug Fixes
+
+* **deps:** update all non-major dependencies ([#457](https://github.com/mashiro/otelop/issues/457)) ([06484a1](https://github.com/mashiro/otelop/commit/06484a1e26490378a42557d0dc433c94bca180f3))
+* **deps:** update all non-major dependencies ([#460](https://github.com/mashiro/otelop/issues/460)) ([893b1cf](https://github.com/mashiro/otelop/commit/893b1cff87e0d93804d0958d6353101d1501ad50))
+* **deps:** update all non-major dependencies ([#466](https://github.com/mashiro/otelop/issues/466)) ([8f5e160](https://github.com/mashiro/otelop/commit/8f5e1608ccc53d2f7e54b12cb6885437b5a96095))
+* **deps:** update all non-major dependencies ([#474](https://github.com/mashiro/otelop/issues/474)) ([50c1071](https://github.com/mashiro/otelop/commit/50c1071e424db2e25fcac783015581c1cbbcc95e))
+* **deps:** update all non-major dependencies ([#475](https://github.com/mashiro/otelop/issues/475)) ([6daa1ea](https://github.com/mashiro/otelop/commit/6daa1ea010fe8ee725034b3c9ba9b9502e9e7f93))
+* **deps:** update dependency jotai to v3.0.2 ([#470](https://github.com/mashiro/otelop/issues/470)) ([aa7b5de](https://github.com/mashiro/otelop/commit/aa7b5def766ac0d707cf11cdcf2b8440c3ab7088))
+* **deps:** update opentelemetry-collector ([#467](https://github.com/mashiro/otelop/issues/467)) ([4c40306](https://github.com/mashiro/otelop/commit/4c40306c5e3e40993dfce615b586fff11ec276dc))
+
 ## [2.5.2](https://github.com/mashiro/otelop/compare/v2.5.1...v2.5.2) (2026-11-06)
 
 
