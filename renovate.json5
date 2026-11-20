@@ -14,7 +14,9 @@
   "labels": ["renovate"],
   // Run `go mod tidy` after Go module updates so superseded versions don't pile
   // up in go.sum (every collector bump otherwise leaves the old checksums behind).
-  "postUpdateOptions": ["gomodTidy"],
+  // Run `pnpm dedupe` for the same reason: a bump otherwise leaves older copies of
+  // shared transitive deps alongside the new ones in pnpm-lock.yaml.
+  "postUpdateOptions": ["gomodTidy", "pnpmDedupe"],
   // Lock file maintenance refreshes already-published transitive deps and has no
   // releaseTimestamp of its own, so the inherited 3-day gate leaves its PR
   // perpetually pending under the default timestamp-required behaviour. null
