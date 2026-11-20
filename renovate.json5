@@ -7,7 +7,6 @@
     // non-major PR. Repository-specific packageRules below override this group.
     "group:allNonMajor",
     ":pinAllExceptPeerDependencies",
-    ":separateMultipleMajorReleases",
     ":disableRateLimiting",
   ],
   "timezone": "Asia/Tokyo",
