@@ -89,8 +89,11 @@ func (s *Storage) MetricDistributionStats(ctx context.Context, serviceName, metr
 
 	fullAttributes := groupBy == nil
 	query := metricDistributionPointsQuery(len(groupBy), fullAttributes)
-	args := make([]any, 0, 5+len(groupBy))
-	args = append(args, serviceName, metricName, from, to, from)
+	// Same recent-then-older predecessor probe as metricPointsWithPredecessorsCTE;
+	// see metricPredecessorLookback.
+	lookbackFrom := timestampNanos(from.Add(-metricPredecessorLookback))
+	args := make([]any, 0, 7+len(groupBy))
+	args = append(args, serviceName, metricName, from, to, lookbackFrom, from, lookbackFrom)
 	for _, key := range groupBy {
 		args = append(args, key)
 	}
@@ -242,18 +245,33 @@ WITH target_series AS (
 	SELECT p.*, s.temporality, s.attrs_json, true AS in_window
 	FROM metric_points p JOIN target_series s USING (series_key)
 	WHERE p.ts >= ? AND p.ts < ?
-), represented_series AS (SELECT DISTINCT series_key FROM window_points),
-predecessor_points AS (
+), represented_series AS (
+	-- Only cumulative windows are differenced against a predecessor.
+	SELECT DISTINCT series_key FROM window_points WHERE temporality = 'cumulative'
+),
+recent_predecessors AS (
 	SELECT p.*, s.temporality, s.attrs_json, false AS in_window
 	FROM metric_points p JOIN target_series s USING (series_key)
 	JOIN represented_series r USING (series_key)
-	WHERE p.ts < ?
+	WHERE p.ts >= make_timestamp_ns(?) AND p.ts < ?
+	QUALIFY row_number() OVER (PARTITION BY p.series_key ORDER BY p.ts DESC, p.id DESC) = 1
+),
+older_predecessors AS (
+	SELECT p.*, s.temporality, s.attrs_json, false AS in_window
+	FROM metric_points p JOIN target_series s USING (series_key)
+	JOIN (
+		SELECT series_key FROM represented_series
+		ANTI JOIN recent_predecessors USING (series_key)
+	) r USING (series_key)
+	WHERE p.ts < make_timestamp_ns(?)
 	QUALIFY row_number() OVER (PARTITION BY p.series_key ORDER BY p.ts DESC, p.id DESC) = 1
 ),
 points AS (
 	SELECT * FROM window_points
 	UNION ALL BY NAME
-	SELECT * FROM predecessor_points
+	SELECT * FROM recent_predecessors
+	UNION ALL BY NAME
+	SELECT * FROM older_predecessors
 )
 SELECT p.series_key, p.in_window, p.temporality, p.start_ts, p.count, p.sum, p.min, p.max,
 	p.histogram_layout_hash, coalesce(l.kind, ''), l.explicit_bounds, l.scale, l.zero_threshold,

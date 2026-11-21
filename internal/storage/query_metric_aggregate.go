@@ -110,7 +110,10 @@ func (s *Storage) MetricAggregate(ctx context.Context, serviceName, metricName s
 		selectGroupCols[i] = fmt.Sprintf("COALESCE(attrs_json::JSON->>?, '') AS %s", groupCols[i])
 	}
 
-	query := metricPointsWithPredecessorsCTE + `,
+	values, cteArgs := predecessorWindowArgs([]MetricPointWindow{{
+		ServiceName: serviceName, MetricName: metricName, From: from, To: to,
+	}})
+	query := fmt.Sprintf(metricPointsWithPredecessorsCTE, values) + `,
 per_series_bucket AS (
 	SELECT
 		time_bucket(?::BIGINT * INTERVAL '1 second', ts) AS bucket,
@@ -123,7 +126,7 @@ per_series_bucket AS (
 		min(min) AS min_min,
 		max(max) AS max_max
 	FROM derived
-	WHERE ts >= ?
+	WHERE ts >= make_timestamp_ns(?)
 	GROUP BY 1, ` + strings.Join(groupOrdinals, ", ") + `, series_key
 ),
 aggregated AS (
@@ -153,12 +156,13 @@ FROM aggregated
 ORDER BY ` + groupColList + `, bucket
 `
 
-	args := make([]any, 0, 7+len(groupBy))
-	args = append(args, serviceName, metricName, from, to, from, int64(bucket/time.Second))
+	args := make([]any, 0, len(cteArgs)+2+len(groupBy))
+	args = append(args, cteArgs...)
+	args = append(args, int64(bucket/time.Second))
 	for _, k := range groupBy {
 		args = append(args, k)
 	}
-	args = append(args, from)
+	args = append(args, timestampNanos(from))
 
 	rows, err := s.DB().QueryContext(ctx, query, args...)
 	if err != nil {

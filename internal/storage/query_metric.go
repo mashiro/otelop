@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -260,29 +261,25 @@ target_series AS (
 	FROM metric_points p
 	JOIN represented_series r USING (series_key)
 	WHERE p.ts < make_timestamp_ns(?)
-), points AS (
-	SELECT window_points.*,
-		predecessor_series.series_key IS NOT NULL AS has_predecessor
-	FROM window_points
-	LEFT JOIN predecessor_series USING (series_key)
-), ranked AS (
-	SELECT *, row_number() OVER (PARTITION BY series_key ORDER BY ts) AS point_rank
-	FROM points
+), series_counts AS (
+	SELECT service_name, metric_name, series_key,
+		bool_or(` + predecessorRequiredSQL + `) AS requires_predecessor,
+		count(*) FILTER (WHERE resolvable) AS resolvable_points,
+		arg_min(resolvable, ts) AS first_resolvable
+	FROM (
+		SELECT *, CASE WHEN metric_type IN ` + distributionTypesSQL + `
+			THEN count IS NOT NULL ELSE value IS NOT NULL END AS resolvable
+		FROM window_points
+	)
+	GROUP BY service_name, metric_name, series_key
 )
-SELECT service_name, metric_name, sum(
-	CASE
-		WHEN metric_type IN ` + distributionTypesSQL + `
-			AND count IS NOT NULL
-			AND (temporality <> 'cumulative' OR point_rank > 1 OR has_predecessor) THEN 1
-		WHEN metric_type NOT IN ` + distributionTypesSQL + ` AND value IS NOT NULL
-			AND (metric_type <> 'Sum' OR temporality <> 'cumulative' OR NOT is_monotonic
-				OR point_rank > 1 OR has_predecessor) THEN 1
-		ELSE 0
-	END
-)
-FROM ranked
-GROUP BY service_name, metric_name`
-	countArgs := append(args, from.UnixNano(), to.UnixNano(), from.UnixNano())
+SELECT c.service_name, c.metric_name, sum(c.resolvable_points - CASE
+	WHEN c.requires_predecessor AND c.first_resolvable AND p.series_key IS NULL THEN 1 ELSE 0
+END)
+FROM series_counts c
+LEFT JOIN predecessor_series p USING (series_key)
+GROUP BY c.service_name, c.metric_name`
+	countArgs := append(args, timestampNanos(from), timestampNanos(to), timestampNanos(from))
 	rows, err := s.DB().QueryContext(ctx, countQuery, countArgs...)
 	if err != nil {
 		return fmt.Errorf("storage: query metric summary point counts: %w", err)
@@ -310,14 +307,28 @@ targets AS (
 	SELECT s.service_name, s.metric_name, arg_max(s.series_key, s.last_seen) AS series_key
 	FROM selected x JOIN metric_series s USING (service_name, metric_name)
 	GROUP BY s.service_name, s.metric_name
-), ranked AS (
+), recent_points AS (
+	SELECT p.series_key, p.id, p.ts, p.value_double, p.value_int, p.count, p.sum
+	FROM targets t JOIN metric_points p USING (series_key)
+	WHERE p.ts >= make_timestamp_ns(?)
+	QUALIFY row_number() OVER (PARTITION BY p.series_key ORDER BY p.ts DESC, p.id DESC) <= 2
+), short_series AS (
+	SELECT series_key FROM targets
+	ANTI JOIN (SELECT series_key FROM recent_points GROUP BY series_key HAVING count(*) >= 2) USING (series_key)
+), older_points AS (
+	SELECT p.series_key, p.id, p.ts, p.value_double, p.value_int, p.count, p.sum
+	FROM short_series t JOIN metric_points p USING (series_key)
+	WHERE p.ts < make_timestamp_ns(?)
+	QUALIFY row_number() OVER (PARTITION BY p.series_key ORDER BY p.ts DESC, p.id DESC) <= 2
+), points AS (
 	SELECT t.service_name, t.metric_name, p.series_key, p.ts,
 		coalesce(p.value_double, cast(p.value_int AS DOUBLE)) AS value,
 		cast(p.count AS DOUBLE) AS count, p.sum,
-		s.metric_type, s.temporality, s.is_monotonic,
-		row_number() OVER (PARTITION BY p.series_key ORDER BY p.ts DESC, p.id DESC) AS point_rank
-	FROM targets t JOIN metric_points p USING (series_key) JOIN metric_series s USING (series_key)
-), points AS (SELECT * FROM ranked WHERE point_rank <= 2),
+		s.metric_type, s.temporality, s.is_monotonic
+	FROM (SELECT * FROM recent_points UNION ALL SELECT * FROM older_points) p
+	JOIN targets t USING (series_key) JOIN metric_series s USING (series_key)
+	QUALIFY row_number() OVER (PARTITION BY p.series_key ORDER BY p.ts DESC, p.id DESC) <= 2
+),
 derived AS (
 	SELECT *,
 		CASE WHEN metric_type = 'Sum' AND temporality = 'cumulative' AND is_monotonic
@@ -339,7 +350,21 @@ SELECT service_name, metric_name,
 		THEN CASE WHEN sum_delta IS NULL OR count_delta IS NULL OR count_delta <= 0 THEN NULL ELSE sum_delta / count_delta END
 		ELSE scalar_value END AS latest_value
 FROM derived QUALIFY row_number() OVER (PARTITION BY service_name, metric_name ORDER BY ts DESC) = 1`
-	rows, err = s.DB().QueryContext(ctx, latestQuery, args...)
+	// The two newest observations are taken from a constant recent range so
+	// DuckDB can skip older row groups; any range [L, ∞) holding two of a
+	// series' points holds its newest two, and series with fewer fall back
+	// to the older probe, so the anchor only affects cost. LastSeen is the
+	// ingest time of the group's newest series, which normally trails its
+	// newest observation by one export interval.
+	recentFrom := items[0].LastSeen
+	for i := range items {
+		if items[i].LastSeen.Before(recentFrom) {
+			recentFrom = items[i].LastSeen
+		}
+	}
+	recentFromNanos := timestampNanos(recentFrom.Add(-metricPredecessorLookback))
+	latestArgs := append(append([]any{}, args...), recentFromNanos, recentFromNanos)
+	rows, err = s.DB().QueryContext(ctx, latestQuery, latestArgs...)
 	if err != nil {
 		return fmt.Errorf("storage: query metric summary latest values: %w", err)
 	}
@@ -505,55 +530,30 @@ ORDER BY ts
 
 const metricPointsQuery = metricDerivedCTE + metricPointsSelect
 
-// metricPointsWithPredecessorsQuery adds the immediately preceding point only
-// for represented cumulative source series whose delta derivation uses lag().
-// Gauge, delta, and cumulative non-monotonic Sum series stay window-only.
+// metricPredecessorLookback bounds the first predecessor probe. The newest
+// observation older than a window is almost always within one export
+// interval, so probing a recent constant range lets DuckDB skip older row
+// groups by zonemap; an unbounded `ts < from_ts` probe scales with retained
+// history and made every WebSocket metric broadcast re-read the whole table.
+// Series with no observation inside the lookback fall back to the unbounded
+// probe, so the result never changes — only the cost of the common case.
+const metricPredecessorLookback = time.Hour
+
+// predecessorAggregateSQL keeps the (ts DESC, id DESC) tie-break of a
+// row_number() ranking while letting DuckDB aggregate instead of sorting
+// every older observation of a series.
+const predecessorAggregateSQL = `arg_max({
+		'id': p.id, 'ts': p.ts,
+		'value': coalesce(p.value_double, cast(p.value_int AS DOUBLE)),
+		'count': cast(p.count AS DOUBLE), 'sum': p.sum, 'min': p.min, 'max': p.max
+	}, (p.ts, p.id)) AS pred`
+
+// metricPointsWithPredecessorsCTE derives one or more metric groups, adding
+// the immediately preceding point only for represented cumulative source
+// series whose delta derivation uses lag(). Gauge, delta, and cumulative
+// non-monotonic Sum series stay window-only. Placeholders: the %s VALUES
+// rows built by predecessorWindowArgs, then the scan bounds it appends.
 const metricPointsWithPredecessorsCTE = `
-WITH target_series AS (
-	SELECT series_key, metric_type, temporality, is_monotonic, attributes::VARCHAR AS attrs_json
-	FROM metric_series
-	WHERE service_name = ? AND metric_name = ?
-),
-window_points AS (
-	SELECT
-		0 AS request_index,
-		p.id, p.series_key, p.ts,
-		coalesce(p.value_double, cast(p.value_int AS DOUBLE)) AS value,
-		cast(p.count AS DOUBLE) AS count, p.sum, p.min, p.max,
-		s.metric_type, s.temporality, s.is_monotonic, s.attrs_json
-	FROM metric_points p
-	JOIN target_series s USING (series_key)
-	WHERE p.ts >= ? AND p.ts < ?
-),
-represented_series AS (
-	SELECT DISTINCT series_key FROM window_points
-	WHERE ` + predecessorRequiredSQL + `
-),
-points AS (
-	SELECT * FROM window_points
-	UNION ALL
-	SELECT request_index, id, series_key, ts, value, count, sum, min, max,
-		metric_type, temporality, is_monotonic, attrs_json
-	FROM (
-		SELECT
-			0 AS request_index,
-			p.id, p.series_key, p.ts,
-			coalesce(p.value_double, cast(p.value_int AS DOUBLE)) AS value,
-			cast(p.count AS DOUBLE) AS count, p.sum, p.min, p.max,
-			s.metric_type, s.temporality, s.is_monotonic, s.attrs_json,
-			row_number() OVER (PARTITION BY p.series_key ORDER BY p.ts DESC, p.id DESC) AS predecessor_rank
-		FROM metric_points p
-		JOIN target_series s USING (series_key)
-		JOIN represented_series r USING (series_key)
-		WHERE p.ts < ?
-	)
-	WHERE predecessor_rank = 1
-),
-` + metricDerivedFormula
-
-const metricPointsWithPredecessorsQuery = metricPointsWithPredecessorsCTE + metricPointsSelect
-
-const metricPointsWithPredecessorsBatchQuery = `
 WITH requested(request_index, service_name, metric_name, from_ns, to_ns) AS (VALUES %s),
 target_series AS (
 	SELECT r.request_index, make_timestamp_ns(r.from_ns) AS from_ts, make_timestamp_ns(r.to_ns) AS to_ts,
@@ -570,34 +570,48 @@ window_points AS (
 		s.metric_type, s.temporality, s.is_monotonic, s.attrs_json
 	FROM metric_points p
 	JOIN target_series s USING (series_key)
-	WHERE p.ts >= s.from_ts AND p.ts < s.to_ts
+	WHERE p.ts >= make_timestamp_ns(?) AND p.ts < make_timestamp_ns(?)
+		AND p.ts >= s.from_ts AND p.ts < s.to_ts
 ),
 represented_series AS (
 	SELECT DISTINCT request_index, series_key FROM window_points
 	WHERE ` + predecessorRequiredSQL + `
 ),
+recent_predecessors AS (
+	SELECT s.request_index, p.series_key, ` + predecessorAggregateSQL + `
+	FROM metric_points p
+	JOIN target_series s USING (series_key)
+	JOIN represented_series r USING (request_index, series_key)
+	WHERE p.ts >= make_timestamp_ns(?) AND p.ts < make_timestamp_ns(?) AND p.ts < s.from_ts
+	GROUP BY s.request_index, p.series_key
+),
+missing_predecessors AS (
+	SELECT request_index, series_key FROM represented_series
+	ANTI JOIN recent_predecessors USING (request_index, series_key)
+),
+older_predecessors AS (
+	SELECT s.request_index, p.series_key, ` + predecessorAggregateSQL + `
+	FROM metric_points p
+	JOIN target_series s USING (series_key)
+	JOIN missing_predecessors m USING (request_index, series_key)
+	WHERE p.ts < make_timestamp_ns(?)
+	GROUP BY s.request_index, p.series_key
+),
 points AS (
 	SELECT * FROM window_points
 	UNION ALL
-	SELECT request_index, id, series_key, ts, value, count, sum, min, max,
-		metric_type, temporality, is_monotonic, attrs_json
+	SELECT q.request_index, q.pred.id, q.series_key, q.pred.ts, q.pred.value, q.pred.count,
+		q.pred.sum, q.pred.min, q.pred.max, s.metric_type, s.temporality, s.is_monotonic, s.attrs_json
 	FROM (
-		SELECT
-			s.request_index, p.id, p.series_key, p.ts,
-			coalesce(p.value_double, cast(p.value_int AS DOUBLE)) AS value,
-			cast(p.count AS DOUBLE) AS count, p.sum, p.min, p.max,
-			s.metric_type, s.temporality, s.is_monotonic, s.attrs_json,
-			row_number() OVER (
-				PARTITION BY s.request_index, p.series_key ORDER BY p.ts DESC, p.id DESC
-			) AS predecessor_rank
-		FROM metric_points p
-		JOIN target_series s USING (series_key)
-		JOIN represented_series r USING (request_index, series_key)
-		WHERE p.ts < s.from_ts
-	)
-	WHERE predecessor_rank = 1
+		SELECT * FROM recent_predecessors
+		UNION ALL
+		SELECT * FROM older_predecessors
+	) q
+	JOIN target_series s USING (request_index, series_key)
 ),
-` + metricDerivedFormula + `
+` + metricDerivedFormula
+
+const metricPointsWithPredecessorsQuery = metricPointsWithPredecessorsCTE + `
 SELECT
 	request_index, id, series_key, ts, attrs_json, metric_type,
 	CASE
@@ -615,6 +629,56 @@ SELECT
 FROM derived
 ORDER BY request_index, ts
 `
+
+// predecessorWindowArgs renders metricPointsWithPredecessorsCTE's VALUES rows
+// and its placeholder arguments. The window bounds are repeated as constants
+// because DuckDB prunes row groups only for constant filters, not for the
+// per-request bounds joined in from target_series. A series missing from
+// recent_predecessors has no observation at or after the lookback start, so
+// the older probe can stop there.
+func predecessorWindowArgs(windows []MetricPointWindow) (string, []any) {
+	values := make([]string, len(windows))
+	args := make([]any, 0, len(windows)*5+5)
+	minFrom, maxFrom, maxTo := windows[0].From, windows[0].From, windows[0].To
+	for i, window := range windows {
+		values[i] = "(?, ?, ?, ?, ?)"
+		args = append(args, i, window.ServiceName, window.MetricName, timestampNanos(window.From), timestampNanos(window.To))
+		if window.From.Before(minFrom) {
+			minFrom = window.From
+		}
+		if window.From.After(maxFrom) {
+			maxFrom = window.From
+		}
+		if window.To.After(maxTo) {
+			maxTo = window.To
+		}
+	}
+	lookbackFrom := timestampNanos(minFrom.Add(-metricPredecessorLookback))
+	args = append(args,
+		timestampNanos(minFrom), timestampNanos(maxTo),
+		lookbackFrom, timestampNanos(maxFrom),
+		lookbackFrom)
+	return strings.Join(values, ","), args
+}
+
+// DuckDB reserves the int64 extremes for ±infinity, so finite TIMESTAMP_NS
+// values stop one short of them.
+const (
+	minFiniteTimestampNanos = math.MinInt64 + 2
+	maxFiniteTimestampNanos = math.MaxInt64 - 1
+)
+
+// timestampNanos clamps to TIMESTAMP_NS's finite range because UnixNano is
+// undefined outside it, and GraphQL callers may pass arbitrarily wide windows.
+func timestampNanos(t time.Time) int64 {
+	if t.Before(time.Unix(0, minFiniteTimestampNanos)) {
+		return minFiniteTimestampNanos
+	}
+	if t.After(time.Unix(0, maxFiniteTimestampNanos)) {
+		return maxFiniteTimestampNanos
+	}
+	return t.UnixNano()
+}
 
 // MetricPointWindow identifies one metric group and the newly committed time
 // range whose derived points a broadcaster needs.
@@ -643,7 +707,16 @@ func (s *Storage) MetricPointsWithPredecessors(ctx context.Context, serviceName,
 	defer func() { endStorageSpan(span, err) }()
 	started := time.Now()
 	defer func() { s.recordQuery(ctx, "query_metric_points", started, err) }()
-	return s.queryMetricPoints(ctx, metricPointsWithPredecessorsQuery, serviceName, metricName, from, to, from)
+	result, err := s.queryMetricPointsWithPredecessors(ctx, []MetricPointWindow{{
+		ServiceName: serviceName, MetricName: metricName, From: from, To: to,
+	}})
+	if err != nil {
+		return nil, err
+	}
+	if result[0] == nil {
+		return []DerivedPoint{}, nil
+	}
+	return result[0], nil
 }
 
 // MetricPointsWithPredecessorsBatch derives multiple metric groups in one SQL
@@ -656,21 +729,18 @@ func (s *Storage) MetricPointsWithPredecessorsBatch(ctx context.Context, windows
 	defer func() { endStorageSpan(span, err) }()
 	started := time.Now()
 	defer func() { s.recordQuery(ctx, "query_metric_points_batch", started, err) }()
+	return s.queryMetricPointsWithPredecessors(ctx, windows)
+}
 
-	values := make([]string, len(windows))
-	args := make([]any, 0, len(windows)*5)
-	for i, window := range windows {
-		values[i] = "(?, ?, ?, ?, ?)"
-		args = append(args, i, window.ServiceName, window.MetricName, window.From.UnixNano(), window.To.UnixNano())
-	}
-	query := fmt.Sprintf(metricPointsWithPredecessorsBatchQuery, strings.Join(values, ","))
-	rows, err := s.DB().QueryContext(ctx, query, args...)
+func (s *Storage) queryMetricPointsWithPredecessors(ctx context.Context, windows []MetricPointWindow) ([][]DerivedPoint, error) {
+	values, args := predecessorWindowArgs(windows)
+	rows, err := s.DB().QueryContext(ctx, fmt.Sprintf(metricPointsWithPredecessorsQuery, values), args...)
 	if err != nil {
 		return nil, fmt.Errorf("storage: query metric points batch: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
 
-	result = make([][]DerivedPoint, len(windows))
+	result := make([][]DerivedPoint, len(windows))
 	for rows.Next() {
 		var (
 			requestIndex                                              int
