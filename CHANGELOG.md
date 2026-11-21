@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.5.4](https://github.com/mashiro/otelop/compare/v2.5.3...v2.5.4) (2026-11-21)
+
+
+### Bug Fixes
+
+* **deps:** update dependency lucide-react to v1.75.0 ([#492](https://github.com/mashiro/otelop/issues/492)) ([395790c](https://github.com/mashiro/otelop/commit/395790c5bf1c51123c99232370fa4bb10c3e02a8))
+* **storage:** enforce max_size against used blocks instead of file size ([#493](https://github.com/mashiro/otelop/issues/493)) ([3679d04](https://github.com/mashiro/otelop/commit/3679d042bb0f9d21dbebe4b7ad4888b4293bd123))
+
+
+### Performance Improvements
+
+* **storage:** stop metric queries from scanning full retained history ([#494](https://github.com/mashiro/otelop/issues/494)) ([81d481b](https://github.com/mashiro/otelop/commit/81d481bb388245676039e38755bac333c181792e))
+
 ## [2.5.3](https://github.com/mashiro/otelop/compare/v2.5.2...v2.5.3) (2026-11-20)
 
 
