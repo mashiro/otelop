@@ -321,9 +321,12 @@ and cumulative non-monotonic Sum points do not expose a cumulative field.
   rows arrive roughly time-ordered, old row groups delete wholesale and their
   space is reused in-file. Trace summaries touched by deleted spans are rebuilt
   in the same transaction; unaffected traces are not scanned.
-- `max_size` (default `"4GB"`): if the database file exceeds the ceiling, the
-  sweep trims the oldest day repeatedly until under it. Users are protected by
-  whichever bound is tighter.
+- `max_size` (default `"4GB"`): if DuckDB's used blocks exceed the ceiling,
+  the sweep trims the oldest day repeatedly until under it. Users are protected
+  by whichever bound is tighter. Used blocks, not the file size, are compared
+  because DuckDB only truncates trailing free blocks: after retention frees old
+  row groups the file can stay far larger than the data it holds, and trimming
+  on the file size deleted live days for space that would have been reused.
 - Dimension rows no longer referenced by any fact row are pruned during the
   sweep.
 - `clearSignals` deletes from all tables and checkpoints. The database lives at

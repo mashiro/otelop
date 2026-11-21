@@ -83,7 +83,8 @@ type Options struct {
 	// Retention is how far back fact rows (spans, metric_points, logs) are
 	// kept. Defaults to 7 days.
 	Retention time.Duration
-	// MaxSize is the on-disk ceiling in bytes for a file-backed database.
+	// MaxSize is the ceiling in bytes for the data a file-backed database
+	// keeps allocated (used blocks); see enforceMaxSize.
 	// Ignored for in-memory databases. Defaults to 4 GiB.
 	MaxSize int64
 	// MemoryLimit caps DuckDB's buffer pool/query memory in bytes. Without
@@ -230,13 +231,11 @@ type Storage struct {
 	commitCh chan commitJob
 	commitWG sync.WaitGroup
 
-	// sizeFn reports the database file's current on-disk size; enforceMaxSize
-	// calls it, defaulting to fileSize. Overridable so tests can drive the
-	// "delete oldest day until under the ceiling" loop deterministically
-	// without depending on exactly how much DuckDB's file shrinks after a
-	// DELETE + CHECKPOINT (which — see enforceMaxSize's comment — it may not
-	// do promptly at all).
-	sizeFn func() (int64, error)
+	// sizeFn reports how much of the database DuckDB keeps allocated;
+	// enforceMaxSize calls it, defaulting to usedSize. Overridable so tests
+	// can drive the "delete oldest day until under the ceiling" loop
+	// deterministically without generating gigabytes of rows.
+	sizeFn func(context.Context) (int64, error)
 
 	// traceByIDCalls counts TraceByID invocations — one SQL round trip each.
 	// It exists so the GraphQL layer's tests can assert the trace-list N+1
@@ -308,7 +307,7 @@ func Open(ctx context.Context, opts Options) (*Storage, error) {
 		resourceCache: newLRUSet[uint64](resourceCacheCap),
 		sweepStop:     make(chan struct{}),
 	}
-	s.sizeFn = s.fileSize
+	s.sizeFn = s.usedSize
 
 	if opts.OnCommit != nil || opts.OnCommitBatch != nil {
 		s.commitCh = make(chan commitJob, commitQueueSize)
@@ -1305,14 +1304,13 @@ func (s *Storage) pruneDimensions(ctx context.Context) (err error) {
 }
 
 // enforceMaxSize repeatedly deletes the oldest remaining day of fact rows
-// until the database file is under MaxSize or the iteration cap is hit.
+// until the data DuckDB keeps allocated is under MaxSize or the iteration cap
+// is hit.
 //
-// Note: DuckDB deleting rows and checkpointing does not necessarily shrink
-// the file promptly — per docs/design/duckdb-storage.md, "old row groups
-// delete wholesale and their space is reused in-file", i.e. reclaimed for
-// future writes rather than returned to the OS. So this loop may run to
-// maxSizeSweepIterations without ever observing size drop under MaxSize;
-// that's an expected, logged outcome (see the warning below), not a bug.
+// It measures used blocks rather than the file: DuckDB reuses freed blocks
+// in-file but only truncates trailing ones, so after retention frees old row
+// groups the file can stay far above the data it holds. Measuring the file
+// there trimmed live days for space that would have been reused anyway.
 // enforceMaxSize returns the total fact rows it deleted and the number of
 // day-trim iterations it performed, alongside any error — accumulated by
 // performSweep into the published SweepResult.
@@ -1320,9 +1318,9 @@ func (s *Storage) enforceMaxSize(ctx context.Context) (deletedRows int64, iterat
 	ctx, span := startStorageSpan(ctx, "storage.enforceMaxSize")
 	defer func() { endStorageSpan(span, err) }()
 	for i := 0; i < maxSizeSweepIterations; i++ {
-		size, err := s.sizeFn()
+		size, err := s.sizeFn(ctx)
 		if err != nil {
-			return deletedRows, iterations, fmt.Errorf("storage: stat database file: %w", err)
+			return deletedRows, iterations, fmt.Errorf("storage: measure database size: %w", err)
 		}
 		if size <= s.opts.MaxSize {
 			return deletedRows, iterations, nil
@@ -1372,6 +1370,18 @@ func (s *Storage) performClear(ctx context.Context) (err error) {
 	}
 	s.resourceCache = newLRUSet[uint64](resourceCacheCap)
 	return nil
+}
+
+// usedSize runs on the writer connection, after the sweep's CHECKPOINT, so
+// the block counts already reflect the rows this sweep deleted.
+func (s *Storage) usedSize(ctx context.Context) (int64, error) {
+	var size int64
+	err := s.writer.QueryRowContext(ctx, `
+		SELECT block_size * used_blocks
+		FROM pragma_database_size()
+		WHERE database_name = current_database()
+	`).Scan(&size)
+	return size, err
 }
 
 func (s *Storage) fileSize() (int64, error) {

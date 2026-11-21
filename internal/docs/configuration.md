@@ -79,7 +79,9 @@ points, and logs; `error` is empty on success. `nextSweepAt` is the expected
 scheduled time, not a completion deadline.
 
 `databaseSizeBytes` and block counts describe DuckDB allocation; free blocks can
-be reused without shrinking the file. `fileSizeBytes` excludes the separately
+be reused without shrinking the file. `max_size` is compared with the used
+blocks, not the file size, so the file can stay larger than `max_size` after
+old data is deleted. `fileSizeBytes` excludes the separately
 reported WAL. The existing `status.dbSizeBytes` also reports the database file size.
 
 `memory_limit` caps DuckDB's buffer pool and query memory (`memoryLimitBytes`
