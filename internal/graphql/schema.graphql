@@ -136,7 +136,7 @@ type Config {
   storagePath: String!
   "Configured retention window, as given in the TOML/CLI/env config (e.g. \"7d\")."
   retention: String!
-  "Configured on-disk size ceiling, as given in the TOML/CLI/env config (e.g. \"4GB\")."
+  "Configured stored data size ceiling, as given in the TOML/CLI/env config (e.g. \"4GB\")."
   maxSize: String!
   "Max rows the traces/metrics/logs tables render at once, as given in the TOML/CLI/env config."
   renderWindowMax: Int!
@@ -195,7 +195,7 @@ type StorageStatus {
   memoryLimitBytes: Float!
   "DuckDB temporary storage (spill-to-disk) usage in bytes."
   tempStorageBytes: Float!
-  "Configured on-disk size ceiling in bytes (0 if none configured)."
+  "Configured stored data size ceiling in bytes (0 if none configured), compared with usedBlocks."
   maxSizeBytes: Float!
   "Configured retention window in milliseconds."
   retentionMs: Float!

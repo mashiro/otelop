@@ -34,7 +34,7 @@ func configFlags(cfg config.Config) []cli.Flag {
 		&cli.StringSliceFlag{Name: "proxy-auth-headers", Value: headerPairs(cfg.Proxy.Auth.Headers), Usage: "upstream header in key=value form (repeatable)", Sources: cli.EnvVars("OTELOP_PROXY_AUTH_HEADERS")},
 		&cli.StringFlag{Name: "storage-path", Value: cfg.Storage.Path, Usage: "DuckDB database file path (empty = XDG default)", Sources: cli.EnvVars("OTELOP_STORAGE_PATH")},
 		&cli.StringFlag{Name: "storage-retention", Value: cfg.Storage.Retention, Usage: "how long to keep telemetry (e.g. 7d, 168h)", Sources: cli.EnvVars("OTELOP_STORAGE_RETENTION")},
-		&cli.StringFlag{Name: "storage-max-size", Value: cfg.Storage.MaxSize, Usage: "on-disk size ceiling (e.g. 4GB, 4GiB)", Sources: cli.EnvVars("OTELOP_STORAGE_MAX_SIZE")},
+		&cli.StringFlag{Name: "storage-max-size", Value: cfg.Storage.MaxSize, Usage: "stored data size ceiling; the oldest days are trimmed above it (e.g. 4GB, 4GiB)", Sources: cli.EnvVars("OTELOP_STORAGE_MAX_SIZE")},
 		&cli.StringFlag{Name: "storage-memory-limit", Value: cfg.Storage.MemoryLimit, Usage: "DuckDB memory ceiling (e.g. 512MB, 1GiB)", Sources: cli.EnvVars("OTELOP_STORAGE_MEMORY_LIMIT")},
 		&cli.IntFlag{Name: "ui-render-window-max", Value: cfg.UI.RenderWindowMax, Usage: "max rows the traces/metrics/logs tables render at once", Sources: cli.EnvVars("OTELOP_UI_RENDER_WINDOW_MAX")},
 		&cli.StringFlag{Name: "log-level", Value: cfg.LogLevel, Usage: "log level (debug|info|warn|error)", Sources: cli.EnvVars("OTELOP_LOG_LEVEL")},

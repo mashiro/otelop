@@ -689,14 +689,10 @@ func TestStorage_Sweep_KeepsResourcesReferencedOnlyByMetricSeries(t *testing.T) 
 
 // TestStorage_Sweep_MaxSizeTrimsOldestDaysUntilUnderCeiling drives
 // enforceMaxSize's "delete the oldest day repeatedly until under MaxSize"
-// loop with a fake sizeFn rather than real file bytes. DuckDB deleting rows
-// and checkpointing does not reliably shrink the file promptly (see the
-// comment on enforceMaxSize) — space is reused in-file, not returned to the
-// OS — so asserting on real os.Stat sizes here would be flaky by
-// construction. The fake simulates a file that shrinks by a fixed amount per
-// deleted day, which is enough to test the loop's control flow (deletes
-// oldest-first, stops once under the ceiling) while the actual row deletion
-// still runs for real against the database.
+// loop with a fake sizeFn so a few rows can stand in for gigabytes. The fake
+// shrinks by a fixed amount per deleted day, which is enough to test the
+// loop's control flow (deletes oldest-first, stops once under the ceiling)
+// while the actual row deletion still runs for real against the database.
 func TestStorage_Sweep_MaxSizeTrimsOldestDaysUntilUnderCeiling(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "otelop.duckdb")
@@ -713,7 +709,7 @@ func TestStorage_Sweep_MaxSizeTrimsOldestDaysUntilUnderCeiling(t *testing.T) {
 
 	const perDayBytes = int64(100)
 	calls := 0
-	s.sizeFn = func() (int64, error) {
+	s.sizeFn = func(context.Context) (int64, error) {
 		size := int64(days)*perDayBytes - int64(calls)*perDayBytes
 		calls++
 		return size, nil
@@ -1108,5 +1104,99 @@ func TestStorage_Clear_DeletesEveryTableAndResetsCaches(t *testing.T) {
 	}
 	if stats.Resources != 1 || stats.Spans != 1 {
 		t.Fatalf("DBStats after re-add = %+v, want resources=1 spans=1", stats)
+	}
+}
+
+// TestStorage_Sweep_MaxSizeIgnoresReusableFreeBlocks covers a file that stays
+// large after retention frees most of its blocks: DuckDB only truncates
+// trailing free blocks, so with live data after the freed ones the file keeps
+// its size while the data actually stored is far below MaxSize. Trimming on
+// file size there deleted live days for space DuckDB would have reused.
+func TestStorage_Sweep_MaxSizeIgnoresReusableFreeBlocks(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "otelop.duckdb")
+	s := openTestStorage(t, Options{Path: path, Retention: 7 * 24 * time.Hour})
+
+	expired := time.Now().Add(-30 * 24 * time.Hour)
+	if _, err := s.DB().ExecContext(ctx, `
+		INSERT INTO metric_points (id, series_key, ts, ingested_at, flags, value_double)
+		SELECT uuid(), n % 100, make_timestamp_ns(?::BIGINT + n), make_timestamp_ns(?::BIGINT + n), 0, random()
+		FROM range(2000000) t(n)`, expired.UnixNano(), expired.UnixNano()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.DB().ExecContext(ctx, `CHECKPOINT`); err != nil {
+		t.Fatal(err)
+	}
+	s.AddTraces(ctx, buildTraces([16]byte{12}, [16]byte{}, [8]byte{1}, "live", time.Now()))
+	s.Sync()
+	if _, err := s.DB().ExecContext(ctx, `CHECKPOINT`); err != nil {
+		t.Fatal(err)
+	}
+
+	before, err := s.fileSize()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.opts.MaxSize = before / 2
+
+	if err := s.Sweep(ctx); err != nil {
+		t.Fatalf("Sweep: %v", err)
+	}
+	after, err := s.fileSize()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after <= s.opts.MaxSize {
+		t.Fatalf("file shrank to %d (MaxSize %d); the fixture must keep freed blocks inside the file", after, s.opts.MaxSize)
+	}
+	var live int
+	if err := s.DB().QueryRowContext(ctx, `SELECT count(*) FROM spans`).Scan(&live); err != nil {
+		t.Fatal(err)
+	}
+	result, _ := s.LastSweep()
+	if live != 1 || result.MaxSizeIterations != 0 {
+		t.Fatalf("live spans = %d, max_size iterations = %d; want the live span kept and no max_size trim", live, result.MaxSizeIterations)
+	}
+}
+
+func TestStorage_Sweep_MaxSizeTrimsWhenStoredDataExceedsCeiling(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "otelop.duckdb")
+	s := openTestStorage(t, Options{Path: path, Retention: 7 * 24 * time.Hour})
+
+	now := time.Now()
+	start := now.Add(-3 * 24 * time.Hour)
+	const rows = 2000000
+	step := int64(3*24*time.Hour) / rows
+	if _, err := s.DB().ExecContext(ctx, `
+		INSERT INTO metric_points (id, series_key, ts, ingested_at, flags, value_double)
+		SELECT uuid(), n % 100, make_timestamp_ns(?::BIGINT + n * ?), make_timestamp_ns(?::BIGINT + n * ?), 0, random()
+		FROM range(?) t(n)`, start.UnixNano(), step, start.UnixNano(), step, rows); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.DB().ExecContext(ctx, `CHECKPOINT`); err != nil {
+		t.Fatal(err)
+	}
+	used, err := s.usedSize(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.opts.MaxSize = used / 2
+
+	if err := s.Sweep(ctx); err != nil {
+		t.Fatalf("Sweep: %v", err)
+	}
+	result, _ := s.LastSweep()
+	after, err := s.usedSize(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var newest time.Time
+	if err := s.DB().QueryRowContext(ctx, `SELECT max(ts) FROM metric_points`).Scan(&newest); err != nil {
+		t.Fatal(err)
+	}
+	if result.MaxSizeIterations == 0 || after > s.opts.MaxSize || newest.Before(now.Add(-time.Hour)) {
+		t.Fatalf("iterations = %d, used %d -> %d (MaxSize %d), newest %v; want oldest days trimmed under the ceiling and the newest data kept",
+			result.MaxSizeIterations, used, after, s.opts.MaxSize, newest)
 	}
 }
