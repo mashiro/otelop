@@ -818,3 +818,74 @@ func TestMetricPointsWithPredecessors_AcceptsUnboundedWindow(t *testing.T) {
 		t.Fatalf("aggregate = %+v, want one bucket with delta 30", series)
 	}
 }
+
+func TestMetricsPage_LatestValueCombinesRecentAndOlderObservations(t *testing.T) {
+	now := time.Now().UTC()
+	for name, tc := range map[string]struct {
+		observations []float64
+		offsets      []time.Duration
+		want         float64
+	}{
+		"both in recent range": {
+			observations: []float64{0, 100, 130},
+			offsets:      []time.Duration{-3 * metricPredecessorLookback, -time.Minute, 0},
+			want:         30,
+		},
+		"previous outside recent range": {
+			observations: []float64{100, 130},
+			offsets:      []time.Duration{-3 * metricPredecessorLookback, 0},
+			want:         30,
+		},
+		"both outside recent range": {
+			observations: []float64{100, 130},
+			offsets:      []time.Duration{-4 * metricPredecessorLookback, -3 * metricPredecessorLookback},
+			want:         30,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := openTestStorage(t, Options{})
+			ctx := context.Background()
+			for i, v := range tc.observations {
+				s.AddMetrics(ctx, buildCumulativeSum("requests.total", "svc", v, now.Add(tc.offsets[i])))
+			}
+			s.Sync()
+
+			items, _, err := s.MetricsPage(ctx, now.Add(-24*time.Hour), now.Add(time.Hour), nil, 0)
+			if err != nil {
+				t.Fatalf("MetricsPage: %v", err)
+			}
+			if len(items) != 1 || items[0].LatestValue == nil || *items[0].LatestValue != tc.want {
+				t.Fatalf("items = %+v, want one metric with LatestValue %v", items, tc.want)
+			}
+		})
+	}
+}
+
+func TestMetricsPage_PointCountSkipsOnlyUnresolvedBaselines(t *testing.T) {
+	s := openTestStorage(t, Options{})
+	ctx := context.Background()
+	t0 := time.Now().UTC().Add(-time.Hour)
+
+	s.AddMetrics(ctx, buildInstanceCumulativeSum("requests.total", "svc", "a", 10, t0))
+	for i := 1; i <= 3; i++ {
+		s.AddMetrics(ctx, buildInstanceCumulativeSum("requests.total", "svc", "a", float64(10+i), t0.Add(time.Duration(i)*time.Minute)))
+		s.AddMetrics(ctx, buildInstanceCumulativeSum("requests.total", "svc", "b", float64(20+i), t0.Add(time.Duration(i)*time.Minute)))
+	}
+	s.AddMetrics(ctx, buildDeltaSum("requests.delta", "svc", 1, t0.Add(time.Minute)))
+	s.AddMetrics(ctx, buildDeltaSum("requests.delta", "svc", 2, t0.Add(2*time.Minute)))
+	s.Sync()
+
+	// Series a has an observation before the window, so all three window
+	// points resolve; series b's first window point is its baseline.
+	items, _, err := s.MetricsPage(ctx, t0.Add(30*time.Second), t0.Add(2*time.Hour), nil, 0)
+	if err != nil {
+		t.Fatalf("MetricsPage: %v", err)
+	}
+	counts := make(map[string]int, len(items))
+	for _, item := range items {
+		counts[item.MetricName] = item.PointCount
+	}
+	if counts["requests.total"] != 5 || counts["requests.delta"] != 2 {
+		t.Fatalf("point counts = %v, want requests.total 5 and requests.delta 2", counts)
+	}
+}

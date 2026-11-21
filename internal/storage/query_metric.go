@@ -261,29 +261,25 @@ target_series AS (
 	FROM metric_points p
 	JOIN represented_series r USING (series_key)
 	WHERE p.ts < make_timestamp_ns(?)
-), points AS (
-	SELECT window_points.*,
-		predecessor_series.series_key IS NOT NULL AS has_predecessor
-	FROM window_points
-	LEFT JOIN predecessor_series USING (series_key)
-), ranked AS (
-	SELECT *, row_number() OVER (PARTITION BY series_key ORDER BY ts) AS point_rank
-	FROM points
+), series_counts AS (
+	SELECT service_name, metric_name, series_key,
+		bool_or(` + predecessorRequiredSQL + `) AS requires_predecessor,
+		count(*) FILTER (WHERE resolvable) AS resolvable_points,
+		arg_min(resolvable, ts) AS first_resolvable
+	FROM (
+		SELECT *, CASE WHEN metric_type IN ` + distributionTypesSQL + `
+			THEN count IS NOT NULL ELSE value IS NOT NULL END AS resolvable
+		FROM window_points
+	)
+	GROUP BY service_name, metric_name, series_key
 )
-SELECT service_name, metric_name, sum(
-	CASE
-		WHEN metric_type IN ` + distributionTypesSQL + `
-			AND count IS NOT NULL
-			AND (temporality <> 'cumulative' OR point_rank > 1 OR has_predecessor) THEN 1
-		WHEN metric_type NOT IN ` + distributionTypesSQL + ` AND value IS NOT NULL
-			AND (metric_type <> 'Sum' OR temporality <> 'cumulative' OR NOT is_monotonic
-				OR point_rank > 1 OR has_predecessor) THEN 1
-		ELSE 0
-	END
-)
-FROM ranked
-GROUP BY service_name, metric_name`
-	countArgs := append(args, from.UnixNano(), to.UnixNano(), from.UnixNano())
+SELECT c.service_name, c.metric_name, sum(c.resolvable_points - CASE
+	WHEN c.requires_predecessor AND c.first_resolvable AND p.series_key IS NULL THEN 1 ELSE 0
+END)
+FROM series_counts c
+LEFT JOIN predecessor_series p USING (series_key)
+GROUP BY c.service_name, c.metric_name`
+	countArgs := append(args, timestampNanos(from), timestampNanos(to), timestampNanos(from))
 	rows, err := s.DB().QueryContext(ctx, countQuery, countArgs...)
 	if err != nil {
 		return fmt.Errorf("storage: query metric summary point counts: %w", err)
@@ -311,14 +307,28 @@ targets AS (
 	SELECT s.service_name, s.metric_name, arg_max(s.series_key, s.last_seen) AS series_key
 	FROM selected x JOIN metric_series s USING (service_name, metric_name)
 	GROUP BY s.service_name, s.metric_name
-), ranked AS (
+), recent_points AS (
+	SELECT p.series_key, p.id, p.ts, p.value_double, p.value_int, p.count, p.sum
+	FROM targets t JOIN metric_points p USING (series_key)
+	WHERE p.ts >= make_timestamp_ns(?)
+	QUALIFY row_number() OVER (PARTITION BY p.series_key ORDER BY p.ts DESC, p.id DESC) <= 2
+), short_series AS (
+	SELECT series_key FROM targets
+	ANTI JOIN (SELECT series_key FROM recent_points GROUP BY series_key HAVING count(*) >= 2) USING (series_key)
+), older_points AS (
+	SELECT p.series_key, p.id, p.ts, p.value_double, p.value_int, p.count, p.sum
+	FROM short_series t JOIN metric_points p USING (series_key)
+	WHERE p.ts < make_timestamp_ns(?)
+	QUALIFY row_number() OVER (PARTITION BY p.series_key ORDER BY p.ts DESC, p.id DESC) <= 2
+), points AS (
 	SELECT t.service_name, t.metric_name, p.series_key, p.ts,
 		coalesce(p.value_double, cast(p.value_int AS DOUBLE)) AS value,
 		cast(p.count AS DOUBLE) AS count, p.sum,
-		s.metric_type, s.temporality, s.is_monotonic,
-		row_number() OVER (PARTITION BY p.series_key ORDER BY p.ts DESC, p.id DESC) AS point_rank
-	FROM targets t JOIN metric_points p USING (series_key) JOIN metric_series s USING (series_key)
-), points AS (SELECT * FROM ranked WHERE point_rank <= 2),
+		s.metric_type, s.temporality, s.is_monotonic
+	FROM (SELECT * FROM recent_points UNION ALL SELECT * FROM older_points) p
+	JOIN targets t USING (series_key) JOIN metric_series s USING (series_key)
+	QUALIFY row_number() OVER (PARTITION BY p.series_key ORDER BY p.ts DESC, p.id DESC) <= 2
+),
 derived AS (
 	SELECT *,
 		CASE WHEN metric_type = 'Sum' AND temporality = 'cumulative' AND is_monotonic
@@ -340,7 +350,21 @@ SELECT service_name, metric_name,
 		THEN CASE WHEN sum_delta IS NULL OR count_delta IS NULL OR count_delta <= 0 THEN NULL ELSE sum_delta / count_delta END
 		ELSE scalar_value END AS latest_value
 FROM derived QUALIFY row_number() OVER (PARTITION BY service_name, metric_name ORDER BY ts DESC) = 1`
-	rows, err = s.DB().QueryContext(ctx, latestQuery, args...)
+	// The two newest observations are taken from a constant recent range so
+	// DuckDB can skip older row groups; any range [L, ∞) holding two of a
+	// series' points holds its newest two, and series with fewer fall back
+	// to the older probe, so the anchor only affects cost. LastSeen is the
+	// ingest time of the group's newest series, which normally trails its
+	// newest observation by one export interval.
+	recentFrom := items[0].LastSeen
+	for i := range items {
+		if items[i].LastSeen.Before(recentFrom) {
+			recentFrom = items[i].LastSeen
+		}
+	}
+	recentFromNanos := timestampNanos(recentFrom.Add(-metricPredecessorLookback))
+	latestArgs := append(append([]any{}, args...), recentFromNanos, recentFromNanos)
+	rows, err = s.DB().QueryContext(ctx, latestQuery, latestArgs...)
 	if err != nil {
 		return fmt.Errorf("storage: query metric summary latest values: %w", err)
 	}

@@ -144,3 +144,37 @@ func seedMetricHistory(b *testing.B, metrics, instances, pointsPerSeries int) (*
 	}
 	return s, windows
 }
+
+// BenchmarkMetricsPageHistory covers the metrics list's pointCount and
+// latestValue against a growing retained history. Ranking every retained
+// point for latestValue and every window point for pointCount made a
+// 2.25M-point page take ≈240ms over the full retention window.
+func BenchmarkMetricsPageHistory(b *testing.B) {
+	for _, pointsPerSeries := range []int{500, 25000} {
+		s, windows := seedMetricHistory(b, 45, 2, pointsPerSeries)
+		latest := windows[0].From
+		// seedMetricHistory backfills points behind the series' ingest-time
+		// lifetime; widen it so every window below lists all 45 metrics.
+		if _, err := s.DB().ExecContext(context.Background(),
+			`UPDATE metric_series SET first_seen = ?, last_seen = ?`,
+			latest.Add(-time.Duration(pointsPerSeries)*10*time.Second), latest); err != nil {
+			b.Fatal(err)
+		}
+		for name, from := range map[string]time.Time{
+			"retention": latest.Add(-8 * 24 * time.Hour),
+			"recent":    latest.Add(-15 * time.Minute),
+		} {
+			b.Run(fmt.Sprintf("points_per_series=%d/%s", pointsPerSeries, name), func(b *testing.B) {
+				for range b.N {
+					items, _, err := s.MetricsPage(context.Background(), from, latest.Add(time.Hour), nil, 100)
+					if err != nil {
+						b.Fatal(err)
+					}
+					if len(items) != len(windows) {
+						b.Fatalf("items = %d, want %d", len(items), len(windows))
+					}
+				}
+			})
+		}
+	}
+}

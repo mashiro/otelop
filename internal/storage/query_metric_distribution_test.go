@@ -193,3 +193,27 @@ func TestMetricDistributionStats_DeltaDerivesBeforeGrouping(t *testing.T) {
 		t.Fatalf("unexpected grouped cumulative stats: %+v", series)
 	}
 }
+
+func TestMetricDistributionStats_CumulativePredecessorAtAnyDistance(t *testing.T) {
+	for name, gap := range map[string]time.Duration{
+		"inside recent range":  time.Second,
+		"outside recent range": 2 * metricPredecessorLookback,
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := openTestStorage(t, Options{})
+			t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+			current := t0.Add(gap)
+			s.AddMetrics(context.Background(), explicitHistogram("latency", pmetric.AggregationTemporalityCumulative, []uint64{1, 1, 0}, 15, 5, 15, t0))
+			s.AddMetrics(context.Background(), explicitHistogram("latency", pmetric.AggregationTemporalityCumulative, []uint64{1, 3, 1}, 55, 5, 30, current))
+			s.Sync()
+
+			series, err := s.MetricDistributionStats(context.Background(), "svc", "latency", nil, current.Add(-time.Millisecond), current.Add(time.Second))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(series) != 1 || series[0].Stats.Count != 3 {
+				t.Fatalf("series = %+v, want one group whose count is the delta (3) against the predecessor", series)
+			}
+		})
+	}
+}
