@@ -88,3 +88,59 @@ func BenchmarkWriteMetricsRepresentative(b *testing.B) {
 		s.writeMetrics(context.Background(), batch)
 	}
 }
+
+// BenchmarkMetricPointsWithPredecessorsBatchHistory mirrors the WebSocket
+// broadcaster's read-back (one just-committed point per metric) against a
+// growing retained history. Its cost should stay flat as history grows; a
+// predecessor probe that scans every older observation made it grow
+// linearly (≈14ms at 45k points, ≈209ms at 2.25M).
+func BenchmarkMetricPointsWithPredecessorsBatchHistory(b *testing.B) {
+	for _, pointsPerSeries := range []int{500, 5000, 25000} {
+		b.Run(fmt.Sprintf("points_per_series=%d", pointsPerSeries), func(b *testing.B) {
+			s, windows := seedMetricHistory(b, 45, 2, pointsPerSeries)
+			b.ResetTimer()
+			for range b.N {
+				if _, err := s.MetricPointsWithPredecessorsBatch(context.Background(), windows); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
+}
+
+// seedMetricHistory creates metrics × instances cumulative series observed
+// every 10s, appended in timestamp order like live ingest, and returns one
+// broadcast window per metric covering only its newest point.
+func seedMetricHistory(b *testing.B, metrics, instances, pointsPerSeries int) (*Storage, []MetricPointWindow) {
+	b.Helper()
+	ctx := context.Background()
+	s, err := Open(ctx, Options{Retention: 365 * 24 * time.Hour})
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.Cleanup(func() {
+		if err := s.Close(); err != nil {
+			b.Error(err)
+		}
+	})
+	latest := time.Date(2026, 1, 8, 0, 0, 0, 0, time.UTC)
+	windows := make([]MetricPointWindow, metrics)
+	for i := range metrics {
+		name := fmt.Sprintf("benchmark.metric.%02d", i)
+		for j := range instances {
+			s.AddMetrics(ctx, buildInstanceCumulativeSum(name, "benchmark", fmt.Sprintf("instance-%d", j), float64(pointsPerSeries), latest))
+		}
+		windows[i] = MetricPointWindow{ServiceName: "benchmark", MetricName: name, From: latest, To: latest.Add(time.Nanosecond)}
+	}
+	s.Sync()
+	if _, err := s.DB().ExecContext(ctx, `
+		INSERT INTO metric_points (id, series_key, ts, ingested_at, flags, value_double)
+		SELECT uuid(), s.series_key, make_timestamp_ns(?::BIGINT - n * 10000000000),
+			make_timestamp_ns(?::BIGINT - n * 10000000000), 0, (?::BIGINT - n)::DOUBLE
+		FROM metric_series s, range(1, ?) t(n)
+		ORDER BY n DESC, s.series_key`,
+		latest.UnixNano(), latest.UnixNano(), pointsPerSeries, pointsPerSeries); err != nil {
+		b.Fatal(err)
+	}
+	return s, windows
+}

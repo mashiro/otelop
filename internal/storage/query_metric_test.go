@@ -706,3 +706,115 @@ func TestMetricsPageSearch_DoesNotMatchMetadata(t *testing.T) {
 		}
 	}
 }
+
+// predecessorWindowCalls runs every predecessor-aware entry point over the
+// same window so the scan-narrowing in the batch query can't drift between
+// the GraphQL (single) and WebSocket (batch) paths.
+func predecessorWindowCalls(t *testing.T, s *Storage, service, metric string, from, to time.Time) map[string][]DerivedPoint {
+	t.Helper()
+	ctx := context.Background()
+	single, err := s.MetricPointsWithPredecessors(ctx, service, metric, from, to)
+	if err != nil {
+		t.Fatalf("MetricPointsWithPredecessors: %v", err)
+	}
+	batches, err := s.MetricPointsWithPredecessorsBatch(ctx, []MetricPointWindow{
+		{ServiceName: service, MetricName: "unrelated", From: from, To: to},
+		{ServiceName: service, MetricName: metric, From: from, To: to},
+	})
+	if err != nil {
+		t.Fatalf("MetricPointsWithPredecessorsBatch: %v", err)
+	}
+	return map[string][]DerivedPoint{"single": single, "batch": batches[1]}
+}
+
+func windowValues(points []DerivedPoint, from time.Time) []*float64 {
+	var values []*float64
+	for _, p := range points {
+		if !p.TS.Before(from) {
+			values = append(values, p.Value)
+		}
+	}
+	return values
+}
+
+func TestMetricPointsWithPredecessors_FindsPredecessorOutsideRecentLookback(t *testing.T) {
+	s := openTestStorage(t, Options{})
+	ctx := context.Background()
+	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	window := t0.Add(2 * metricPredecessorLookback)
+
+	s.AddMetrics(ctx, buildCumulativeSum("requests.total", "svc", 100, t0))
+	s.AddMetrics(ctx, buildCumulativeSum("requests.total", "svc", 130, window))
+	s.Sync()
+
+	for name, points := range predecessorWindowCalls(t, s, "svc", "requests.total", window, window.Add(time.Minute)) {
+		t.Run(name, func(t *testing.T) {
+			values := windowValues(points, window)
+			if len(values) != 1 || values[0] == nil || *values[0] != 30 {
+				t.Fatalf("window values = %v, want one delta of 30 against the predecessor older than the lookback", values)
+			}
+		})
+	}
+}
+
+func TestMetricPointsWithPredecessors_SameTimestampPredecessorUsesHighestID(t *testing.T) {
+	s := openTestStorage(t, Options{})
+	ctx := context.Background()
+	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	window := t0.Add(time.Minute)
+
+	s.AddMetrics(ctx, buildCumulativeSum("requests.total", "svc", 10, t0))
+	s.AddMetrics(ctx, buildCumulativeSum("requests.total", "svc", 20, t0))
+	s.AddMetrics(ctx, buildCumulativeSum("requests.total", "svc", 50, window))
+	s.Sync()
+
+	var tied int
+	if err := s.DB().QueryRowContext(ctx, `SELECT count(*) FROM metric_points WHERE ts = ?`, t0).Scan(&tied); err != nil {
+		t.Fatal(err)
+	}
+	if tied != 2 {
+		t.Fatalf("tied predecessor rows = %d, want 2", tied)
+	}
+	var predecessor float64
+	if err := s.DB().QueryRowContext(ctx,
+		`SELECT value_double FROM metric_points WHERE ts = ? ORDER BY id DESC LIMIT 1`, t0,
+	).Scan(&predecessor); err != nil {
+		t.Fatal(err)
+	}
+
+	for name, points := range predecessorWindowCalls(t, s, "svc", "requests.total", window, window.Add(time.Minute)) {
+		t.Run(name, func(t *testing.T) {
+			values := windowValues(points, window)
+			if len(values) != 1 || values[0] == nil || *values[0] != 50-predecessor {
+				t.Fatalf("window values = %v, want one delta of %v against the highest-id tied predecessor", values, 50-predecessor)
+			}
+		})
+	}
+}
+
+func TestMetricPointsWithPredecessors_AcceptsUnboundedWindow(t *testing.T) {
+	s := openTestStorage(t, Options{})
+	ctx := context.Background()
+	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	s.AddMetrics(ctx, buildCumulativeSum("requests.total", "svc", 100, t0))
+	s.AddMetrics(ctx, buildCumulativeSum("requests.total", "svc", 130, t0.Add(time.Minute)))
+	s.Sync()
+
+	from := time.Date(1, 1, 1, 0, 0, 0, 0, time.UTC)
+	to := time.Date(9999, 12, 31, 0, 0, 0, 0, time.UTC)
+	for name, points := range predecessorWindowCalls(t, s, "svc", "requests.total", from, to) {
+		t.Run(name, func(t *testing.T) {
+			if len(points) != 2 {
+				t.Fatalf("points len = %d, want both observations for a window wider than int64 nanoseconds", len(points))
+			}
+		})
+	}
+	series, err := s.MetricAggregate(ctx, "svc", "requests.total", []string{"missing"}, time.Hour, from, to)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(series) != 1 || len(series[0].Points) != 1 || series[0].Points[0].Value == nil || *series[0].Points[0].Value != 30 {
+		t.Fatalf("aggregate = %+v, want one bucket with delta 30", series)
+	}
+}
