@@ -1,28 +1,26 @@
 package main
 
-import "testing"
+import (
+	"reflect"
+	"testing"
 
-func TestFormatProxy(t *testing.T) {
-	tests := []struct {
-		name          string
-		proxyURL      string
-		proxyProtocol string
-		fallback      string
-		want          string
-	}{
-		{"disabled fallback when unset", "", "", "disabled", "disabled"},
-		{"none fallback when unset", "", "", "(none)", "(none)"},
-		{"missing protocol falls back", "https://upstream.example.com:4317", "", "disabled", "disabled"},
-		{"missing url falls back", "", "grpc", "disabled", "disabled"},
-		{"formats protocol uppercase with url", "https://upstream.example.com:4317", "grpc", "disabled", "GRPC https://upstream.example.com:4317"},
-		{"formats http protocol with url", "https://upstream.example.com:4318", "http", "(none)", "HTTP https://upstream.example.com:4318"},
+	"github.com/mashiro/otelop/internal/daemon"
+)
+
+func TestExporterRows(t *testing.T) {
+	if got, want := exporterRows(nil, "disabled"), (bannerRows{{"Exporters", "disabled"}}); !reflect.DeepEqual(got, want) {
+		t.Errorf("exporterRows(nil) = %#v, want %#v", got, want)
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := formatProxy(tt.proxyURL, tt.proxyProtocol, tt.fallback); got != tt.want {
-				t.Errorf("formatProxy(%q, %q, %q) = %q, want %q", tt.proxyURL, tt.proxyProtocol, tt.fallback, got, tt.want)
-			}
-		})
+	got := exporterRows([]daemon.Exporter{
+		{Name: "primary", URL: "https://upstream.example.com:4317", Protocol: "grpc"},
+		{Name: "backup", URL: "https://backup.example.com", Protocol: "http"},
+	}, "(none)")
+	want := bannerRows{
+		{"Exporters", "primary: GRPC https://upstream.example.com:4317"},
+		{"", "backup: HTTP https://backup.example.com"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("exporterRows = %#v, want %#v", got, want)
 	}
 }

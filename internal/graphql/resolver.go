@@ -137,16 +137,29 @@ func (s *StatusResolver) StartedAt() gql.Time { return gql.Time{Time: s.parent.r
 func (s *StatusResolver) UptimeMs() float64 {
 	return float64(time.Since(s.parent.runtime.StartedAt).Milliseconds())
 }
-func (s *StatusResolver) HTTPAddr() string      { return s.parent.runtime.HTTPAddr }
-func (s *StatusResolver) OTLPGrpcAddr() string  { return s.parent.runtime.OTLPGRPCAddr }
-func (s *StatusResolver) OTLPHTTPAddr() string  { return s.parent.runtime.OTLPHTTPAddr }
-func (s *StatusResolver) ProxyURL() string      { return s.parent.runtime.ProxyURL }
-func (s *StatusResolver) ProxyProtocol() string { return s.parent.runtime.ProxyProtocol }
-func (s *StatusResolver) Debug() bool           { return s.parent.runtime.Debug }
-func (s *StatusResolver) LogLevel() string      { return s.parent.runtime.LogLevel }
+func (s *StatusResolver) HTTPAddr() string     { return s.parent.runtime.HTTPAddr }
+func (s *StatusResolver) OTLPGrpcAddr() string { return s.parent.runtime.OTLPGRPCAddr }
+func (s *StatusResolver) OTLPHTTPAddr() string { return s.parent.runtime.OTLPHTTPAddr }
+func (s *StatusResolver) Exporters() []*ExporterStatusResolver {
+	out := make([]*ExporterStatusResolver, len(s.parent.runtime.Exporters))
+	for i, e := range s.parent.runtime.Exporters {
+		out[i] = &ExporterStatusResolver{info: e}
+	}
+	return out
+}
+func (s *StatusResolver) Debug() bool      { return s.parent.runtime.Debug }
+func (s *StatusResolver) LogLevel() string { return s.parent.runtime.LogLevel }
 func (s *StatusResolver) Config(ctx context.Context) (*ConfigResolver, error) {
 	return s.parent.Config(ctx)
 }
+
+type ExporterStatusResolver struct {
+	info ExporterInfo
+}
+
+func (e *ExporterStatusResolver) Name() string     { return e.info.Name }
+func (e *ExporterStatusResolver) URL() string      { return e.info.URL }
+func (e *ExporterStatusResolver) Protocol() string { return e.info.Protocol }
 
 func (s *StatusResolver) DBSizeBytes(ctx context.Context) (float64, error) {
 	stats, err := s.parent.storage.DBStats(ctx)

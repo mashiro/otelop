@@ -8,13 +8,17 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
+	"sort"
 	"strings"
 	"time"
 
+	"github.com/mashiro/otelop/internal/collector"
 	"github.com/mashiro/otelop/internal/config"
+	otelopgraphql "github.com/mashiro/otelop/internal/graphql"
 )
 
-type ProxyAuthOptions struct {
+type ExporterAuthOptions struct {
 	Type     string
 	Token    string
 	Username string
@@ -22,9 +26,9 @@ type ProxyAuthOptions struct {
 	Headers  map[string]string
 }
 
-// ProxyBatchOptions mirrors config.ProxyBatchConfig; zero values defer to the
-// Collector's defaults.
-type ProxyBatchOptions struct {
+// ExporterBatchOptions mirrors config.ExporterBatchConfig; zero values defer
+// to the Collector's defaults.
+type ExporterBatchOptions struct {
 	Enabled      bool
 	FlushTimeout string
 	Sizer        string
@@ -32,24 +36,73 @@ type ProxyBatchOptions struct {
 	MaxSize      int64
 }
 
+type ExporterOptions struct {
+	Name     string
+	URL      string
+	Protocol string
+	// MetricsTemporality is "" (forward as received) or "delta".
+	MetricsTemporality string
+	Batch              ExporterBatchOptions
+	Auth               ExporterAuthOptions
+}
+
 type Options struct {
-	Version       string
-	HTTPAddr      string
-	OTLPGRPCAddr  string
-	OTLPHTTPAddr  string
-	ProxyURL      string
-	ProxyProtocol string
-	// ProxyMetricsTemporality is "" (forward as received) or "delta".
-	ProxyMetricsTemporality string
-	ProxyBatch              ProxyBatchOptions
-	ProxyAuth               ProxyAuthOptions
-	StoragePath             string
-	Retention               string
-	MaxSize                 string
-	MemoryLimit             string
-	RenderWindowMax         int
-	LogLevel                string
-	Debug                   bool
+	Version      string
+	HTTPAddr     string
+	OTLPGRPCAddr string
+	OTLPHTTPAddr string
+	// Exporters is sorted by name so every surface (Collector config,
+	// banners, status) lists them in the same order.
+	Exporters       []ExporterOptions
+	StoragePath     string
+	Retention       string
+	MaxSize         string
+	MemoryLimit     string
+	RenderWindowMax int
+	LogLevel        string
+	Debug           bool
+}
+
+// ExportersFromConfig converts the `[exporters.*]` tables into options,
+// sorted by name and with enum-like values normalized.
+func ExportersFromConfig(exporters map[string]config.ExporterConfig) []ExporterOptions {
+	if len(exporters) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(exporters))
+	for name := range exporters {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	out := make([]ExporterOptions, 0, len(names))
+	for _, name := range names {
+		e := exporters[name]
+		out = append(out, ExporterOptions{
+			Name:               name,
+			URL:                strings.TrimSpace(e.URL),
+			Protocol:           normalizeEnum(e.Protocol),
+			MetricsTemporality: normalizeEnum(e.MetricsTemporality),
+			Batch: ExporterBatchOptions{
+				Enabled:      e.Batch.Enabled,
+				FlushTimeout: strings.TrimSpace(e.Batch.FlushTimeout),
+				Sizer:        normalizeEnum(e.Batch.Sizer),
+				MinSize:      e.Batch.MinSize,
+				MaxSize:      e.Batch.MaxSize,
+			},
+			Auth: ExporterAuthOptions{
+				Type:     normalizeEnum(e.Auth.Type),
+				Token:    e.Auth.Token,
+				Username: e.Auth.Username,
+				Password: e.Auth.Password,
+				Headers:  e.Auth.Headers,
+			},
+		})
+	}
+	return out
+}
+
+func normalizeEnum(s string) string {
+	return strings.ToLower(strings.TrimSpace(s))
 }
 
 // Validate checks whether opts can be used to start an otelop runtime.
@@ -57,128 +110,177 @@ func Validate(opts Options) error {
 	if opts.RenderWindowMax < 1 {
 		return fmt.Errorf("ui-render-window-max must be >= 1, got %d", opts.RenderWindowMax)
 	}
-	return validateProxyOptions(opts)
-}
-
-func validateProxyOptions(opts Options) error {
-	if opts.ProxyURL == "" && opts.ProxyProtocol == "" {
-		if opts.ProxyAuth.Type != "" || hasProxyAuthFields(opts.ProxyAuth) {
-			return errors.New("proxy auth requires --proxy-url and --proxy-protocol")
-		}
-		if opts.ProxyMetricsTemporality != "" {
-			return errors.New("proxy-metrics-temporality requires --proxy-url and --proxy-protocol")
-		}
-		if opts.ProxyBatch != (ProxyBatchOptions{}) {
-			return errors.New("proxy batch requires --proxy-url and --proxy-protocol")
-		}
-		return nil
-	}
-	if !opts.ProxyBatch.Enabled && opts.ProxyBatch != (ProxyBatchOptions{}) {
-		return errors.New("proxy batch settings require --proxy-batch-enabled")
-	}
-	switch opts.ProxyMetricsTemporality {
-	case "", "delta":
-	default:
-		return fmt.Errorf("invalid proxy-metrics-temporality %q: want delta or empty", opts.ProxyMetricsTemporality)
-	}
-	if opts.ProxyURL == "" {
-		return errors.New("proxy-protocol requires --proxy-url")
-	}
-	if opts.ProxyProtocol == "" {
-		return errors.New("proxy-url requires --proxy-protocol (grpc|http)")
-	}
-	u, err := url.Parse(opts.ProxyURL)
-	if err != nil {
-		return fmt.Errorf("invalid proxy-url: %w", err)
-	}
-	if u.User != nil {
-		return errors.New("proxy-url must not contain embedded credentials; use --proxy-auth-* instead")
-	}
-	if err := validateProxyAuth(opts.ProxyAuth); err != nil {
-		return err
-	}
-	switch opts.ProxyProtocol {
-	case "grpc":
-		if err := validateGRPCProxyURL(u, opts.ProxyURL); err != nil {
+	for _, e := range opts.Exporters {
+		if err := validateExporter(e, opts.OTLPGRPCAddr, opts.OTLPHTTPAddr); err != nil {
 			return err
 		}
-		return validateNoSelfProxy(u, opts.ProxyURL, opts.OTLPGRPCAddr, "grpc")
-	case "http":
-		if err := validateHTTPProxyURL(u, opts.ProxyURL); err != nil {
-			return err
-		}
-		return validateNoSelfProxy(u, opts.ProxyURL, opts.OTLPHTTPAddr, "http")
-	default:
-		return fmt.Errorf("invalid proxy-protocol %q: want grpc or http", opts.ProxyProtocol)
-	}
-}
-
-func validateGRPCProxyURL(u *url.URL, raw string) error {
-	if u.Scheme == "" {
-		if raw == "" || strings.Contains(raw, "/") {
-			return fmt.Errorf("invalid proxy-url %q for grpc: want host:port or http(s)://host:port", raw)
-		}
-		return nil
-	}
-	switch strings.ToLower(u.Scheme) {
-	case "http", "https":
-		if u.Host == "" {
-			return fmt.Errorf("invalid proxy-url %q for grpc: missing host", raw)
-		}
-		return nil
-	default:
-		return fmt.Errorf("invalid proxy-url %q for grpc: unsupported scheme %q", raw, u.Scheme)
-	}
-}
-
-func validateHTTPProxyURL(u *url.URL, raw string) error {
-	if u.Scheme == "" || u.Host == "" {
-		return fmt.Errorf("invalid proxy-url %q for http: want http://host:port or https://host:port", raw)
-	}
-	switch strings.ToLower(u.Scheme) {
-	case "http", "https":
-		return nil
-	default:
-		return fmt.Errorf("invalid proxy-url %q for http: unsupported scheme %q", raw, u.Scheme)
-	}
-}
-
-func validateProxyAuth(auth ProxyAuthOptions) error {
-	switch auth.Type {
-	case "":
-		if hasProxyAuthFields(auth) {
-			return errors.New("proxy auth fields require --proxy-auth-type")
-		}
-		return nil
-	case "bearer":
-		if auth.Token == "" {
-			return errors.New("proxy-auth-type bearer requires --proxy-auth-token")
-		}
-		if auth.Username != "" || auth.Password != "" || len(auth.Headers) > 0 {
-			return errors.New("proxy-auth-type bearer only supports --proxy-auth-token")
-		}
-	case "basic":
-		if auth.Username == "" || auth.Password == "" {
-			return errors.New("proxy-auth-type basic requires --proxy-auth-username and --proxy-auth-password")
-		}
-		if auth.Token != "" || len(auth.Headers) > 0 {
-			return errors.New("proxy-auth-type basic only supports username/password")
-		}
-	case "headers":
-		if len(auth.Headers) == 0 {
-			return errors.New("proxy-auth-type headers requires at least one --proxy-auth-headers")
-		}
-		if auth.Token != "" || auth.Username != "" || auth.Password != "" {
-			return errors.New("proxy-auth-type headers only supports --proxy-auth-headers")
-		}
-	default:
-		return fmt.Errorf("invalid proxy-auth-type %q: want bearer, basic, or headers", auth.Type)
 	}
 	return nil
 }
 
-func validateNoSelfProxy(u *url.URL, proxyURL, listenAddr, protocol string) error {
-	target, err := comparableProxyHostPort(u, proxyURL, protocol)
+// exporterNameRegexp is the TOML bare-key charset. The name becomes the
+// Collector component ID suffix (otlphttp/<name>), where "/" and whitespace
+// would be misparsed.
+var exporterNameRegexp = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+
+func validateExporter(e ExporterOptions, grpcAddr, httpAddr string) error {
+	if !exporterNameRegexp.MatchString(e.Name) {
+		return fmt.Errorf("exporters.%q: name may only contain letters, digits, '_' and '-'", e.Name)
+	}
+	if err := validateExporterSettings(e, grpcAddr, httpAddr); err != nil {
+		return fmt.Errorf("exporters.%s: %w", e.Name, err)
+	}
+	return nil
+}
+
+func validateExporterSettings(e ExporterOptions, grpcAddr, httpAddr string) error {
+	if e.URL == "" {
+		return errors.New("url is required")
+	}
+	if e.Protocol == "" {
+		return errors.New("protocol is required (grpc|http)")
+	}
+	switch e.MetricsTemporality {
+	case "", "delta":
+	default:
+		return fmt.Errorf("invalid metrics_temporality %q: want delta or empty", e.MetricsTemporality)
+	}
+	if !e.Batch.Enabled && e.Batch != (ExporterBatchOptions{}) {
+		return errors.New("batch settings require batch.enabled = true")
+	}
+	// The Collector expands ${...} only after otelop has used these values:
+	// the URL is parsed for validation and basic credentials are
+	// base64-encoded, which would hide the reference.
+	if hasEnvReference(e.URL) {
+		return errors.New("url cannot reference environment variables")
+	}
+	if hasEnvReference(e.Auth.Username) || hasEnvReference(e.Auth.Password) {
+		return errors.New("auth.username and auth.password cannot reference environment variables; use auth.type bearer or headers")
+	}
+	if err := validateExporterAuth(e.Auth); err != nil {
+		return err
+	}
+	switch e.Protocol {
+	case "grpc":
+		// url.Parse reads "host:port" as scheme "host", so the bare form
+		// the gRPC exporter accepts is checked on its own.
+		if !hasScheme(e.URL) {
+			return validateGRPCHostPort(e.URL, grpcAddr)
+		}
+		u, err := parseExporterURL(e.URL)
+		if err != nil {
+			return err
+		}
+		if err := validateGRPCURL(u, e.URL); err != nil {
+			return err
+		}
+		return validateNoSelfExport(urlHostPort(u), e.URL, grpcAddr, "grpc")
+	case "http":
+		u, err := parseExporterURL(e.URL)
+		if err != nil {
+			return err
+		}
+		if err := validateHTTPURL(u, e.URL); err != nil {
+			return err
+		}
+		return validateNoSelfExport(urlHostPort(u), e.URL, httpAddr, "http")
+	default:
+		return fmt.Errorf("invalid protocol %q: want grpc or http", e.Protocol)
+	}
+}
+
+func hasEnvReference(s string) bool {
+	return strings.Contains(s, "${env:")
+}
+
+func hasScheme(raw string) bool {
+	return strings.Contains(raw, "://")
+}
+
+var errEmbeddedCredentials = errors.New("url must not contain embedded credentials; use auth instead")
+
+func parseExporterURL(raw string) (*url.URL, error) {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return nil, fmt.Errorf("invalid url: %w", err)
+	}
+	if u.User != nil {
+		return nil, errEmbeddedCredentials
+	}
+	return u, nil
+}
+
+func validateGRPCHostPort(raw, listenAddr string) error {
+	if strings.Contains(raw, "@") {
+		return errEmbeddedCredentials
+	}
+	host, port, err := net.SplitHostPort(raw)
+	if err != nil || host == "" || port == "" || strings.Contains(raw, "/") {
+		return fmt.Errorf("invalid url %q for grpc: want host:port or http(s)://host:port", raw)
+	}
+	return validateNoSelfExport(raw, raw, listenAddr, "grpc")
+}
+
+func validateGRPCURL(u *url.URL, raw string) error {
+	switch strings.ToLower(u.Scheme) {
+	case "http", "https":
+		if u.Host == "" {
+			return fmt.Errorf("invalid url %q for grpc: missing host", raw)
+		}
+		return nil
+	default:
+		return fmt.Errorf("invalid url %q for grpc: unsupported scheme %q", raw, u.Scheme)
+	}
+}
+
+func validateHTTPURL(u *url.URL, raw string) error {
+	if u.Scheme == "" || u.Host == "" {
+		return fmt.Errorf("invalid url %q for http: want http://host:port or https://host:port", raw)
+	}
+	switch strings.ToLower(u.Scheme) {
+	case "http", "https":
+		return nil
+	default:
+		return fmt.Errorf("invalid url %q for http: unsupported scheme %q", raw, u.Scheme)
+	}
+}
+
+func validateExporterAuth(auth ExporterAuthOptions) error {
+	switch auth.Type {
+	case "":
+		if hasExporterAuthFields(auth) {
+			return errors.New("auth fields require auth.type")
+		}
+		return nil
+	case "bearer":
+		if auth.Token == "" {
+			return errors.New("auth.type bearer requires auth.token")
+		}
+		if auth.Username != "" || auth.Password != "" || len(auth.Headers) > 0 {
+			return errors.New("auth.type bearer only supports auth.token")
+		}
+	case "basic":
+		if auth.Username == "" || auth.Password == "" {
+			return errors.New("auth.type basic requires auth.username and auth.password")
+		}
+		if auth.Token != "" || len(auth.Headers) > 0 {
+			return errors.New("auth.type basic only supports auth.username and auth.password")
+		}
+	case "headers":
+		if len(auth.Headers) == 0 {
+			return errors.New("auth.type headers requires auth.headers")
+		}
+		if auth.Token != "" || auth.Username != "" || auth.Password != "" {
+			return errors.New("auth.type headers only supports auth.headers")
+		}
+	default:
+		return fmt.Errorf("invalid auth.type %q: want bearer, basic, or headers", auth.Type)
+	}
+	return nil
+}
+
+func validateNoSelfExport(target, rawURL, listenAddr, protocol string) error {
+	remote, err := normalizeHostPort(target)
 	if err != nil {
 		return err
 	}
@@ -186,18 +288,15 @@ func validateNoSelfProxy(u *url.URL, proxyURL, listenAddr, protocol string) erro
 	if err != nil {
 		return err
 	}
-	if target == local {
-		return fmt.Errorf("proxy-url %q points back to otelop's own OTLP %s listener %q", proxyURL, protocol, listenAddr)
+	if remote == local {
+		return fmt.Errorf("url %q points back to otelop's own OTLP %s listener %q", rawURL, protocol, listenAddr)
 	}
 	return nil
 }
 
-func comparableProxyHostPort(u *url.URL, proxyURL, protocol string) (string, error) {
-	if protocol == "grpc" && u.Scheme == "" {
-		return normalizeHostPort(proxyURL)
-	}
+func urlHostPort(u *url.URL) string {
 	if u.Port() != "" {
-		return normalizeHostPort(u.Host)
+		return u.Host
 	}
 	// SaaS intakes are usually published without a port; the exporters dial
 	// the scheme's default, so compare against that.
@@ -205,7 +304,7 @@ func comparableProxyHostPort(u *url.URL, proxyURL, protocol string) (string, err
 	if strings.EqualFold(u.Scheme, "https") {
 		port = "443"
 	}
-	return normalizeHostPort(net.JoinHostPort(u.Hostname(), port))
+	return net.JoinHostPort(u.Hostname(), port)
 }
 
 func normalizeHostPort(addr string) (string, error) {
@@ -221,11 +320,11 @@ func normalizeHostPort(addr string) (string, error) {
 	return net.JoinHostPort(host, port), nil
 }
 
-func hasProxyAuthFields(auth ProxyAuthOptions) bool {
+func hasExporterAuthFields(auth ExporterAuthOptions) bool {
 	return auth.Token != "" || auth.Username != "" || auth.Password != "" || len(auth.Headers) > 0
 }
 
-func buildProxyHeaders(auth ProxyAuthOptions) map[string]string {
+func buildExporterHeaders(auth ExporterAuthOptions) map[string]string {
 	switch auth.Type {
 	case "bearer":
 		return map[string]string{"Authorization": "Bearer " + auth.Token}
@@ -241,6 +340,32 @@ func buildProxyHeaders(auth ProxyAuthOptions) map[string]string {
 	default:
 		return nil
 	}
+}
+
+func collectorExporters(exporters []ExporterOptions) []collector.Exporter {
+	if len(exporters) == 0 {
+		return nil
+	}
+	out := make([]collector.Exporter, len(exporters))
+	for i, e := range exporters {
+		out[i] = collector.Exporter{
+			Name:               e.Name,
+			URL:                e.URL,
+			Protocol:           e.Protocol,
+			Headers:            buildExporterHeaders(e.Auth),
+			MetricsTemporality: e.MetricsTemporality,
+			Batch:              collector.BatchConfig(e.Batch),
+		}
+	}
+	return out
+}
+
+func exporterInfos(exporters []ExporterOptions) []otelopgraphql.ExporterInfo {
+	out := make([]otelopgraphql.ExporterInfo, len(exporters))
+	for i, e := range exporters {
+		out[i] = otelopgraphql.ExporterInfo{Name: e.Name, URL: RedactURL(e.URL), Protocol: e.Protocol}
+	}
+	return out
 }
 
 // ResolveStoragePath returns the configured DuckDB path or its XDG default.
@@ -276,7 +401,7 @@ func resolveStorageOptions(opts Options) (path string, retention time.Duration, 
 	return path, retention, maxSize, memoryLimit, nil
 }
 
-// RedactURL removes credentials before a proxy URL is persisted or displayed.
+// RedactURL removes credentials before an exporter URL is persisted or displayed.
 func RedactURL(raw string) string {
 	if raw == "" {
 		return ""

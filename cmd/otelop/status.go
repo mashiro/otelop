@@ -27,18 +27,17 @@ func statusCommand() *cli.Command {
 // statusPayload mirrors the Status type in internal/graphql/schema.graphql.
 // Keep field names in sync when the schema changes.
 type statusPayload struct {
-	Version       string    `json:"version"`
-	StartedAt     time.Time `json:"startedAt"`
-	UptimeMs      float64   `json:"uptimeMs"`
-	HTTPAddr      string    `json:"httpAddr"`
-	OTLPGrpcAddr  string    `json:"otlpGrpcAddr"`
-	OTLPHTTPAddr  string    `json:"otlpHttpAddr"`
-	ProxyURL      string    `json:"proxyUrl"`
-	ProxyProtocol string    `json:"proxyProtocol"`
-	Debug         bool      `json:"debug"`
-	LogLevel      string    `json:"logLevel"`
-	DBSizeBytes   float64   `json:"dbSizeBytes"`
-	Config        struct {
+	Version      string            `json:"version"`
+	StartedAt    time.Time         `json:"startedAt"`
+	UptimeMs     float64           `json:"uptimeMs"`
+	HTTPAddr     string            `json:"httpAddr"`
+	OTLPGrpcAddr string            `json:"otlpGrpcAddr"`
+	OTLPHTTPAddr string            `json:"otlpHttpAddr"`
+	Exporters    []daemon.Exporter `json:"exporters"`
+	Debug        bool              `json:"debug"`
+	LogLevel     string            `json:"logLevel"`
+	DBSizeBytes  float64           `json:"dbSizeBytes"`
+	Config       struct {
 		TraceCount  int32  `json:"traceCount"`
 		MetricCount int32  `json:"metricCount"`
 		LogCount    int32  `json:"logCount"`
@@ -56,8 +55,7 @@ const statusQuery = `{
     httpAddr
     otlpGrpcAddr
     otlpHttpAddr
-    proxyUrl
-    proxyProtocol
+    exporters { name url protocol }
     debug
     logLevel
     dbSizeBytes
@@ -150,30 +148,32 @@ func printFull(w io.Writer, meta *daemon.Metadata, s *statusPayload) {
 	}
 	uptime := formatUptime(time.Duration(s.UptimeMs) * time.Millisecond)
 	logFile, _ := daemon.LogFile()
-	writeBanner(w, suffix, bannerRows{
+	rows := bannerRows{
 		{"PID", strconv.Itoa(meta.PID)},
 		{"Version", s.Version},
 		{"Started", s.StartedAt.Local().Format(time.RFC3339) + " (up " + uptime + ")"},
 		{"Web UI", "http://" + webUIDisplay(s.HTTPAddr)},
 		{"OTLP gRPC", s.OTLPGrpcAddr},
 		{"OTLP HTTP", s.OTLPHTTPAddr},
-		{"Proxy", formatProxy(s.ProxyURL, s.ProxyProtocol, "disabled")},
-		{"Log", logFile},
-	})
+	}
+	rows = append(rows, exporterRows(s.Exporters, "disabled")...)
+	rows = append(rows, bannerRow{"Log", logFile})
+	writeBanner(w, suffix, rows)
 }
 
 func printMetaOnly(w io.Writer, meta *daemon.Metadata) {
 	logFile, _ := daemon.LogFile()
-	writeBanner(w, " is running", bannerRows{
+	rows := bannerRows{
 		{"PID", strconv.Itoa(meta.PID)},
 		{"Version", meta.Version},
 		{"Started", meta.StartedAt.Local().Format(time.RFC3339)},
 		{"Web UI", "http://" + webUIDisplay(meta.HTTPAddr)},
 		{"OTLP gRPC", meta.OTLPGRPCAddr},
 		{"OTLP HTTP", meta.OTLPHTTPAddr},
-		{"Proxy", formatProxy(meta.ProxyURL, meta.ProxyProtocol, "disabled")},
-		{"Log", logFile},
-	})
+	}
+	rows = append(rows, exporterRows(meta.Exporters, "disabled")...)
+	rows = append(rows, bannerRow{"Log", logFile})
+	writeBanner(w, " is running", rows)
 }
 
 func formatUptime(d time.Duration) string {

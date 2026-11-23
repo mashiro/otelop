@@ -13,6 +13,7 @@ require (
 	github.com/urfave/cli/v3 v3.14.0
 	go.opentelemetry.io/collector/component v1.71.0
 	go.opentelemetry.io/collector/confmap v1.71.0
+	go.opentelemetry.io/collector/confmap/provider/envprovider v1.71.0
 	go.opentelemetry.io/collector/connector v0.165.0
 	go.opentelemetry.io/collector/consumer v1.71.0
 	go.opentelemetry.io/collector/exporter v1.71.0

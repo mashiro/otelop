@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"sort"
 	"strings"
 
 	"github.com/urfave/cli/v3"
@@ -25,19 +24,6 @@ func configFlags(cfg config.Config) []cli.Flag {
 		&cli.StringFlag{Name: "http", Value: cfg.HTTPAddr, Usage: "Web UI + REST API listen address", Sources: cli.EnvVars("OTELOP_HTTP")},
 		&cli.StringFlag{Name: "otlp-grpc", Value: cfg.OTLPGRPCAddr, Usage: "OTLP gRPC receiver endpoint", Sources: cli.EnvVars("OTELOP_OTLP_GRPC")},
 		&cli.StringFlag{Name: "otlp-http", Value: cfg.OTLPHTTPAddr, Usage: "OTLP HTTP receiver endpoint", Sources: cli.EnvVars("OTELOP_OTLP_HTTP")},
-		&cli.StringFlag{Name: "proxy-url", Value: cfg.Proxy.URL, Usage: "upstream OTLP endpoint for forwarding", Sources: cli.EnvVars("OTELOP_PROXY_URL")},
-		&cli.StringFlag{Name: "proxy-protocol", Value: cfg.Proxy.Protocol, Usage: "upstream OTLP protocol (grpc|http)", Sources: cli.EnvVars("OTELOP_PROXY_PROTOCOL")},
-		&cli.StringFlag{Name: "proxy-metrics-temporality", Value: cfg.Proxy.MetricsTemporality, Usage: "convert metrics forwarded upstream to this temporality (delta); empty forwards them as received", Sources: cli.EnvVars("OTELOP_PROXY_METRICS_TEMPORALITY")},
-		&cli.BoolFlag{Name: "proxy-batch-enabled", Value: cfg.Proxy.Batch.Enabled, Usage: "batch data before forwarding upstream", Sources: cli.EnvVars("OTELOP_PROXY_BATCH_ENABLED")},
-		&cli.StringFlag{Name: "proxy-batch-flush-timeout", Value: cfg.Proxy.Batch.FlushTimeout, Usage: "upstream batch flush timeout (e.g. 200ms); empty uses the Collector default", Sources: cli.EnvVars("OTELOP_PROXY_BATCH_FLUSH_TIMEOUT")},
-		&cli.StringFlag{Name: "proxy-batch-sizer", Value: cfg.Proxy.Batch.Sizer, Usage: "upstream batch size unit (requests|items|bytes); empty uses the Collector default", Sources: cli.EnvVars("OTELOP_PROXY_BATCH_SIZER")},
-		&cli.Int64Flag{Name: "proxy-batch-min-size", Value: cfg.Proxy.Batch.MinSize, Usage: "upstream batch size that triggers a flush; 0 uses the Collector default", Sources: cli.EnvVars("OTELOP_PROXY_BATCH_MIN_SIZE")},
-		&cli.Int64Flag{Name: "proxy-batch-max-size", Value: cfg.Proxy.Batch.MaxSize, Usage: "upstream batch size above which batches are split; 0 uses the Collector default", Sources: cli.EnvVars("OTELOP_PROXY_BATCH_MAX_SIZE")},
-		&cli.StringFlag{Name: "proxy-auth-type", Value: cfg.Proxy.Auth.Type, Usage: "upstream OTLP auth type (bearer|basic|headers)", Sources: cli.EnvVars("OTELOP_PROXY_AUTH_TYPE")},
-		&cli.StringFlag{Name: "proxy-auth-token", Value: cfg.Proxy.Auth.Token, Usage: "upstream bearer token", Sources: cli.EnvVars("OTELOP_PROXY_AUTH_TOKEN")},
-		&cli.StringFlag{Name: "proxy-auth-username", Value: cfg.Proxy.Auth.Username, Usage: "upstream basic auth username", Sources: cli.EnvVars("OTELOP_PROXY_AUTH_USERNAME")},
-		&cli.StringFlag{Name: "proxy-auth-password", Value: cfg.Proxy.Auth.Password, Usage: "upstream basic auth password", Sources: cli.EnvVars("OTELOP_PROXY_AUTH_PASSWORD")},
-		&cli.StringSliceFlag{Name: "proxy-auth-headers", Value: headerPairs(cfg.Proxy.Auth.Headers), Usage: "upstream header in key=value form (repeatable)", Sources: cli.EnvVars("OTELOP_PROXY_AUTH_HEADERS")},
 		&cli.StringFlag{Name: "storage-path", Value: cfg.Storage.Path, Usage: "DuckDB database file path (empty = XDG default)", Sources: cli.EnvVars("OTELOP_STORAGE_PATH")},
 		&cli.StringFlag{Name: "storage-retention", Value: cfg.Storage.Retention, Usage: "how long to keep telemetry (e.g. 7d, 168h)", Sources: cli.EnvVars("OTELOP_STORAGE_RETENTION")},
 		&cli.StringFlag{Name: "storage-max-size", Value: cfg.Storage.MaxSize, Usage: "stored data size ceiling; the oldest days are trimmed above it (e.g. 4GB, 4GiB)", Sources: cli.EnvVars("OTELOP_STORAGE_MAX_SIZE")},
@@ -49,69 +35,23 @@ func configFlags(cfg config.Config) []cli.Flag {
 }
 
 // runtimeOptionsFromCmd reads the flags configFlags defines off an already
-// parsed command into otelruntime.Options.
-func runtimeOptionsFromCmd(cmd *cli.Command, version string) otelruntime.Options {
+// parsed command into otelruntime.Options. Exporters come straight from the
+// config file because they have no flag/env surface.
+func runtimeOptionsFromCmd(cmd *cli.Command, cfg config.Config, version string) otelruntime.Options {
 	return otelruntime.Options{
-		Version:                 version,
-		HTTPAddr:                cmd.String("http"),
-		OTLPGRPCAddr:            cmd.String("otlp-grpc"),
-		OTLPHTTPAddr:            cmd.String("otlp-http"),
-		ProxyURL:                strings.TrimSpace(cmd.String("proxy-url")),
-		ProxyProtocol:           strings.ToLower(strings.TrimSpace(cmd.String("proxy-protocol"))),
-		ProxyMetricsTemporality: strings.ToLower(strings.TrimSpace(cmd.String("proxy-metrics-temporality"))),
-		StoragePath:             strings.TrimSpace(cmd.String("storage-path")),
-		Retention:               cmd.String("storage-retention"),
-		MaxSize:                 cmd.String("storage-max-size"),
-		MemoryLimit:             cmd.String("storage-memory-limit"),
-		RenderWindowMax:         cmd.Int("ui-render-window-max"),
-		LogLevel:                cmd.String("log-level"),
-		Debug:                   cmd.Bool("debug"),
-		ProxyBatch: otelruntime.ProxyBatchOptions{
-			Enabled:      cmd.Bool("proxy-batch-enabled"),
-			FlushTimeout: strings.TrimSpace(cmd.String("proxy-batch-flush-timeout")),
-			Sizer:        strings.ToLower(strings.TrimSpace(cmd.String("proxy-batch-sizer"))),
-			MinSize:      cmd.Int64("proxy-batch-min-size"),
-			MaxSize:      cmd.Int64("proxy-batch-max-size"),
-		},
-		ProxyAuth: otelruntime.ProxyAuthOptions{
-			Type:     strings.ToLower(strings.TrimSpace(cmd.String("proxy-auth-type"))),
-			Token:    cmd.String("proxy-auth-token"),
-			Username: cmd.String("proxy-auth-username"),
-			Password: cmd.String("proxy-auth-password"),
-			Headers:  parseHeaderArgs(cmd.StringSlice("proxy-auth-headers")),
-		},
+		Version:         version,
+		HTTPAddr:        cmd.String("http"),
+		OTLPGRPCAddr:    cmd.String("otlp-grpc"),
+		OTLPHTTPAddr:    cmd.String("otlp-http"),
+		Exporters:       otelruntime.ExportersFromConfig(cfg.Exporters),
+		StoragePath:     strings.TrimSpace(cmd.String("storage-path")),
+		Retention:       cmd.String("storage-retention"),
+		MaxSize:         cmd.String("storage-max-size"),
+		MemoryLimit:     cmd.String("storage-memory-limit"),
+		RenderWindowMax: cmd.Int("ui-render-window-max"),
+		LogLevel:        cmd.String("log-level"),
+		Debug:           cmd.Bool("debug"),
 	}
-}
-
-func parseHeaderArgs(args []string) map[string]string {
-	if len(args) == 0 {
-		return nil
-	}
-	out := make(map[string]string, len(args))
-	for _, arg := range args {
-		k, v, ok := strings.Cut(arg, "=")
-		k = strings.TrimSpace(k)
-		if ok && k != "" {
-			out[k] = strings.TrimSpace(v)
-		}
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	return out
-}
-
-func headerPairs(headers map[string]string) []string {
-	keys := make([]string, 0, len(headers))
-	for k := range headers {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	out := make([]string, 0, len(keys))
-	for _, k := range keys {
-		out = append(out, k+"="+headers[k])
-	}
-	return out
 }
 
 // configLoadErrorBefore wraps a config.Load error (captured at command

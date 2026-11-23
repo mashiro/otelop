@@ -3,6 +3,7 @@ package daemon
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -62,6 +63,7 @@ func TestMetadataRoundTrip(t *testing.T) {
 		HTTPAddr:     ":4319",
 		OTLPGRPCAddr: "0.0.0.0:4317",
 		OTLPHTTPAddr: "0.0.0.0:4318",
+		Exporters:    []Exporter{{Name: "up", URL: "https://collector.example.com", Protocol: "http"}},
 		Version:      "test",
 	}
 	if err := WriteMetadata(meta); err != nil {
@@ -80,6 +82,9 @@ func TestMetadataRoundTrip(t *testing.T) {
 	}
 	if !got.StartedAt.Equal(meta.StartedAt) {
 		t.Errorf("StartedAt = %v, want %v", got.StartedAt, meta.StartedAt)
+	}
+	if !reflect.DeepEqual(got.Exporters, meta.Exporters) {
+		t.Errorf("Exporters = %+v, want %+v", got.Exporters, meta.Exporters)
 	}
 }
 

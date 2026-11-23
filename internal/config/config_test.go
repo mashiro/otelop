@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -89,36 +90,40 @@ memory_limit = "256MB"
 	if cfg.OTLPGRPCAddr != DefaultOTLPGRPCAddr {
 		t.Errorf("OTLPGRPCAddr = %q, want default %q", cfg.OTLPGRPCAddr, DefaultOTLPGRPCAddr)
 	}
-	if cfg.Proxy.URL != "" {
-		t.Errorf("Proxy.URL = %q, want empty default", cfg.Proxy.URL)
+	if len(cfg.Exporters) != 0 {
+		t.Errorf("Exporters = %+v, want none by default", cfg.Exporters)
 	}
 	if cfg.LogLevel != DefaultLogLevel {
 		t.Errorf("LogLevel = %q, want default %q", cfg.LogLevel, DefaultLogLevel)
 	}
 }
 
-func TestLoad_ProxySettings(t *testing.T) {
+func TestLoad_Exporters(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
 	body := `
-[proxy]
+[exporters.primary]
 url = "https://upstream.example.com:4317"
 protocol = "grpc"
 metrics_temporality = "delta"
 
-[proxy.batch]
+[exporters.primary.batch]
 enabled = true
 flush_timeout = "1s"
 sizer = "bytes"
 min_size = 1024
 max_size = 4096
 
-[proxy.auth]
+[exporters.primary.auth]
 type = "headers"
 
-[proxy.auth.headers]
+[exporters.primary.auth.headers]
 Authorization = "Bearer abc"
 X-Api-Key = "secret"
+
+[exporters.backup]
+url = "http://backup.example.com:4318"
+protocol = "http"
 `
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		t.Fatalf("write config: %v", err)
@@ -129,24 +134,46 @@ X-Api-Key = "secret"
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if cfg.Proxy.URL != "https://upstream.example.com:4317" {
-		t.Errorf("Proxy.URL = %q", cfg.Proxy.URL)
+	want := map[string]ExporterConfig{
+		"primary": {
+			URL:                "https://upstream.example.com:4317",
+			Protocol:           "grpc",
+			MetricsTemporality: "delta",
+			Batch:              ExporterBatchConfig{Enabled: true, FlushTimeout: "1s", Sizer: "bytes", MinSize: 1024, MaxSize: 4096},
+			Auth: ExporterAuthConfig{
+				Type:    "headers",
+				Headers: map[string]string{"Authorization": "Bearer abc", "X-Api-Key": "secret"},
+			},
+		},
+		"backup": {
+			URL:      "http://backup.example.com:4318",
+			Protocol: "http",
+		},
 	}
-	if cfg.Proxy.Protocol != "grpc" {
-		t.Errorf("Proxy.Protocol = %q", cfg.Proxy.Protocol)
+	if !reflect.DeepEqual(cfg.Exporters, want) {
+		t.Errorf("Exporters =\n %+v\nwant\n %+v", cfg.Exporters, want)
 	}
-	wantBatch := ProxyBatchConfig{Enabled: true, FlushTimeout: "1s", Sizer: "bytes", MinSize: 1024, MaxSize: 4096}
-	if cfg.Proxy.Batch != wantBatch {
-		t.Errorf("Proxy.Batch = %+v, want %+v", cfg.Proxy.Batch, wantBatch)
+}
+
+func TestLoad_RejectsLegacyProxySection(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	body := `
+[proxy]
+url = "https://upstream.example.com:4317"
+protocol = "grpc"
+`
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
 	}
-	if cfg.Proxy.MetricsTemporality != "delta" {
-		t.Errorf("Proxy.MetricsTemporality = %q", cfg.Proxy.MetricsTemporality)
+	t.Setenv(EnvConfigFile, path)
+
+	_, _, err := Load()
+	if err == nil {
+		t.Fatal("Load accepted [proxy], want an unknown-key error")
 	}
-	if cfg.Proxy.Auth.Type != "headers" {
-		t.Errorf("Proxy.Auth.Type = %q", cfg.Proxy.Auth.Type)
-	}
-	if got := cfg.Proxy.Auth.Headers["Authorization"]; got != "Bearer abc" {
-		t.Errorf("Proxy.Auth.Headers[Authorization] = %q", got)
+	if !strings.Contains(err.Error(), "proxy.url") {
+		t.Errorf("error %q should name the rejected proxy keys", err)
 	}
 }
 

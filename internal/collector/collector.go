@@ -8,6 +8,7 @@ import (
 
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/confmap"
+	"go.opentelemetry.io/collector/confmap/provider/envprovider"
 	"go.opentelemetry.io/collector/exporter"
 	"go.opentelemetry.io/collector/otelcol"
 )
@@ -24,9 +25,9 @@ const (
 	selfTelemetryExportTimeoutMs = 1_000
 )
 
-// ProxyBatchConfig enables exporterhelper batching on the proxy exporter.
+// BatchConfig enables exporterhelper batching on an upstream exporter.
 // Zero-valued fields are omitted so exporterhelper's defaults apply.
-type ProxyBatchConfig struct {
+type BatchConfig struct {
 	Enabled      bool
 	FlushTimeout string
 	Sizer        string
@@ -34,18 +35,26 @@ type ProxyBatchConfig struct {
 	MaxSize      int64
 }
 
+// Exporter is one upstream OTLP endpoint that receives a copy of every
+// signal. Name becomes the component ID suffix (otlphttp/<name>).
+type Exporter struct {
+	Name     string
+	URL      string
+	Protocol string
+	Headers  map[string]string
+	// MetricsTemporality "delta" routes this exporter's metrics through
+	// cumulativetodelta; empty forwards them as received.
+	MetricsTemporality string
+	Batch              BatchConfig
+}
+
 // Config holds runtime-configurable collector settings.
 type Config struct {
-	GRPCEndpoint  string
-	HTTPEndpoint  string
-	ProxyURL      string
-	ProxyProtocol string
-	ProxyHeaders  map[string]string
-	// ProxyMetricsTemporality "delta" routes upstream metrics through
-	// cumulativetodelta; empty forwards them as received.
-	ProxyMetricsTemporality string
-	ProxyBatch              ProxyBatchConfig
-	LogLevel                string
+	GRPCEndpoint string
+	HTTPEndpoint string
+	// Exporters keep their slice order in every pipeline.
+	Exporters []Exporter
+	LogLevel  string
 	// SelfTelemetryEndpoint, when non-empty (host:port), makes the
 	// Collector export its own component metrics
 	// (otelcol_receiver_accepted_*, otelcol_exporter_sent_*, ...) via OTLP
@@ -54,18 +63,24 @@ type Config struct {
 	SelfTelemetryEndpoint string
 }
 
+// upstreamIDs splits the upstream exporter IDs by whether their metrics
+// need delta conversion.
+type upstreamIDs struct {
+	all, cumulative, delta []any
+}
+
 func buildConfigMap(cfg Config) map[string]any {
-	exporters, proxyExporters := buildProxyExporterConfig(cfg)
+	exporters, ids := buildExportersConfig(cfg.Exporters)
 
 	out := obj{
 		"receivers": buildReceiversConfig(cfg),
 		"exporters": exporters,
 		"service": obj{
 			"telemetry": buildTelemetryConfig(cfg),
-			"pipelines": buildPipelinesConfig(cfg, proxyExporters),
+			"pipelines": buildPipelinesConfig(ids),
 		},
 	}
-	if convertsProxyMetricsToDelta(cfg, proxyExporters) {
+	if len(ids.delta) > 0 {
 		out["processors"] = obj{
 			// Defaults are deliberate: initial_value=auto drops the first
 			// point of counters that predate an otelop restart (their
@@ -75,10 +90,6 @@ func buildConfigMap(cfg Config) map[string]any {
 		}
 	}
 	return out
-}
-
-func convertsProxyMetricsToDelta(cfg Config, proxyExporters []any) bool {
-	return cfg.ProxyMetricsTemporality == "delta" && len(proxyExporters) > 0
 }
 
 func buildReceiversConfig(cfg Config) obj {
@@ -99,21 +110,22 @@ func buildReceiversConfig(cfg Config) obj {
 	}
 }
 
-func buildPipelinesConfig(cfg Config, proxyExporters []any) obj {
-	shared := append([]any{"otelop"}, proxyExporters...)
-	pipelines := obj{
-		"traces":  buildPipelineConfig(shared),
-		"metrics": buildPipelineConfig(shared),
-		"logs":    buildPipelineConfig(shared),
+func buildPipelinesConfig(ids upstreamIDs) obj {
+	withLocal := func(upstream []any) []any {
+		return append([]any{"otelop"}, upstream...)
 	}
-	if convertsProxyMetricsToDelta(cfg, proxyExporters) {
+	pipelines := obj{
+		"traces":  buildPipelineConfig(withLocal(ids.all)),
+		"metrics": buildPipelineConfig(withLocal(ids.cumulative)),
+		"logs":    buildPipelineConfig(withLocal(ids.all)),
+	}
+	if len(ids.delta) > 0 {
 		// Processors apply per pipeline, so the conversion gets its own
 		// pipeline; the receiver fans out a copy and storage keeps the
 		// temporality the app sent.
-		pipelines["metrics"] = buildPipelineConfig([]any{"otelop"})
-		upstream := buildPipelineConfig(proxyExporters)
-		upstream["processors"] = []any{"cumulativetodelta"}
-		pipelines["metrics/proxy"] = upstream
+		delta := buildPipelineConfig(ids.delta)
+		delta["processors"] = []any{"cumulativetodelta"}
+		pipelines["metrics/delta"] = delta
 	}
 	return pipelines
 }
@@ -164,52 +176,57 @@ func buildPipelineConfig(exporters []any) obj {
 	}
 }
 
-func buildProxyExporterConfig(cfg Config) (obj, []any) {
+func buildExportersConfig(upstream []Exporter) (obj, upstreamIDs) {
 	exporters := obj{
 		"otelop": obj{},
 	}
-	var proxyExporters []any
-	if cfg.ProxyURL == "" || cfg.ProxyProtocol == "" {
-		return exporters, proxyExporters
-	}
-
-	switch cfg.ProxyProtocol {
-	case "grpc":
-		endpoint, insecure := normalizeGRPCProxyURL(cfg.ProxyURL)
-		exp := obj{
-			"endpoint": endpoint,
+	var ids upstreamIDs
+	for _, e := range upstream {
+		id, exp := buildUpstreamExporter(e)
+		if id == "" {
+			continue
 		}
+		exporters[id] = exp
+		ids.all = append(ids.all, id)
+		if e.MetricsTemporality == "delta" {
+			ids.delta = append(ids.delta, id)
+		} else {
+			ids.cumulative = append(ids.cumulative, id)
+		}
+	}
+	return exporters, ids
+}
+
+func buildUpstreamExporter(e Exporter) (string, obj) {
+	var id string
+	var exp obj
+	switch e.Protocol {
+	case "grpc":
+		endpoint, insecure := normalizeGRPCURL(e.URL)
+		id = "otlp_grpc/" + e.Name
+		exp = obj{"endpoint": endpoint}
 		if insecure {
 			exp["tls"] = obj{"insecure": true}
 		}
-		if headers := renderHeaders(cfg.ProxyHeaders); len(headers) > 0 {
-			exp["headers"] = headers
-		}
-		if queue := proxySendingQueueConfig(cfg.ProxyBatch); queue != nil {
-			exp["sending_queue"] = queue
-		}
-		exporters["otlp_grpc/proxy"] = exp
-		proxyExporters = append(proxyExporters, "otlp_grpc/proxy")
 	case "http":
-		exp := obj{
-			"endpoint": cfg.ProxyURL,
-		}
-		if headers := renderHeaders(cfg.ProxyHeaders); len(headers) > 0 {
-			exp["headers"] = headers
-		}
-		if queue := proxySendingQueueConfig(cfg.ProxyBatch); queue != nil {
-			exp["sending_queue"] = queue
-		}
-		exporters["otlphttp/proxy"] = exp
-		proxyExporters = append(proxyExporters, "otlphttp/proxy")
+		id = "otlphttp/" + e.Name
+		exp = obj{"endpoint": e.URL}
+	default:
+		return "", nil
 	}
-	return exporters, proxyExporters
+	if headers := renderHeaders(e.Headers); len(headers) > 0 {
+		exp["headers"] = headers
+	}
+	if queue := sendingQueueConfig(e.Batch); queue != nil {
+		exp["sending_queue"] = queue
+	}
+	return id, exp
 }
 
-// proxySendingQueueConfig turns on exporterhelper batching, which is off by
+// sendingQueueConfig turns on exporterhelper batching, which is off by
 // default. Only the fields the user set are emitted; an empty batch section
 // still enables batching with exporterhelper's own defaults.
-func proxySendingQueueConfig(b ProxyBatchConfig) obj {
+func sendingQueueConfig(b BatchConfig) obj {
 	if !b.Enabled {
 		return nil
 	}
@@ -245,10 +262,17 @@ func renderHeaders(headers map[string]string) obj {
 	return out
 }
 
-func normalizeGRPCProxyURL(raw string) (endpoint string, insecure bool) {
+// normalizeGRPCURL maps an http(s) URL onto the exporter's host:port
+// endpoint, with the scheme deciding TLS. Anything else, including a bare
+// host:port, is passed through and keeps the exporter's default of TLS on.
+func normalizeGRPCURL(raw string) (endpoint string, insecure bool) {
+	// url.Parse would misread a bare host:port's host as the scheme.
+	if !strings.Contains(raw, "://") {
+		return raw, false
+	}
 	u, err := url.Parse(raw)
-	if err != nil || u.Scheme == "" {
-		return raw, true
+	if err != nil {
+		return raw, false
 	}
 	switch strings.ToLower(u.Scheme) {
 	case "http":
@@ -256,7 +280,7 @@ func normalizeGRPCProxyURL(raw string) (endpoint string, insecure bool) {
 	case "https":
 		return u.Host, false
 	default:
-		return raw, true
+		return raw, false
 	}
 }
 
@@ -268,8 +292,6 @@ func New(exporterFactory exporter.Factory, cfg Config) (*otelcol.Collector, erro
 		return nil, err
 	}
 
-	providerFactory := newStaticProviderFactory(buildConfigMap(cfg))
-
 	set := otelcol.CollectorSettings{
 		BuildInfo: component.BuildInfo{
 			Command:     "otelop",
@@ -280,17 +302,26 @@ func New(exporterFactory exporter.Factory, cfg Config) (*otelcol.Collector, erro
 			return factories, nil
 		},
 		ConfigProviderSettings: otelcol.ConfigProviderSettings{
-			ResolverSettings: confmap.ResolverSettings{
-				URIs: []string{"otelop:config"},
-				ProviderFactories: []confmap.ProviderFactory{
-					providerFactory,
-				},
-			},
+			ResolverSettings: resolverSettings(buildConfigMap(cfg)),
 		},
 		DisableGracefulShutdown: true,
 	}
 
 	return otelcol.NewCollector(set)
+}
+
+// resolverSettings serves the generated config and lets the Collector expand
+// ${env:NAME} references in it, the same syntax a standalone
+// Collector config uses, so secrets such as API keys stay out of the otelop
+// config file.
+func resolverSettings(cfg obj) confmap.ResolverSettings {
+	return confmap.ResolverSettings{
+		URIs: []string{"otelop:config"},
+		ProviderFactories: []confmap.ProviderFactory{
+			newStaticProviderFactory(cfg),
+			envprovider.NewFactory(),
+		},
+	}
 }
 
 func newStaticProviderFactory(cfg obj) confmap.ProviderFactory {

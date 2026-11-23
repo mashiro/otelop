@@ -1,6 +1,7 @@
 // Package config loads the optional otelop TOML config file. The file
 // supplies defaults for `otelop start` flags; CLI flags and environment
-// variables still take precedence at the command layer.
+// variables still take precedence at the command layer. `[exporters.*]`
+// tables are file-only.
 package config
 
 import (
@@ -61,7 +62,7 @@ const (
 	DefaultRenderWindowMax = 500
 )
 
-type ProxyAuthConfig struct {
+type ExporterAuthConfig struct {
 	Type     string            `toml:"type"`
 	Token    string            `toml:"token"`
 	Username string            `toml:"username"`
@@ -69,9 +70,9 @@ type ProxyAuthConfig struct {
 	Headers  map[string]string `toml:"headers"`
 }
 
-// ProxyBatchConfig enables exporter-side batching for forwarded data. Zero
+// ExporterBatchConfig enables exporter-side batching for forwarded data. Zero
 // values are left out so the Collector's own defaults apply.
-type ProxyBatchConfig struct {
+type ExporterBatchConfig struct {
 	Enabled      bool   `toml:"enabled"`
 	FlushTimeout string `toml:"flush_timeout"`
 	Sizer        string `toml:"sizer"`
@@ -79,15 +80,17 @@ type ProxyBatchConfig struct {
 	MaxSize      int64  `toml:"max_size"`
 }
 
-type ProxyConfig struct {
+// ExporterConfig is one `[exporters.<name>]` table: an upstream OTLP endpoint
+// that receives a copy of everything otelop stores.
+type ExporterConfig struct {
 	URL      string `toml:"url"`
 	Protocol string `toml:"protocol"`
 	// MetricsTemporality, when "delta", converts cumulative metrics to delta
-	// on the way upstream only, for backends that reject cumulative points;
-	// local storage keeps what the app sent.
-	MetricsTemporality string           `toml:"metrics_temporality"`
-	Batch              ProxyBatchConfig `toml:"batch"`
-	Auth               ProxyAuthConfig  `toml:"auth"`
+	// on the way to this exporter only, for backends that reject cumulative
+	// points; local storage keeps what the app sent.
+	MetricsTemporality string              `toml:"metrics_temporality"`
+	Batch              ExporterBatchConfig `toml:"batch"`
+	Auth               ExporterAuthConfig  `toml:"auth"`
 }
 
 // StorageConfig is the `[storage]` TOML section (docs/design/duckdb-storage.md's
@@ -129,14 +132,17 @@ type UIConfig struct {
 // keys to match TOML conventions (CLI flags are kebab-case, env vars are
 // SCREAMING_SNAKE — pick whichever surface is most ergonomic).
 type Config struct {
-	HTTPAddr     string        `toml:"http"`
-	OTLPGRPCAddr string        `toml:"otlp_grpc"`
-	OTLPHTTPAddr string        `toml:"otlp_http"`
-	Proxy        ProxyConfig   `toml:"proxy"`
-	Storage      StorageConfig `toml:"storage"`
-	UI           UIConfig      `toml:"ui"`
-	LogLevel     string        `toml:"log_level"`
-	Debug        bool          `toml:"debug"`
+	HTTPAddr     string `toml:"http"`
+	OTLPGRPCAddr string `toml:"otlp_grpc"`
+	OTLPHTTPAddr string `toml:"otlp_http"`
+	// Exporters is keyed by the table name, which also names the exporter in
+	// the generated Collector config. File-only: a variable number of named
+	// tables has no sensible flag/env shape.
+	Exporters map[string]ExporterConfig `toml:"exporters"`
+	Storage   StorageConfig             `toml:"storage"`
+	UI        UIConfig                  `toml:"ui"`
+	LogLevel  string                    `toml:"log_level"`
+	Debug     bool                      `toml:"debug"`
 }
 
 // Defaults returns a Config populated with the built-in fallback values.

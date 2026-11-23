@@ -3,6 +3,7 @@ package graphql_test
 import (
 	"context"
 	"encoding/json"
+	"reflect"
 	"testing"
 	"time"
 
@@ -147,8 +148,10 @@ func TestStatusQuery(t *testing.T) {
 	runtime.HTTPAddr = ":4319"
 	runtime.OTLPGRPCAddr = "0.0.0.0:4317"
 	runtime.OTLPHTTPAddr = "0.0.0.0:4318"
-	runtime.ProxyURL = "https://upstream.example.com:4317"
-	runtime.ProxyProtocol = "grpc"
+	runtime.Exporters = []otelopgraphql.ExporterInfo{
+		{Name: "primary", URL: "https://upstream.example.com:4317", Protocol: "grpc"},
+		{Name: "backup", URL: "http://backup.example.com:4318", Protocol: "http"},
+	}
 	runtime.Debug = true
 	runtime.LogLevel = "debug"
 	runtime.StoragePath = "/tmp/otelop.duckdb"
@@ -164,8 +167,7 @@ func TestStatusQuery(t *testing.T) {
 			httpAddr
 			otlpGrpcAddr
 			otlpHttpAddr
-			proxyUrl
-			proxyProtocol
+			exporters { name url protocol }
 			debug
 			logLevel
 			dbSizeBytes
@@ -189,11 +191,12 @@ func TestStatusQuery(t *testing.T) {
 	if st["otlpGrpcAddr"] != "0.0.0.0:4317" {
 		t.Errorf("otlpGrpcAddr = %v", st["otlpGrpcAddr"])
 	}
-	if st["proxyUrl"] != "https://upstream.example.com:4317" {
-		t.Errorf("proxyUrl = %v", st["proxyUrl"])
+	wantExporters := []any{
+		map[string]any{"name": "primary", "url": "https://upstream.example.com:4317", "protocol": "grpc"},
+		map[string]any{"name": "backup", "url": "http://backup.example.com:4318", "protocol": "http"},
 	}
-	if st["proxyProtocol"] != "grpc" {
-		t.Errorf("proxyProtocol = %v", st["proxyProtocol"])
+	if !reflect.DeepEqual(st["exporters"], wantExporters) {
+		t.Errorf("exporters = %#v, want %#v", st["exporters"], wantExporters)
 	}
 	if st["debug"] != true {
 		t.Errorf("debug = %v", st["debug"])

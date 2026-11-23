@@ -94,8 +94,7 @@ func Start(ctx context.Context, opts Options) (*Runtime, error) {
 		HTTPAddr:         opts.HTTPAddr,
 		OTLPGRPCAddr:     opts.OTLPGRPCAddr,
 		OTLPHTTPAddr:     opts.OTLPHTTPAddr,
-		ProxyURL:         RedactURL(opts.ProxyURL),
-		ProxyProtocol:    opts.ProxyProtocol,
+		Exporters:        exporterInfos(opts.Exporters),
 		Debug:            opts.Debug,
 		LogLevel:         opts.LogLevel,
 		Retention:        retention,
@@ -130,15 +129,11 @@ func Start(ctx context.Context, opts Options) (*Runtime, error) {
 
 	slog.Debug("starting collector", "grpc", opts.OTLPGRPCAddr, "http", opts.OTLPHTTPAddr)
 	col, err := collector.New(otelopexporter.NewFactory(rt.storage), collector.Config{
-		GRPCEndpoint:            opts.OTLPGRPCAddr,
-		HTTPEndpoint:            opts.OTLPHTTPAddr,
-		ProxyURL:                opts.ProxyURL,
-		ProxyProtocol:           opts.ProxyProtocol,
-		ProxyHeaders:            buildProxyHeaders(opts.ProxyAuth),
-		ProxyMetricsTemporality: opts.ProxyMetricsTemporality,
-		ProxyBatch:              collector.ProxyBatchConfig(opts.ProxyBatch),
-		LogLevel:                opts.LogLevel,
-		SelfTelemetryEndpoint:   selfTelemetryEndpoint,
+		GRPCEndpoint:          opts.OTLPGRPCAddr,
+		HTTPEndpoint:          opts.OTLPHTTPAddr,
+		Exporters:             collectorExporters(opts.Exporters),
+		LogLevel:              opts.LogLevel,
+		SelfTelemetryEndpoint: selfTelemetryEndpoint,
 	})
 	if err != nil {
 		rt.Shutdown()

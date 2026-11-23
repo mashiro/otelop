@@ -5,7 +5,9 @@ import (
 	"io"
 	"strings"
 
+	"github.com/mashiro/otelop/internal/daemon"
 	"github.com/mashiro/otelop/internal/netutil"
+	otelruntime "github.com/mashiro/otelop/internal/runtime"
 )
 
 const (
@@ -35,21 +37,41 @@ func webUIDisplay(addr string) string {
 	return display
 }
 
-// formatProxyMetricsTemporality renders the upstream metric temporality for
-// banner display.
-func formatProxyMetricsTemporality(temporality string) string {
-	if temporality == "" {
-		return "(as received)"
-	}
-	return temporality
+// exporterRows renders one banner row per upstream exporter, labeling only
+// the first. The fallback text differs by caller: `start`/`status` use
+// "disabled" (an operational state), `info` uses "(none)" (a config value
+// that's simply unset).
+func exporterRows(exporters []daemon.Exporter, fallback string) bannerRows {
+	return exporterRowsWith(len(exporters), fallback, func(i int) string {
+		return formatExporter(exporters[i])
+	})
 }
 
-// formatProxy renders the upstream proxy for banner display. The fallback
-// text differs by caller: `start`/`status` use "disabled" (an operational
-// state), `info` uses "(none)" (a config value that's simply unset).
-func formatProxy(proxyURL, proxyProtocol, fallback string) string {
-	if proxyURL == "" || proxyProtocol == "" {
-		return fallback
+func exporterRowsWith(n int, fallback string, format func(int) string) bannerRows {
+	if n == 0 {
+		return bannerRows{{"Exporters", fallback}}
 	}
-	return fmt.Sprintf("%s %s", strings.ToUpper(proxyProtocol), proxyURL)
+	rows := make(bannerRows, n)
+	for i := range n {
+		label := ""
+		if i == 0 {
+			label = "Exporters"
+		}
+		rows[i] = bannerRow{label, format(i)}
+	}
+	return rows
+}
+
+func formatExporter(e daemon.Exporter) string {
+	return fmt.Sprintf("%s: %s %s", e.Name, strings.ToUpper(e.Protocol), e.URL)
+}
+
+// exporterSummaries is what start/status display and persist: credentials
+// are redacted and auth settings are left out.
+func exporterSummaries(exporters []otelruntime.ExporterOptions) []daemon.Exporter {
+	out := make([]daemon.Exporter, len(exporters))
+	for i, e := range exporters {
+		out[i] = daemon.Exporter{Name: e.Name, URL: otelruntime.RedactURL(e.URL), Protocol: e.Protocol}
+	}
+	return out
 }

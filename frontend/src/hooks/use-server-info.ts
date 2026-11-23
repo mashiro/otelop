@@ -11,8 +11,11 @@ const ServerInfoQuery = graphql(`
       uptimeMs
       otlpGrpcAddr
       otlpHttpAddr
-      proxyUrl
-      proxyProtocol
+      exporters {
+        name
+        url
+        protocol
+      }
       debug
       logLevel
       config {
