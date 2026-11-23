@@ -102,11 +102,11 @@ func TestBuildConfigMap_HTTPExporter(t *testing.T) {
 		"endpoint": "https://upstream.example.com",
 		"headers":  obj{"x-api-key": "secret"},
 	}
-	if got := cfg["exporters"].(obj)["otlphttp/primary"]; !reflect.DeepEqual(got, want) {
-		t.Fatalf("otlphttp/primary = %#v, want %#v", got, want)
+	if got := cfg["exporters"].(obj)["otlp_http/primary"]; !reflect.DeepEqual(got, want) {
+		t.Fatalf("otlp_http/primary = %#v, want %#v", got, want)
 	}
 	for _, name := range []string{"traces", "metrics", "logs"} {
-		if got := pipelineExporters(t, cfg, name); !reflect.DeepEqual(got, []any{"otelop", "otlphttp/primary"}) {
+		if got := pipelineExporters(t, cfg, name); !reflect.DeepEqual(got, []any{"otelop", "otlp_http/primary"}) {
 			t.Fatalf("%s exporters = %#v", name, got)
 		}
 	}
@@ -218,7 +218,7 @@ func TestBuildConfigMap_MultipleExportersShareSignals(t *testing.T) {
 	if _, ok := cfg["service"].(obj)["pipelines"].(obj)["metrics/delta"]; ok {
 		t.Fatalf("buildConfigMap unexpectedly split the metrics pipeline")
 	}
-	want := []any{"otelop", "otlphttp/b", "otlp_grpc/a"}
+	want := []any{"otelop", "otlp_http/b", "otlp_grpc/a"}
 	for _, name := range []string{"traces", "metrics", "logs"} {
 		if got := pipelineExporters(t, cfg, name); !reflect.DeepEqual(got, want) {
 			t.Fatalf("%s exporters = %#v, want %#v in the given order", name, got, want)
@@ -241,18 +241,18 @@ func TestBuildConfigMap_DeltaMetrics(t *testing.T) {
 				{Name: "b", URL: "b.example.com:4317", Protocol: "grpc"},
 				{Name: "c", URL: "c.example.com:4317", Protocol: "grpc", MetricsTemporality: "delta"},
 			},
-			wantShared:  []any{"otelop", "otlphttp/a", "otlp_grpc/b", "otlp_grpc/c"},
+			wantShared:  []any{"otelop", "otlp_http/a", "otlp_grpc/b", "otlp_grpc/c"},
 			wantMetrics: []any{"otelop", "otlp_grpc/b"},
-			wantDelta:   []any{"otlphttp/a", "otlp_grpc/c"},
+			wantDelta:   []any{"otlp_http/a", "otlp_grpc/c"},
 		},
 		{
 			name: "all delta",
 			exporters: []Exporter{
 				{Name: "a", URL: "https://a.example.com", Protocol: "http", MetricsTemporality: "delta"},
 			},
-			wantShared:  []any{"otelop", "otlphttp/a"},
+			wantShared:  []any{"otelop", "otlp_http/a"},
 			wantMetrics: []any{"otelop"},
-			wantDelta:   []any{"otlphttp/a"},
+			wantDelta:   []any{"otlp_http/a"},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -262,8 +262,8 @@ func TestBuildConfigMap_DeltaMetrics(t *testing.T) {
 				Exporters:    tc.exporters,
 				LogLevel:     "info",
 			})
-			if got := cfg["processors"]; !reflect.DeepEqual(got, obj{"cumulativetodelta": obj{}}) {
-				t.Fatalf("processors = %#v, want cumulativetodelta", got)
+			if got := cfg["processors"]; !reflect.DeepEqual(got, obj{"cumulative_to_delta": obj{}}) {
+				t.Fatalf("processors = %#v, want cumulative_to_delta", got)
 			}
 			for _, name := range []string{"traces", "logs"} {
 				if got := pipelineExporters(t, cfg, name); !reflect.DeepEqual(got, tc.wantShared) {
@@ -282,7 +282,7 @@ func TestBuildConfigMap_DeltaMetrics(t *testing.T) {
 
 			want := obj{
 				"receivers":  []any{"otlp"},
-				"processors": []any{"cumulativetodelta"},
+				"processors": []any{"cumulative_to_delta"},
 				"exporters":  tc.wantDelta,
 			}
 			if got := pipelines["metrics/delta"]; !reflect.DeepEqual(got, want) {
@@ -298,8 +298,8 @@ func TestComponents_RegistersCumulativeToDelta(t *testing.T) {
 	if err != nil {
 		t.Fatalf("components: %v", err)
 	}
-	if _, ok := factories.Processors[component.MustNewType("cumulativetodelta")]; !ok {
-		t.Fatalf("cumulativetodelta processor factory not registered")
+	if _, ok := factories.Processors[component.MustNewType("cumulative_to_delta")]; !ok {
+		t.Fatalf("cumulative_to_delta processor factory not registered")
 	}
 }
 
@@ -321,7 +321,7 @@ func TestBuildConfigMap_ExporterBatch(t *testing.T) {
 			exporter: Exporter{Name: "up", Protocol: "http", URL: "https://collector.example.com:4318", Batch: BatchConfig{
 				Enabled: true, FlushTimeout: "1s", Sizer: "bytes", MinSize: 1024, MaxSize: 4096,
 			}},
-			id:   "otlphttp/up",
+			id:   "otlp_http/up",
 			want: obj{"flush_timeout": "1s", "sizer": "bytes", "min_size": int64(1024), "max_size": int64(4096)},
 		},
 	} {

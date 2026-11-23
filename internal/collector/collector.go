@@ -36,14 +36,14 @@ type BatchConfig struct {
 }
 
 // Exporter is one upstream OTLP endpoint that receives a copy of every
-// signal. Name becomes the component ID suffix (otlphttp/<name>).
+// signal. Name becomes the component ID suffix (otlp_http/<name>).
 type Exporter struct {
 	Name     string
 	URL      string
 	Protocol string
 	Headers  map[string]string
 	// MetricsTemporality "delta" routes this exporter's metrics through
-	// cumulativetodelta; empty forwards them as received.
+	// cumulative_to_delta; empty forwards them as received.
 	MetricsTemporality string
 	Batch              BatchConfig
 }
@@ -86,7 +86,7 @@ func buildConfigMap(cfg Config) map[string]any {
 			// point of counters that predate an otelop restart (their
 			// cumulative total was already forwarded) and max_staleness=1h
 			// bounds per-series state for long-running instances.
-			"cumulativetodelta": obj{},
+			"cumulative_to_delta": obj{},
 		}
 	}
 	return out
@@ -124,7 +124,7 @@ func buildPipelinesConfig(ids upstreamIDs) obj {
 		// pipeline; the receiver fans out a copy and storage keeps the
 		// temporality the app sent.
 		delta := buildPipelineConfig(ids.delta)
-		delta["processors"] = []any{"cumulativetodelta"}
+		delta["processors"] = []any{"cumulative_to_delta"}
 		pipelines["metrics/delta"] = delta
 	}
 	return pipelines
@@ -209,7 +209,7 @@ func buildUpstreamExporter(e Exporter) (string, obj) {
 			exp["tls"] = obj{"insecure": true}
 		}
 	case "http":
-		id = "otlphttp/" + e.Name
+		id = "otlp_http/" + e.Name
 		exp = obj{"endpoint": e.URL}
 	default:
 		return "", nil

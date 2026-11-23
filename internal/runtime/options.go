@@ -119,7 +119,7 @@ func Validate(opts Options) error {
 }
 
 // exporterNameRegexp is the TOML bare-key charset. The name becomes the
-// Collector component ID suffix (otlphttp/<name>), where "/" and whitespace
+// Collector component ID suffix (otlp_http/<name>), where "/" and whitespace
 // would be misparsed.
 var exporterNameRegexp = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
