@@ -213,13 +213,6 @@ otelop docs show <name> # print one document as Markdown
   --http                   Web UI listen address           (default 127.0.0.1:4319)
   --otlp-grpc              OTLP gRPC receiver endpoint     (default 0.0.0.0:4317)
   --otlp-http              OTLP HTTP receiver endpoint     (default 0.0.0.0:4318)
-  --proxy-url              upstream OTLP endpoint for forwarding
-  --proxy-protocol         upstream OTLP protocol          (grpc|http)
-  --proxy-auth-type        upstream OTLP auth type         (bearer|basic|headers)
-  --proxy-auth-token       upstream bearer token
-  --proxy-auth-username    upstream basic auth username
-  --proxy-auth-password    upstream basic auth password
-  --proxy-auth-headers     upstream header                 (repeatable key=value)
   --storage-path           DuckDB database path             (default: XDG data directory)
   --storage-retention      telemetry retention period       (default 7d)
   --storage-max-size       database size ceiling            (default 4GB)
@@ -275,13 +268,13 @@ memory_limit = "512MB"
 [ui]
 render_window_max = 500 # max rows the traces/metrics/logs tables render at once
 
-[proxy]
+[exporters.upstream] # forward a copy of all signals; add more [exporters.<name>] tables as needed
 url = "https://collector.internal:4318"
 protocol = "http"
 
-[proxy.auth]
+[exporters.upstream.auth]
 type = "bearer"
-token = "replace-me"
+token = "${env:UPSTREAM_TOKEN}" # resolved from the environment at startup
 ```
 
 Config key paths map to CLI flags by replacing dots and underscores with hyphens.
@@ -299,15 +292,8 @@ Environment variables use the same path in uppercase with underscores and an `OT
 | `storage.max_size` | `--storage-max-size` | `OTELOP_STORAGE_MAX_SIZE` |
 | `storage.memory_limit` | `--storage-memory-limit` | `OTELOP_STORAGE_MEMORY_LIMIT` |
 | `ui.render_window_max` | `--ui-render-window-max` | `OTELOP_UI_RENDER_WINDOW_MAX` |
-| `proxy.url` | `--proxy-url` | `OTELOP_PROXY_URL` |
-| `proxy.protocol` | `--proxy-protocol` | `OTELOP_PROXY_PROTOCOL` |
-| `proxy.auth.type` | `--proxy-auth-type` | `OTELOP_PROXY_AUTH_TYPE` |
-| `proxy.auth.token` | `--proxy-auth-token` | `OTELOP_PROXY_AUTH_TOKEN` |
-| `proxy.auth.username` | `--proxy-auth-username` | `OTELOP_PROXY_AUTH_USERNAME` |
-| `proxy.auth.password` | `--proxy-auth-password` | `OTELOP_PROXY_AUTH_PASSWORD` |
-| `proxy.auth.headers` | `--proxy-auth-headers` | `OTELOP_PROXY_AUTH_HEADERS` |
 
-When proxying is enabled, `otelop` still stores incoming telemetry locally for the UI and also forwards the same traces, metrics, and logs to the configured upstream OTLP endpoint.
+`[exporters.<name>]` tables have no CLI flag or environment variable. Each one forwards the same traces, metrics, and logs to another OTLP endpoint while `otelop` still stores them locally for the UI. Run `otelop docs show configuration` for authentication, delta metrics, and batching options.
 
 When `debug = true` or `--debug` is set, otelop exports its own telemetry back
 to its local receiver. This includes request and storage traces, process and
@@ -315,21 +301,13 @@ collector metrics, DuckDB query/storage metrics, and application logs. Leave it
 disabled for normal use if you do not want otelop's own activity mixed into the
 data you are inspecting.
 
-`proxy.auth.type` supports:
-
-- `bearer`: sends `Authorization: Bearer <token>`
-- `basic`: sends `Authorization: Basic <base64(username:password)>`
-- `headers`: sends the exact headers configured under `[proxy.auth.headers]` or `--proxy-auth-headers`
-
-Do not embed credentials in `proxy.url`; `otelop` rejects URLs with userinfo such as `https://user:pass@example.com`.
-
 ## Kubernetes health probes
 
 The HTTP listener exposes `GET /healthz` (liveness, `200 ok`) and
 `GET /readyz` (readiness, `200 ok` or `503 not ready`). Readiness requires
 completed initialization and a running Collector; it becomes unavailable when
 shutdown starts or the runtime context is canceled. These are lifecycle checks,
-not per-request database queries or upstream proxy connectivity checks.
+not per-request database queries or upstream exporter connectivity checks.
 
 For Kubernetes, bind HTTP to `0.0.0.0` so the kubelet can reach the Pod IP.
 The following container configuration uses the same named HTTP port for all

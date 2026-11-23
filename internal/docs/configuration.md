@@ -1,5 +1,5 @@
 ---
-description: Configure otelop receivers, storage, upstream OTLP forwarding, network access, and self-telemetry. Use when changing endpoints, retention, database limits, proxy authentication, or network exposure.
+description: Configure otelop receivers, storage, upstream OTLP exporters, network access, and self-telemetry. Use when changing endpoints, retention, database limits, forwarding to other OTLP backends, or network exposure.
 ---
 # Configuration
 
@@ -14,8 +14,9 @@ Config key paths map to CLI flags by replacing dots and underscores with hyphens
 variables use uppercase underscores and the `OTELOP_` prefix
 (`OTELOP_STORAGE_MAX_SIZE`).
 
-The process-control flag `--foreground` is CLI-only. Set `OTELOP_CONFIG_FILE`
-to use another config file.
+The process-control flag `--foreground` is CLI-only, and `[exporters.<name>]`
+tables are config-file-only. Set `OTELOP_CONFIG_FILE` to use another config
+file.
 
 ```toml
 http = "127.0.0.1:4319"
@@ -33,11 +34,11 @@ memory_limit = "512MB"
 [ui]
 render_window_max = 500
 
-[proxy]
+[exporters.upstream]
 url = "https://collector.example.com:4318"
 protocol = "http"
 
-[proxy.auth]
+[exporters.upstream.auth]
 type = "bearer"
 token = "replace-me"
 ```
@@ -52,7 +53,8 @@ instance) and query:
 ```graphql
 {
   status {
-    httpAddr otlpGrpcAddr otlpHttpAddr proxyUrl proxyProtocol
+    httpAddr otlpGrpcAddr otlpHttpAddr
+    exporters { name url protocol }
     config { storagePath retention maxSize traceCount metricCount logCount }
     storage {
       fileSizeBytes maxSizeBytes walSizeBytes memoryUsageBytes memoryLimitBytes tempStorageBytes
@@ -96,22 +98,86 @@ to guard against DNS rebinding. Binding `--http` to `0.0.0.0:4319` or another
 non-loopback address exposes the endpoint and accepts any `Host`; control
 access with the surrounding reverse proxy, load balancer, or network policy.
 
-Proxy authentication supports `bearer`, `basic`, and `headers`. Configure exact
+## Exporters
+
+Each `[exporters.<name>]` table forwards a copy of every trace, metric, and log
+otelop receives to another OTLP endpoint. otelop still stores everything
+locally for the UI. Define as many tables as you need; each one is
+independent. Names may contain letters, digits, `_`, and `-`.
+
+```toml
+[exporters.team]
+url = "https://collector.example.com:4318"
+protocol = "http"           # http or grpc
+
+[exporters.archive]
+url = "https://archive.example.com:4317"
+protocol = "grpc"
+```
+
+`url` and `protocol` are required. `url` may omit the port; otelop then uses
+443 for `https` and 80 for `http`. For `grpc`, `url` may also be a bare
+`host:port`, which connects with TLS like `https://host:port`; use
+`http://host:port` to connect without TLS. Do not put credentials in `url`; otelop
+rejects URLs with userinfo such as `https://user:pass@example.com`.
+
+Authentication supports `bearer`, `basic`, and `headers`. Configure exact
 headers as a TOML table:
 
 ```toml
-[proxy.auth]
+[exporters.team.auth]
 type = "headers"
 
-[proxy.auth.headers]
+[exporters.team.auth.headers]
 Authorization = "Bearer replace-me"
 X-Api-Key = "replace-me"
 ```
 
-The CLI equivalent is a repeatable `--proxy-auth-headers key=value`; use
-`OTELOP_PROXY_AUTH_HEADERS` for the environment source. Do not put credentials in
-`proxy.url`. Treat configuration files and environment values containing
-credentials as secrets and do not print them in agent responses.
+`bearer` takes `token`, and `basic` takes `username` and `password`.
+
+To keep a secret out of the config file, reference an environment variable in
+`auth.token` or an `auth.headers` value:
+
+```toml
+[exporters.team.auth.headers]
+X-Api-Key = "${env:TEAM_API_KEY}"
+```
+
+otelop passes these values to the OpenTelemetry Collector unchanged, and the
+Collector resolves them from the environment of the `otelop start` process. See
+[Collector configuration: environment variables](https://opentelemetry.io/docs/collector/configuration/#environment-variables)
+for the syntax. `otelop info` and `otelop status` show neither the reference
+nor its value. Automatic startup at login may not see variables set in an
+interactive shell. `url`, `auth.username`, and `auth.password` cannot reference
+environment variables.
+
+Treat a config file containing credentials as a secret and do not print it in
+agent responses.
+
+`metrics_temporality = "delta"` converts cumulative metrics to delta before
+sending them to that exporter, for upstreams that accept only delta metrics.
+Other exporters and local storage keep the temporality the application sent.
+otelop uses the
+[cumulativetodelta processor](https://github.com/open-telemetry/opentelemetry-collector-contrib/blob/main/processor/cumulativetodeltaprocessor/README.md)
+with its default settings. Leave it empty to forward metrics unchanged.
+
+By default each export otelop receives is forwarded as-is. `batch.enabled =
+true` batches data for that exporter first. The other `batch` keys are optional
+and are passed to the exporter's
+[batch settings](https://github.com/open-telemetry/opentelemetry-collector/blob/main/exporter/exporterhelper/README.md)
+only when set:
+
+```toml
+[exporters.team.batch]
+enabled = true
+flush_timeout = "200ms"
+sizer = "bytes"
+min_size = 1048576
+max_size = 3145728
+```
+
+`otelop info` lists the configured exporters, and `otelop status` and the
+**Server info** dialog list the ones the running instance uses.
 
 With `debug = true`, otelop exports its own telemetry back to itself. Leave it
 off unless self-observation is intentional.

@@ -25,14 +25,14 @@ func startCommand(version string) *cli.Command {
 		Before: configLoadErrorBefore(cfgErr),
 		Flags:  serverFlags(cfg),
 		Action: func(ctx context.Context, cmd *cli.Command) error {
-			return runStart(ctx, cmd, version)
+			return runStart(ctx, cmd, cfg, version)
 		},
 		Description: configDescription(cfgPath),
 	}
 }
 
-func runStart(ctx context.Context, cmd *cli.Command, version string) error {
-	opts := runtimeOptionsFromCmd(cmd, version)
+func runStart(ctx context.Context, cmd *cli.Command, cfg config.Config, version string) error {
+	opts := runtimeOptionsFromCmd(cmd, cfg, version)
 	if err := otelruntime.Validate(opts); err != nil {
 		return err
 	}
@@ -53,14 +53,13 @@ func runServer(ctx context.Context, opts otelruntime.Options) error {
 
 	if ready != nil {
 		meta := daemon.Metadata{
-			PID:           os.Getpid(),
-			StartedAt:     rt.StartedAt(),
-			HTTPAddr:      opts.HTTPAddr,
-			OTLPGRPCAddr:  opts.OTLPGRPCAddr,
-			OTLPHTTPAddr:  opts.OTLPHTTPAddr,
-			ProxyURL:      otelruntime.RedactURL(opts.ProxyURL),
-			ProxyProtocol: opts.ProxyProtocol,
-			Version:       opts.Version,
+			PID:          os.Getpid(),
+			StartedAt:    rt.StartedAt(),
+			HTTPAddr:     opts.HTTPAddr,
+			OTLPGRPCAddr: opts.OTLPGRPCAddr,
+			OTLPHTTPAddr: opts.OTLPHTTPAddr,
+			Exporters:    exporterSummaries(opts.Exporters),
+			Version:      opts.Version,
 		}
 		if err := daemon.WriteMetadata(meta); err != nil {
 			daemon.SignalError(ready, err)
@@ -109,13 +108,14 @@ func runDaemonParent(ctx context.Context) error {
 		_, _ = fmt.Fprintf(os.Stderr, "otelop started (logs: %s)\n", logPath)
 		return nil
 	}
-	writeBanner(os.Stderr, fmt.Sprintf(" started in the background (pid %d)", meta.PID), bannerRows{
+	rows := bannerRows{
 		{"Web UI", "http://" + webUIDisplay(meta.HTTPAddr)},
 		{"OTLP gRPC", meta.OTLPGRPCAddr},
 		{"OTLP HTTP", meta.OTLPHTTPAddr},
-		{"Proxy", formatProxy(meta.ProxyURL, meta.ProxyProtocol, "disabled")},
-		{"Log", logPath},
-	})
+	}
+	rows = append(rows, exporterRows(meta.Exporters, "disabled")...)
+	rows = append(rows, bannerRow{"Log", logPath})
+	writeBanner(os.Stderr, fmt.Sprintf(" started in the background (pid %d)", meta.PID), rows)
 	_, _ = fmt.Fprintln(os.Stderr, "  Use `otelop status` to inspect, `otelop stop` to shut down.")
 	return nil
 }
@@ -129,13 +129,14 @@ func printStartBanner(w io.Writer, opts otelruntime.Options) {
 	if err != nil {
 		storagePath = opts.StoragePath
 	}
-	writeBanner(w, suffix, bannerRows{
+	rows := bannerRows{
 		{"Web UI", "http://" + webUIDisplay(opts.HTTPAddr)},
 		{"OTLP gRPC", opts.OTLPGRPCAddr},
 		{"OTLP HTTP", opts.OTLPHTTPAddr},
-		{"Proxy", formatProxy(opts.ProxyURL, opts.ProxyProtocol, "disabled")},
-		{"Storage", fmt.Sprintf("%s (retention=%s, max-size=%s, memory-limit=%s)", storagePath, opts.Retention, opts.MaxSize, opts.MemoryLimit)},
-	})
+	}
+	rows = append(rows, exporterRows(exporterSummaries(opts.Exporters), "disabled")...)
+	rows = append(rows, bannerRow{"Storage", fmt.Sprintf("%s (retention=%s, max-size=%s, memory-limit=%s)", storagePath, opts.Retention, opts.MaxSize, opts.MemoryLimit)})
+	writeBanner(w, suffix, rows)
 }
 
 func waitForShutdown(ctx context.Context, runtimeDone <-chan struct{}) {

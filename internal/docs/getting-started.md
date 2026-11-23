@@ -47,7 +47,7 @@ otelop restart
 otelop stop
 ```
 
-Run `otelop start --help` for all receiver, storage, proxy, and logging flags.
+Run `otelop start --help` for all receiver, storage, and logging flags. Upstream OTLP exporters are configured in the config file; see `otelop docs show configuration`.
 
 ## Start automatically at login
 

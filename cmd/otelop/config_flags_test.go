@@ -45,45 +45,6 @@ func configEnvNames() []string {
 	return names
 }
 
-func TestParseHeaderArgs_HeaderPairsRoundTrip(t *testing.T) {
-	headers := map[string]string{
-		"X-Api-Key":     "secret",
-		"X-Tenant-Id":   "acme",
-		"Authorization": "Bearer token",
-	}
-
-	pairs := headerPairs(headers)
-	got := parseHeaderArgs(pairs)
-
-	if !reflect.DeepEqual(got, headers) {
-		t.Errorf("round-trip mismatch:\n got:  %#v\n want: %#v", got, headers)
-	}
-}
-
-func TestHeaderPairs_SortedAndEmpty(t *testing.T) {
-	if got := headerPairs(nil); len(got) != 0 {
-		t.Errorf("headerPairs(nil) = %#v, want empty", got)
-	}
-
-	pairs := headerPairs(map[string]string{"b": "2", "a": "1", "c": "3"})
-	want := []string{"a=1", "b=2", "c=3"}
-	if !reflect.DeepEqual(pairs, want) {
-		t.Errorf("headerPairs sort order = %#v, want %#v", pairs, want)
-	}
-}
-
-func TestParseHeaderArgs_SkipsMalformedAndBlank(t *testing.T) {
-	got := parseHeaderArgs([]string{"noequalsign", " = blankkey", "X-Ok = value ", ""})
-	want := map[string]string{"X-Ok": "value"}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("parseHeaderArgs = %#v, want %#v", got, want)
-	}
-
-	if got := parseHeaderArgs(nil); got != nil {
-		t.Errorf("parseHeaderArgs(nil) = %#v, want nil", got)
-	}
-}
-
 // TestConfigFlags_FlagBeatsEnv exercises configFlags' precedence (CLI flag
 // over env var) end-to-end through `info`, since cli.Command only resolves
 // flag sources once the command actually parses args.
@@ -118,6 +79,10 @@ func TestConfigFlags_MatchConfigKeys(t *testing.T) {
 		for i := 0; i < typ.NumField(); i++ {
 			field := typ.Field(i)
 			key := prefix + field.Tag.Get("toml")
+			// Named tables such as [exporters.<name>] are file-only.
+			if field.Type.Kind() == reflect.Map {
+				continue
+			}
 			if field.Type.Kind() == reflect.Struct {
 				check(field.Type, key+".")
 				continue
@@ -152,7 +117,6 @@ func TestConfigFlags_RenamedOptionsPrecedence(t *testing.T) {
 		{"storage-max-size", "max-size", "OTELOP_STORAGE_MAX_SIZE", "OTELOP_MAX_SIZE", "storage", "max_size", [3]string{"1GB", "2GB", "3GB"}, func(o otelruntime.Options) string { return o.MaxSize }},
 		{"storage-memory-limit", "memory-limit", "OTELOP_STORAGE_MEMORY_LIMIT", "OTELOP_MEMORY_LIMIT", "storage", "memory_limit", [3]string{"128MB", "256MB", "384MB"}, func(o otelruntime.Options) string { return o.MemoryLimit }},
 		{"ui-render-window-max", "render-window-max", "OTELOP_UI_RENDER_WINDOW_MAX", "OTELOP_RENDER_WINDOW_MAX", "ui", "render_window_max", [3]string{"100", "200", "300"}, func(o otelruntime.Options) string { return strconv.Itoa(o.RenderWindowMax) }},
-		{"proxy-auth-headers", "proxy-header", "OTELOP_PROXY_AUTH_HEADERS", "OTELOP_PROXY_HEADERS", "proxy.auth.headers", "X-Test", [3]string{"file", "env", "cli"}, func(o otelruntime.Options) string { return o.ProxyAuth.Headers["X-Test"] }},
 	}
 	for _, tc := range cases {
 		for _, commandName := range []string{"start", "info", "restart"} {
@@ -173,7 +137,7 @@ func TestConfigFlags_RenamedOptionsPrecedence(t *testing.T) {
 					for _, cmd := range app.Commands {
 						if cmd.Name == commandName {
 							cmd.Action = func(_ context.Context, parsed *cli.Command) error {
-								got = runtimeOptionsFromCmd(parsed, "test")
+								got = runtimeOptionsFromCmd(parsed, config.Config{}, "test")
 								return nil
 							}
 						}
@@ -185,21 +149,10 @@ func TestConfigFlags_RenamedOptionsPrecedence(t *testing.T) {
 				for i, source := range []string{"file", "env", "flag"} {
 					var args []string
 					if i == 1 {
-						v := tc.values[i]
-						if tc.name == "proxy-auth-headers" {
-							v = "X-Test=" + v
-						}
-						t.Setenv(tc.env, v)
+						t.Setenv(tc.env, tc.values[i])
 					}
 					if i == 2 {
-						v := tc.values[i]
-						if tc.name == "proxy-auth-headers" {
-							v = "X-Test=" + v
-						}
-						args = []string{"--" + tc.name, v}
-						if tc.name == "proxy-auth-headers" {
-							args = append(args, "--"+tc.name, "X-Other=other")
-						}
+						args = []string{"--" + tc.name, tc.values[i]}
 					}
 					got, err := parse(args...)
 					if err != nil {
@@ -207,9 +160,6 @@ func TestConfigFlags_RenamedOptionsPrecedence(t *testing.T) {
 					}
 					if actual := tc.get(got); actual != tc.values[i] {
 						t.Errorf("%s: got %q, want %q", source, actual, tc.values[i])
-					}
-					if i == 2 && tc.name == "proxy-auth-headers" && got.ProxyAuth.Headers["X-Other"] != "other" {
-						t.Error("repeated header was lost")
 					}
 				}
 				if _, err := parse("--"+tc.oldName, tc.values[2]); err == nil {

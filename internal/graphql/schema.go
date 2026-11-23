@@ -23,18 +23,24 @@ import (
 //go:embed schema.graphql
 var schemaSource string
 
+// ExporterInfo describes one configured upstream OTLP exporter.
+type ExporterInfo struct {
+	Name     string
+	URL      string
+	Protocol string
+}
+
 // RuntimeInfo is captured once at startup and passed to the resolver so the
 // `status` query can report process-level state without reaching into
 // package globals.
 type RuntimeInfo struct {
-	Version       string
-	StartedAt     time.Time
-	HTTPAddr      string
-	OTLPGRPCAddr  string
-	OTLPHTTPAddr  string
-	ProxyURL      string
-	ProxyProtocol string
-	Debug         bool
+	Version      string
+	StartedAt    time.Time
+	HTTPAddr     string
+	OTLPGRPCAddr string
+	OTLPHTTPAddr string
+	Exporters    []ExporterInfo
+	Debug        bool
 	// LogLevel is the raw configured log level (e.g. "warn"), surfaced as-is
 	// by the `status` query — consumed by `otelop info` when reporting an
 	// instance's effective configuration.

@@ -9,9 +9,11 @@ require (
 	github.com/duckdb/duckdb-go/v2 v2.20000.0
 	github.com/google/uuid v1.6.0
 	github.com/graph-gophers/graphql-go v1.11.1
+	github.com/open-telemetry/opentelemetry-collector-contrib/processor/cumulativetodeltaprocessor v0.165.1
 	github.com/urfave/cli/v3 v3.14.0
 	go.opentelemetry.io/collector/component v1.71.0
 	go.opentelemetry.io/collector/confmap v1.71.0
+	go.opentelemetry.io/collector/confmap/provider/envprovider v1.71.0
 	go.opentelemetry.io/collector/connector v0.165.0
 	go.opentelemetry.io/collector/consumer v1.71.0
 	go.opentelemetry.io/collector/exporter v1.71.0
@@ -75,7 +77,7 @@ require (
 	github.com/go-ole/go-ole v1.2.6 // indirect
 	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
 	github.com/gobwas/glob v0.2.3 // indirect
-	github.com/goccy/go-json v0.10.5 // indirect
+	github.com/goccy/go-json v0.10.6 // indirect
 	github.com/golang/snappy v1.0.0 // indirect
 	github.com/google/flatbuffers v25.12.19+incompatible // indirect
 	github.com/google/go-tpm v0.9.9-0.20260124013517-8f8f42cba0de // indirect
@@ -95,6 +97,7 @@ require (
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.3-0.20250322232337-35a7c28c31ee // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
+	github.com/open-telemetry/opentelemetry-collector-contrib/internal/filter v0.165.1 // indirect
 	github.com/pierrec/lz4/v4 v4.1.33 // indirect
 	github.com/power-devops/perfstat v0.0.0-20260805114148-88456608a4f6 // indirect
 	github.com/prometheus/client_golang v1.24.1 // indirect
@@ -158,6 +161,7 @@ require (
 	go.opentelemetry.io/collector/pdata/xpdata v0.165.0 // indirect
 	go.opentelemetry.io/collector/pipeline v1.71.0 // indirect
 	go.opentelemetry.io/collector/pipeline/xpipeline v0.165.0 // indirect
+	go.opentelemetry.io/collector/processor/processorhelper v0.165.0 // indirect
 	go.opentelemetry.io/collector/processor/processortest v0.165.0 // indirect
 	go.opentelemetry.io/collector/processor/xprocessor v0.165.0 // indirect
 	go.opentelemetry.io/collector/receiver/receiverhelper v0.165.0 // indirect

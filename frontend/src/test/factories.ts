@@ -171,8 +171,7 @@ export function makeServerInfoResponse(
       uptimeMs: 3_600_000,
       otlpGrpcAddr: "0.0.0.0:4317",
       otlpHttpAddr: "0.0.0.0:4318",
-      proxyUrl: "",
-      proxyProtocol: "",
+      exporters: [],
       debug: false,
       logLevel: "warn",
       config: {

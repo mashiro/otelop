@@ -31,9 +31,17 @@ otlp_http = "0.0.0.0:15002"
 log_level = "debug"
 debug = true
 
-[proxy]
+[exporters.primary]
 url = "https://upstream.example.com:4317"
 protocol = "grpc"
+metrics_temporality = "delta"
+
+[exporters.primary.batch]
+enabled = true
+
+[exporters.backup]
+url = "https://backup.example.com"
+protocol = "http"
 
 [storage]
 path = %q
@@ -59,7 +67,8 @@ render_window_max = 250
 		"http://localhost:15000",
 		"0.0.0.0:15001",
 		"0.0.0.0:15002",
-		"GRPC https://upstream.example.com:4317",
+		"backup: HTTP https://backup.example.com\n",
+		"primary: GRPC https://upstream.example.com:4317 (metrics=delta, batch=on)",
 		"debug",
 		"true",
 		dbPath,
@@ -90,16 +99,23 @@ func TestInfoCommand_ValidatesRenderWindowMax(t *testing.T) {
 	}
 }
 
-func TestInfoCommand_ValidatesProxyAuth(t *testing.T) {
-	dir := t.TempDir()
-	isolateInfoEnv(t, filepath.Join(dir, "missing.toml"))
-
-	_, _, err := runTestApp("info", "--proxy-auth-type", "bearer")
-	if err == nil {
-		t.Fatal("run info --proxy-auth-type bearer: want error, got nil")
+func TestInfoCommand_ValidatesExporters(t *testing.T) {
+	cfgPath := filepath.Join(t.TempDir(), "config.toml")
+	body := `
+[exporters.up]
+url = "https://upstream.example.com"
+`
+	if err := os.WriteFile(cfgPath, []byte(body), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
 	}
-	if !strings.Contains(err.Error(), "proxy-url") {
-		t.Errorf("error %q should mention proxy-url", err.Error())
+	isolateInfoEnv(t, cfgPath)
+
+	_, _, err := runTestApp("info")
+	if err == nil {
+		t.Fatal("run info with an exporter missing protocol: want error, got nil")
+	}
+	if !strings.Contains(err.Error(), "exporters.up: protocol is required") {
+		t.Errorf("error %q should name the exporter and the missing key", err.Error())
 	}
 }
 
@@ -122,8 +138,8 @@ func TestInfoCommand_MissingConfigFile(t *testing.T) {
 	if !strings.Contains(stdout, config.DefaultLogLevel) {
 		t.Errorf("output missing default log level:\n%s", stdout)
 	}
-	if !strings.Contains(stdout, "(none)") {
-		t.Errorf("output missing proxy (none):\n%s", stdout)
+	if !strings.Contains(stdout, "Exporters      (none)") {
+		t.Errorf("output missing exporters (none):\n%s", stdout)
 	}
 	if strings.Contains(stdout, "DB size") {
 		t.Errorf("output should not include database state:\n%s", stdout)
@@ -159,8 +175,6 @@ memory_limit = "128MB"
 	t.Setenv("OTELOP_STORAGE_MAX_SIZE", "2GB")
 	t.Setenv("OTELOP_STORAGE_MEMORY_LIMIT", "384MB")
 	t.Setenv("OTELOP_LOG_LEVEL", "error")
-	t.Setenv("OTELOP_PROXY_URL", "https://env-upstream.example.com:4318")
-	t.Setenv("OTELOP_PROXY_PROTOCOL", "http")
 	t.Setenv("OTELOP_UI_RENDER_WINDOW_MAX", "750")
 
 	stdout, _, err := runTestApp("info")
@@ -177,7 +191,6 @@ memory_limit = "128MB"
 		"2GB",
 		"384MB",
 		"error",
-		"HTTP https://env-upstream.example.com:4318",
 		"750",
 	} {
 		if !strings.Contains(stdout, want) {

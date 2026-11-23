@@ -6,13 +6,21 @@ export function RuntimePanel({ status }: { status: ServerInfoQuery["status"] }) 
   return (
     <div className="flex flex-col gap-4">
       <ServerInfoSection title="Settings">
-        <ServerInfoRow
-          label="Proxy"
-          mono
-          value={status.proxyUrl ? `${status.proxyUrl} (${status.proxyProtocol})` : "disabled"}
-        />
         <ServerInfoRow label="Debug" mono value={status.debug ? "on" : "off"} />
         <ServerInfoRow label="Log level" mono value={status.logLevel} />
+      </ServerInfoSection>
+      <ServerInfoSection
+        title="Exporters"
+        footer={status.exporters.length === 0 ? "None configured" : undefined}
+      >
+        {status.exporters.map((exporter) => (
+          <ServerInfoRow
+            key={exporter.name}
+            label={exporter.name}
+            mono
+            value={`${exporter.url} (${exporter.protocol})`}
+          />
+        ))}
       </ServerInfoSection>
     </div>
   );

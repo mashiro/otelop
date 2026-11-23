@@ -206,18 +206,34 @@ describe("ServerInfoDialog", () => {
     expect(rowValue(dialog, "Max-size iterations")).toBe("2");
   });
 
-  it("shows proxy, debug, and log level on the Runtime tab", async () => {
+  it("shows exporters, debug, and log level on the Runtime tab", async () => {
     requestMock.mockResolvedValue(
       makeServerInfoResponse({
-        status: { proxyUrl: "https://collector.example.com:4318", proxyProtocol: "http" },
+        status: {
+          exporters: [
+            { name: "backup", url: "https://backup.example.com", protocol: "http" },
+            { name: "primary", url: "https://collector.example.com:4317", protocol: "grpc" },
+          ],
+        },
       }),
     );
     const dialog = await openDialog();
     await selectTab(dialog, "Runtime");
 
-    expect(rowValue(dialog, "Proxy")).toBe("https://collector.example.com:4318 (http)");
+    expect(rowValue(dialog, "backup")).toBe("https://backup.example.com (http)");
+    expect(rowValue(dialog, "primary")).toBe("https://collector.example.com:4317 (grpc)");
+    expect(within(dialog).queryByText("None configured")).toBeNull();
     expect(rowValue(dialog, "Debug")).toBe("off");
     expect(rowValue(dialog, "Log level")).toBe("warn");
+  });
+
+  it("says no exporters are configured on the Runtime tab", async () => {
+    requestMock.mockResolvedValue(makeServerInfoResponse());
+    const dialog = await openDialog();
+    await selectTab(dialog, "Runtime");
+
+    expect(within(dialog).getByText("Exporters")).toBeTruthy();
+    expect(within(dialog).getByText("None configured")).toBeTruthy();
   });
 
   it("keeps showing the last data without an error when a background refetch fails", async () => {

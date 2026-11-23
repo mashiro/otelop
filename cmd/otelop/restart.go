@@ -23,13 +23,13 @@ func restartCommand(version string) *cli.Command {
 		Before: configLoadErrorBefore(cfgErr),
 		Flags:  serverFlags(cfg),
 		Action: func(ctx context.Context, cmd *cli.Command) error {
-			return runRestart(ctx, cmd, version)
+			return runRestart(ctx, cmd, cfg, version)
 		},
 		Description: "Stops any running otelop daemon and re-runs `start` with the current flags, env vars, and config file values.",
 	}
 }
 
-func runRestart(ctx context.Context, cmd *cli.Command, version string) error {
+func runRestart(ctx context.Context, cmd *cli.Command, cfg config.Config, version string) error {
 	// The daemon child re-execs itself with the same argv, so without this
 	// guard it would re-enter runRestart, see no running daemon, and call
 	// runStart from the wrong layer. Skip the stop in the child and let
@@ -39,7 +39,7 @@ func runRestart(ctx context.Context, cmd *cli.Command, version string) error {
 			return err
 		}
 	}
-	return runStart(ctx, cmd, version)
+	return runStart(ctx, cmd, cfg, version)
 }
 
 // stopForRestart is the quiet variant of stop. It only prints a message when
