@@ -69,10 +69,25 @@ type ProxyAuthConfig struct {
 	Headers  map[string]string `toml:"headers"`
 }
 
+// ProxyBatchConfig enables exporter-side batching for forwarded data. Zero
+// values are left out so the Collector's own defaults apply.
+type ProxyBatchConfig struct {
+	Enabled      bool   `toml:"enabled"`
+	FlushTimeout string `toml:"flush_timeout"`
+	Sizer        string `toml:"sizer"`
+	MinSize      int64  `toml:"min_size"`
+	MaxSize      int64  `toml:"max_size"`
+}
+
 type ProxyConfig struct {
-	URL      string          `toml:"url"`
-	Protocol string          `toml:"protocol"`
-	Auth     ProxyAuthConfig `toml:"auth"`
+	URL      string `toml:"url"`
+	Protocol string `toml:"protocol"`
+	// MetricsTemporality, when "delta", converts cumulative metrics to delta
+	// on the way upstream only, for backends that reject cumulative points;
+	// local storage keeps what the app sent.
+	MetricsTemporality string           `toml:"metrics_temporality"`
+	Batch              ProxyBatchConfig `toml:"batch"`
+	Auth               ProxyAuthConfig  `toml:"auth"`
 }
 
 // StorageConfig is the `[storage]` TOML section (docs/design/duckdb-storage.md's

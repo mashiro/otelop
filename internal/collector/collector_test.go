@@ -5,7 +5,9 @@ import (
 	"reflect"
 	"testing"
 
+	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/confmap"
+	"go.opentelemetry.io/collector/exporter"
 )
 
 func TestBuildConfigMap_WithoutProxy(t *testing.T) {
@@ -56,6 +58,9 @@ func TestBuildConfigMap_WithGRPCProxy(t *testing.T) {
 	if headers["Authorization"] != "Bearer token" {
 		t.Fatalf("grpc headers = %#v", headers)
 	}
+	if _, ok := exp["sending_queue"]; ok {
+		t.Fatalf("sending_queue = %#v, want exporter defaults when batching is off", exp["sending_queue"])
+	}
 	pipelines := cfg["service"].(obj)["pipelines"].(obj)
 	for _, name := range []string{"traces", "metrics", "logs"} {
 		got := pipelines[name].(obj)["exporters"].([]any)
@@ -87,6 +92,9 @@ func TestBuildConfigMap_WithHTTPProxy(t *testing.T) {
 	headers := exp["headers"].(obj)
 	if headers["x-api-key"] != "secret" {
 		t.Fatalf("http headers = %#v", headers)
+	}
+	if _, ok := exp["sending_queue"]; ok {
+		t.Fatalf("sending_queue = %#v, want exporter defaults when batching is off", exp["sending_queue"])
 	}
 	pipelines := cfg["service"].(obj)["pipelines"].(obj)
 	for _, name := range []string{"traces", "metrics", "logs"} {
@@ -184,5 +192,125 @@ func TestStaticProviderNormalizesLocalObjTypes(t *testing.T) {
 	}
 	if got, ok := conf.ToStringMap()["exporters"].(map[string]any); !ok || got["otelop"] == nil {
 		t.Fatalf("exporters.otelop missing in conf: %#v", conf.ToStringMap())
+	}
+}
+
+func TestBuildConfigMap_ProxyWithoutDeltaKeepsSharedMetricsPipeline(t *testing.T) {
+	cfg := buildConfigMap(Config{
+		GRPCEndpoint:  "0.0.0.0:4317",
+		HTTPEndpoint:  "0.0.0.0:4318",
+		ProxyURL:      "http://upstream.example.com:4318",
+		ProxyProtocol: "http",
+		LogLevel:      "info",
+	})
+	if _, ok := cfg["processors"]; ok {
+		t.Fatalf("buildConfigMap unexpectedly included processors: %#v", cfg["processors"])
+	}
+	pipelines := cfg["service"].(obj)["pipelines"].(obj)
+	if _, ok := pipelines["metrics/proxy"]; ok {
+		t.Fatalf("buildConfigMap unexpectedly split the metrics pipeline")
+	}
+}
+
+func TestBuildConfigMap_WithHTTPProxyDeltaMetrics(t *testing.T) {
+	cfg := buildConfigMap(Config{
+		GRPCEndpoint:            "0.0.0.0:4317",
+		HTTPEndpoint:            "0.0.0.0:4318",
+		ProxyURL:                "https://collector.example.com",
+		ProxyProtocol:           "http",
+		ProxyMetricsTemporality: "delta",
+		LogLevel:                "info",
+	})
+	processors, ok := cfg["processors"].(obj)
+	if !ok {
+		t.Fatalf("buildConfigMap missing processors: %#v", cfg)
+	}
+	if _, ok := processors["cumulativetodelta"]; !ok {
+		t.Fatalf("processors = %#v, want cumulativetodelta", processors)
+	}
+
+	pipelines := cfg["service"].(obj)["pipelines"].(obj)
+	for _, name := range []string{"traces", "logs"} {
+		got := pipelines[name].(obj)["exporters"].([]any)
+		if !reflect.DeepEqual(got, []any{"otelop", "otlphttp/proxy"}) {
+			t.Fatalf("%s exporters = %#v", name, got)
+		}
+	}
+
+	local := pipelines["metrics"].(obj)
+	if got := local["exporters"].([]any); !reflect.DeepEqual(got, []any{"otelop"}) {
+		t.Fatalf("metrics exporters = %#v, want only otelop so storage keeps cumulative points", got)
+	}
+	if _, ok := local["processors"]; ok {
+		t.Fatalf("metrics pipeline must not convert temporality: %#v", local["processors"])
+	}
+
+	upstream, ok := pipelines["metrics/proxy"].(obj)
+	if !ok {
+		t.Fatalf("buildConfigMap missing metrics/proxy pipeline: %#v", pipelines)
+	}
+	if got := upstream["receivers"].([]any); !reflect.DeepEqual(got, []any{"otlp"}) {
+		t.Fatalf("metrics/proxy receivers = %#v", got)
+	}
+	if got := upstream["processors"].([]any); !reflect.DeepEqual(got, []any{"cumulativetodelta"}) {
+		t.Fatalf("metrics/proxy processors = %#v", got)
+	}
+	if got := upstream["exporters"].([]any); !reflect.DeepEqual(got, []any{"otlphttp/proxy"}) {
+		t.Fatalf("metrics/proxy exporters = %#v", got)
+	}
+}
+
+func TestComponents_RegistersCumulativeToDelta(t *testing.T) {
+	otelop := exporter.NewFactory(component.MustNewType("otelop"), func() component.Config { return &struct{}{} })
+	factories, err := components(otelop)
+	if err != nil {
+		t.Fatalf("components: %v", err)
+	}
+	if _, ok := factories.Processors[component.MustNewType("cumulativetodelta")]; !ok {
+		t.Fatalf("cumulativetodelta processor factory not registered")
+	}
+}
+
+func TestBuildConfigMap_ProxyBatch(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		protocol string
+		url      string
+		exporter string
+		batch    ProxyBatchConfig
+		want     obj
+	}{
+		{
+			name:     "grpc exporter defaults",
+			protocol: "grpc",
+			url:      "https://collector.example.com:4317",
+			exporter: "otlp_grpc/proxy",
+			batch:    ProxyBatchConfig{Enabled: true},
+			want:     obj{},
+		},
+		{
+			name:     "http overrides",
+			protocol: "http",
+			url:      "https://collector.example.com:4318",
+			exporter: "otlphttp/proxy",
+			batch:    ProxyBatchConfig{Enabled: true, FlushTimeout: "1s", Sizer: "bytes", MinSize: 1024, MaxSize: 4096},
+			want:     obj{"flush_timeout": "1s", "sizer": "bytes", "min_size": int64(1024), "max_size": int64(4096)},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := buildConfigMap(Config{
+				GRPCEndpoint:  "0.0.0.0:4317",
+				HTTPEndpoint:  "0.0.0.0:4318",
+				ProxyURL:      tc.url,
+				ProxyProtocol: tc.protocol,
+				ProxyBatch:    tc.batch,
+				LogLevel:      "info",
+			})
+			exp := cfg["exporters"].(obj)[tc.exporter].(obj)
+			want := obj{"batch": tc.want}
+			if !reflect.DeepEqual(exp["sending_queue"], want) {
+				t.Fatalf("sending_queue = %#v, want %#v", exp["sending_queue"], want)
+			}
+		})
 	}
 }

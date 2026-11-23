@@ -34,6 +34,7 @@ debug = true
 [proxy]
 url = "https://upstream.example.com:4317"
 protocol = "grpc"
+metrics_temporality = "delta"
 
 [storage]
 path = %q
@@ -60,6 +61,7 @@ render_window_max = 250
 		"0.0.0.0:15001",
 		"0.0.0.0:15002",
 		"GRPC https://upstream.example.com:4317",
+		"delta",
 		"debug",
 		"true",
 		dbPath,

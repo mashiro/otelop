@@ -36,6 +36,10 @@ render_window_max = 500
 [proxy]
 url = "https://collector.example.com:4318"
 protocol = "http"
+metrics_temporality = ""
+
+[proxy.batch]
+enabled = false
 
 [proxy.auth]
 type = "bearer"
@@ -112,6 +116,32 @@ The CLI equivalent is a repeatable `--proxy-auth-headers key=value`; use
 `OTELOP_PROXY_AUTH_HEADERS` for the environment source. Do not put credentials in
 `proxy.url`. Treat configuration files and environment values containing
 credentials as secrets and do not print them in agent responses.
+
+`proxy.metrics_temporality = "delta"` converts cumulative sums and histograms
+to delta before forwarding, for upstreams that accept only delta metrics. The
+conversion applies to the upstream copy only; otelop still stores metrics with
+the temporality the application sent. The first point of a counter that
+started before otelop is dropped upstream, because its cumulative total cannot
+be split into a delta. Leave it empty to forward metrics unchanged.
+
+By default each export otelop receives is forwarded upstream as-is.
+`proxy.batch.enabled = true` batches forwarded data first. Every other
+`[proxy.batch]` key is optional; when a key is omitted, the OpenTelemetry
+Collector's exporter batching default applies:
+
+```toml
+[proxy.batch]
+enabled = true
+flush_timeout = "200ms"  # send a partial batch after this long
+sizer = "bytes"          # unit for min_size/max_size: requests, items, or bytes
+min_size = 1048576       # send once a batch reaches this size
+max_size = 3145728       # split batches larger than this
+```
+
+The Collector validates these values when otelop starts.
+
+`proxy.url` may omit the port; otelop then uses 443 for `https` and 80 for
+`http`.
 
 With `debug = true`, otelop exports its own telemetry back to itself. Leave it
 off unless self-observation is intentional.

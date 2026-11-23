@@ -22,21 +22,34 @@ type ProxyAuthOptions struct {
 	Headers  map[string]string
 }
 
+// ProxyBatchOptions mirrors config.ProxyBatchConfig; zero values defer to the
+// Collector's defaults.
+type ProxyBatchOptions struct {
+	Enabled      bool
+	FlushTimeout string
+	Sizer        string
+	MinSize      int64
+	MaxSize      int64
+}
+
 type Options struct {
-	Version         string
-	HTTPAddr        string
-	OTLPGRPCAddr    string
-	OTLPHTTPAddr    string
-	ProxyURL        string
-	ProxyProtocol   string
-	ProxyAuth       ProxyAuthOptions
-	StoragePath     string
-	Retention       string
-	MaxSize         string
-	MemoryLimit     string
-	RenderWindowMax int
-	LogLevel        string
-	Debug           bool
+	Version       string
+	HTTPAddr      string
+	OTLPGRPCAddr  string
+	OTLPHTTPAddr  string
+	ProxyURL      string
+	ProxyProtocol string
+	// ProxyMetricsTemporality is "" (forward as received) or "delta".
+	ProxyMetricsTemporality string
+	ProxyBatch              ProxyBatchOptions
+	ProxyAuth               ProxyAuthOptions
+	StoragePath             string
+	Retention               string
+	MaxSize                 string
+	MemoryLimit             string
+	RenderWindowMax         int
+	LogLevel                string
+	Debug                   bool
 }
 
 // Validate checks whether opts can be used to start an otelop runtime.
@@ -52,7 +65,21 @@ func validateProxyOptions(opts Options) error {
 		if opts.ProxyAuth.Type != "" || hasProxyAuthFields(opts.ProxyAuth) {
 			return errors.New("proxy auth requires --proxy-url and --proxy-protocol")
 		}
+		if opts.ProxyMetricsTemporality != "" {
+			return errors.New("proxy-metrics-temporality requires --proxy-url and --proxy-protocol")
+		}
+		if opts.ProxyBatch != (ProxyBatchOptions{}) {
+			return errors.New("proxy batch requires --proxy-url and --proxy-protocol")
+		}
 		return nil
+	}
+	if !opts.ProxyBatch.Enabled && opts.ProxyBatch != (ProxyBatchOptions{}) {
+		return errors.New("proxy batch settings require --proxy-batch-enabled")
+	}
+	switch opts.ProxyMetricsTemporality {
+	case "", "delta":
+	default:
+		return fmt.Errorf("invalid proxy-metrics-temporality %q: want delta or empty", opts.ProxyMetricsTemporality)
 	}
 	if opts.ProxyURL == "" {
 		return errors.New("proxy-protocol requires --proxy-url")
@@ -169,7 +196,16 @@ func comparableProxyHostPort(u *url.URL, proxyURL, protocol string) (string, err
 	if protocol == "grpc" && u.Scheme == "" {
 		return normalizeHostPort(proxyURL)
 	}
-	return normalizeHostPort(u.Host)
+	if u.Port() != "" {
+		return normalizeHostPort(u.Host)
+	}
+	// SaaS intakes are usually published without a port; the exporters dial
+	// the scheme's default, so compare against that.
+	port := "80"
+	if strings.EqualFold(u.Scheme, "https") {
+		port = "443"
+	}
+	return normalizeHostPort(net.JoinHostPort(u.Hostname(), port))
 }
 
 func normalizeHostPort(addr string) (string, error) {

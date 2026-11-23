@@ -108,3 +108,71 @@ func TestRedactURL(t *testing.T) {
 		t.Fatalf("RedactURL = %q", got)
 	}
 }
+
+func TestValidateProxyOptionsMetricsTemporality(t *testing.T) {
+	base := Options{
+		OTLPGRPCAddr:  "0.0.0.0:4317",
+		OTLPHTTPAddr:  "0.0.0.0:4318",
+		ProxyURL:      "https://collector.example.com",
+		ProxyProtocol: "http",
+	}
+	for _, v := range []string{"", "delta"} {
+		opts := base
+		opts.ProxyMetricsTemporality = v
+		if err := validateProxyOptions(opts); err != nil {
+			t.Errorf("validateProxyOptions(MetricsTemporality=%q): %v", v, err)
+		}
+	}
+
+	opts := base
+	opts.ProxyMetricsTemporality = "cumulative"
+	if err := validateProxyOptions(opts); err == nil || !strings.Contains(err.Error(), "proxy-metrics-temporality") {
+		t.Errorf("validateProxyOptions(cumulative) error = %v, want proxy-metrics-temporality error", err)
+	}
+}
+
+func TestValidateProxyOptionsMetricsTemporalityRequiresProxy(t *testing.T) {
+	err := validateProxyOptions(Options{ProxyMetricsTemporality: "delta"})
+	if err == nil || !strings.Contains(err.Error(), "--proxy-url") {
+		t.Fatalf("validateProxyOptions error = %v, want proxy-url requirement", err)
+	}
+}
+
+func TestValidateProxyOptionsRejectsSelfProxyWithDefaultPort(t *testing.T) {
+	opts := Options{
+		OTLPGRPCAddr:  "0.0.0.0:4317",
+		OTLPHTTPAddr:  "0.0.0.0:80",
+		ProxyURL:      "http://localhost",
+		ProxyProtocol: "http",
+	}
+	err := validateProxyOptions(opts)
+	if err == nil || !strings.Contains(err.Error(), "points back to otelop's own OTLP http listener") {
+		t.Fatalf("validateProxyOptions error = %v", err)
+	}
+}
+
+func TestValidateProxyOptionsBatchRequiresProxy(t *testing.T) {
+	err := validateProxyOptions(Options{ProxyBatch: ProxyBatchOptions{Enabled: true}})
+	if err == nil || !strings.Contains(err.Error(), "proxy batch requires --proxy-url") {
+		t.Fatalf("validateProxyOptions error = %v, want proxy-url requirement", err)
+	}
+}
+
+func TestValidateProxyOptionsBatchFieldsRequireEnabled(t *testing.T) {
+	opts := Options{
+		OTLPGRPCAddr:  "0.0.0.0:4317",
+		OTLPHTTPAddr:  "0.0.0.0:4318",
+		ProxyURL:      "https://collector.example.com",
+		ProxyProtocol: "http",
+		ProxyBatch:    ProxyBatchOptions{MaxSize: 4096},
+	}
+	err := validateProxyOptions(opts)
+	if err == nil || !strings.Contains(err.Error(), "--proxy-batch-enabled") {
+		t.Fatalf("validateProxyOptions error = %v, want proxy-batch-enabled requirement", err)
+	}
+
+	opts.ProxyBatch.Enabled = true
+	if err := validateProxyOptions(opts); err != nil {
+		t.Fatalf("validateProxyOptions: %v", err)
+	}
+}

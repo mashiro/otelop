@@ -55,6 +55,7 @@ func printInfoResolved(w io.Writer, cfgPath string, opts otelruntime.Options) er
 		{"OTLP gRPC", opts.OTLPGRPCAddr},
 		{"OTLP HTTP", opts.OTLPHTTPAddr},
 		{"Proxy", formatProxy(opts.ProxyURL, opts.ProxyProtocol, "(none)")},
+		{"Proxy metrics", formatProxyMetricsTemporality(opts.ProxyMetricsTemporality)},
 		{"Log level", opts.LogLevel},
 		{"Debug", strconv.FormatBool(opts.Debug)},
 		{"Render window max", strconv.Itoa(opts.RenderWindowMax)},

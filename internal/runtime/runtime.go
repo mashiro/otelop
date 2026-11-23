@@ -130,13 +130,15 @@ func Start(ctx context.Context, opts Options) (*Runtime, error) {
 
 	slog.Debug("starting collector", "grpc", opts.OTLPGRPCAddr, "http", opts.OTLPHTTPAddr)
 	col, err := collector.New(otelopexporter.NewFactory(rt.storage), collector.Config{
-		GRPCEndpoint:          opts.OTLPGRPCAddr,
-		HTTPEndpoint:          opts.OTLPHTTPAddr,
-		ProxyURL:              opts.ProxyURL,
-		ProxyProtocol:         opts.ProxyProtocol,
-		ProxyHeaders:          buildProxyHeaders(opts.ProxyAuth),
-		LogLevel:              opts.LogLevel,
-		SelfTelemetryEndpoint: selfTelemetryEndpoint,
+		GRPCEndpoint:            opts.OTLPGRPCAddr,
+		HTTPEndpoint:            opts.OTLPHTTPAddr,
+		ProxyURL:                opts.ProxyURL,
+		ProxyProtocol:           opts.ProxyProtocol,
+		ProxyHeaders:            buildProxyHeaders(opts.ProxyAuth),
+		ProxyMetricsTemporality: opts.ProxyMetricsTemporality,
+		ProxyBatch:              collector.ProxyBatchConfig(opts.ProxyBatch),
+		LogLevel:                opts.LogLevel,
+		SelfTelemetryEndpoint:   selfTelemetryEndpoint,
 	})
 	if err != nil {
 		rt.Shutdown()

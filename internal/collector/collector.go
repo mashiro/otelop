@@ -24,6 +24,16 @@ const (
 	selfTelemetryExportTimeoutMs = 1_000
 )
 
+// ProxyBatchConfig enables exporterhelper batching on the proxy exporter.
+// Zero-valued fields are omitted so exporterhelper's defaults apply.
+type ProxyBatchConfig struct {
+	Enabled      bool
+	FlushTimeout string
+	Sizer        string
+	MinSize      int64
+	MaxSize      int64
+}
+
 // Config holds runtime-configurable collector settings.
 type Config struct {
 	GRPCEndpoint  string
@@ -31,7 +41,11 @@ type Config struct {
 	ProxyURL      string
 	ProxyProtocol string
 	ProxyHeaders  map[string]string
-	LogLevel      string
+	// ProxyMetricsTemporality "delta" routes upstream metrics through
+	// cumulativetodelta; empty forwards them as received.
+	ProxyMetricsTemporality string
+	ProxyBatch              ProxyBatchConfig
+	LogLevel                string
 	// SelfTelemetryEndpoint, when non-empty (host:port), makes the
 	// Collector export its own component metrics
 	// (otelcol_receiver_accepted_*, otelcol_exporter_sent_*, ...) via OTLP
@@ -41,13 +55,30 @@ type Config struct {
 }
 
 func buildConfigMap(cfg Config) map[string]any {
-	exporters, pipelineExporters := buildProxyExporterConfig(cfg)
+	exporters, proxyExporters := buildProxyExporterConfig(cfg)
 
-	return obj{
+	out := obj{
 		"receivers": buildReceiversConfig(cfg),
 		"exporters": exporters,
-		"service":   buildServiceConfig(cfg, pipelineExporters),
+		"service": obj{
+			"telemetry": buildTelemetryConfig(cfg),
+			"pipelines": buildPipelinesConfig(cfg, proxyExporters),
+		},
 	}
+	if convertsProxyMetricsToDelta(cfg, proxyExporters) {
+		out["processors"] = obj{
+			// Defaults are deliberate: initial_value=auto drops the first
+			// point of counters that predate an otelop restart (their
+			// cumulative total was already forwarded) and max_staleness=1h
+			// bounds per-series state for long-running instances.
+			"cumulativetodelta": obj{},
+		}
+	}
+	return out
+}
+
+func convertsProxyMetricsToDelta(cfg Config, proxyExporters []any) bool {
+	return cfg.ProxyMetricsTemporality == "delta" && len(proxyExporters) > 0
 }
 
 func buildReceiversConfig(cfg Config) obj {
@@ -68,15 +99,23 @@ func buildReceiversConfig(cfg Config) obj {
 	}
 }
 
-func buildServiceConfig(cfg Config, pipelineExporters []any) obj {
-	return obj{
-		"telemetry": buildTelemetryConfig(cfg),
-		"pipelines": obj{
-			"traces":  buildPipelineConfig(pipelineExporters),
-			"metrics": buildPipelineConfig(pipelineExporters),
-			"logs":    buildPipelineConfig(pipelineExporters),
-		},
+func buildPipelinesConfig(cfg Config, proxyExporters []any) obj {
+	shared := append([]any{"otelop"}, proxyExporters...)
+	pipelines := obj{
+		"traces":  buildPipelineConfig(shared),
+		"metrics": buildPipelineConfig(shared),
+		"logs":    buildPipelineConfig(shared),
 	}
+	if convertsProxyMetricsToDelta(cfg, proxyExporters) {
+		// Processors apply per pipeline, so the conversion gets its own
+		// pipeline; the receiver fans out a copy and storage keeps the
+		// temporality the app sent.
+		pipelines["metrics"] = buildPipelineConfig([]any{"otelop"})
+		upstream := buildPipelineConfig(proxyExporters)
+		upstream["processors"] = []any{"cumulativetodelta"}
+		pipelines["metrics/proxy"] = upstream
+	}
+	return pipelines
 }
 
 func buildTelemetryConfig(cfg Config) obj {
@@ -129,9 +168,9 @@ func buildProxyExporterConfig(cfg Config) (obj, []any) {
 	exporters := obj{
 		"otelop": obj{},
 	}
-	pipelineExporters := []any{"otelop"}
+	var proxyExporters []any
 	if cfg.ProxyURL == "" || cfg.ProxyProtocol == "" {
-		return exporters, pipelineExporters
+		return exporters, proxyExporters
 	}
 
 	switch cfg.ProxyProtocol {
@@ -146,8 +185,11 @@ func buildProxyExporterConfig(cfg Config) (obj, []any) {
 		if headers := renderHeaders(cfg.ProxyHeaders); len(headers) > 0 {
 			exp["headers"] = headers
 		}
+		if queue := proxySendingQueueConfig(cfg.ProxyBatch); queue != nil {
+			exp["sending_queue"] = queue
+		}
 		exporters["otlp_grpc/proxy"] = exp
-		pipelineExporters = append(pipelineExporters, "otlp_grpc/proxy")
+		proxyExporters = append(proxyExporters, "otlp_grpc/proxy")
 	case "http":
 		exp := obj{
 			"endpoint": cfg.ProxyURL,
@@ -155,10 +197,36 @@ func buildProxyExporterConfig(cfg Config) (obj, []any) {
 		if headers := renderHeaders(cfg.ProxyHeaders); len(headers) > 0 {
 			exp["headers"] = headers
 		}
+		if queue := proxySendingQueueConfig(cfg.ProxyBatch); queue != nil {
+			exp["sending_queue"] = queue
+		}
 		exporters["otlphttp/proxy"] = exp
-		pipelineExporters = append(pipelineExporters, "otlphttp/proxy")
+		proxyExporters = append(proxyExporters, "otlphttp/proxy")
 	}
-	return exporters, pipelineExporters
+	return exporters, proxyExporters
+}
+
+// proxySendingQueueConfig turns on exporterhelper batching, which is off by
+// default. Only the fields the user set are emitted; an empty batch section
+// still enables batching with exporterhelper's own defaults.
+func proxySendingQueueConfig(b ProxyBatchConfig) obj {
+	if !b.Enabled {
+		return nil
+	}
+	batch := obj{}
+	if b.FlushTimeout != "" {
+		batch["flush_timeout"] = b.FlushTimeout
+	}
+	if b.Sizer != "" {
+		batch["sizer"] = b.Sizer
+	}
+	if b.MinSize != 0 {
+		batch["min_size"] = b.MinSize
+	}
+	if b.MaxSize != 0 {
+		batch["max_size"] = b.MaxSize
+	}
+	return obj{"batch": batch}
 }
 
 func renderHeaders(headers map[string]string) obj {

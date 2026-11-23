@@ -1,6 +1,7 @@
 package collector
 
 import (
+	"github.com/open-telemetry/opentelemetry-collector-contrib/processor/cumulativetodeltaprocessor"
 	"go.opentelemetry.io/collector/connector"
 	"go.opentelemetry.io/collector/exporter"
 	"go.opentelemetry.io/collector/exporter/otlpexporter"
@@ -30,7 +31,9 @@ func components(exporterFactory exporter.Factory) (otelcol.Factories, error) {
 		return otelcol.Factories{}, err
 	}
 
-	processors, err := otelcol.MakeFactoryMap[processor.Factory]()
+	processors, err := otelcol.MakeFactoryMap[processor.Factory](
+		cumulativetodeltaprocessor.NewFactory(),
+	)
 	if err != nil {
 		return otelcol.Factories{}, err
 	}

@@ -104,6 +104,14 @@ func TestLoad_ProxySettings(t *testing.T) {
 [proxy]
 url = "https://upstream.example.com:4317"
 protocol = "grpc"
+metrics_temporality = "delta"
+
+[proxy.batch]
+enabled = true
+flush_timeout = "1s"
+sizer = "bytes"
+min_size = 1024
+max_size = 4096
 
 [proxy.auth]
 type = "headers"
@@ -126,6 +134,13 @@ X-Api-Key = "secret"
 	}
 	if cfg.Proxy.Protocol != "grpc" {
 		t.Errorf("Proxy.Protocol = %q", cfg.Proxy.Protocol)
+	}
+	wantBatch := ProxyBatchConfig{Enabled: true, FlushTimeout: "1s", Sizer: "bytes", MinSize: 1024, MaxSize: 4096}
+	if cfg.Proxy.Batch != wantBatch {
+		t.Errorf("Proxy.Batch = %+v, want %+v", cfg.Proxy.Batch, wantBatch)
+	}
+	if cfg.Proxy.MetricsTemporality != "delta" {
+		t.Errorf("Proxy.MetricsTemporality = %q", cfg.Proxy.MetricsTemporality)
 	}
 	if cfg.Proxy.Auth.Type != "headers" {
 		t.Errorf("Proxy.Auth.Type = %q", cfg.Proxy.Auth.Type)
