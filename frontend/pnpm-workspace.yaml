@@ -4,7 +4,7 @@ minimumReleaseAge: 4320
 minimumReleaseAgeExclude:
   - "@shadcn/lint"
 catalog:
-  vite: npm:@voidzero-dev/vite-plus-core@8.3.8000
-  vite-plus: 1.7.0
+  vite: npm:@voidzero-dev/vite-plus-core@8.3.8001
+  vite-plus: 1.8.0
 overrides:
   vite@*: "catalog:"
