@@ -4,8 +4,8 @@
 
 # otelop
 
-An OpenTelemetry viewer for traces, metrics, and logs.
-Single binary, persistent storage, browser UI.
+An OpenTelemetry viewer for traces, metrics, and logs — built for tuning apps with AI coding agents.
+Single binary, persistent storage, browser UI, and a GraphQL API your agent can query.
 
 [![Release](https://img.shields.io/github/v/release/mashiro/otelop?color=14b8a6)](https://github.com/mashiro/otelop/releases)
 [![Go](https://img.shields.io/badge/go-1.27-00ADD8?logo=go&logoColor=white)](go.mod)
@@ -21,6 +21,8 @@ Single binary, persistent storage, browser UI.
 `otelop` runs an OTLP receiver and shows whatever it gets in a browser. No Docker, external database, or Jaeger/Prometheus/Loki stack to wire up. Start the binary, point your app at it, open the page.
 
 It's meant for the loop where you're writing instrumentation and just want to see what came through.
+
+It is especially useful when you tune performance or behavior with an AI coding agent. Instead of guessing from source code alone, the agent can read the real traces, metrics, and logs your app emitted, find the slow span or the failing call, make a change, rerun, and compare against the stored history to confirm the fix actually helped. You watch the same data live in the browser, so you and the agent are looking at the same evidence. See [With AI coding agents](#with-ai-coding-agents).
 
 <div align="center">
 
@@ -117,10 +119,17 @@ And open <http://localhost:4319>.
 
 ### With AI coding agents
 
-Any AI coding agent that supports OpenTelemetry can export to `otelop`, so you can watch the agent's API calls, tool runs, and prompts live. For example:
+`otelop` closes the feedback loop for AI-assisted tuning. Because telemetry is stored and queryable, an agent can measure, change, and verify on its own:
 
-- [Claude Code](https://docs.claude.com/en/docs/claude-code/monitoring-usage)
-- [Codex](https://developers.openai.com/codex/config-advanced)
+1. **Measure** — run the app (or a test/benchmark) with OTLP pointed at `otelop`.
+2. **Inspect** — the agent queries the GraphQL API to find slow spans, N+1 query patterns, error spikes, noisy logs, or metric regressions.
+3. **Change** — it edits the code based on what the telemetry shows, not a guess.
+4. **Verify** — it reruns and compares the new traces and metrics with the previous run kept in storage.
+
+To let an agent drive this loop:
+
+- Point it at `otelop docs list` / `otelop docs show investigate-telemetry`; the bundled docs explain how to query signals through GraphQL (see [Bundled documentation](#bundled-documentation)).
+- Or install the [`otelop-inspect`](skills/otelop-inspect/SKILL.md) skill, which tells the agent how to discover and use those docs.
 
 ## Search and filters
 
