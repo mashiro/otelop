@@ -1,5 +1,23 @@
 # Changelog
 
+## [2.6.0](https://github.com/mashiro/otelop/compare/v2.5.4...v2.6.0) (2026-11-28)
+
+
+### Features
+
+* **exporters:** replace [proxy] with named [exporters.&lt;name&gt;] tables ([#502](https://github.com/mashiro/otelop/issues/502)) ([b330b55](https://github.com/mashiro/otelop/commit/b330b5521ebc0df0a2217d95711512f93349620d))
+
+
+### Bug Fixes
+
+* **deps:** update all non-major dependencies ([#501](https://github.com/mashiro/otelop/issues/501)) ([bac7ac8](https://github.com/mashiro/otelop/commit/bac7ac8c08da3b467842a9be7861fb59b11c44d6))
+* **deps:** update all non-major dependencies ([#504](https://github.com/mashiro/otelop/issues/504)) ([86c2b71](https://github.com/mashiro/otelop/commit/86c2b71fa5144cc84567c479e5a51b4c38f8a360))
+* **deps:** update all non-major dependencies ([#505](https://github.com/mashiro/otelop/issues/505)) ([b406e19](https://github.com/mashiro/otelop/commit/b406e19ab041208cf4d110c8509019ac6d4fc0bc))
+* **deps:** update all non-major dependencies ([#507](https://github.com/mashiro/otelop/issues/507)) ([db947b6](https://github.com/mashiro/otelop/commit/db947b62e3fa7e1e99fea3fca57960dce11be502))
+* **deps:** update all non-major dependencies ([#509](https://github.com/mashiro/otelop/issues/509)) ([82e30ef](https://github.com/mashiro/otelop/commit/82e30ef871cd27d27f05882f60b4c273cb901026))
+* **deps:** update dependency @tanstack/react-query to v5.108.1 ([#499](https://github.com/mashiro/otelop/issues/499)) ([fa79974](https://github.com/mashiro/otelop/commit/fa799742f1f48e6c2007fa2e5798076e5c922df7))
+* **deps:** update dependency lucide-react to v1.76.0 ([#497](https://github.com/mashiro/otelop/issues/497)) ([5d38047](https://github.com/mashiro/otelop/commit/5d380471c18ade1f917dd4456c283b3ff461dcd5))
+
 ## [2.5.4](https://github.com/mashiro/otelop/compare/v2.5.3...v2.5.4) (2026-11-21)
 
 
